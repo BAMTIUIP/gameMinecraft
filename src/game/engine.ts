@@ -99,7 +99,7 @@ import {
   type Slot,
   type Stats,
 } from './items';
-import { blockName, pickaxeLabel, swordLabel, t } from './i18n';
+import { blockName, matName, pickaxeLabel, recipeText, swordLabel, t } from './i18n';
 import { yaServerTime } from './yandex';
 
 const AFFIX_KEY = Object.fromEntries(
@@ -179,12 +179,12 @@ const RUN_TIME = 150;
 
 /** selectable shift lengths (seconds) */
 export const SESSION_LENGTHS = [
-  { id: 'sprint', label: 'SPRINT', time: 150, sub: '2:30', accent: '#f4b942' },
-  { id: 'shift', label: 'FULL SHIFT', time: 600, sub: '10:00', accent: '#93c95d' },
-  { id: 'marathon', label: 'MARATHON', time: 1200, sub: '20:00', accent: '#5fe8dc' },
-  { id: 'half', label: 'HALF DAY', time: 1800, sub: '30:00', accent: '#d9844a' },
-  { id: 'hour', label: 'FULL HOUR', time: 3600, sub: '1:00:00', accent: '#c58cff' },
-  { id: 'double', label: 'DOUBLE SHIFT', time: 7200, sub: '2:00:00', accent: '#ff5f7a' },
+  { id: 'sprint', labelKey: 'sesSprint' as const, time: 150, sub: '2:30', accent: '#f4b942' },
+  { id: 'shift', labelKey: 'sesFull' as const, time: 600, sub: '10:00', accent: '#93c95d' },
+  { id: 'marathon', labelKey: 'sesMarathon' as const, time: 1200, sub: '20:00', accent: '#5fe8dc' },
+  { id: 'half', labelKey: 'sesHalf' as const, time: 1800, sub: '30:00', accent: '#d9844a' },
+  { id: 'hour', labelKey: 'sesHour' as const, time: 3600, sub: '1:00:00', accent: '#c58cff' },
+  { id: 'double', labelKey: 'sesDouble' as const, time: 7200, sub: '2:00:00', accent: '#ff5f7a' },
 ] as const;
 
 export type TradeOffer = { item: Item; cost: Array<[number, number]>; sold: boolean };
@@ -1545,7 +1545,7 @@ export class Engine {
       sfx.upgrade();
       return true;
     } catch {
-      this.pushBanner('SAVE FAILED', 'world too large for browser storage', '#e2564a');
+      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
       sfx.ui(false);
       return false;
     }
@@ -1725,7 +1725,7 @@ export class Engine {
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
-    this.pushBanner('SHIFT START', 'Hold fire to mine · press E for the workbench', '#f4b942');
+    this.pushBanner(t('shiftStart'), t('shiftStartSub'), '#f4b942');
     this.updatePickaxe();
     sfx.start();
     this.requestLock();
@@ -1963,7 +1963,7 @@ export class Engine {
       if (this.clock > 0.28 && this.clock < 0.5) {
         this.sleeping = false;
         this.health = Math.min(100, this.health + 25);
-        this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, '+25 HP', '#93c95d', true);
+        this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+25 ${t('hp')}`, '#93c95d', true);
         this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
         sfx.start();
       }
@@ -2043,8 +2043,10 @@ export class Engine {
     const hint = this.craftHint();
     if (hint !== this.prevHint) {
       this.prevHint = hint;
-      if (hint && RECIPES.find((r) => r.name === hint)?.kind === 'pickaxe') {
-        this.pushBanner('WORKBENCH READY', `${hint} — press E to craft`, '#f4b942');
+      const hintKey = this.craftHintKey();
+      const hintRecipe = hintKey ? RECIPES.find((r) => r.key === hintKey) : undefined;
+      if (hint && hintRecipe?.kind === 'pickaxe') {
+        this.pushBanner(t('workbenchReady'), `${hint} — ${t('pressE')}`, '#f4b942');
       }
     }
     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
@@ -2622,7 +2624,7 @@ export class Engine {
     if (id === DIAMOND || id === GOLD) {
       this.burst(x + 0.5, y + 0.5, z + 0.5, id === DIAMOND ? [120, 245, 235] : [255, 220, 90], 22, 4.4);
       this.addShake(0.6);
-      this.pushBanner(id === DIAMOND ? 'DIAMOND!' : 'GOLD!', `+${Math.round(def.timeBonus)}s on the clock`, id === DIAMOND ? '#5fe8dc' : '#f7d34b');
+      this.pushBanner(id === DIAMOND ? t('diamond') : t('gold'), `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`, id === DIAMOND ? '#5fe8dc' : '#f7d34b');
     }
     this.syncHotbar(false);
     this.syncHud(true);
@@ -3641,7 +3643,7 @@ export class Engine {
     sfx.upgrade();
     this.addShake(0.35);
     this.flash = 0.4;
-    this.pushBanner('NETHERITE', `${t(('slot_' + it.slot) as never)} · ⛨${it.armor}`, '#8a6a58');
+    this.pushBanner(matName('NETHERITE'), `${t(('slot_' + it.slot) as never)} · ⛨${it.armor}`, '#8a6a58');
     this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [138, 106, 88], 20, 4);
     this.syncHotbar(true);
     this.syncHud(true);
@@ -4137,7 +4139,7 @@ export class Engine {
     if (d.id >= 5 && d.id <= 8) this.oresFound++;
     if (def.timeBonus > 0) {
       this.timeLeft = Math.min(this.runTime + 40, this.timeLeft + def.timeBonus);
-      this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}s`, '#7ee7a0', true);
+      this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}${t('secShort')}`, '#7ee7a0', true);
     }
     if (d.id === DIAMOND) this.health = Math.min(100, this.health + 16);
     else if (d.id === GOLD) this.health = Math.min(100, this.health + 8);
@@ -4994,11 +4996,18 @@ export class Engine {
     return r.inputs.every(([id, n]) => (this.inventory.get(id) ?? 0) >= n);
   }
 
-  craftHint() {
+  craftHintKey(): string | null {
     const pick = RECIPES.find((r) => r.kind === 'pickaxe' && this.canCraft(r));
-    if (pick) return pick.name;
+    if (pick) return pick.key;
     const any = RECIPES.find((r) => this.canCraft(r));
-    return any ? any.name : null;
+    return any ? any.key : null;
+  }
+
+  craftHint(): string | null {
+    const key = this.craftHintKey();
+    const r = key ? RECIPES.find((rr) => rr.key === key) : undefined;
+    if (!r) return null;
+    return recipeText(r.key, r.name, r.desc)[0];
   }
 
   craft(key: string): boolean {
@@ -5009,6 +5018,7 @@ export class Engine {
     }
     for (const [id, n] of r.inputs) this.inventory.set(id, (this.inventory.get(id) ?? 0) - n);
     this.lastCraft = r.key;
+    const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
 
     if (r.out) {
       const [id, n] = r.out;
@@ -5022,7 +5032,7 @@ export class Engine {
         this.selected = this.hotbar.length - 1;
       }
       sfx.upgrade();
-      this.pushBanner(r.name, r.desc, r.accent);
+      this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
     } else if (r.kind === 'shovel' || r.kind === 'bow') {
       const tool = r.kind === 'shovel' ? TOOL_SHOVEL : TOOL_BOW;
@@ -5031,7 +5041,7 @@ export class Engine {
         this.selected = this.hotbar.length - 1;
       }
       sfx.upgrade();
-      this.pushBanner(r.name, r.desc, r.accent);
+      this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
     } else if (r.kind === 'torch') {
       if (!this.hotbar.includes(TOOL_TORCH) && this.hotbar.length < 9) {
@@ -5039,12 +5049,12 @@ export class Engine {
         this.selected = this.hotbar.length - 1;
       }
       sfx.upgrade();
-      this.pushBanner(t('handTorch'), r.desc, r.accent);
+      this.pushBanner(t('handTorch'), rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 176, 58], 12, 3);
     } else if (r.kind === 'food') {
       this.health = Math.min(100, this.health + (r.heal ?? 0));
       sfx.pickup(4);
-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} HP`, '#93c95d', true);
+      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} ${t('hp')}`, '#93c95d', true);
     } else if (r.kind === 'gear' && r.slot && r.material) {
       const it = makeItem(r.slot, r.material, 1, Math.random, true);
       // Minecraft-flavoured specials
@@ -5053,7 +5063,7 @@ export class Engine {
       if (r.key === 'crab_shield') it.armor += 2;
       this.bagItems.push(it);
       sfx.upgrade();
-      this.pushBanner(r.name, `+${it.armor} ${t('armorTotal')}`, r.accent);
+      this.pushBanner(rName, `+${it.armor} ${t('armorTotal')}`, r.accent);
     } else if (r.kind === 'weapon' && r.weapon !== undefined) {
       this.swordTier = Math.max(this.swordTier, r.weapon);
       // the new sword is its own item — the old one stays and can be sold
@@ -5064,7 +5074,7 @@ export class Engine {
       }
       sfx.upgrade();
       this.addShake(0.4);
-      this.pushBanner(r.name, r.desc, r.accent);
+      this.pushBanner(rName, rDesc, r.accent);
     } else if (r.kind === 'pickaxe' && r.tier !== undefined) {
       this.tier = r.tier;
       // keep the previous pick in the hotbar — it still works and sells
@@ -5078,20 +5088,20 @@ export class Engine {
       this.addShake(0.55);
       this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [255, 235, 160], 34, 5.5);
       sfx.upgrade();
-      this.pushBanner(pickaxeLabel(r.tier), r.desc, PICKAXE_TIERS[r.tier].color);
+      this.pushBanner(pickaxeLabel(r.tier), rDesc, PICKAXE_TIERS[r.tier].color);
     } else if (r.kind === 'time') {
       this.timeLeft = Math.min(this.runTime + 60, this.timeLeft + (r.seconds ?? 0));
       sfx.upgrade();
-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.seconds}s`, '#7ee7a0', true);
-      this.pushBanner('SHIFT OVERDRIVE', `+${r.seconds} seconds on the clock`, '#7ee7a0');
+      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.seconds}${t('secShort')}`, '#7ee7a0', true);
+      this.pushBanner(t('overdrive'), `+${r.seconds}${t('secShort')} ${t('secondsOnClock')}`, '#7ee7a0');
     } else if (r.kind === 'heal') {
       this.health = Math.min(100, this.health + (r.heal ?? 0));
       sfx.upgrade();
-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} HP`, '#e2564a', true);
-      this.pushBanner('PATCHED UP', `+${r.heal} health`, '#e2564a');
+      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} ${t('hp')}`, '#e2564a', true);
+      this.pushBanner(t('patchedUp'), `+${r.heal} ${t('health')}`, '#e2564a');
     } else {
       sfx.place();
-      this.pushBanner(r.name, r.desc, r.accent);
+      this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.1, this.pos.z, [255, 240, 190], 14, 3);
     }
     this.syncHotbar(true);

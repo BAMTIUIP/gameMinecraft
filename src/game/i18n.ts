@@ -1,9 +1,10 @@
-export type Lang = 'en' | 'ru' | 'fr';
+export type Lang = 'en' | 'ru' | 'fr' | 'de';
 
 export const LANGS: Array<{ id: Lang; label: string; flag: string }> = [
   { id: 'en', label: 'ENGLISH', flag: 'EN' },
   { id: 'ru', label: 'РУССКИЙ', flag: 'RU' },
   { id: 'fr', label: 'FRANÇAIS', flag: 'FR' },
+  { id: 'de', label: 'DEUTSCH', flag: 'DE' },
 ];
 
 const EN = {
@@ -223,6 +224,44 @@ const EN = {
   tool_sword_diamond: 'DIAMOND SWORD',
   tool_shovel: 'SHOVEL',
   tool_bow: 'BOW',
+  // score table & value table
+  blk: 'blk',
+  secShort: 's',
+  miner: 'MINER',
+  guideTitle: 'WORKBENCH',
+  guideSub: 'PRESS E MID-RUN',
+  oreTableTitle: 'ORE VALUE TABLE',
+  guideMore: 'Plus lanterns, a +25s shift overdrive, a field patch and compressed gold / diamond blocks.',
+  // hud hints
+  captureMouse: 'CLICK TO CAPTURE MOUSE',
+  freeLookTurn: 'FREE-LOOK — MOVE THE MOUSE TO TURN',
+  fPlace: 'F PLACE',
+  rmbAim: 'RMB PRECISE AIM',
+  holdRmbLook: 'HOLD RMB TO LOOK',
+  fMmbPlace: 'F / MMB TO PLACE',
+  hintDesktop: 'LMB MINE · RMB PLACE · CTRL CROUCH · C CRAWL · TAB BAG',
+  hintTouch: 'DRAG TO LOOK · HOLD MINE TO DIG · BAG TO CRAFT',
+  // banners & popups
+  saveFailed: 'SAVE FAILED',
+  saveFailedSub: 'world too large for browser storage',
+  diamond: 'DIAMOND!',
+  gold: 'GOLD!',
+  overdrive: 'SHIFT OVERDRIVE',
+  hp: 'HP',
+  clickStash: 'click to stash',
+  // touch controls
+  run: 'RUN',
+  place: 'PLACE',
+  mine: 'MINE',
+  // session lengths
+  sesSprint: 'SPRINT',
+  sesFull: 'FULL SHIFT',
+  sesMarathon: 'MARATHON',
+  sesHalf: 'HALF DAY',
+  sesHour: 'FULL HOUR',
+  sesDouble: 'DOUBLE SHIFT',
+  // page title
+  docTitle: 'ORE RUSH · Voxel Mining Sprint',
 };
 
 type Dict = typeof EN;
@@ -433,6 +472,38 @@ const RU: Dict = {
   tool_sword_diamond: 'АЛМАЗНЫЙ МЕЧ',
   tool_shovel: 'ЛОПАТА',
   tool_bow: 'ЛУК',
+  blk: 'блок',
+  secShort: 'с',
+  miner: 'ШАХТЁР',
+  guideTitle: 'ВЕРСТАК',
+  guideSub: 'E — В ПРОВОДЕ',
+  oreTableTitle: 'СТОИМОСТЬ РУДЫ',
+  guideMore: 'Плюс фонари, форсаж смены на +25 с, полевая перевязка и сжатые золотые / алмазные блоки.',
+  captureMouse: 'КЛИК — ЗАХВАТИТЬ МЫШЬ',
+  freeLookTurn: 'СВОБОДНЫЙ ОБЗОР — ВЕДИ МЫШЬ',
+  fPlace: 'F ПОСТАВИТЬ',
+  rmbAim: 'ПКМ ТРЕТЬЯ',
+  holdRmbLook: 'УДЕРЖИВАЙ ПКМ',
+  fMmbPlace: 'F / СКМ — ПОСТАВИТЬ',
+  hintDesktop: 'ЛКМ КОПАТЬ · ПКМ СТАВИТЬ · CTRL ПРИСЕСТЬ · C ПОЛЗТИ · TAB СЮРРУК',
+  hintTouch: 'ТАЩИ — ОБЗОР · УДЕРЖИВАЙ — КОПАТЬ · СЮРРУК — КРАФТ',
+  saveFailed: 'НЕ УДАЛОСЬ СОХРАНИТЬ',
+  saveFailedSub: 'мир слишком большой для хранилища браузера',
+  diamond: 'АЛМАЗ!',
+  gold: 'ЗОЛОТО!',
+  overdrive: 'ФОРСАЖ СМЕНЫ',
+  hp: 'хп',
+  clickStash: 'клик — убрать в запас',
+  run: 'БЕГ',
+  place: 'СТАВИТЬ',
+  mine: 'КОПАТЬ',
+  sesSprint: 'СПРИНТ',
+  sesFull: 'ПОЛНАЯ СМЕНА',
+  sesMarathon: 'МАРАФОН',
+  sesHalf: 'Полдня',
+  sesHour: 'ПОЛНЫЙ ЧАС',
+  sesDouble: 'ДВОЙНАЯ СМЕНА',
+  docTitle: 'ORE RUSH · Воксельный спринт',
 };
 
 const FR: Dict = {
@@ -641,15 +712,296 @@ const FR: Dict = {
   tool_sword_diamond: 'ÉPÉE EN DIAMANT',
   tool_shovel: 'PELLE',
   tool_bow: 'ARC',
+  blk: 'bloc',
+  secShort: 's',
+  miner: 'MINEUR',
+  guideTitle: 'ÉTABLI',
+  guideSub: 'APPUYEZ E EN JEU',
+  oreTableTitle: 'VALEUR DES MINERAIS',
+  guideMore: "Plus des lanternes, une surcharge de +25 s, un pansement de terrain et des blocs d'or / de diamant compressés.",
+  captureMouse: 'CLIQUEZ POUR CAPTURER LA SOURIS',
+  freeLookTurn: 'VUE LIBRE — BOUgez LA SOURIS POUR TOURNER',
+  fPlace: 'F POSER',
+  rmbAim: 'CDD VISE PRÉCISE',
+  holdRmbLook: 'MAINTENIR CDD',
+  fMmbPlace: 'F / CCM POUR POSER',
+  hintDesktop: 'CAG MINER · CDD POSER · CTRL SE GAUCHIR · C RAMPER · TAB SAC',
+  hintTouch: 'GLISSEZ POUR REGARDER · MAINTENIR POUR CREUSER · SAC POUR FABRIQUER',
+  saveFailed: 'SAUVEGARDE ÉCHOUÉE',
+  saveFailedSub: 'monde trop grand pour le stockage du navigateur',
+  diamond: 'DIAMANT !',
+  gold: 'OR !',
+  overdrive: 'SURRÉGIME DU POSTE',
+  hp: 'PV',
+  clickStash: 'cliquer pour ranger',
+  run: 'COURIR',
+  place: 'POSER',
+  mine: 'MINER',
+  sesSprint: 'SPRINT',
+  sesFull: 'POSTE COMPLET',
+  sesMarathon: 'MARATHON',
+  sesHalf: 'DEMI-JOURNÉE',
+  sesHour: 'HEURE COMPLÈTE',
+  sesDouble: 'POSTE DOUBLE',
+  docTitle: 'ORE RUSH · Sprint minier voxel',
 };
 
-const DICTS: Record<Lang, Dict> = { en: EN, ru: RU, fr: FR };
+const DE: Dict = {
+  tagline: 'UNENDLICHE VOXEL-WELT',
+  intro:
+    'Ein Voxel-Abbau-Run aus der Ich-Perspektive. Schwing den Spitzhammer, zerbrich die Erde, folge den Erzen in die Dunkelheit — und überlebe die Nacht. Jeder Fund kauft Sekunden, jede Ausbeute bessere Ausrüstung.',
+  play: 'JETZT ABBAUEN',
+  controls: 'STEUERUNG',
+  hideControls: 'STEUERUNG VERBERGEN',
+  newWorld: 'NEUE WELT',
+  shiftLength: 'SCHICHTLÄNGE',
+  mode: 'SPIELMODUS',
+  survival: 'ÜBERLEBEN',
+  survivalSub: 'Monster erscheinen nachts',
+  explorer: 'ENTDECKER',
+  explorerSub: 'Friedlich — nur Tiere',
+  language: 'SPRACHE',
+  musicOn: 'MUSIK AN',
+  musicOff: 'MUSIK AUS',
+  sfxOn: 'GERÄUSCHE AN',
+  sfxOff: 'GERÄUSCHE AUS',
+  freeLookOn: 'FREIE SICHT AN',
+  freeLookOff: 'FREIE SICHT AUS',
+  records: 'BESTE SCHICHTEN',
+  local: 'LOKAL',
+  you: 'DU',
+  keyboard: 'TASTATUR + MAUS',
+  touch: 'BERÜHRUNG',
+  move: 'Bewegen',
+  jump: 'Springen',
+  sprint: 'Sprint',
+  mineHold: 'Abbauen / angreifen (halten)',
+  placeBlock: 'Block setzen',
+  selectSlot: 'Feld wählen',
+  bag: 'Inventar / Werkbank',
+  pause: 'Pause',
+  stickMove: 'Linker Daumen = Bewegung',
+  dragLook: 'Rechte Seite = umsehen',
+  holdDig: 'Halten zum Graben',
+  hopBlock: 'Auf einen Block springen',
+  lockNote:
+    'Falls der Browser die Maus-Sperre blockiert, übernimmt die freie Sicht: einfach die Maus bewegen — je weiter vom Zentrum, desto schneller dreht die Kamera.',
+  carving: 'WELT WIRD GESCHAFFEN',
+  loadSub: 'UNENDLICHE WELT · CHUNKS LADEN BEIM GEHEN',
+  stTerrain: 'GELÄNDE WIRD GEHOBEN',
+  stForest: 'WÄLDER WERDEN GEPLANZT',
+  stMesh: 'CHUNK-MESHE WERDEN GEBAUT',
+  stSpawn: 'SPAWN WIRD GESUCHT',
+  score: 'PUNKTE',
+  depth: 'TIEFE',
+  ores: 'ERZE',
+  mined: 'GEBROCHEN',
+  combo: 'KOMBO',
+  day: 'TAG',
+  night: 'NACHT',
+  dusk: 'DÄMMERUNG',
+  dawn: 'MORGENROT',
+  kills: 'KILLS',
+  emptyHand: 'FAUST',
+  paused: 'PAUSIERT',
+  pausedSub: 'DIE SCHICHT IST ANGEHALTEN',
+  resume: 'FORTSETZEN',
+  restart: 'NEU STARTEN',
+  quit: 'BEENDEN',
+  workbench: 'WERKBANK',
+  escResume: 'DRÜCKE ESC ZUM FORTSETZEN',
+  haul: 'AUSBEUTE',
+  stacks: 'STAPEL',
+  emptyPack: 'LEERER RUCKSACK',
+  emptyPackSub: 'Brich Blöcke, um ihn zu füllen',
+  recipes: 'REZEPTE',
+  ready: 'BEREIT',
+  craft: 'BAUEN',
+  gear: 'AUSRÜSTUNG',
+  equipped: 'ANGELEGT',
+  unequip: 'ABNEHMEN',
+  equip: 'AUSSTATTEN',
+  emptySlot: 'LEER',
+  clickEquip: 'AUSRÜSTUNG ANKLICKEN = ANLEGEN · BLÖCKE ANKLICKEN = IN DIE SLEITENLEISTE',
+  hotbarSlots: 'SLEITENFÄCHER',
+  armorTotal: 'RÜSTUNG',
+  dmgTotal: 'SCHADEN',
+  closeHint: 'SCHLIESSEN · SCHNELLBASTELN · AUSRÜSTUNG IN REIHENFOLGE',
+  slot_head: 'HELM',
+  slot_chest: 'BRUNNHART',
+  slot_legs: 'HOSEN',
+  slot_feet: 'STIEFEL',
+  slot_hands: 'HANDSCHUHE',
+  slot_offhand: 'SCHILD',
+  runReport: 'LAUFBERICHT',
+  shift: 'SCHICHT',
+  shiftComplete: 'SCHICHT ABGESCHLOSSEN',
+  youMelted: 'DU BIST GESCHMOLZEN',
+  gravityWins: 'SCHWIEREKRAFT GEWINNT',
+  slain: 'GETÖTET',
+  overTime: 'Die Pfeife ist geblesen. Das hast du aus der Mine gebracht.',
+  overLava: 'Achte auf das Glühen unter dem Stein — es verzeiht nicht.',
+  overFall: 'Pass auf die Höhe auf. Beine sind nicht aus Kopfstein.',
+  overMob: 'Irgendwas im Dunkeln kam dir zuvor.',
+  finalScore: 'ENDPUNKTZAHL',
+  newBest: '★ NEUER REKORD',
+  bestCombo: 'BESTE KOMBO',
+  deepest: 'TIEFSTE STELLE',
+  pickaxe: 'SPITZHACKE',
+  mineAgain: 'NOCHMAL',
+  mainMenu: 'HAUPTMENÜ',
+  signLog: 'SCHREIB IN DIE LISTE',
+  shiftStart: 'SCHICHT START',
+  shiftStartSub: 'Hau einen Baum an, baue Bretter und eine Holzspitzhacke (TAB)',
+  nightFalls: 'NACHT BRICHT AN',
+  nightFallsSub: 'Monster kriechen hervor — pass auf deinen Rücken auf',
+  sunRises: 'SONNENAUFGANG',
+  sunRisesSub: 'Die Untoten brennen',
+  workbenchReady: 'WERKBANK BEREIT',
+  pressE: 'drücke E zum Bauen',
+  secondsOnClock: 'Sekunden auf der Uhr',
+  patchedUp: 'VERBAND VERSEHNT',
+  health: 'Leben',
+  looted: 'GEPLÜNDERT',
+  aff_fire: 'FLAMME',
+  aff_fireD: 'Zündet Feinde an · Verbrennungsschaden pro Sekunde',
+  aff_frost: 'FROST',
+  aff_frostD: 'Verlangsamt, was du triffst',
+  aff_thorns: 'DORNEN',
+  aff_thornsD: 'Spiegelt einen Teil des erlittenen Schadens',
+  aff_vamp: 'BLUTSAUGER',
+  aff_vampD: 'Heilt dich bei jedem Treffer',
+  aff_swift: 'SCHNELL',
+  aff_swiftD: 'Bewegung und Schlag schneller',
+  aff_tough: 'ZÄH',
+  aff_toughD: 'Zusätzliche Rüstungspanzerung',
+  aff_greed: 'GIER',
+  aff_greedD: 'Bonus-Punkte für jeden Fund',
+  aff_miner: 'BERGBAUER',
+  aff_minerD: 'Blöcke schneller brechen',
+  aff_magnet: 'MAGNET',
+  aff_magnetD: 'Zieht verworfene Ressourcen zu dir',
+  mob_pig: 'Schwein',
+  mob_sheep: 'Schaf',
+  mob_cow: 'Kuh',
+  mob_calf: 'Kalb',
+  mob_chicken: 'Huhn',
+  mob_creeper: 'Creeper',
+  mob_zombie: 'Zombie',
+  mob_spider: 'Spinne',
+  mob_skeleton: 'Gerippe',
+  mob_trader: 'Händler',
+  mob_fish: 'Fisch',
+  mob_crab: 'Krabbe',
+  mob_turtle: 'Schildkröte',
+  mob_rabbit: 'Hase',
+  mob_penguin: 'Pinguin',
+  mob_bird: 'Singvogel',
+  mob_bee: 'Biene',
+  mob_cat: 'Luchs',
+  mob_archer: 'Gerippe-Bogenschütze',
+  sellGear: 'AUSRÜSTUNG & WERKZEUGE VERKAUFEN',
+  tab_anvil: 'AMBOS',
+  anvilHint: 'DIAMANT-AUSRÜSTUNG + 1 NETHERIT → NETHERIT · VERSTÄRKEN: 4 EISEN = +2 RÜSTUNG',
+  upgradeNeth: 'NETHERIT',
+  reinforce: 'VERSTÄRKEN',
+  eggHatched: 'EIER AUSGEBRÜTET',
+  eggCrushed: 'KRACH…',
+  burning: 'BRENNT',
+  pressTrade: 'DRÜCKE E FÜR HANDEL',
+  tab_all: 'ALLE',
+  tab_tools: 'WAFFEN & WERKZEUGE',
+  tab_blocks: 'BAU',
+  tab_gear: 'RÜSTUNG',
+  tab_food: 'ESSEN & FEUER',
+  tab_trade: 'HÄNDLER',
+  trader: 'HANDELSMANN FÜR SELTENHEITEN',
+  traderSub: 'Verkauft Seltenes · kauft deine Ausbeute',
+  sell: 'VERKAUFEN',
+  buy: 'KAUFEN',
+  sellFor: 'für',
+  offerSold: 'VERKAUFT',
+  needCampfire: 'BENÖTIGT LAGERFEUER IN DER NÄHE',
+  handTorch: 'FACKEL',
+  pts: 'Pkt',
+  sleeping: 'SCHLAFEN…',
+  sleepingSub: 'Die Nacht rast vorbei',
+  sleepOnlyNight: 'Nur nachts',
+  myWorld: 'MEINE WELT',
+  createWorld: 'WELT ERSTELLEN',
+  continueWorld: 'WEITER',
+  saveWorldBtn: 'WELT SPEICHERN',
+  worldSaved: 'WELT GESPEICHERT',
+  myWorldSub: 'Kein Timer — bau und erkunde ewig. Jederzeit aus der Pause speichern.',
+  hotbarTitle: 'SLEITENFÄCHER (1–10)',
+  stash: 'BEISEITE',
+  restore: 'WIEDERHERSTELLEN',
+  stashHint: 'Aus der Leiste entfernen (bleibt unten im Vorrat)',
+  axeWood: 'HOLZAXT',
+  axeStone: 'STEINAXT',
+  salvage: 'ZURÜCKBAUEN',
+  salvaged: 'ZURÜCKGEBAUT',
+  tier_wood: 'HOLZ',
+  tier_stone: 'STEIN',
+  tier_iron: 'EISEN',
+  tier_diamond: 'DIAMANT',
+  tier_netherite: 'NETHERIT',
+  tool_pickaxe: 'SPITZHACKE',
+  tool_sword_wood: 'HOLZSCHWERT',
+  tool_sword_iron: 'EISENSCHWERT',
+  tool_sword_diamond: 'DIAMANTSCHWERT',
+  tool_shovel: 'SCHAUFEL',
+  tool_bow: 'BOGEN',
+  blk: 'Blk',
+  secShort: 's',
+  miner: 'BERGBAUER',
+  guideTitle: 'WERKBANK',
+  guideSub: 'E WÄHREND DES LAUFS',
+  oreTableTitle: 'ERZ-WERTE-TABELLE',
+  guideMore: 'Dazu Laternen, ein +25-s-Schicht-Overdrive, ein Feldverband und komprimierte Gold-/Diamantblöcke.',
+  captureMouse: 'KLICKEN ZUR MAUS-SPERRE',
+  freeLookTurn: 'FREIE SICHT — MAUS BEWEGEN ZUM DREHEN',
+  fPlace: 'F SETZEN',
+  rmbAim: 'RMT PRÄZISE ZIELEN',
+  holdRmbLook: 'RMT HALTEN',
+  fMmbPlace: 'F / MMT ZUM SETZEN',
+  hintDesktop: 'LMT ABBAUEN · RMT SETZEN · CTRL DUCKEN · C KRIECHEN · TAB RUCKSACK',
+  hintTouch: 'ZIEHEN = UMSCHAUEN · HALTEN = GRABEN · RUCKSACK = BASTELN',
+  saveFailed: 'SPEICHERUNG FEHLGESCHLAGEN',
+  saveFailedSub: 'Welt zu groß für den Browser-Speicher',
+  diamond: 'DIAMANT!',
+  gold: 'GOLD!',
+  overdrive: 'SCHICHT-OVERDRIVE',
+  hp: 'LP',
+  clickStash: 'klicken, um beiseitezuräumen',
+  run: 'LAUFEN',
+  place: 'SETZEN',
+  mine: 'ABBAU',
+  sesSprint: 'SPRINT',
+  sesFull: 'VOLLE SCHICHT',
+  sesMarathon: 'MARATHON',
+  sesHalf: 'HALBER TAG',
+  sesHour: 'VOLLE STUNDE',
+  sesDouble: 'DOPPELTSCHICHT',
+  docTitle: 'ORE RUSH · Voxel-Abbau-Sprint',
+};
+
+const DICTS: Record<Lang, Dict> = { en: EN, ru: RU, fr: FR, de: DE };
 
 let current: Lang = 'en';
 const listeners = new Set<() => void>();
 
 export function getLang() {
   return current;
+}
+
+function syncDocument(l: Lang) {
+  try {
+    document.title = DICTS[l].docTitle;
+    document.documentElement.lang = l;
+  } catch {
+    /* non-browser context */
+  }
 }
 
 export function setLang(l: Lang) {
@@ -659,6 +1011,7 @@ export function setLang(l: Lang) {
   } catch {
     /* ignore */
   }
+  syncDocument(l);
   listeners.forEach((fn) => fn());
 }
 
@@ -671,11 +1024,13 @@ export function initLang(): Lang {
       const nav = navigator.language.slice(0, 2);
       if (nav === 'ru') l = 'ru';
       else if (nav === 'fr') l = 'fr';
+      else if (nav === 'de') l = 'de';
     }
   } catch {
     /* ignore */
   }
   current = l;
+  syncDocument(l);
   return l;
 }
 
@@ -768,6 +1123,8 @@ const RECIPES_RU: Record<string, [string, string]> = {
   shield_diamond: ['АЛМАЗНЫЙ ЩИТ', 'ЩИТ · алмазные пластины'],
   gold_block: ['ЗОЛОТОЙ БЛОК', 'Спрессованное богатство — памятник забегу'],
   diamond_block: ['АЛМАЗНЫЙ БЛОК', 'Трофейный блок. Добудьте обратно за 1400.'],
+  anvil: ['НАКОВАЛЬНЯ', 'Поставьте и нажмите E — улучшение и укрепление снаряжения'],
+  eat_honey: ['СЪЕСТЬ МЁД', 'Сладкая энергия из улья — +15 хп'],
 };
 
 const RECIPES_FR: Record<string, [string, string]> = {
@@ -825,11 +1182,72 @@ const RECIPES_FR: Record<string, [string, string]> = {
   shield_diamond: ['BOUCLIER EN DIAMANT', 'BOUCLIER · plaques de diamant'],
   gold_block: ["BLOC D'OR", 'Richesse compressée — un monument'],
   diamond_block: ['BLOC DE DIAMANT', 'Le bloc trophée. Reminez-le pour 1400.'],
+  anvil: ['ENCLUME', 'Posez-la et appuyez sur E — amélioration et renforcement'],
+  eat_honey: ['MANGER DU MIEL', "Énergie sucrée de la ruche — rend 15 PV"],
+};
+
+const RECIPES_DE: Record<string, [string, string]> = {
+  planks: ['ECHENBRETTER', 'Einen Eichenstamm in Bau-Bretter spalten'],
+  planks_birch: ['BIRKENBRETTER', 'Einen Birkenstamm in Bau-Bretter spalten'],
+  crafting_table: ['WERKBANK', 'Überall hinstellen, E zum Basteln · 4 Bretter'],
+  lantern: ['LATERNE-BLOCK', 'Beleuchtet die Mine — überall hinstellbar'],
+  pick_wood: ['HOLZSPITZHACKE', 'Dein erstes echtes Werkzeug — 3 Bretter'],
+  pick_stone: ['STEINSPITZHACKE', 'Abbaurate 1.7x · Punkte 1.15x'],
+  pick_iron: ['EISENSPITZHACKE', 'Abbaurate 2.6x · Punkte 1.40x'],
+  pick_diamond: ['DIAMANTSPITZHACKE', 'Abbaurate 4.0x · Punkte 1.80x'],
+  sword_wood: ['HOLZSCHWERT', 'Schaden 9 · erscheint in der Leiste'],
+  sword_iron: ['EISENSCHWERT', 'Schaden 17 · mäht die Monster weg'],
+  sword_diamond: ['DIAMANTSCHWERT', 'Schaden 29 · erledigt fast alles in einem Schlag'],
+  overdrive: ['SCHICHT-OVERDRIVE', 'Verbrennt Gold für +25 Sekunden auf der Uhr'],
+  patch: ['FELDVERBAND', 'Eisen-Schienen und Blätter · +35 LP'],
+  axe_wood: ['HOLZAXT', 'Nur aus Brettern — fällt Bäume 2.0x schneller'],
+  axe_stone: ['STEINAXT', 'Mit Kopfstein — fällt Bäume 2.8x schneller'],
+  shovel: ['SCHAUFEL', 'Gräbt Erde und Sand 2.6x schneller'],
+  bow: ['BOGEN', 'Fernwaffe — braucht Pfeile im Rucksack'],
+  arrows: ['PFEILE ×8', 'Minecraft-Rezept: Stock + Feuerstein + Feder'],
+  torch_hand: ['FACKEL', 'Feuer in der Hand — beleuchtet Höhlen und die Nacht'],
+  campfire: ['LAGERFEUER', 'Hinstellen und Fleisch daneben garen'],
+  cook_meat: ['FLEISCH GAREN', 'Braucht ein brennendes Lagerfeuer in 4 Blöcken'],
+  eat_meat: ['STEAK ESSEN', 'Heiße Mahlzeit — stellt 30 LP wieder her'],
+  eat_apple: ['APFEL ESSEN', 'Saftiger Obstbaum-Apfel — +20 LP'],
+  eat_honey: ['HONIG ESSEN', 'Süße Energie aus dem Stock — +15 LP'],
+  anvil: ['AMBOS', 'Hinstellen und E drücken — Ausrüstung verbessern & verstärken'],
+  bed: ['BETT', 'Wie in Minecraft: 3 Wolle + 3 Bretter · E nachts = schlafen'],
+  wool_block: ['WOLLEBLOCK', 'Weicher Baublock aus gewebter Wolle'],
+  honey_elixir: ['HONIGELIXIER', 'Trank des goldenen Lichts — stellt 50 LP wieder her'],
+  turtle_helmet: ['SCHILDKRÖTENHELM', 'Schuppenhelm wie in Minecraft — solider Kopfschutz'],
+  crab_shield: ['KRABBENSCHILD', 'Chitin-Schild für die linke Hand'],
+  claw_gloves: ['KRALLEHANDSCHUHE', 'Luchs-Krallen in Seide — schnelle Schläge'],
+  lamp_red: ['ROTE LAMPE', 'Warmes Karmesinlicht für die Bude'],
+  lamp_blue: ['BLAUE LAMPE', 'Kühler Mondscheinton'],
+  lamp_yellow: ['GOLDENE LAMPE', 'Sonniges Licht für das Wohnzimmer'],
+  pedestal: ['STEINSOCKEL', 'Leuchtende Säule — Licht für das Haus'],
+  pedestal_gold: ['VERGOLDENER SOCKEL', 'Prunklicht für den Thronsaal'],
+  glass: ['FENSTERSCHEIBE', 'Mit Kohle gebrannter Sand. E öffnet sie'],
+  door_wood: ['HOLZTÜRE', 'Zwei hintereinander · E zum Öffnen'],
+  door_iron: ['EISENTÜRE', 'Monsterfester Eingang · E zum Öffnen'],
+  fence_wood: ['HOLZZAUN', 'Günstiger Grenzpfahl für den Hof'],
+  fence_stone: ['STEINZAUN', 'Niedrige Befestigungsmauer'],
+  fence_iron: ['EISENGELÄNDER', 'Gitter in Gefängnisqualität'],
+  helmet_leather: ['LEDERHELM', 'KOPF · Lederschutz'],
+  chest_leather: ['LEDERUNTERTUNIK', 'BRUST · Lederschutz'],
+  legs_iron: ['EISENHOSEN', 'BEINE · Eisenplatten'],
+  feet_iron: ['EISENSTIEFEL', 'FÜSSE · Eisenplatten'],
+  hands_iron: ['EISENHANDSCHUHE', 'HÄNDE · Eisenplatten'],
+  head_iron: ['EISENHELM', 'KOPF · Eisenplatten'],
+  chest_iron: ['EISENBRUNNHART', 'BRUST · Eisenplatten'],
+  shield_iron: ['EISENSCHILD', 'SCHILD · Eisenplatten'],
+  chest_diamond: ['DIAMANTBRUNNHART', 'BRUST · Diamantplatten'],
+  head_diamond: ['DIAMANTHELM', 'KOPF · Diamantplatten'],
+  hands_diamond: ['DIAMANTHANDSCHUHE', 'HÄNDE · Diamantplatten'],
+  shield_diamond: ['DIAMANTSCHILD', 'SCHILD · Diamantplatten'],
+  gold_block: ['GOLDBLOCK', 'Komprimierter Reichtum — ein Denkmal'],
+  diamond_block: ['DIAMANTBLOCK', 'Der Trophäenblock. Zurückabbauen für 1400.'],
 };
 
 /** localized recipe name + description; falls back to the English strings */
 export function recipeText(key: string, fallbackName: string, fallbackDesc: string): [string, string] {
-  const m = current === 'ru' ? RECIPES_RU : current === 'fr' ? RECIPES_FR : null;
+  const m = current === 'ru' ? RECIPES_RU : current === 'fr' ? RECIPES_FR : current === 'de' ? RECIPES_DE : null;
   return m?.[key] ?? [fallbackName, fallbackDesc];
 }
 
@@ -871,21 +1289,42 @@ const BLOCKS_FR: Record<number, string> = {
   68: 'Établi',
 };
 
+const BLOCKS_DE: Record<number, string> = {
+  1: 'Gras', 2: 'Erde', 3: 'Stein', 4: 'Kopfstein', 5: 'Kohleerz', 6: 'Eisenerz',
+  7: 'Gold Erz', 8: 'Diamanterz', 9: 'Eichenstamm', 10: 'Laub', 11: 'Sand',
+  12: 'Bretter', 13: 'Fels', 14: 'Lava', 15: 'Laterne', 16: 'Goldblock', 17: 'Diamantblock',
+  18: 'Fenster', 19: 'Holztür', 20: 'Eisentür', 21: 'Holzzaun',
+  22: 'Steinzaun', 23: 'Eisengitter', 24: 'Lagerfeuer', 25: 'Steinsockel',
+  26: 'Vergoldener Sockel', 27: 'Rohes Fleisch', 28: 'Gekochtes Fleisch', 29: 'Spinnweben', 30: 'Knochen',
+  31: 'Faulfleisch', 32: 'Schießpulver', 33: 'Pfeil', 34: 'Beute', 35: 'Bett', 36: 'Wasser',
+  37: 'Rote Blume', 38: 'Gelbe Blume', 39: 'Blaue Blume',
+  40: 'Rote Lampe', 41: 'Blaue Lampe', 42: 'Goldene Lampe',
+  43: 'Schneebedecktes Gras', 44: 'Eis', 45: 'Gefrorenes Laub',
+  46: 'Bienenstock', 47: 'Schildkröten-Ei', 48: 'Ambos', 49: 'Antike Trümmer',
+  50: 'Honig', 51: 'Netherit-Barren', 52: 'Wolle', 53: 'Feder', 54: 'Schildkrötenpanzer',
+  55: 'Krabbenpanzer', 56: 'Fischschuppen', 57: 'Luchskralle', 58: 'Pinguin-Ei',
+  59: 'Hohes Gras', 60: 'Farne', 61: 'Toter Strauch', 62: 'Kaktus', 63: 'Blasser Kaktus',
+  64: 'Birkenstamm', 65: 'Birkenlaub', 66: 'Apfelbaumlaub', 67: 'Apfel',
+  68: 'Werkbank',
+};
+
 export function blockName(id: number, fallback: string): string {
-  const m = current === 'ru' ? BLOCKS_RU : current === 'fr' ? BLOCKS_FR : null;
+  const m = current === 'ru' ? BLOCKS_RU : current === 'fr' ? BLOCKS_FR : current === 'de' ? BLOCKS_DE : null;
   return m?.[id] ?? fallback;
 }
 
 const MAT_RU: Record<string, string> = { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ' };
 const MAT_FR: Record<string, string> = { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE' };
+const MAT_DE: Record<string, string> = { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT' };
 const RAR_RU = ['ОБЫЧНЫЙ', 'ПРОЧНЫЙ', 'РЕДКИЙ', 'МИФИЧЕСКИЙ'];
 const RAR_FR = ['COMMUN', 'SOLIDE', 'RARE', 'MYTHIQUE'];
+const RAR_DE = ['GEWÖHNLICH', 'ROBUST', 'SELTEN', 'MYTHISCH'];
 
 export function matName(label: string): string {
-  const m = current === 'ru' ? MAT_RU : current === 'fr' ? MAT_FR : null;
+  const m = current === 'ru' ? MAT_RU : current === 'fr' ? MAT_FR : current === 'de' ? MAT_DE : null;
   return m?.[label] ?? label;
 }
 export function rarName(index: number, fallback: string): string {
-  const m = current === 'ru' ? RAR_RU : current === 'fr' ? RAR_FR : null;
+  const m = current === 'ru' ? RAR_RU : current === 'fr' ? RAR_FR : current === 'de' ? RAR_DE : null;
   return m?.[index] ?? fallback;
 }
