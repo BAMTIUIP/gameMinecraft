@@ -4,7 +4,10 @@ import {
   BLOCKS,
   DEAD_BUSH,
   FERN,
-  FLOWER_BLUE,
+  FLOWER_BLUE, DRY_BLOOM, DESERT_THISTLE, BIRD_NEST, CHICKEN_NEST,
+  COCONUT_LEAVES,
+  BANANA_LEAVES,
+  VINE,
   FLOWER_RED,
   FLOWER_YELLOW,
   PENGUIN_EGG,
@@ -192,6 +195,33 @@ function addDeadBush(P: number[], C: number[], I: number[], x: number, y: number
   addBox(P, C, I, cx - 0.09, y + h * 0.5, cz + 0.07, 0.14, 0.05, 0.1, ...COL.bushB);
 }
 
+/** Low, sun-baked flowers: branched stalks and muted seed heads. */
+function addDryFlower(P: number[], C: number[], I: number[], x: number, y: number, z: number, thistle: boolean) {
+  const stalk = srgb(thistle ? 0x82764d : 0x987354);
+  const head = srgb(thistle ? 0xa69b61 : 0xba7d61);
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.22, cz, 0.06, 0.44, 0.06, ...stalk);
+  for (const [dx,dz] of [[-0.16,0.06],[0.14,-0.07],[0,0.15]]) {
+    addBox(P, C, I, cx + dx * 0.5, y + 0.21, cz + dz * 0.5, 0.05, 0.18, 0.05, ...stalk);
+    addBox(P, C, I, cx + dx, y + 0.34, cz + dz, 0.15, 0.12, 0.15, ...head);
+  }
+  addBox(P, C, I, cx, y + 0.49, cz, 0.18, 0.13, 0.18, ...head);
+}
+
+/** Woven cup with two small eggs: straw for hens, dark twigs for songbirds. */
+function addBirdNest(P: number[], C: number[], I: number[], x: number, y: number, z: number, chicken: boolean) {
+  const rim = srgb(chicken ? 0xd1aa60 : 0x62442e);
+  const lining = srgb(chicken ? 0xa68547 : 0x382a22);
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.07, cz, 0.66, 0.12, 0.62, ...lining);
+  for (const dx of [-0.29, 0.29]) addBox(P, C, I, cx + dx, y + 0.14, cz, 0.12, 0.14, 0.72, ...rim);
+  for (const dz of [-0.27, 0.27]) addBox(P, C, I, cx, y + 0.14, cz + dz, 0.67, 0.14, 0.12, ...rim);
+  for (const dx of [-0.13, 0.13]) {
+    addBox(P, C, I, cx + dx, y + 0.22, cz, 0.13, 0.18, 0.14, ...srgb(chicken ? 0xf3e6c8 : 0xe8e7df));
+    addBox(P, C, I, cx + dx, y + 0.32, cz, 0.09, 0.05, 0.1, ...srgb(chicken ? 0xf9edd9 : 0xf2f1e8));
+  }
+}
+
 /** a chunky voxel flower: stem, two leaves, cross-shaped petal head */
 function addFlower(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, seed: number) {
   const cx = x + 0.5 + (((seed * 7) % 5) - 2) * 0.04;
@@ -279,6 +309,20 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           addFlower(dPositions, dColors, dIndices, x, y, z, id, x * 31 + z * 17 + y);
           continue;
         }
+        if (id === DRY_BLOOM || id === DESERT_THISTLE) {
+          addDryFlower(dPositions, dColors, dIndices, x, y, z, id === DESERT_THISTLE);
+          continue;
+        }
+        if (id === BIRD_NEST || id === CHICKEN_NEST) {
+          addBirdNest(dPositions, dColors, dIndices, x, y, z, id === CHICKEN_NEST);
+          continue;
+        }
+        if (id === VINE) {
+          // Climbable hanging tendrils; do not fill the entire voxel.
+          addBox(dPositions, dColors, dIndices, x + 0.45, y + 0.5, z + 0.45, 0.06, 0.96, 0.06, ...srgb(0x38743a));
+          addBox(dPositions, dColors, dIndices, x + 0.58, y + 0.4, z + 0.53, 0.05, 0.78, 0.05, ...srgb(0x68a850));
+          continue;
+        }
         if (id === TALL_GRASS) {
           addTallGrass(dPositions, dColors, dIndices, x, y, z, x * 31 + z * 17 + y);
           continue;
@@ -298,6 +342,18 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         if (id === PENGUIN_EGG) {
           addPenguinEgg(dPositions, dColors, dIndices, x, y, z);
           continue;
+        }
+        // A few hanging fruit clusters make the two palm varieties readable
+        // from below. The edible drops still come from harvesting the leaves.
+        if ((id === COCONUT_LEAVES || id === BANANA_LEAVES) && world.get(x, y - 1, z) === AIR &&
+          ((x * 179 + z * 73 + y * 113) >>> 0) % 6 === 0) {
+          if (id === COCONUT_LEAVES) {
+            addBox(dPositions, dColors, dIndices, x + 0.47, y - 0.12, z + 0.48, 0.23, 0.22, 0.23, ...srgb(0x795332));
+            addBox(dPositions, dColors, dIndices, x + 0.64, y - 0.08, z + 0.46, 0.19, 0.20, 0.19, ...srgb(0x9a7042));
+          } else {
+            addBox(dPositions, dColors, dIndices, x + 0.46, y - 0.14, z + 0.51, 0.10, 0.27, 0.11, ...srgb(0xe7c745));
+            addBox(dPositions, dColors, dIndices, x + 0.60, y - 0.12, z + 0.50, 0.09, 0.25, 0.11, ...srgb(0xf6dc5b));
+          }
         }
         const def = BLOCKS[id];
         const glow = def.emissive === 1;

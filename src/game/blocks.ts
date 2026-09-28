@@ -73,14 +73,25 @@ export const BIRCH_LEAVES = 65;
 export const APPLE_LEAVES = 66;
 export const APPLE = 67;
 export const CRAFTING_TABLE = 68;
+export const VOLCANIC_STONE = 69;
+export const PALM_LOG = 70;
+export const COCONUT_LEAVES = 71;
+export const BANANA_LEAVES = 72;
+export const VINE = 73;
+export const COCONUT = 74;
+export const BANANA = 75;
+export const DRY_BLOOM = 76;
+export const DESERT_THISTLE = 77;
+export const BIRD_NEST = 78;
+export const CHICKEN_NEST = 79;
 
 export const isFluid = (id: number) => id === WATER || id === LAVA;
-export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE;
-export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH;
-export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG;
-export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG;
+export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === DRY_BLOOM || id === DESERT_THISTLE;
+export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE;
+export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST;
+export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
-  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES;
+  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES || id === COCONUT_LEAVES || id === BANANA_LEAVES;
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 
 export const isResource = (id: number) =>
@@ -88,12 +99,13 @@ export const isResource = (id: number) =>
   id === HONEY ||
   id === NETHERITE ||
   (id >= FEATHER && id <= CAT_CLAW) ||
-  id === APPLE;
+  id === APPLE || id === COCONUT || id === BANANA;
 
 /** rough material class — tools are specialised per class */
 export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
 export function blockClass(id: number): BlockClass {
   switch (id) {
+    case VOLCANIC_STONE:
     case STONE:
     case COBBLE:
     case COAL:
@@ -115,6 +127,9 @@ export function blockClass(id: number): BlockClass {
       return 'earth';
     case ICE:
       return 'stone';
+    case PALM_LOG:
+    case COCONUT_LEAVES:
+    case BANANA_LEAVES:
     case LOG:
     case BIRCH_LOG:
     case PLANKS:
@@ -211,6 +226,18 @@ export const T = {
   craftingTableTop: 73,
   craftingTableSide: 74,
   craftingTableFront: 75,
+  volcanicStone: 76,
+  palmLogSide: 77,
+  palmLogTop: 78,
+  coconutLeaves: 79,
+  bananaLeaves: 80,
+  vine: 81,
+  coconut: 82,
+  banana: 83,
+  dryBloom: 84,
+  desertThistle: 85,
+  birdNest: 86,
+  chickenNest: 87,
 };
 
 export type BlockDef = {
@@ -462,6 +489,17 @@ export const BLOCKS: BlockDef[] = [
   d({ id: BIRCH_LEAVES, name: 'Birch Leaves', side: T.birchLeaves, hardness: 0.2, score: 3, drop: LEAVES, tint: [120, 185, 65] }),
   d({ id: APPLE_LEAVES, name: 'Apple Leaves', side: T.appleLeaves, hardness: 0.25, score: 5, drop: APPLE, tint: [220, 60, 50] }),
   d({ id: APPLE, name: 'Apple', side: T.apple, hardness: 1, score: 8, solid: false, breakable: false, drop: 0, tint: [225, 55, 45] }),
+  d({ id: VOLCANIC_STONE, name: 'Volcanic Stone', side: T.volcanicStone, hardness: 1.3, score: 8, tint: [66, 61, 65] }),
+  d({ id: PALM_LOG, name: 'Palm Trunk', side: T.palmLogSide, top: T.palmLogTop, bottom: T.palmLogTop, hardness: 0.9, score: 12, drop: LOG, tint: [150, 110, 69] }),
+  d({ id: COCONUT_LEAVES, name: 'Coconut Palm Leaves', side: T.coconutLeaves, hardness: 0.22, score: 4, drop: COCONUT, tint: [65, 154, 71] }),
+  d({ id: BANANA_LEAVES, name: 'Banana Palm Leaves', side: T.bananaLeaves, hardness: 0.22, score: 4, drop: BANANA, tint: [100, 174, 58] }),
+  d({ id: VINE, name: 'Jungle Vine', side: T.vine, hardness: 0.1, score: 2, solid: false, drop: 0, tint: [58, 124, 48] }),
+  d({ id: COCONUT, name: 'Coconut', side: T.coconut, hardness: 1, score: 12, solid: false, breakable: false, drop: 0, tint: [126, 91, 58] }),
+  d({ id: BANANA, name: 'Banana', side: T.banana, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [240, 205, 66] }),
+  d({ id: DRY_BLOOM, name: 'Dried Desert Bloom', side: T.dryBloom, hardness: 0.06, score: 3, solid: false, tint: [184, 128, 81] }),
+  d({ id: DESERT_THISTLE, name: 'Desert Thistle', side: T.desertThistle, hardness: 0.08, score: 3, solid: false, tint: [172, 143, 85] }),
+  d({ id: BIRD_NEST, name: 'Twig Nest', side: T.birdNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [102, 68, 42] }),
+  d({ id: CHICKEN_NEST, name: 'Straw Nest', side: T.chickenNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [208, 173, 83] }),
   d({ id: CRAFTING_TABLE, name: 'Workbench', top: T.craftingTableTop, side: T.craftingTableSide, bottom: T.planks, hardness: 0.8, score: 8, tint: [180, 140, 85] }),
 ];
 
@@ -485,7 +523,7 @@ export const isOpaque = (id: number) =>
     isCutout(id) ||
     isPlant(id) ||
     id === TURTLE_EGG ||
-    id === PENGUIN_EGG
+    id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST
   );
 export const isSolid = (id: number) => BLOCKS[id]?.solid ?? false;
 export const isBreakable = (id: number) => BLOCKS[id]?.breakable ?? false;

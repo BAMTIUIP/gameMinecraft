@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { World } from './world';
 import { WY } from './world';
-import { SAND, WATER, isSolid } from './blocks';
+import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
 import type { TKey } from './i18n';
 
 export type MobId =
@@ -24,7 +24,12 @@ export type MobId =
   | 'cat'
   | 'archer'
   | 'spiderling'
-  | 'calf';
+  | 'calf'
+  | 'lizard'
+  | 'camel'
+  | 'seal'
+  | 'monkey'
+  | 'jellyfish';
 
 export type MobDef = {
   id: MobId;
@@ -57,7 +62,8 @@ export const MOBS: Record<MobId, MobDef> = {
   pig: { id: 'pig', nameKey: 'mob_pig', hostile: false, hp: 10, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.9, score: 18, level: 0, body: '#eaa0a8', accent: '#f4bcc2', legs: '#c9757f' },
   sheep: { id: 'sheep', nameKey: 'mob_sheep', hostile: false, hp: 10, speed: 1.4, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.95, score: 20, level: 0, body: '#e9e6dd', accent: '#d8c8b4', legs: '#5a4c42' },
   cow: { id: 'cow', nameKey: 'mob_cow', hostile: false, hp: 18, speed: 1.25, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.25, score: 26, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
-  calf: { id: 'calf', nameKey: 'mob_calf', hostile: false, hp: 8, speed: 1.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.65, score: 14, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
+  calf: { id: 'calf', nameKey: 'mob_calf', hostile: false, hp: 8, speed: 1.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.82, score: 14, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
+  lizard: { id: 'lizard', nameKey: 'mob_lizard', hostile: false, hp: 4, speed: 3.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.65, score: 12, level: 0, body: '#74a95e', accent: '#b5cb7b', legs: '#4b7a43' },
   chicken: { id: 'chicken', nameKey: 'mob_chicken', hostile: false, hp: 6, speed: 1.7, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.6, score: 12, level: 0, body: '#f2efe6', accent: '#e2483a', legs: '#f3b942' },
   zombie: { id: 'zombie', nameKey: 'mob_zombie', hostile: true, hp: 22, speed: 2.25, damage: 7, cooldown: 1.1, reach: 1.5, burns: true, scale: 1, score: 120, level: 1, body: '#4a8a4a', accent: '#3d6fa8', legs: '#2f4f7a' },
   skeleton: { id: 'skeleton', nameKey: 'mob_skeleton', hostile: true, hp: 18, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: true, scale: 1, score: 150, level: 2, body: '#d8d6cc', accent: '#b6b3a8', legs: '#c2bfb4' },
@@ -65,6 +71,10 @@ export const MOBS: Record<MobId, MobDef> = {
   spiderling: { id: 'spiderling', nameKey: 'mob_spider', hostile: true, hp: 5, speed: 3.6, damage: 1, cooldown: 0.9, reach: 1.2, burns: true, scale: 0.4, score: 40, level: 0, body: '#3a2320', accent: '#c4342a', legs: '#2a1a17' },
   creeper: { id: 'creeper', nameKey: 'mob_creeper', hostile: true, hp: 20, speed: 2.45, damage: 26, cooldown: 3, reach: 2.2, burns: true, scale: 1, score: 220, level: 3, body: '#5ac45a', accent: '#2f6b2f', legs: '#4aa84a', explodes: true },
   trader: { id: 'trader', nameKey: 'mob_trader', hostile: false, hp: 9999, speed: 1.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1, score: 0, level: 0, body: '#7a4bb8', accent: '#c9a24a', legs: '#4a2c80' },
+  camel: { id: 'camel', nameKey: 'mob_camel', hostile: false, hp: 24, speed: 1.3, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 34, level: 0, body: '#c9a26a', accent: '#e3bb82', legs: '#9c764b' },
+  seal: { id: 'seal', nameKey: 'mob_seal', hostile: false, hp: 16, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.9, score: 28, level: 0, body: '#83949a', accent: '#b9c8c9', legs: '#596972', aquatic: true },
+  monkey: { id: 'monkey', nameKey: 'mob_monkey', hostile: false, hp: 10, speed: 2.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 23, level: 0, body: '#8b6444', accent: '#d3a97c', legs: '#674729' },
+  jellyfish: { id: 'jellyfish', nameKey: 'mob_jellyfish', hostile: false, hp: 4, speed: 1.1, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.7, score: 13, level: 0, body: '#d38cdd', accent: '#f5b9f0', legs: '#b674cb', aquatic: true },
   fish: { id: 'fish', nameKey: 'mob_fish', hostile: false, hp: 4, speed: 1.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.5, score: 14, level: 0, body: '#5e9cd8', accent: '#f4c842', legs: '#3f6ea8', aquatic: true },
   crab: { id: 'crab', nameKey: 'mob_crab', hostile: false, hp: 8, speed: 1.9, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.62, score: 22, level: 0, body: '#d85a3a', accent: '#f2836a', legs: '#a83c22' },
   turtle: { id: 'turtle', nameKey: 'mob_turtle', hostile: false, hp: 16, speed: 0.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.8, score: 30, level: 0, body: '#4d8c5a', accent: '#7ab88a', legs: '#3a6a44' },
@@ -123,8 +133,10 @@ export type Mob = {
   shellT: number;
   /** crab: >0 while buried in sand */
   buried: number;
-  /** bird colour variant index (assigned at spawn) */
+  /** bird colour/proportion variant index (assigned at spawn) */
   variant: number;
+  /** size multiplier for bird / fish models and collision boxes */
+  modelSize: number;
   /** parts hidden when a turtle retreats into its shell */
   retractParts: THREE.Object3D[];
   /** generic AI task state (bees: 0 roam, 1 pollinating, 2 flying to hive) */
@@ -133,9 +145,18 @@ export type Mob = {
   taskY: number;
   taskZ: number;
   taskT: number;
+  forageCd: number;
+  drinkCd: number;
+  /** elapsed seconds of the current bite animation */
+  feedClock: number;
+  /** the plant that was present when chewing began */
+  feedFoodId: number;
+  /** animated lower jaw on grazing species */
+  feedJaw: THREE.Object3D | null;
 };
 
 const GRAV = 26;
+const CHEW_SECONDS = 4.6;
 
 function box(w: number, h: number, d: number, color: string, mats: THREE.MeshLambertMaterial[]) {
   const m = new THREE.MeshLambertMaterial({ color });
@@ -149,6 +170,15 @@ function px2(g: THREE.Group, mats: THREE.MeshLambertMaterial[], x: number, y: nu
   m.position.set(x, y, z);
   g.add(m);
 }
+
+/** Proportions distinguish clownfish, pike, crucian carp, minnows and tiny fry. */
+const FISH_VARIANTS = [
+  { body: '#ed8231', fin: '#332e38', belly: '#fff4dc', size: 1.05, length: 1, girth: 1.1, dorsal: 1 }, // clownfish
+  { body: '#738953', fin: '#405b39', belly: '#b8bf80', size: 1.5, length: 1.8, girth: 0.62, dorsal: 0.7 }, // pike
+  { body: '#d5a648', fin: '#997048', belly: '#ebd394', size: 1.35, length: 1.05, girth: 1.5, dorsal: 1.3 }, // crucian carp
+  { body: '#8299a8', fin: '#586e7c', belly: '#c4d0ce', size: 0.7, length: 1.15, girth: 0.65, dorsal: 0.65 }, // minnow
+  { body: '#a6c6bc', fin: '#799e9c', belly: '#d4dfd1', size: 0.43, length: 0.75, girth: 0.6, dorsal: 0.6 }, // fry
+] as const;
 
 /** blocky Minecraft-ish silhouettes assembled from boxes */
 function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | null; legs: THREE.Object3D[]; mats: THREE.MeshLambertMaterial[] } {
@@ -187,19 +217,45 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
 
   if (def.id === 'fish') {
     const body = box(0.3, 0.3, 0.6, def.body, mats);
-    body.position.y = 0.3;
+    body.position.y = 0.31;
+    body.userData.fishBody = true;
     g.add(body);
-    const tail = box(0.08, 0.26, 0.2, def.accent, mats);
-    tail.position.set(0, 0.3, 0.42);
-    g.add(tail);
-    legs.push(tail); // animated like a leg → wagging tail
-    const fin = box(0.06, 0.16, 0.2, def.accent, mats);
-    fin.position.set(0, 0.5, 0);
+    const tailJoint = new THREE.Group();
+    const tail = box(0.07, 0.25, 0.22, def.legs, mats);
+    tail.position.z = 0.09;
+    tailJoint.add(tail);
+    tailJoint.position.set(0, 0.31, 0.27);
+    g.add(tailJoint);
+    legs.push(tailJoint);
+    const fin = box(0.07, 0.16, 0.22, def.legs, mats);
+    fin.position.set(0, 0.53, 0);
+    fin.userData.fishDorsal = true;
     g.add(fin);
     for (const s of [-1, 1]) {
-      const eye = box(0.05, 0.05, 0.05, '#20301f', mats);
-      eye.position.set(s * 0.17, 0.36, -0.26);
+      const sideFin = box(0.11, 0.06, 0.16, def.legs, mats);
+      sideFin.position.set(s * 0.16, 0.25, 0.09);
+      sideFin.userData.fishSideFin = true;
+      g.add(sideFin);
+      const eye = box(0.055, 0.055, 0.055, '#18252a', mats);
+      eye.position.set(s * 0.16, 0.37, -0.22);
+      eye.userData.fishEye = true;
       g.add(eye);
+    }
+    return { group: g, head: null, legs, mats };
+  }
+
+  if (def.id === 'jellyfish') {
+    const bell = box(0.55, 0.24, 0.55, def.body, mats);
+    bell.position.y = 0.55;
+    g.add(bell);
+    const crown = box(0.36, 0.12, 0.38, def.accent, mats);
+    crown.position.y = 0.71;
+    g.add(crown);
+    for (const s of [-1, 1]) for (const z of [-0.17, 0.17]) {
+      const tentacle = box(0.05, 0.42, 0.05, def.legs, mats);
+      tentacle.position.set(s * 0.18, 0.27, z);
+      g.add(tentacle);
+      legs.push(tentacle);
     }
     return { group: g, head: null, legs, mats };
   }
@@ -284,9 +340,10 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
   }
 
   if (def.id === 'bird') {
-    // small songbird: round body, wings, tail feathers, yellow chest
+    // Songbirds have different body lengths and tail feathers per colour variant.
     const body = box(0.3, 0.26, 0.4, def.body, mats);
     body.position.y = 0.3;
+    body.userData.birdBody = true;
     g.add(body);
     const chest = box(0.2, 0.18, 0.08, def.accent, mats);
     chest.position.set(0, 0.26, -0.22);
@@ -301,12 +358,18 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     const tail = box(0.14, 0.05, 0.2, def.legs, mats);
     tail.position.set(0, 0.34, 0.28);
     tail.rotation.x = 0.35;
+    tail.userData.birdTail = true;
     g.add(tail);
     for (const s of [-1, 1]) {
-      const wing = box(0.06, 0.16, 0.3, def.legs, mats);
-      wing.position.set(s * 0.19, 0.32, 0);
-      g.add(wing);
-      legs.push(wing); // wings flap via the leg animation channel
+      // Pivot at the shoulder, not at the centre of the feather: the whole
+      // wing lifts and lowers instead of spinning in place like a leg.
+      const shoulder = new THREE.Group();
+      shoulder.position.set(s * 0.14, 0.37, 0);
+      const wing = box(0.3, 0.045, 0.24, def.legs, mats);
+      wing.position.x = s * 0.14;
+      shoulder.add(wing);
+      g.add(shoulder);
+      legs.push(shoulder);
       px2(g, mats, s * 0.07, 0.52, -0.26, '#20301f');
     }
     return { group: g, head, legs, mats };
@@ -333,19 +396,18 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     const muzzle = box(0.18, 0.12, 0.08, def.accent, mats);
     muzzle.position.set(0, 0.68, -0.7);
     g.add(muzzle);
-    // long continuous tail: segments overlap so there are no air gaps.
-    // body ends at z=+0.43, y≈0.5 — the tail root starts inside it.
-    const tail1 = box(0.1, 0.1, 0.34, def.body, mats);
-    tail1.position.set(0, 0.54, 0.56); // root buried in the rump
-    tail1.rotation.x = 0.3;
-    g.add(tail1);
-    const tail2 = box(0.09, 0.09, 0.3, def.body, mats);
-    tail2.position.set(0, 0.65, 0.78); // overlaps tail1's end
-    tail2.rotation.x = 0.55;
-    g.add(tail2);
-    const tailTip = box(0.085, 0.085, 0.2, '#2a2a30', mats);
-    tailTip.position.set(0, 0.76, 0.92); // overlaps tail2's end
-    tailTip.rotation.x = 0.75;
+    // Keep the tail rooted inside the rump (body ends at z=0.43) and
+    // overlap each section with the next so the raised tip stays attached.
+    const tailRoot = box(0.12, 0.12, 0.48, def.body, mats);
+    tailRoot.position.set(0, 0.54, 0.6); // z=0.36..0.84, inside the body
+    g.add(tailRoot);
+    const tailBend = box(0.12, 0.12, 0.34, def.body, mats);
+    tailBend.position.set(0, 0.63, 0.85);
+    tailBend.rotation.x = -0.8; // negative x raises the tail toward +z
+    g.add(tailBend);
+    const tailTip = box(0.12, 0.12, 0.2, '#2a2a30', mats);
+    tailTip.position.set(0, 0.76, 0.95);
+    tailTip.rotation.x = -0.8;
     g.add(tailTip);
     // spots
     for (const [sx2, sy2, sz2] of [
@@ -421,6 +483,101 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
         g.add(leg);
         legs.push(leg);
       }
+    return { group: g, head, legs, mats };
+  }
+
+  if (def.id === 'lizard') {
+    // Low, fast ground-dweller with a continuous tapering tail.
+    const body = box(0.32, 0.18, 0.54, def.body, mats);
+    body.position.y = 0.18;
+    g.add(body);
+    const hd = box(0.29, 0.16, 0.26, def.body, mats);
+    hd.position.set(0, 0.21, -0.36);
+    g.add(hd);
+    head = hd;
+    const jaw = box(0.22, 0.06, 0.16, def.accent, mats);
+    jaw.position.set(0, 0.13, -0.44);
+    g.add(jaw);
+    for (const s of [-1, 1]) {
+      px2(g, mats, s * 0.1, 0.27, -0.49, '#202c1c');
+      for (const z of [-0.16, 0.18]) {
+        const leg = box(0.08, 0.12, 0.12, def.legs, mats);
+        leg.position.set(s * 0.17, 0.08, z);
+        g.add(leg);
+        legs.push(leg);
+      }
+    }
+    const tail = box(0.13, 0.12, 0.34, def.body, mats);
+    tail.position.set(0, 0.17, 0.35);
+    g.add(tail);
+    const tip = box(0.09, 0.08, 0.28, def.body, mats);
+    tip.position.set(0, 0.17, 0.61);
+    g.add(tip);
+    return { group: g, head, legs, mats };
+  }
+
+  if (def.id === 'camel') {
+    const torso = box(0.68, 0.56, 1.15, def.body, mats);
+    torso.position.y = 1.08; g.add(torso);
+    for (const z of [-0.22, 0.25]) {
+      const hump = box(0.53, 0.29, 0.38, def.accent, mats);
+      hump.position.set(0, 1.48, z); g.add(hump);
+    }
+    const neck = box(0.24, 0.9, 0.27, def.body, mats);
+    neck.position.set(0, 1.64, -0.48); g.add(neck);
+    const hd = box(0.38, 0.29, 0.46, def.body, mats);
+    hd.position.set(0, 2.11, -0.67); g.add(hd); head = hd;
+    const muzzle = box(0.27, 0.15, 0.25, def.accent, mats);
+    muzzle.position.set(0, 2.01, -0.94); g.add(muzzle);
+    for (const side of [-1, 1]) {
+      px2(g, mats, side * 0.17, 2.17, -0.88, '#38281c');
+      const ear = box(0.09, 0.19, 0.1, def.body, mats);
+      ear.position.set(side * 0.19, 2.31, -0.54); g.add(ear);
+      for (const z of [-0.38, 0.38]) {
+        const leg = box(0.17, 0.8, 0.18, def.legs, mats);
+        leg.position.set(side * 0.22, 0.4, z); g.add(leg); legs.push(leg);
+      }
+    }
+    return { group: g, head, legs, mats };
+  }
+
+  if (def.id === 'seal') {
+    const torso = box(0.62, 0.38, 0.97, def.body, mats);
+    torso.position.y = 0.3; g.add(torso);
+    const hd = box(0.5, 0.36, 0.43, def.body, mats);
+    hd.position.set(0, 0.38, -0.58); g.add(hd); head = hd;
+    const snout = box(0.28, 0.14, 0.18, def.accent, mats);
+    snout.position.set(0, 0.31, -0.83); g.add(snout);
+    for (const side of [-1, 1]) {
+      px2(g, mats, side * 0.17, 0.46, -0.81, '#243038');
+      const flipper = box(0.2, 0.09, 0.36, def.legs, mats);
+      flipper.position.set(side * 0.34, 0.12, -0.09); g.add(flipper); legs.push(flipper);
+      const rear = box(0.19, 0.07, 0.35, def.legs, mats);
+      rear.position.set(side * 0.12, 0.16, 0.61); g.add(rear);
+    }
+    return { group: g, head, legs, mats };
+  }
+
+  if (def.id === 'monkey') {
+    const torso = box(0.38, 0.52, 0.34, def.body, mats);
+    torso.position.y = 0.55; g.add(torso);
+    const hd = box(0.43, 0.36, 0.38, def.body, mats);
+    hd.position.set(0, 1.01, -0.07); g.add(hd); head = hd;
+    const face = box(0.29, 0.23, 0.07, def.accent, mats);
+    face.position.set(0, 0.98, -0.27); g.add(face);
+    for (const side of [-1, 1]) {
+      const ear = box(0.1, 0.14, 0.12, def.accent, mats);
+      ear.position.set(side * 0.26, 1.06, -0.03); g.add(ear);
+      px2(g, mats, side * 0.09, 1.04, -0.32, '#261e1b');
+      const arm = box(0.12, 0.49, 0.13, def.legs, mats);
+      arm.position.set(side * 0.29, 0.51, -0.08); g.add(arm); legs.push(arm);
+      const foot = box(0.16, 0.3, 0.18, def.legs, mats);
+      foot.position.set(side * 0.13, 0.16, 0.08); g.add(foot); legs.push(foot);
+    }
+    const tail = box(0.11, 0.11, 0.55, def.body, mats);
+    tail.position.set(0, 0.65, 0.39); tail.rotation.x = -0.2; g.add(tail);
+    const tailEnd = box(0.1, 0.24, 0.11, def.body, mats);
+    tailEnd.position.set(0, 0.82, 0.65); g.add(tailEnd);
     return { group: g, head, legs, mats };
   }
 
@@ -595,27 +752,36 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     }
 
     if (def.id === 'sheep') {
-      // Face is ALWAYS warm tan — recognisable on white, black or pink wool.
-      const faceMat = new THREE.MeshLambertMaterial({ color: '#b89878' });
+      // A small wool-framed face, with gentle dark eyes instead of large
+      // white sclerae. Keep the skin details tan across every wool variant.
+      const faceMat = new THREE.MeshLambertMaterial({ color: '#c7aa88' });
       mats.push(faceMat);
-      const face = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.38, 0.08), faceMat);
-      face.position.set(0, 0.98, -1.0);
+      const face = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.32, 0.08), faceMat);
+      face.position.set(0, 0.94, -1.0);
       face.userData.sheepFace = true;
       g.add(face);
+      const fringe = box(0.42, 0.12, 0.12, def.body, mats);
+      fringe.position.set(0, 1.13, -1.03);
+      g.add(fringe); // wool tuft follows the sheep's coat colour
       for (const s of [-1, 1]) {
-        // white sclera + dark pupil → readable eyes at any wool colour
-        const sclera = box(0.1, 0.1, 0.04, '#f4f4f0', mats);
-        sclera.position.set(s * 0.11, 1.06, -1.05);
-        sclera.userData.sheepFace = true;
-        g.add(sclera);
-        px2(g, mats, s * 0.12, 1.06, -1.08, '#20301f');
-        const ear = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.07), faceMat);
-        ear.position.set(s * 0.28, 1.08, -0.78);
+        const eye = box(0.055, 0.055, 0.04, '#3b302b', mats);
+        eye.position.set(s * 0.105, 1.01, -1.06);
+        eye.userData.sheepFace = true;
+        g.add(eye);
+        const ear = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.08), faceMat);
+        ear.position.set(s * 0.28, 1.04, -0.8);
+        ear.rotation.z = -s * 0.2;
         ear.userData.sheepFace = true;
         g.add(ear);
       }
-      // soft pink nose
-      px2(g, mats, 0, 0.88, -1.06, '#c88a92');
+      const muzzle = box(0.19, 0.12, 0.09, '#e2c9ae', mats);
+      muzzle.position.set(0, 0.855, -1.06);
+      muzzle.userData.sheepFace = true;
+      g.add(muzzle);
+      const nose = box(0.055, 0.045, 0.035, '#a57978', mats);
+      nose.position.set(0, 0.89, -1.12);
+      nose.userData.sheepFace = true;
+      g.add(nose);
     }
 
     const legW = isCow ? 0.2 : isCalf ? 0.13 : 0.2;
@@ -734,12 +900,41 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
   return { group: g, head, legs, mats };
 }
 
+/** Rotate the whole face (eyes, muzzle and ears included), not just the head
+ * cube. The neck is included on camels so they can reach down to eat. */
+function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId) {
+  const camel = id === 'camel';
+  const pivot = new THREE.Group();
+  const hingeY = camel ? 1.04 : head.position.y + 0.08;
+  const hingeZ = camel ? -0.22 : head.position.z + 0.22;
+  const headY = head.position.y, headZ = head.position.z;
+  pivot.position.set(0, hingeY, hingeZ);
+  for (const part of [...group.children]) {
+    if (part === head || (camel
+      ? part.position.z < -0.38 && part.position.y > 0.95
+      : part.position.z < headZ + 0.07 && part.position.y > headY - 0.32)) {
+      // Preserve the previous local coordinates while changing parents.
+      group.remove(part);
+      part.position.sub(pivot.position);
+      pivot.add(part);
+    }
+  }
+  group.add(pivot);
+  const mouth = box(camel ? 0.22 : 0.2, 0.07, 0.14, camel ? '#9c764b' : '#675543', mats);
+  const muzzleY = camel ? 2.01 : headY - 0.13;
+  const muzzleZ = camel ? -1.02 : headZ - 0.33;
+  mouth.position.set(0, muzzleY - hingeY - 0.1, muzzleZ - hingeZ);
+  mouth.userData.restY = mouth.position.y;
+  pivot.add(mouth);
+  return { pivot, mouth };
+}
+
 export class MobSystem {
   mobs: Mob[] = [];
   private scene: THREE.Scene;
   private world: World;
   private pool = new Map<MobId, THREE.Group[]>();
-  maxMobs = 40;
+  maxMobs = 60; // room for local bird/bee flocks, fish schools and night mobs
   private tick = 0;
 
   constructor(scene: THREE.Scene, world: World) {
@@ -760,19 +955,56 @@ export class MobSystem {
 
   count(hostile: boolean) {
     let n = 0;
-    for (const m of this.mobs) if (m.alive && m.def.hostile === hostile && m.id !== 'fish') n++;
+    for (const m of this.mobs) if (m.alive && m.def.hostile === hostile && !m.def.aquatic) n++;
     return n;
   }
 
-  spawn(id: MobId, x: number, y: number, z: number): Mob | null {
+  spawn(id: MobId, x: number, y: number, z: number, fishVariant?: number): Mob | null {
     // fish live in a separate budget — schools shouldn't crowd out land life
     if (id === 'fish') {
       let fishCount = 0;
       for (const m of this.mobs) if (m.alive && m.id === 'fish') fishCount++;
-      if (fishCount >= 24) return null;
+      if (fishCount >= 36) return null;
+    } else if (id === 'jellyfish') {
+      if (this.mobs.filter((m) => m.alive && m.id === 'jellyfish').length >= 7) return null;
     } else if (this.mobs.length >= this.maxMobs) return null;
     const def = MOBS[id];
-    const { group, head, legs, mats } = buildBody(def);
+    let { group, head, legs, mats } = buildBody(def);
+    if (id === 'jellyfish') for (const mat of mats) { mat.transparent = true; mat.opacity = 0.78; mat.depthWrite = false; }
+    if (id === 'fish') {
+      const vi = fishVariant === undefined ? Math.floor(Math.random() * (FISH_VARIANTS.length - 1)) :
+        Math.max(0, Math.min(FISH_VARIANTS.length - 1, fishVariant));
+      const v = FISH_VARIANTS[vi];
+      group.userData.variant = vi;
+      group.userData.modelSize = v.size;
+      for (const part of group.children) {
+        if (part.userData.fishBody) {
+          part.scale.set(v.girth, v.girth, v.length);
+        } else if (part.userData.fishDorsal) {
+          part.scale.y = v.dorsal;
+          part.position.y = 0.46 + v.girth * 0.07;
+        } else if (part.userData.fishEye) {
+          part.position.x = Math.sign(part.position.x) * (0.15 * v.girth + 0.015);
+          part.position.z = -0.22 * v.length;
+        } else if (part.userData.fishSideFin) part.position.x = Math.sign(part.position.x) * (0.15 * v.girth + 0.03);
+      }
+      legs[0].position.z = 0.28 * v.length;
+      // Each mesh has its own material, so tinting doesn't colour eyes.
+      for (const mat of mats) {
+        const color = `#${mat.color.getHexString()}`;
+        if (color === def.body) mat.color.set(v.body);
+        else if (color === def.accent || color === def.legs) mat.color.set(v.fin);
+      }
+      // Distinctive clownfish white bands; a pale belly on carp and pike.
+      if (vi === 0) for (const z of [-0.12, 0.12]) {
+        const stripe = box(0.31 * v.girth, 0.31 * v.girth, 0.08, v.belly, mats);
+        stripe.position.set(0, 0.31, z); group.add(stripe);
+      }
+      else if (vi === 1 || vi === 2) {
+        const belly = box(0.23 * v.girth, 0.07, 0.4 * v.length, v.belly, mats);
+        belly.position.set(0, 0.18 * v.girth + 0.08, 0); group.add(belly);
+      }
+    }
     // turtles can retract head + legs into the shell
     if (id === 'turtle') {
       // head-adjacent parts sit forward of z<-0.55; legs are tracked separately
@@ -783,35 +1015,40 @@ export class MobSystem {
       // stash on the mob after creation (see below)
       (group.userData as { retract?: THREE.Object3D[] }).retract = retract;
     }
-    // birds & parrots: pick a colour variant at spawn
+    // Birds vary in silhouette as well as colour: tiny finches, medium
+    // songbirds, long-tailed parrots and a noticeably larger dove.
     if (id === 'bird') {
-      const variants: Array<[string, string, string]> = [
-        ['#4d7dd8', '#f4c842', '#3a5ca8'], // bluebird
-        ['#d84d4d', '#f4e8d8', '#a83a3a'], // robin red
-        ['#f4c832', '#2a2a30', '#c89a20'], // goldfinch
-        ['#58b858', '#f45858', '#3a8a3a'], // green parrot (red chest)
-        ['#e858a8', '#58d8e8', '#b83a80'], // tropical parrot
-        ['#8a8a92', '#f4f4f8', '#5a5a64'], // dove grey
+      const variants: Array<{ colors: [string, string, string]; size: number; length: number; tail: number }> = [
+        { colors: ['#4d7dd8', '#f4c842', '#3a5ca8'], size: 0.95, length: 1, tail: 1 }, // bluebird
+        { colors: ['#d84d4d', '#f4e8d8', '#a83a3a'], size: 1.2, length: 1.15, tail: 0.85 }, // robin
+        { colors: ['#f4c832', '#2a2a30', '#c89a20'], size: 0.85, length: 0.9, tail: 0.8 }, // goldfinch
+        { colors: ['#58b858', '#f45858', '#3a8a3a'], size: 1.5, length: 1.3, tail: 2.3 }, // green parrot
+        { colors: ['#e858a8', '#58d8e8', '#b83a80'], size: 1.35, length: 1.2, tail: 2 }, // tropical parrot
+        { colors: ['#8a8a92', '#f4f4f8', '#5a5a64'], size: 1.7, length: 1.5, tail: 1.2 }, // dove
       ];
       const vi = Math.floor(Math.random() * variants.length);
-      const [b, a, l] = variants[vi];
-      // recolour: body → b, accent → a, legs/wings → l (skip eyes/beak darks)
-      for (const m of mats) {
-        const hex = `#${m.color.getHexString()}`;
-        if (hex === MOBS.bird.body) m.color.set(b);
-        else if (hex === MOBS.bird.accent) m.color.set(a);
-        else if (hex === MOBS.bird.legs) m.color.set(l);
+      const { colors: [b, a, l], size, length, tail: tailLength } = variants[vi];
+      // Recolour only plumage, not the beak or eyes.
+      for (const mat of mats) {
+        const hex = `#${mat.color.getHexString()}`;
+        if (hex === MOBS.bird.body) mat.color.set(b);
+        else if (hex === MOBS.bird.accent) mat.color.set(a);
+        else if (hex === MOBS.bird.legs) mat.color.set(l);
       }
-      (group.userData as { variant?: number }).variant = vi;
-      // parrots (variants 3-4) get a longer tail — stretch the tail feathers
-      if (vi === 3 || vi === 4) {
-        group.traverse((o) => {
-          if (o !== group && o.position.z > 0.2) {
-            o.scale.z = 2.2;
-            o.position.z += 0.14;
-          }
-        });
+      group.userData.variant = vi;
+      group.userData.modelSize = size;
+      // Grow the body backwards so its chest stays joined to the head;
+      // move the tail to the new rump and keep its base overlapping it.
+      for (const part of group.children) {
+        if (part.userData.birdBody) {
+          part.scale.z = length;
+          part.position.z += 0.2 * (length - 1);
+        } else if (part.userData.birdTail) {
+          part.scale.z = tailLength;
+          part.position.z = 0.28 + 0.4 * (length - 1) + 0.1 * (tailLength - 1);
+        }
       }
+      for (const shoulder of legs) shoulder.position.z += 0.2 * (length - 1);
     }
     // cow and calf: color variants (Holstein spotted, brown/cream, ginger, dark chocolate)
     if (id === 'cow' || id === 'calf') {
@@ -836,6 +1073,14 @@ export class MobSystem {
           m.color.set(cv.body);
         }
       });
+    }
+    if (id === 'lizard' && ['desert', 'canyon'].includes(this.world.biomeAt(Math.floor(x), Math.floor(z)))) {
+      for (const mat of mats) {
+        const hex = `#${mat.color.getHexString()}`;
+        if (hex === def.body) mat.color.set('#c4a46e');
+        else if (hex === def.accent) mat.color.set('#e0c591');
+        else if (hex === def.legs) mat.color.set('#9b7952');
+      }
     }
     // sheep: rare wool colours (black 6%, brown 5%, pink 2%) — face stays tan
     if (id === 'sheep') {
@@ -869,7 +1114,14 @@ export class MobSystem {
         if (c.r + c.g + c.b > 1.1) c.setRGB(0.93, 0.95, 0.99);
       }
     }
-    group.scale.setScalar(def.scale);
+    let feedJaw: THREE.Object3D | null = null;
+    if (head && (id === 'cow' || id === 'calf' || id === 'sheep' || id === 'pig' || id === 'camel')) {
+      const rig = makeFeedingHead(group, head, mats, id);
+      head = rig.pivot;
+      feedJaw = rig.mouth;
+    }
+    const modelSize = (group.userData.modelSize as number | undefined) ?? 1;
+    group.scale.setScalar(def.scale * modelSize);
     group.position.set(x, y, z);
     this.scene.add(group);
     const mob: Mob = {
@@ -908,12 +1160,18 @@ export class MobSystem {
       shellT: 0,
       buried: 0,
       variant: 0,
+      modelSize,
       retractParts: [] as THREE.Object3D[],
       task: 0,
       taskX: 0,
       taskY: 0,
       taskZ: 0,
       taskT: 0,
+      forageCd: 6 + Math.random() * 7,
+      drinkCd: 8 + Math.random() * 8,
+      feedClock: 0,
+      feedFoodId: 0,
+      feedJaw,
     };
     // wire up per-species extras prepared above
     mob.retractParts = ((group.userData as { retract?: THREE.Object3D[] }).retract ?? []) as THREE.Object3D[];
@@ -949,15 +1207,36 @@ export class MobSystem {
   }
 
   mobHalf(m: Mob) {
-    return (m.id === 'spider' || m.id === 'spiderling' ? 0.45 : 0.32) * m.def.scale;
+    return (m.id === 'spider' || m.id === 'spiderling' ? 0.45 : 0.32) * m.def.scale * m.modelSize;
   }
   mobHeight(m: Mob) {
-    return (m.id === 'spider' || m.id === 'spiderling' || m.id === 'chicken' ? 0.9 : m.def.hostile ? 1.85 : 1.3) * m.def.scale;
+    return (m.id === 'fish' || m.id === 'jellyfish' ? 0.75 : m.id === 'spider' || m.id === 'spiderling' || m.id === 'chicken' ? 0.9 : m.def.hostile ? 1.85 : m.id === 'camel' ? 2.4 : 1.3) * m.def.scale * m.modelSize;
   }
 
   /** true when the mob's body is submerged */
   private mobInWater(m: Mob) {
     return this.world.get(Math.floor(m.x), Math.floor(m.y + this.mobHeight(m) * 0.5), Math.floor(m.z)) === WATER;
+  }
+
+  private pastureBlocked(m: Mob, x: number, z: number) {
+    if (m.id !== 'cow' && m.id !== 'calf' && m.id !== 'sheep' && m.id !== 'pig') return false;
+    const bx = Math.floor(x), bz = Math.floor(z);
+    const nearFeet = this.world.get(bx, Math.floor(m.y - 0.45), bz);
+    return this.world.isWinter(bx, bz) || nearFeet === WATER || isLeafId(nearFeet) || isLogId(nearFeet);
+  }
+
+  private canStep(m: Mob, x: number, z: number) {
+    if (m.id !== 'cow' && m.id !== 'calf' && m.id !== 'sheep' && m.id !== 'pig') return true;
+    // Hooves can negotiate a dirt ledge, not a trunk or leaf canopy.
+    const block = this.world.get(Math.floor(x), Math.floor(m.y + 0.3), Math.floor(z));
+    return block === GRASS || block === DIRT || block === STONE || block === SAND || block === VOLCANIC_STONE;
+  }
+
+  private vineNear(x: number, y: number, z: number) {
+    for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) {
+      if (this.world.get(Math.floor(x) + dx, Math.floor(y + 0.4), Math.floor(z) + dz) === VINE) return true;
+    }
+    return false;
   }
 
   /** axis-swept AABB movement: no more corner clipping or sinking into terrain */
@@ -1025,22 +1304,27 @@ export class MobSystem {
     const mz = Math.max(-cap, Math.min(cap, m.vz * dt));
 
     if (mx !== 0) {
-      if (!this.collidesBox(m.x + mx, m.y, m.z, half, height)) m.x += mx;
-      else if (m.onGround && !this.collidesBox(m.x + mx, m.y + 1.02, m.z, half, height)) {
+      if (this.pastureBlocked(m, m.x + mx, m.z)) m.vx = 0;
+      else if (!this.collidesBox(m.x + mx, m.y, m.z, half, height)) m.x += mx;
+      else if (m.onGround && this.canStep(m, m.x + mx, m.z) && !this.collidesBox(m.x + mx, m.y + 1.02, m.z, half, height)) {
         m.x += mx;
         m.y += 1.02;
       } else m.vx = 0;
     }
     if (mz !== 0) {
-      if (!this.collidesBox(m.x, m.y, m.z + mz, half, height)) m.z += mz;
-      else if (m.onGround && !this.collidesBox(m.x, m.y + 1.02, m.z + mz, half, height)) {
+      if (this.pastureBlocked(m, m.x, m.z + mz)) m.vz = 0;
+      else if (!this.collidesBox(m.x, m.y, m.z + mz, half, height)) m.z += mz;
+      else if (m.onGround && this.canStep(m, m.x, m.z + mz) && !this.collidesBox(m.x, m.y + 1.02, m.z + mz, half, height)) {
         m.z += mz;
         m.y += 1.02;
       } else m.vz = 0;
     }
 
-    m.vy -= GRAV * dt;
-    m.vy = Math.max(-28, m.vy);
+    // A flying bird steers its own altitude; gravity would turn every
+    // wingbeat into another hop. Outside flight it glides down to land.
+    if ((m.id !== 'bird' || (m.task !== 9 && m.task !== 12)) && !(m.id === 'monkey' && m.task === 13)) m.vy -= GRAV * dt;
+    m.vy = Math.max(m.id === 'bird' ? -2.5 : -28, m.vy);
+    if (m.id === 'bird' && (m.task === 9 || m.task === 12)) m.onGround = false;
     const my = Math.max(-0.9, Math.min(0.9, m.vy * dt));
     const ny = m.y + my;
     if (!this.collidesBox(m.x, ny, m.z, half, height)) {
@@ -1068,6 +1352,7 @@ export class MobSystem {
     onAttack: (m: Mob, dmg: number) => void,
     onBurnDeath: (m: Mob) => void,
     onRanged?: (m: Mob) => void,
+    onForage?: (x: number, y: number, z: number) => void,
   ) {
     this.tick++;
     // cats scare creepers & spiders — collect their positions once per frame
@@ -1337,18 +1622,194 @@ export class MobSystem {
           }
         }
 
-        // flying birds (not chickens): occasionally take wing toward the wander target
-        if (m.id === 'bird' && m.task !== 9 && Math.random() < mdt * 0.25) {
-          m.task = 9; // airborne
-          m.taskT = 3 + Math.random() * 4;
-          m.vy = 5 + Math.random() * 2;
+        // Grazers deliberately visit plants and water, rather than just
+        // wandering over them. Keep food and drink cooldowns separate.
+        const grazer = ['cow', 'calf', 'sheep', 'pig', 'camel'].includes(m.id);
+        if (grazer) {
+          m.forageCd -= mdt;
+          m.drinkCd -= mdt;
+          if (m.task === 10) {
+            m.think = 1;
+            m.taskT -= mdt;
+            const food = this.world.get(m.taskX, m.taskY, m.taskZ);
+            if (m.taskT <= 0 || food === 0) m.task = 0;
+            else if (m.onGround && Math.hypot(m.tx - m.x, m.tz - m.z) < 1.2 &&
+                Math.abs(m.y - m.taskY) < 2) {
+              // Do not eat on contact. Settle in place for several visible
+              // head dips and bites; the plant remains until the last bite.
+              m.task = 14;
+              m.feedFoodId = food;
+              m.feedClock = 0;
+              m.taskT = CHEW_SECONDS;
+              m.tx = m.x; m.tz = m.z;
+            }
+          } else if (m.task === 14) {
+            m.think = 1;
+            m.tx = m.x; m.tz = m.z;
+            m.feedClock += mdt;
+            m.taskT -= mdt;
+            const food = this.world.get(m.taskX, m.taskY, m.taskZ);
+            if (!m.onGround || food !== m.feedFoodId) {
+              m.task = 0; // the player or another animal took the food
+            } else if (m.taskT <= 0) {
+              if (m.id === 'camel' ? isFlower(food) || food === CACTUS || food === CACTUS_PALE :
+                isFlower(food) || food === TALL_GRASS || food === FERN) {
+                // Eat a cactus from its tip, never leave a floating stalk.
+                let fy = m.taskY;
+                if (food === CACTUS || food === CACTUS_PALE)
+                  while (fy + 1 < WY && this.world.get(m.taskX, fy + 1, m.taskZ) === food) fy++;
+                this.world.set(m.taskX, fy, m.taskZ, 0);
+                onForage?.(m.taskX, fy, m.taskZ);
+                m.hp = Math.min(m.maxHp, m.hp + 0.5);
+              }
+              m.forageCd = 9 + Math.random() * 10;
+              m.task = 0;
+            }
+          } else if (m.task === 11) {
+            m.think = 1;
+            m.taskT -= mdt;
+            if (Math.hypot(m.tx - m.x, m.tz - m.z) < 1.3) {
+              if (m.taskX !== 1) { m.taskX = 1; m.taskT = 2.5; }
+              m.tx = m.x; m.tz = m.z; // pause at the water's edge
+              if (m.taskT < 0) { m.task = 0; m.drinkCd = 16 + Math.random() * 15; }
+            } else if (m.taskT < 0) m.task = 0;
+          } else if (m.onGround && (m.drinkCd <= 0 || m.forageCd <= 0)) {
+            const drinking = m.drinkCd <= 0 && (m.forageCd > 0 || Math.random() < 0.45);
+            for (let tries = 0; tries < 30; tries++) {
+              const bx = Math.floor(m.x + (Math.random() - 0.5) * 11);
+              const bz = Math.floor(m.z + (Math.random() - 0.5) * 11);
+              if (!this.world.hasColumn(bx, bz)) continue;
+              const h = this.world.getHeight(bx, bz);
+              const ground = this.world.get(bx, h, bz);
+              const desert = m.id === 'camel';
+              if (desert ? ground !== SAND : ground !== GRASS) continue;
+              const plant = this.world.get(bx, h + 1, bz);
+              if (drinking) {
+                if (![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dz]) =>
+                  this.world.get(bx + dx, h, bz + dz) === WATER || this.world.get(bx + dx, h - 1, bz + dz) === WATER)) continue;
+                m.tx = bx + 0.5; m.tz = bz + 0.5;
+                m.task = 11; m.taskX = 0;
+                m.taskT = 4 + Math.hypot(m.tx - m.x, m.tz - m.z) / (m.def.speed * 0.5);
+                break;
+              }
+              if (desert ? plant !== CACTUS && plant !== CACTUS_PALE && plant !== DRY_BLOOM && plant !== DESERT_THISTLE :
+                !isFlower(plant) && plant !== TALL_GRASS && plant !== FERN) continue;
+              m.taskX = bx; m.taskY = h + 1; m.taskZ = bz;
+              // Stand beside a cactus instead of attempting to walk through it.
+              let ox = 0, oz = 0;
+              if (plant === CACTUS || plant === CACTUS_PALE) {
+                const sides = [[1,0],[-1,0],[0,1],[0,-1]];
+                sides.sort((a,b) =>
+                  Math.hypot(bx + a[0] + 0.5 - m.x, bz + a[1] + 0.5 - m.z) -
+                  Math.hypot(bx + b[0] + 0.5 - m.x, bz + b[1] + 0.5 - m.z));
+                const side = sides.find(([dx,dz]) => this.world.get(bx + dx, h, bz + dz) === SAND &&
+                  this.world.get(bx + dx, h + 1, bz + dz) === 0);
+                if (!side) continue;
+                [ox, oz] = side;
+              }
+              m.tx = bx + 0.5 + ox; m.tz = bz + 0.5 + oz;
+              m.task = 10;
+              m.taskT = 4 + Math.hypot(m.tx - m.x, m.tz - m.z) / (m.def.speed * 0.5);
+              break;
+            }
+            if (drinking) m.drinkCd = 8; // retry if no shoreline was found
+            else m.forageCd = 9 + Math.random() * 10;
+          }
         }
-        if (m.id === 'bird' && m.task === 9) {
+        if (m.id === 'monkey' && m.task !== 13 && this.vineNear(m.x, m.y, m.z) && Math.random() < mdt * 1.1) {
+          m.task = 13;
+          m.taskT = 3;
+        }
+        if (m.id === 'monkey' && m.task === 13) {
           m.taskT -= mdt;
-          // wings hold altitude: sinusoidal lift, gentle glide forward
-          m.vy = Math.max(m.vy - 4 * mdt, -0.6);
-          if (Math.random() < mdt * 3) m.vy += 2.2; // flap
-          if (m.taskT <= 0 || m.onGround) m.task = 0; // land
+          if (m.taskT <= 0 || !this.vineNear(m.x, m.y, m.z)) {
+            m.task = 0;
+            for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) {
+              const xx = Math.floor(m.x) + dx, zz = Math.floor(m.z) + dz;
+              if (isLeafId(this.world.get(xx, Math.floor(m.y - 0.5), zz))) {
+                m.tx = xx + 0.5; m.tz = zz + 0.5; m.think = 2; m.vy = 2.5;
+              }
+            }
+          } else { m.vy = 2.6; m.onGround = false; }
+        }
+
+        // Lizards skitter away as soon as the player approaches.
+        if (m.id === 'lizard' && dist < 6) {
+          const awayX = (m.x - px) / (dist || 1);
+          const awayZ = (m.z - pz) / (dist || 1);
+          m.tx = m.x + awayX * 9;
+          m.tz = m.z + awayZ * 9;
+          m.think = 0.6;
+        }
+
+        // Birds take off from the ground and cruise above the terrain, rather
+        // than getting a new upward impulse every time they flap their wings.
+        if (m.id === 'bird') {
+          if (m.task !== 9 && m.task !== 12 && m.grow <= 0 && m.onGround && m.jumpCd <= 0 && Math.random() < mdt * 0.35) {
+            const ground = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
+            const ceiling = WY - 2 - this.mobHeight(m);
+            if (ground + 4 < ceiling) {
+              m.task = 9;
+              m.taskT = 7 + Math.random() * 5;
+              m.taskY = Math.min(ceiling, ground + 4 + Math.random() * 3);
+              m.vy = 2.5;
+              const a = Math.random() * Math.PI * 2;
+              m.tx = m.x + Math.cos(a) * 18;
+              m.tz = m.z + Math.sin(a) * 18;
+              m.think = m.taskT;
+            }
+          }
+          if (m.task === 9 && m.grow <= 0 && ((this.tick + i) % 40 === 0)) {
+            // Look for an exposed leaf top to land on, never in mid-air.
+            for (let attempt = 0; attempt < 10; attempt++) {
+              const bx = Math.floor(m.x + (Math.random() - 0.5) * 14);
+              const bz = Math.floor(m.z + (Math.random() - 0.5) * 14);
+              if (!this.world.hasColumn(bx, bz)) continue;
+              const canopy = this.world.topSolidY(bx, bz);
+              if (canopy >= WY - 3 || !isLeafId(this.world.get(bx, canopy, bz)) ||
+                this.world.get(bx, canopy + 1, bz) !== 0) continue;
+              m.task = 12; m.taskT = 7;
+              m.taskY = canopy + 1.05;
+              m.tx = bx + 0.5; m.tz = bz + 0.5; m.think = 8;
+              break;
+            }
+          }
+          if (m.task === 12) {
+            m.taskT -= mdt;
+            if (m.taskT <= 0 || (Math.hypot(m.tx - m.x, m.tz - m.z) < 0.55 && Math.abs(m.y - m.taskY) < 0.65)) {
+              m.task = 0;
+              m.vy = -0.5; m.think = 3.5; m.jumpCd = 3;
+            } else {
+              const desired = Math.max(-2.5, Math.min(3, (m.taskY + 0.3 - m.y) * 2));
+              m.vy += (desired - m.vy) * Math.min(1, mdt * 4);
+            }
+          }
+          if (m.task === 9) {
+            m.taskT -= mdt;
+            if (m.taskT <= 0) {
+              m.task = 0; // glide down with gravity, flapping until touchdown
+              m.vy = Math.min(m.vy, 0);
+              m.jumpCd = 2.5;
+            } else {
+              if (Math.hypot(m.tx - m.x, m.tz - m.z) < 2) {
+                const a = Math.random() * Math.PI * 2;
+                m.tx = m.x + Math.cos(a) * 18;
+                m.tz = m.z + Math.sin(a) * 18;
+              }
+              const toTargetX = m.tx - m.x;
+              const toTargetZ = m.tz - m.z;
+              const targetDist = Math.hypot(toTargetX, toTargetZ) || 1;
+              const aheadX = Math.floor(m.x + (toTargetX / targetDist) * 3);
+              const aheadZ = Math.floor(m.z + (toTargetZ / targetDist) * 3);
+              const terrain = Math.max(
+                this.world.topSolidY(Math.floor(m.x), Math.floor(m.z)),
+                this.world.topSolidY(aheadX, aheadZ),
+              );
+              const targetY = Math.min(WY - 2 - this.mobHeight(m), Math.max(m.taskY, terrain + 4));
+              const desiredVy = Math.max(-1.5, Math.min(3.5, (targetY - m.y) * 1.7));
+              m.vy += (desiredVy - m.vy) * Math.min(1, mdt * 3);
+            }
+          }
         }
 
         // --- calf following mother cow ---
@@ -1379,13 +1840,45 @@ export class MobSystem {
 
         // --- wander ---
         m.think -= mdt;
-        if (m.think <= 0) {
+        if (m.think <= 0 && m.task !== 10 && m.task !== 11 && m.task !== 12 && m.task !== 14) {
           m.think = 2 + Math.random() * 4;
           if (Math.random() < 0.62) {
             const a = Math.random() * Math.PI * 2;
             const r = 4 + Math.random() * 9;
-            const nx = m.x + Math.cos(a) * r;
-            const nz = m.z + Math.sin(a) * r;
+            let nx = m.x + Math.cos(a) * r;
+            let nz = m.z + Math.sin(a) * r;
+            if (m.id === 'fish' && m.variant === 4) {
+              // Fry keep their little schools together instead of scattering.
+              const friends = this.mobs.filter((f) => f.alive && f.id === 'fish' && f.variant === 4 && Math.hypot(f.x - m.x, f.z - m.z) < 4);
+              if (friends.length > 1) {
+                nx = friends.reduce((sum, f) => sum + f.x, 0) / friends.length + (Math.random() - 0.5) * 2;
+                nz = friends.reduce((sum, f) => sum + f.z, 0) / friends.length + (Math.random() - 0.5) * 2;
+              }
+            }
+            if (m.id === 'monkey') {
+              let nearest = 36;
+              for (let ox = -6; ox <= 6; ox++) for (let oz = -6; oz <= 6; oz++) {
+                const bx = Math.floor(m.x) + ox, bz = Math.floor(m.z) + oz;
+                if (this.world.get(bx, Math.floor(m.y + 0.4), bz) !== VINE) continue;
+                const ds = ox * ox + oz * oz;
+                if (ds < nearest) { nearest = ds; nx = bx + 0.5; nz = bz + 0.5; }
+              }
+            }
+            if (m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'pig') {
+              // The upper ground block must actually be grass, not ice, water or leaves.
+              if (this.world.get(Math.floor(nx), this.world.topSolidY(Math.floor(nx), Math.floor(nz)), Math.floor(nz)) !== GRASS) {
+                nx = m.x; nz = m.z;
+              }
+            }
+            if (m.id === 'seal' && this.world.biomeAt(Math.floor(nx), Math.floor(nz)) !== 'winter') {
+              nx = m.x; nz = m.z;
+            }
+            if (m.id === 'camel' && !['desert', 'canyon'].includes(this.world.biomeAt(Math.floor(nx), Math.floor(nz)))) {
+              nx = m.x; nz = m.z;
+            }
+            if (m.id === 'monkey' && this.world.biomeAt(Math.floor(nx), Math.floor(nz)) !== 'jungle') {
+              nx = m.x; nz = m.z;
+            }
             // land animals refuse wander targets that sit in open water
             const shoreDweller = m.id === 'turtle' || m.id === 'crab' || m.id === 'penguin';
             if (!m.def.aquatic && !shoreDweller) {
@@ -1414,16 +1907,15 @@ export class MobSystem {
         if (wd > 1.0) {
           // dead-zone widened: a target under the feet no longer whips the yaw around
           m.yaw = Math.atan2(-wx, -wz);
-          mx = (wx / wd) * def.speed * 0.6 * speedMul;
-          mz = (wz / wd) * def.speed * 0.6 * speedMul;
-          const hopChance = m.id === 'rabbit' ? 6 : m.id === 'bird' ? 4 : m.id === 'bee' ? 8 : 0.8;
+          const pace = m.id === 'bird' && (m.task === 9 || m.task === 12) ? 1.5 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
+          mx = (wx / wd) * def.speed * pace * speedMul;
+          mz = (wz / wd) * def.speed * pace * speedMul;
+          // Birds fly rather than repeatedly hopping across the ground.
+          const hopChance = m.id === 'rabbit' ? 6 : m.id === 'bee' ? 8 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' ? 0 : 0.8;
           if (m.onGround && m.jumpCd <= 0 && Math.random() < mdt * hopChance) {
-            // rabbits bound, birds flutter in long floaty hops
-            m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'bird' ? 7.2 : m.id === 'bee' ? 4.6 : 7.6;
-            m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'bird' ? 0.7 : m.id === 'bee' ? 0.3 : 1.2;
+            m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
+            m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'bee' ? 0.3 : 1.2;
           }
-          // birds fall slowly — wings catch the air; bees hover even softer
-          if (m.id === 'bird' && m.vy < -2) m.vy = -2;
           if (m.id === 'bee' && m.vy < -1.2) m.vy = -1.2;
         }
       }
@@ -1476,7 +1968,8 @@ export class MobSystem {
       if (m.grow > 0) {
         m.grow = Math.max(0, m.grow - mdt);
         const t01 = 1 - m.grow / 60;
-        m.group.scale.setScalar(m.def.scale * (0.35 + 0.65 * t01));
+        const newbornSize = m.id === 'calf' ? 0.65 : 0.35;
+        m.group.scale.setScalar(m.def.scale * m.modelSize * (newbornSize + (1 - newbornSize) * t01));
       }
 
       // --- animation --- (skipped entirely for hidden far mobs)
@@ -1484,22 +1977,40 @@ export class MobSystem {
       m.group.rotation.y = m.yaw;
       if (!m.group.visible) continue;
       const moving = Math.hypot(m.vx, m.vz);
-      m.walkPhase += mdt * (2 + moving * 2.4);
+      m.walkPhase += mdt * (m.id === 'bird' ? 11 : 2 + moving * 2.4);
 
       const swing = Math.sin(m.walkPhase * 2.4) * Math.min(0.7, moving * 0.3);
       for (let li = 0; li < m.legParts.length; li++) {
         const leg = m.legParts[li];
         if (m.id === 'spider' || m.id === 'spiderling') leg.rotation.x = Math.sin(m.walkPhase * 5 + li) * 0.34 * Math.min(1, moving);
-        else if (m.id === 'bird' && m.task === 9) {
-          // airborne: wings beat hard around the Z axis instead of walking
-          leg.rotation.z = Math.sin(m.walkPhase * 14) * 0.9 * (li % 2 === 0 ? 1 : -1);
-          leg.rotation.x = 0;
-        } else if (m.id === 'bird') {
-          leg.rotation.z = 0;
-          leg.rotation.x = swing * (li % 2 === 0 ? 1 : -1);
+        else if (m.id === 'jellyfish') leg.rotation.x = Math.sin(m.walkPhase * 3 + li) * 0.28;
+        else if (m.id === 'bird') {
+          const side = li % 2 === 0 ? -1 : 1;
+          if (m.task === 9 || m.task === 12 || !m.onGround) {
+            // Both shoulder joints beat together; the feather tips travel up
+            // and down even while cruising at a steady altitude.
+            leg.rotation.z = side * (0.05 + Math.sin(m.walkPhase * 2.6) * 1.05);
+          } else {
+            leg.rotation.z += (-side * 1.15 - leg.rotation.z) * Math.min(1, mdt * 10);
+          }
         } else leg.rotation.x = swing * (li % 2 === 0 ? 1 : -1);
       }
-      if (m.head) m.head.rotation.x = Math.sin(m.walkPhase * 0.7) * 0.06;
+      if (m.head) {
+        const chewing = m.task === 14;
+        // Four full dips over the meal. The jaw opens and closes faster than
+        // the neck; both eyes and muzzle ride the same head pivot.
+        const cycle = m.feedClock * Math.PI * 2 * 0.85;
+        const dip = chewing ? (1 - Math.cos(cycle)) * 0.5 : 0;
+        const sipping = m.task === 11 && Math.hypot(m.tx - m.x, m.tz - m.z) < 1.4;
+        const cactus = m.id === 'camel' && (m.feedFoodId === CACTUS || m.feedFoodId === CACTUS_PALE);
+        const bend = m.id === 'camel' ? (cactus ? 0.58 : 0.98) : 0.75;
+        const target = chewing ? -bend * dip : sipping ? -0.35 : Math.sin(m.walkPhase * 0.7) * 0.06;
+        m.head.rotation.x += (target - m.head.rotation.x) * Math.min(1, mdt * 12);
+        if (m.feedJaw) {
+          m.feedJaw.position.y = (m.feedJaw.userData.restY as number) -
+            (chewing ? Math.max(0, Math.sin(cycle * 2)) * 0.065 : 0);
+        }
+      }
 
       // creeper swells before detonating
       if (def.explodes) {
@@ -1598,6 +2109,7 @@ export class MobSystem {
     minR: number,
     maxR: number,
     biasAngle: number | null = null,
+    groundTypes?: readonly number[],
   ): [number, number, number] | null {
     for (let i = 0; i < 24; i++) {
       const a =
@@ -1610,7 +2122,9 @@ export class MobSystem {
       if (!this.world.hasColumn(x, z)) continue;
       const h = this.world.topSolidY(x, z);
       if (h < 2 || h > WY - 6) continue;
-      if (!isSolid(this.world.get(x, h, z))) continue;
+      const ground = this.world.get(x, h, z);
+      if (!isSolid(ground) || ground === CACTUS || ground === CACTUS_PALE ||
+        isLeafId(ground) || isLogId(ground) || (groundTypes && !groundTypes.includes(ground))) continue;
       if (isSolid(this.world.get(x, h + 1, z)) || isSolid(this.world.get(x, h + 2, z))) continue;
       return [x + 0.5, h + 1, z + 0.5];
     }

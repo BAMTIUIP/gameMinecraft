@@ -23,7 +23,7 @@ import {
   WATER,
   FLOWER_RED,
   FLOWER_YELLOW,
-  FLOWER_BLUE,
+  FLOWER_BLUE, DRY_BLOOM, DESERT_THISTLE,
   SNOW_GRASS,
   ICE,
   SNOW_LEAVES,
@@ -37,6 +37,7 @@ import {
   BIRCH_LOG,
   BIRCH_LEAVES,
   APPLE_LEAVES,
+  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, isFlower,
 } from './blocks';
 import { fbm2, fbm3, mulberry32, noise3, seedNoise } from './noise';
 
@@ -56,6 +57,12 @@ export const CZ = WZ / CHUNK;
 /** world origin the spawn basin is carved around */
 export const ORIGIN_X = 64;
 export const ORIGIN_Z = 64;
+export type Biome = 'winter' | 'plains' | 'jungle' | 'desert' | 'canyon' | 'volcanic';
+
+const smooth = (v: number) => {
+  const t = Math.max(0, Math.min(1, v));
+  return t * t * (3 - 2 * t);
+};
 
 const COFF = 2048; // chunk coordinate offset → supports ±2048 chunks (±32k blocks)
 export function chunkKey(cx: number, cz: number) {
@@ -77,6 +84,7 @@ const cidx = (lx: number, y: number, lz: number) => (y * CHUNK + lz) * CHUNK + l
 export class World {
   chunks = new Map<number, Chunk>();
   seed: number;
+  private volcanoes = new Map<string, { x: number; z: number; radius: number; active: boolean } | null>();
   /** castles & towers register here so the engine can post guards + traps */
   structureSites: Array<{ x: number; y: number; z: number; kind: 'tower' | 'cottage' }> = [];
 
@@ -87,6 +95,7 @@ export class World {
   reset(seed: number) {
     this.seed = seed;
     this.chunks.clear();
+    this.volcanoes.clear();
     this.structureSites.length = 0;
     seedNoise(seed);
   }
@@ -100,6 +109,18 @@ export class World {
       for (let y = SEA + 1; y >= 3; y--) {
         if (this.get(px, y, pz) === WATER) return [px + 0.5, y, pz + 0.5];
       }
+    }
+    return null;
+  }
+
+  /** Bees should hatch into the world at flowers, never on ice or in open water. */
+  findFlowerNear(x: number, z: number, r: number): [number, number, number] | null {
+    for (let i = 0; i < 42; i++) {
+      const px = Math.floor(x + (Math.random() * 2 - 1) * r);
+      const pz = Math.floor(z + (Math.random() * 2 - 1) * r);
+      if (!this.hasColumn(px, pz) || this.biomeAt(px, pz) === 'winter') continue;
+      const h = this.getHeight(px, pz);
+      if (isFlower(this.get(px, h + 1, pz))) return [px + 0.5, h + 1, pz + 0.5];
     }
     return null;
   }
@@ -171,6 +192,48 @@ export class World {
     return this.temperatureAt(x, z, h) < -0.18;
   }
 
+  private humidityAt(x: number, z: number) {
+    return fbm2(x * 0.006 + 103, z * 0.006 - 71, 3);
+  }
+
+  /** Seeded volcano centres are shared across chunks, including negative coordinates. */
+  volcanoAt(x: number, z: number) {
+    if (this.volcanoes.size > 2048) this.volcanoes.clear();
+    const cx = Math.floor(x / 144), cz = Math.floor(z / 144);
+    let nearest: { x: number; z: number; radius: number; active: boolean; distance: number } | null = null;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const ix = cx + dx, iz = cz + dz, key = `${ix},${iz}`;
+      if (!this.volcanoes.has(key)) {
+        const rng = mulberry32(this.seed ^ Math.imul(ix, 73856093) ^ Math.imul(iz, 19349663) ^ 0x6a42d3);
+        this.volcanoes.set(key, rng() < 0.29 ? {
+          x: ix * 144 + 24 + rng() * 96,
+          z: iz * 144 + 24 + rng() * 96,
+          radius: 25 + rng() * 8,
+          active: rng() < 0.55,
+        } : null);
+      }
+      const v = this.volcanoes.get(key);
+      if (!v || Math.hypot(v.x - ORIGIN_X, v.z - ORIGIN_Z) < 55) continue;
+      const distance = Math.hypot(x - v.x, z - v.z);
+      if (distance < v.radius + 48 && (!nearest || distance - v.radius < nearest.distance - nearest.radius))
+        nearest = { ...v, distance };
+    }
+    return nearest;
+  }
+
+  biomeAt(x: number, z: number, h?: number): Biome {
+    const volcano = this.volcanoAt(x, z);
+    if (volcano && volcano.distance < volcano.radius) return 'volcanic';
+    const height = h ?? this.heightAt(x, z);
+    if (this.isWinter(x, z, height)) return 'winter';
+    const humidity = this.humidityAt(x, z);
+    const heat = this.temperatureAt(x, z, SEA + 6);
+    if (heat > 0.03 && humidity < -0.26) return 'canyon';
+    if (heat > -0.02 && humidity < -0.1) return 'desert';
+    if (heat > 0.02 && humidity > 0.12) return 'jungle';
+    return 'plains';
+  }
+
   heightAt(x: number, z: number) {
     // Gentler, walkable terrain: lower amplitudes, soft-capped hills.
     const cont = fbm2(x * 0.0075 + 7.3, z * 0.0075 - 4.1, 3);
@@ -184,9 +247,26 @@ export class World {
       const t = Math.min(1, (plateau - 0.24) / 0.3);
       h += t * t * (3 - 2 * t) * 14; // smooth 0→14 gain, no cliffs
     }
-    // shallow valleys for rivers — enough to flood, not canyon-deep
+    // Meandering rivers and broad, multi-chunk lake basins in humid regions.
     const valley = Math.abs(fbm2(x * 0.019 + 61, z * 0.019 - 52, 3));
     if (valley < 0.1) h -= (0.1 - valley) * 30;
+    const humidity = this.humidityAt(x, z);
+    const lake = fbm2(x * 0.008 - 52, z * 0.008 + 97, 3);
+    h -= smooth((lake - 0.18) / 0.22) * 15 * smooth((humidity + 0.15) * 4);
+
+    // Warm dry plateaus are carved by narrow ravines; desert dunes are low
+    // and rolling. Blend the relief gradually across biome boundaries.
+    const heat = this.temperatureAt(x, z, SEA + 6);
+    const dry = smooth((-humidity - 0.06) * 5) * smooth((heat + 0.04) * 5);
+    const ravine = Math.abs(fbm2(x * 0.017 + 31, z * 0.017 - 83, 3));
+    h += dry * (3 + fbm2(x * 0.04, z * 0.04, 2) * 2 - smooth((0.16 - ravine) / 0.12) * 15);
+
+    const volcano = this.volcanoAt(x, z);
+    if (volcano && volcano.distance < volcano.radius) {
+      h += smooth((volcano.radius - volcano.distance) / volcano.radius) * 18;
+      // depressed crater rim, open to the sky instead of a solid lava tower
+      if (volcano.distance < 5) h -= smooth((5 - volcano.distance) / 5) * 6;
+    }
 
     // gentle basin around the spawn origin
     const dx = x - ORIGIN_X;
@@ -215,16 +295,21 @@ export class World {
         const z = cz * CHUNK + lz;
         const h = this.heightAt(x, z);
         chunk.height[lz * CHUNK + lx] = h;
-        const winter = this.isWinter(x, z, h);
+        const biome = this.biomeAt(x, z, h);
+        const winter = biome === 'winter';
 
         for (let y = 0; y <= h; y++) {
           let id: number;
           if (y === 0) id = BEDROCK;
           else if (y === h) {
-            if (h > 30) id = winter ? SNOW_GRASS : STONE;
-            else if (h <= SEA + 1) id = SAND;
+            if (biome === 'volcanic') id = VOLCANIC_STONE;
+            else if (h <= SEA + 1 || biome === 'desert') id = SAND;
+            else if (biome === 'canyon') id = h % 6 < 3 ? STONE : SAND;
+            else if (h > 30) id = winter ? SNOW_GRASS : STONE;
             else id = winter ? SNOW_GRASS : GRASS;
-          } else if (y > h - 4) id = h > 30 ? STONE : h <= SEA + 1 ? SAND : DIRT;
+          } else if (biome === 'volcanic' && y > h - 6) id = VOLCANIC_STONE;
+          else if (biome === 'canyon' && y > SEA + 2) id = Math.floor(y / 3) % 2 ? STONE : SAND;
+          else if (y > h - 4) id = biome === 'desert' || h <= SEA + 1 ? SAND : h > 30 ? STONE : DIRT;
           else id = STONE;
           chunk.blocks[cidx(lx, y, lz)] = id;
         }
@@ -255,6 +340,19 @@ export class World {
         for (let y = 1; y <= LAVA_LEVEL; y++) {
           if (chunk.blocks[cidx(lx, y, lz)] === AIR) chunk.blocks[cidx(lx, y, lz)] = LAVA;
         }
+        // An active crater and its narrow downslope lava tongue.
+        const volcano = biome === 'volcanic' ? this.volcanoAt(x, z) : null;
+        if (volcano?.active && h > SEA + 3 && h + 1 < WY - 1) {
+          const dx = x - volcano.x, dz = z - volcano.z;
+          const along = (dx + dz) * 0.707;
+          const cross = Math.abs(dx - dz) * 0.707;
+          if ((volcano.distance < 3 || (along > 2 && along < volcano.radius * 0.7 && cross < 1.4)) &&
+              [[1,0],[-1,0],[0,1],[0,-1]].every(([ox,oz]) => this.heightAt(x + ox, z + oz) > SEA + 2)) {
+            // Stop tongues before a lake or ice edge: don't initialize thousands
+            // of natural contacts. Player-disturbed fluids still react normally.
+            chunk.blocks[cidx(lx, h + 1, lz)] = LAVA;
+          }
+        }
         // lakes & rivers: any open air at/below sea level floods with water;
         // winter lakes freeze over with a walkable ice sheet
         if (h <= SEA) {
@@ -284,10 +382,11 @@ export class World {
     // ---- diverse trees: oaks, bushy oaks, giants, birch, apple trees, spruce ----
     for (let lz = 0; lz < CHUNK; lz++) {
       for (let lx = 0; lx < CHUNK; lx++) {
-        if (rand() > 0.04) continue;
         const x = cx * CHUNK + lx;
         const z = cz * CHUNK + lz;
         const h = chunk.height[lz * CHUNK + lx];
+        const biome = this.biomeAt(x, z, h);
+        if (rand() > (biome === 'jungle' ? 0.11 : 0.04)) continue;
         const top = this.get(x, h, z);
         const winter = top === SNOW_GRASS;
         if (top !== GRASS && !winter) continue;
@@ -297,13 +396,14 @@ export class World {
         for (let dz = -2; dz <= 2 && ok; dz++)
           for (let dx = -2; dx <= 2; dx++) {
             const b = this.get(x + dx, h + 2, z + dz);
-            if (b === LOG || b === BIRCH_LOG) {
+            if (b === LOG || b === BIRCH_LOG || b === PALM_LOG) {
               ok = false;
               break;
             }
           }
         if (!ok) continue;
-        this.growDiverseTree(x, h + 1, z, rand, winter);
+        if (biome === 'jungle' && rand() < 0.48) this.growPalm(x, h + 1, z, rand);
+        else this.growDiverseTree(x, h + 1, z, rand, winter, biome === 'jungle');
       }
     }
 
@@ -313,17 +413,19 @@ export class World {
       const x = cx * CHUNK + 1 + Math.floor(rand() * 14);
       const z = cz * CHUNK + 1 + Math.floor(rand() * 14);
       const h = this.getHeight(x, z);
-      if (this.get(x, h, z) === SAND && this.get(x, h + 1, z) === AIR && h > SEA) {
+      if ((this.biomeAt(x, z, h) === 'desert' || this.biomeAt(x, z, h) === 'canyon') &&
+        this.get(x, h, z) === SAND && this.get(x, h + 1, z) === AIR && h > SEA) {
         this.growCactus(x, h + 1, z, rand);
       }
     }
 
-    // ---- tall grass & ferns on meadows ----
-    for (let i = 0; i < 4; i++) {
+    // ---- ground cover: especially dense ferns in the jungle ----
+    const lush = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8) === 'jungle';
+    for (let i = 0; i < (lush ? 12 : 4); i++) {
       if (rand() > 0.8) continue;
       const gx = cx * CHUNK + 2 + Math.floor(rand() * 12);
       const gz = cz * CHUNK + 2 + Math.floor(rand() * 12);
-      const plantId = rand() < 0.65 ? TALL_GRASS : FERN;
+      const plantId = rand() < (lush ? 0.25 : 0.65) ? TALL_GRASS : FERN;
       for (let p = 0; p < 3 + Math.floor(rand() * 4); p++) {
         const px = gx + Math.floor(rand() * 5) - 2;
         const pz = gz + Math.floor(rand() * 5) - 2;
@@ -357,6 +459,17 @@ export class World {
       }
     }
 
+    // Sparse, drought-tolerant blooms on open desert and canyon sand.
+    for (let i = 0; i < 5; i++) {
+      if (rand() > 0.75) continue;
+      const x = cx * CHUNK + 1 + Math.floor(rand() * 14);
+      const z = cz * CHUNK + 1 + Math.floor(rand() * 14);
+      const h = this.getHeight(x, z);
+      if (this.get(x, h, z) === SAND && this.get(x, h + 1, z) === AIR &&
+          ['desert', 'canyon'].includes(this.biomeAt(x, z, h)))
+        this.set(x, h + 1, z, rand() < 0.5 ? DRY_BLOOM : DESERT_THISTLE);
+    }
+
     // ---- wild ground hives near flower patches (summer only, rare) ----
     if (rand() < 0.015) {
       const hx = cx * CHUNK + 2 + Math.floor(rand() * 12);
@@ -369,27 +482,33 @@ export class World {
       }
     }
 
-    // ---- waterfall springs on tall cliffs ----
-    if (rand() < 0.06) {
-      const wx = cx * CHUNK + 2 + Math.floor(rand() * 12);
-      const wz = cz * CHUNK + 2 + Math.floor(rand() * 12);
-      const h = this.getHeight(wx, wz);
-      for (const [dx, dz] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ]) {
-        const nh = this.getHeight(wx + dx, wz + dz);
-        if (h - nh >= 6 && nh > LAVA_LEVEL + 1) {
-          // a sheet of water pouring down the cliff face into a small plunge pool
+    // ---- springs over jungle escarpments and canyon walls ----
+    const cliffBiome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
+    const springChance = cliffBiome === 'jungle' ? 0.65 : cliffBiome === 'canyon' ? 0.45 : 0.12;
+    if (rand() < springChance) {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const wx = cx * CHUNK + 2 + Math.floor(rand() * 12);
+        const wz = cz * CHUNK + 2 + Math.floor(rand() * 12);
+        const h = this.getHeight(wx, wz);
+        if (this.get(wx, h + 1, wz) !== AIR) continue;
+        let placed = false;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nh = this.getHeight(wx + dx, wz + dz);
+          if (h - nh < 4 || nh <= LAVA_LEVEL + 1) continue;
+          this.set(wx, h + 1, wz, WATER); // spring at the lip of the cliff
           for (let y = h; y > nh; y--) {
             if (this.get(wx + dx, y, wz + dz) === AIR) this.set(wx + dx, y, wz + dz, WATER);
           }
-          this.set(wx + dx, nh + 1, wz + dz, WATER);
-          this.set(wx + dx * 2, nh + 1, wz + dz * 2, WATER);
+          for (let step = 1; step <= 2; step++) {
+            const px = wx + dx * step;
+            const pz = wz + dz * step;
+            const poolY = this.getHeight(px, pz) + 1;
+            if (this.get(px, poolY, pz) === AIR) this.set(px, poolY, pz, WATER);
+          }
+          placed = true;
           break;
         }
+        if (placed) break;
       }
     }
 
@@ -470,19 +589,48 @@ export class World {
     }
   }
 
-  private growDiverseTree(x: number, y: number, z: number, rand: () => number, winter = false) {
+  private growPalm(x: number, y: number, z: number, rand: () => number) {
+    const height = 6 + Math.floor(rand() * 4);
+    if (y + height + 3 >= WY) return;
+    const leaf = rand() < 0.5 ? COCONUT_LEAVES : BANANA_LEAVES;
+    for (let i = 0; i < height; i++) if (this.get(x, y + i, z) === AIR) this.set(x, y + i, z, PALM_LOG);
+    const crown = y + height;
+    let vines = 0;
+    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+      const r = Math.abs(dx) + Math.abs(dz);
+      if (r > 3 || (r === 3 && rand() < 0.3)) continue;
+      const py = crown - (r >= 3 ? 1 : 0);
+      if (this.get(x + dx, py, z + dz) === AIR) this.set(x + dx, py, z + dz, leaf);
+      // hanging climbable vines on the outer leaves
+      if (r === 3 && vines < 3 && rand() < 0.5) {
+        vines++;
+        for (let v = 1; v < height; v++) {
+          if (this.get(x + dx, py - v, z + dz) !== AIR) break;
+          this.set(x + dx, py - v, z + dz, VINE);
+        }
+      }
+    }
+    if (this.get(x, crown + 1, z) === AIR) this.set(x, crown + 1, z, leaf);
+  }
+
+  private growDiverseTree(x: number, y: number, z: number, rand: () => number, winter = false, jungle = false) {
     if (winter) {
       if (rand() < 0.2) this.growBirch(x, y, z, rand, true);
       else this.growSpruce(x, y, z, rand);
       return;
     }
-    const roll = rand();
-    if (roll < 0.28) this.growStandardOak(x, y, z, rand);
-    else if (roll < 0.48) this.growBushyOak(x, y, z, rand);
-    else if (roll < 0.66) this.growBirch(x, y, z, rand, false);
-    else if (roll < 0.82) this.growAppleTree(x, y, z, rand);
-    else if (roll < 0.94) this.growGiantOak(x, y, z, rand);
-    else this.growSmallBush(x, y, z, rand);
+    if (jungle) {
+      if (rand() < 0.72) this.growGiantOak(x, y, z, rand);
+      else this.growBushyOak(x, y, z, rand);
+    } else {
+      const roll = rand();
+      if (roll < 0.28) this.growStandardOak(x, y, z, rand);
+      else if (roll < 0.48) this.growBushyOak(x, y, z, rand);
+      else if (roll < 0.66) this.growBirch(x, y, z, rand, false);
+      else if (roll < 0.82) this.growAppleTree(x, y, z, rand);
+      else if (roll < 0.94) this.growGiantOak(x, y, z, rand);
+      else this.growSmallBush(x, y, z, rand);
+    }
 
     // beehives on tree trunks (summer, 4.5% chance)
     if (rand() < 0.045) {
