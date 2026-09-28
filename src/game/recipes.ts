@@ -1,6 +1,7 @@
 import {
   ANVIL,
   APPLE,
+  COCONUT, BANANA,
   ARROW_ITEM,
   BED,
   CAMPFIRE,
@@ -388,6 +389,14 @@ export const RECIPES: Recipe[] = [
     accent: '#e23628',
     hotkey: '',
     group: 'food',
+  },
+  {
+    key: 'eat_coconut', name: 'EAT COCONUT', desc: 'Fresh coconut — restores 22 HP',
+    inputs: [[COCONUT, 1]], kind: 'food', heal: 22, accent: '#9a7449', hotkey: '', group: 'food',
+  },
+  {
+    key: 'eat_banana', name: 'EAT BANANA', desc: 'Sweet banana — restores 16 HP',
+    inputs: [[BANANA, 1]], kind: 'food', heal: 16, accent: '#f2cf51', hotkey: '', group: 'food',
   },
   {
     key: 'eat_meat',

@@ -27,6 +27,7 @@ import {
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
+  BIRD_NEST, CHICKEN_NEST,
   ICE,
   ANVIL,
   TURTLE_EGG,
@@ -45,6 +46,7 @@ import {
   CACTUS_PALE,
   BIRCH_LOG,
   APPLE_LEAVES,
+  COCONUT_LEAVES, BANANA_LEAVES, PALM_LOG, VINE, COCONUT, BANANA, VOLCANIC_STONE,
   APPLE,
   CRAFTING_TABLE,
   TALL_GRASS,
@@ -200,7 +202,7 @@ const EYE = 1.62;
 const REACH = 5.6;
 
 type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
-type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
+type Particle = { smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
 type Drop = {
   active: boolean;
   id: number;
@@ -212,6 +214,8 @@ type Drop = {
   vz: number;
   age: number;
   mesh: THREE.Mesh;
+  /** clearance between the pickup origin and the floor, including bobbing */
+  clearance: number;
   /** rolled gear carried by a LOOT_BAG drop */
   gear?: Item | null;
   /** volumetric model used instead of the textured cube (animal/monster loot) */
@@ -312,6 +316,7 @@ export class Engine {
   private mobSys!: MobSystem;
   private spawnTimer = 0;
   private animalTimer = 0;
+  private ambientTimer = 0;
   private kills = 0;
   private killedBy: string | null = null;
   private wasNight = false;
@@ -355,6 +360,8 @@ export class Engine {
   private sleepDark = 0;
   private inLava = false;
   private inWater = false;
+  private cactusCooldown = 0;
+  private volcanoSmokeTimer = 0;
   private hurtTimer = 0;
   private bob = 0;
   private stepSmooth = 0;
@@ -587,7 +594,7 @@ export class Engine {
       mesh.visible = false;
       mesh.frustumCulled = false;
       this.scene.add(mesh);
-      this.drops.push({ active: false, id: STONE, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 0, mesh });
+      this.drops.push({ active: false, id: STONE, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 0, mesh, clearance: 0.32 });
     }
     base.dispose();
   }
@@ -1590,6 +1597,8 @@ export class Engine {
         equipped: this.equipped,
         bagItems: this.bagItems,
         hive: Array.from(this.hiveHoney.entries()),
+        birdNests: this.birdNests,
+        vineTips: Array.from(this.vineTips.entries()),
         kills: this.kills,
         blocksMined: this.blocksMined,
         chunks,
@@ -1652,6 +1661,8 @@ export class Engine {
     this.bagItems = data.bagItems ?? [];
     this.stats = computeStats(this.equipped);
     this.hiveHoney = new Map(data.hive ?? []);
+    this.birdNests = (Array.isArray(data.birdNests) ? data.birdNests : []).slice(0, 6);
+    this.vineTips = new Map((Array.isArray(data.vineTips) ? data.vineTips : []).slice(0, 128));
     this.kills = data.kills ?? 0;
     this.blocksMined = data.blocksMined ?? 0;
     this.clock = data.clock ?? 0.3;
@@ -1710,6 +1721,7 @@ export class Engine {
     this.warnTick = 0;
     this.hurtTimer = 0;
     this.inLava = false;
+    this.cactusCooldown = 0;
     this.particles.length = 0;
     this.pMesh.count = 0;
     this.drops.forEach((d) => {
@@ -1746,6 +1758,7 @@ export class Engine {
     this.crawlLerp = 0;
     this.spawnTimer = 3;
     this.animalTimer = 1;
+    this.ambientTimer = 1.5;
     this.mobSys.clear();
     this.clearFallingTrees();
     this.clearDoors();
@@ -1754,6 +1767,9 @@ export class Engine {
     this.fluidQueue.length = 0;
     this.fluidSet.clear();
     this.fluidLevel.clear();
+    this.vineTips.clear();
+    this.birdNests.length = 0;
+    this.birdNestTimer = 10;
     this.guardedSites.clear();
     this.clearArrows();
     this.rollTraderOffers();
@@ -2046,6 +2062,7 @@ export class Engine {
     this.updateArrows(dt);
     this.updateFallingTrees(dt);
     this.updateBlockGravity();
+    this.growVines(dt);
     this.updateFluids();
     this.flushDirtyChunks();
     this.updateMining(dt);
@@ -2222,6 +2239,17 @@ export class Engine {
     if (this.vel.y > 0 && !jumpHeld) g *= 1.9;
     this.vel.y -= g * dt;
     this.vel.y = Math.max(-52, this.vel.y);
+    // Vines form climbable ladders through the palm canopy.
+    const vr = PLAYER_HALF + 0.13;
+    let onVine = false;
+    for (const xx of [this.pos.x - vr, this.pos.x + vr])
+      for (const zz of [this.pos.z - vr, this.pos.z + vr])
+        for (const yy of [this.pos.y + 0.35, this.pos.y + 1.25])
+          if (this.world.get(Math.floor(xx), Math.floor(yy), Math.floor(zz)) === VINE) onVine = true;
+    if (onVine) {
+      this.vel.y = jumpHeld ? Math.max(this.vel.y, 3.5) : Math.max(this.vel.y, -1.5);
+      this.fallStart = this.pos.y;
+    }
 
     const wasGround = this.onGround;
     this.onGround = false;
@@ -2319,6 +2347,28 @@ export class Engine {
       }
     }
 
+    // Cactus spines hurt on body contact, even though the solid block stops
+    // the player just short of its centre. Explorer mode remains harmless.
+    this.cactusCooldown = Math.max(0, this.cactusCooldown - dt);
+    if (this.survival && this.cactusCooldown <= 0) {
+      const reach = PLAYER_HALF + 0.12;
+      let touching = false;
+      for (let y = fy0; y <= fy1 && !touching; y++)
+        for (let z = Math.floor(this.pos.z - reach); z <= Math.floor(this.pos.z + reach) && !touching; z++)
+          for (let x = Math.floor(this.pos.x - reach); x <= Math.floor(this.pos.x + reach); x++) {
+            const block = this.world.get(x, y, z);
+            if (block === CACTUS || block === CACTUS_PALE) {
+              touching = true;
+              break;
+            }
+          }
+      if (touching) {
+        this.cactusCooldown = 0.75;
+        this.killedBy = blockName(CACTUS, 'Cactus');
+        this.damage(4, 'mob');
+      }
+    }
+
     // no world bounds any more — the map streams in forever
     if (this.pos.y < -6) this.damage(200, 'fall');
 
@@ -2385,6 +2435,23 @@ export class Engine {
   }
 
   private updateAmbient(dt: number) {
+    // Grey smoke rises only from active volcanic craters within sight.
+    this.volcanoSmokeTimer -= dt;
+    if (this.volcanoSmokeTimer <= 0) {
+      this.volcanoSmokeTimer = 0.18;
+      const volcano = this.world.volcanoAt(this.pos.x, this.pos.z);
+      if (volcano?.active && volcano.distance < 48 && this.world.hasColumn(Math.floor(volcano.x), Math.floor(volcano.z))) {
+        const y = this.world.getHeight(Math.floor(volcano.x), Math.floor(volcano.z)) + 2.2;
+        for (let i = 0; i < 2 && this.particles.length < MAX_PARTICLES; i++) {
+          this.particles.push({
+            smoke: true, x: volcano.x + (Math.random() - 0.5) * 2, y,
+            z: volcano.z + (Math.random() - 0.5) * 2,
+            vx: (Math.random() - 0.5) * 0.7, vy: 1.5 + Math.random(), vz: (Math.random() - 0.5) * 0.7,
+            life: 2.6, max: 2.6, size: 0.24, r: 0.3, g: 0.29, b: 0.28,
+          });
+        }
+      }
+    }
     // clouds drift
     const mat = this.clouds.material as THREE.MeshBasicMaterial;
     (mat.map as THREE.Texture).offset.x = (this.time * 0.0035) % 1;
@@ -2636,6 +2703,14 @@ export class Engine {
   private breakBlock(x: number, y: number, z: number, id: number) {
     const def = BLOCKS[id];
     this.world.set(x, y, z, AIR);
+    if (id === VINE) {
+      // Sever a single hanging strand: the severed section and everything
+      // beneath it falls, while the upper part stays attached to the canopy.
+      for (let yy = y - 1; yy >= 1 && this.world.get(x, yy, z) === VINE; yy--)
+        this.world.set(x, yy, z, AIR);
+      if (this.world.get(x, y + 1, z) === VINE && this.vineTips.size < 128)
+        this.vineTips.set(Engine.packCell(x, y + 1, z), { x, y: y + 1, z, t: 4 + Math.random() * 4 });
+    }
     // cutting a trunk? everything above comes down as one physical piece
     if (isLogId(id) && isLogId(this.world.get(x, y + 1, z))) {
       this.fellTree(x, y, z);
@@ -2656,6 +2731,9 @@ export class Engine {
     this.enqueueFluid(x, y, z);
 
     // hives only yield honey that bees actually deposited
+    if (id === BIRD_NEST || id === CHICKEN_NEST) {
+      this.birdNests = this.birdNests.filter((n) => n.x !== x || n.y !== y || n.z !== z);
+    }
     if (id === HIVE) {
       const key = Engine.packCell(x, y, z);
       const stored = this.hiveHoney.get(key) ?? 0;
@@ -2664,6 +2742,8 @@ export class Engine {
       for (let i = 0; i < stored; i++) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, HONEY);
       if (stored > 0) this.burst(x + 0.5, y + 0.5, z + 0.5, [244, 184, 58], 12, 2.6);
       this.angerBees(x, y, z);
+    } else if (id === COCONUT_LEAVES || id === BANANA_LEAVES) {
+      this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, id === COCONUT_LEAVES ? COCONUT : BANANA);
     } else if (id === APPLE_LEAVES) {
       // apple leaves guarantee fresh apples!
       this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, APPLE);
@@ -2881,6 +2961,9 @@ export class Engine {
         logs++;
         this.spawnDrop(wx, wy + 0.3, wz, b.id === BIRCH_LOG ? BIRCH_LOG : LOG);
         this.burst(wx, wy, wz, BLOCKS[b.id]?.tint ?? BLOCKS[LOG].tint, 5, 2.4);
+      } else if (b.id === COCONUT_LEAVES || b.id === BANANA_LEAVES) {
+        if (Math.random() < 0.35) this.spawnDrop(wx, wy + 0.2, wz, b.id === COCONUT_LEAVES ? COCONUT : BANANA);
+        this.burst(wx, wy, wz, BLOCKS[b.id].tint, 3, 2);
       } else if (b.id === APPLE_LEAVES) {
         // apple leaves drop fresh apples!
         this.spawnDrop(wx, wy + 0.2, wz, APPLE);
@@ -3094,40 +3177,64 @@ export class Engine {
       budget--;
       const level = this.fluidLevel.get(k) ?? 0;
       const mark = (px: number, pz: number) => this.markDirtyAt(px, pz);
+      // Only player-disturbed / newly flowing fluid enters this queue. Generated
+      // oceans and lava pools are never scanned or put into a reaction queue.
+      const adjacent: Array<[number, number, number]> = [
+        [x, y - 1, z], [x + 1, y, z], [x - 1, y, z],
+        [x, y, z + 1], [x, y, z - 1], [x, y + 1, z],
+      ];
+      let reacted = false;
+      for (const [ax, ay, az] of adjacent) {
+        const other = this.world.get(ax, ay, az);
+        if (id === LAVA && (other === WATER || other === ICE)) {
+          // Ice melts to water; the contacting lava hardens, leaving the water.
+          if (other === ICE) { this.world.set(ax, ay, az, WATER); mark(ax, az); }
+          this.world.set(x, y, z, VOLCANIC_STONE);
+          this.fluidLevel.delete(k);
+          this.burst(x + 0.5, y + 0.5, z + 0.5, [85, 45, 49], 8, 2);
+          mark(x, z);
+          reacted = true;
+          break;
+        }
+        if (id === WATER && other === LAVA) {
+          this.world.set(ax, ay, az, VOLCANIC_STONE);
+          this.fluidLevel.delete(Engine.packCell(ax, ay, az));
+          this.burst(ax + 0.5, ay + 0.5, az + 0.5, [85, 45, 49], 8, 2);
+          mark(ax, az);
+          reacted = true;
+          break;
+        }
+      }
+      if (reacted) continue; // one bounded reaction per fluid update
       const flow = (px: number, py: number, pz: number, lvl: number) => {
         const target = this.world.get(px, py, pz);
-        if (target === AIR || (id === LAVA && target === WATER) || (id === WATER && isFlower(target))) {
-          // lava meeting water hardens into cobblestone
-          if (id === LAVA && target === WATER) {
-            this.world.set(px, py, pz, COBBLE);
-            this.burst(px + 0.5, py + 0.5, pz + 0.5, [120, 120, 125], 8, 2.5);
-          } else {
-            this.world.set(px, py, pz, id);
-            this.fluidLevel.set(Engine.packCell(px, py, pz), lvl);
-            this.enqueueFluid(px, py, pz);
-          }
+        if (target === WATER && id === LAVA || target === ICE && id === LAVA) {
+          if (target === ICE) { this.world.set(px, py, pz, WATER); mark(px, pz); }
+          this.world.set(x, y, z, VOLCANIC_STONE);
+          this.fluidLevel.delete(k);
+          mark(x, z);
+          return true;
+        }
+        if (target === LAVA && id === WATER) {
+          this.world.set(px, py, pz, VOLCANIC_STONE);
+          this.fluidLevel.delete(Engine.packCell(px, py, pz));
           mark(px, pz);
           return true;
         }
-        if (id === WATER && target === LAVA) {
-          this.world.set(px, py, pz, COBBLE);
-          this.burst(px + 0.5, py + 0.5, pz + 0.5, [120, 120, 125], 8, 2.5);
+        if (target === AIR || (id === WATER && isFlower(target))) {
+          this.world.set(px, py, pz, id);
+          this.fluidLevel.set(Engine.packCell(px, py, pz), lvl);
+          this.enqueueFluid(px, py, pz);
           mark(px, pz);
           return true;
         }
         return false;
       };
-      // 1. fall straight down (resets spread distance)
       if (flow(x, y - 1, z, 0)) continue;
-      // 2. spread sideways up to 4 cells from the last drop
       if (level < 4) {
-        for (const [dx, dz] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ]) {
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           flow(x + dx, y, z + dz, level + 1);
+          if (this.world.get(x, y, z) !== id) break;
         }
       }
     }
@@ -3140,6 +3247,8 @@ export class Engine {
   }
 
   // ================= TURTLE/PENGUIN EGGS, BEES, PREDATION =================
+  private birdNests: Array<{ x: number; y: number; z: number; kind: 'bird' | 'chicken'; t: number }> = [];
+  private birdNestTimer = 10;
   private turtleEggs: Array<{
     x: number;
     y: number;
@@ -3233,7 +3342,124 @@ export class Engine {
     return null;
   }
 
+  private updateBirdNests(dt: number) {
+    // Placing nests is rare; checking a handful of adults and at most six nests
+    // every few seconds has no world-generation or per-voxel overhead.
+    this.birdNestTimer -= dt;
+    if (this.birdNestTimer <= 0) {
+      this.birdNestTimer = 10 + Math.random() * 6;
+      if (this.daylight > 0.35 && this.birdNests.length < 6) {
+        for (const parent of this.mobSys.mobs) {
+          if (!parent.alive || parent.grow > 0 || !parent.onGround ||
+            (parent.id !== 'bird' && parent.id !== 'chicken') ||
+            Math.hypot(parent.x - this.pos.x, parent.z - this.pos.z) > 42) continue;
+          const x = Math.floor(parent.x), z = Math.floor(parent.z);
+          const y = Math.floor(parent.y + 0.12);
+          if (y <= 1 || y >= WY - 2 || this.world.get(x, y, z) !== AIR) continue;
+          const below = this.world.get(x, y - 1, z);
+          if (parent.id === 'bird' ? !isLeafId(below) : below !== GRASS) continue;
+          if (this.birdNests.some((n) => Math.hypot(n.x - x, n.z - z) < 6)) continue;
+          if (parent.id === 'chicken') {
+            // Hens choose cover: under a tree or beside tall meadow grass.
+            let sheltered = false;
+            for (let dx = -2; dx <= 2 && !sheltered; dx++)
+              for (let dz = -2; dz <= 2 && !sheltered; dz++) {
+                if (dx || dz) {
+                  const plant = this.world.get(x + dx, y, z + dz);
+                  if (plant === TALL_GRASS || plant === FERN) sheltered = true;
+                }
+                for (let dy = 2; dy <= 7 && !sheltered; dy++)
+                  if (isLeafId(this.world.get(x + dx, y + dy, z + dz))) sheltered = true;
+              }
+            if (!sheltered) continue;
+          }
+          const kind = parent.id;
+          this.world.set(x, y, z, kind === 'bird' ? BIRD_NEST : CHICKEN_NEST);
+          this.birdNests.push({ x, y, z, kind, t: 32 + Math.random() * 18 });
+          this.markDirtyAt(x, z);
+          this.burst(x + 0.5, y + 0.3, z + 0.5, kind === 'bird' ? [100, 69, 42] : [211, 177, 92], 4, 0.8);
+          break;
+        }
+      }
+    }
+    for (let i = this.birdNests.length - 1; i >= 0; i--) {
+      const nest = this.birdNests[i];
+      const expected = nest.kind === 'bird' ? BIRD_NEST : CHICKEN_NEST;
+      if (this.world.get(nest.x, nest.y, nest.z) !== expected ||
+          !(nest.kind === 'bird' ? isLeafId(this.world.get(nest.x, nest.y - 1, nest.z)) :
+            this.world.get(nest.x, nest.y - 1, nest.z) === GRASS)) {
+        if (this.world.get(nest.x, nest.y, nest.z) === expected) {
+          this.world.set(nest.x, nest.y, nest.z, AIR); this.markDirtyAt(nest.x, nest.z);
+        }
+        this.birdNests.splice(i, 1);
+        continue;
+      }
+      // Don't spawn chicks far outside the active wildlife area.
+      if (Math.hypot(nest.x - this.pos.x, nest.z - this.pos.z) > 48) continue;
+      nest.t -= dt;
+      if (nest.t > 0 || this.mobSys.mobs.length >= this.mobSys.maxMobs - 2) continue;
+      this.world.set(nest.x, nest.y, nest.z, AIR);
+      this.markDirtyAt(nest.x, nest.z);
+      this.birdNests.splice(i, 1);
+      for (let b = 0; b < 2; b++) {
+        const baby = this.mobSys.spawn(nest.kind, nest.x + 0.35 + b * 0.3, nest.y + 0.05, nest.z + 0.5);
+        if (baby) {
+          baby.grow = 60;
+          baby.group.scale.setScalar(baby.def.scale * baby.modelSize * 0.35);
+          baby.jumpCd = 2;
+        }
+      }
+      this.burst(nest.x + 0.5, nest.y + 0.3, nest.z + 0.5, [239, 232, 207], 8, 1.2);
+      if (Math.hypot(this.pos.x - nest.x - 0.5, this.pos.z - nest.z - 0.5) < 4)
+        this.popup(nest.x + 0.5, nest.y + 0.6, nest.z + 0.5, t('eggHatched'), '#f1d797');
+    }
+  }
+
+  /** Crush every type of egg under any part of the player's feet (not just
+   * the voxel beneath the centre). Spider egg sacs are world objects, too. */
+  private crushEggsUnderfoot() {
+    if (!this.onGround) return;
+    const fy = Math.floor(this.pos.y + 0.08);
+    const margin = PLAYER_HALF - 0.02;
+    let lastCrushed: [number, number, number] | null = null;
+    for (let x = Math.floor(this.pos.x - margin); x <= Math.floor(this.pos.x + margin); x++)
+      for (let z = Math.floor(this.pos.z - margin); z <= Math.floor(this.pos.z + margin); z++) {
+        const id = this.world.get(x, fy, z);
+        if (id !== TURTLE_EGG && id !== PENGUIN_EGG && id !== BIRD_NEST && id !== CHICKEN_NEST) continue;
+        this.world.set(x, fy, z, AIR);
+        this.birdNests = this.birdNests.filter((n) => n.x !== x || n.y !== fy || n.z !== z);
+        this.turtleEggs = this.turtleEggs.filter((n) => n.x !== x || n.y !== fy || n.z !== z);
+        if (id === PENGUIN_EGG) for (const parent of this.mobSys.mobs) {
+          if (parent.id === 'penguin' && parent.task === 6 &&
+              Math.hypot(parent.x - x - 0.5, parent.z - z - 0.5) < 2) {
+            parent.task = 0;
+            parent.think = 0;
+          }
+        }
+        this.markDirtyAt(x, z);
+        this.burst(x + 0.5, fy + 0.25, z + 0.5, [231, 228, 210], 10, 1.8);
+        lastCrushed = [x, fy, z];
+      }
+    // Spider egg sacs are tracked separately, rather than voxel blocks.
+    for (let i = this.spiderEggs.length - 1; i >= 0; i--) {
+      const egg = this.spiderEggs[i];
+      if (Math.abs(egg.x - this.pos.x) > margin + 0.25 ||
+          Math.abs(egg.z - this.pos.z) > margin + 0.25 ||
+          Math.abs(egg.y - this.pos.y) > 0.55) continue;
+      this.spiderEggs.splice(i, 1);
+      this.burst(egg.x, egg.y + 0.15, egg.z, [235, 237, 232], 10, 1.8);
+      lastCrushed = [egg.x - 0.5, egg.y, egg.z - 0.5];
+    }
+    if (lastCrushed) {
+      const [x, y, z] = lastCrushed;
+      this.popup(x + 0.5, y + 0.7, z + 0.5, t('eggCrushed'), '#e2564a');
+      sfx.crack(1);
+      this.addShake(0.12);
+    }
+  }
+
   private updateNature(dt: number) {
+    this.crushEggsUnderfoot();
     // ---- egg laying: turtles ONLY on sand, penguins ONLY on snowy ground ----
     this.eggTimer -= dt;
     if (this.eggTimer <= 0) {
@@ -3320,25 +3546,13 @@ export class Engine {
           }
         }
         this.burst(egg.x + 0.5, egg.y + 0.4, egg.z + 0.5, [230, 235, 225], 10, 2);
-        this.popup(egg.x + 0.5, egg.y + 0.8, egg.z + 0.5, t('eggHatched'), '#7ab88a');
-        sfx.pickup(2);
+        if (Math.hypot(this.pos.x - egg.x - 0.5, this.pos.y + 0.8 - egg.y - 0.5, this.pos.z - egg.z - 0.5) <= 2) {
+          this.popup(egg.x + 0.5, egg.y + 0.8, egg.z + 0.5, t('eggHatched'), '#7ab88a');
+          sfx.pickup(2);
+        }
       }
     }
-    // ---- player crushes eggs underfoot ----
-    if (this.onGround) {
-      const fx = Math.floor(this.pos.x);
-      const fy = Math.floor(this.pos.y + 0.05);
-      const fz = Math.floor(this.pos.z);
-      const under = this.world.get(fx, fy, fz);
-      if (under === TURTLE_EGG || under === PENGUIN_EGG) {
-        this.world.set(fx, fy, fz, AIR);
-        this.markDirtyAt(fx, fz);
-        this.burst(fx + 0.5, fy + 0.3, fz + 0.5, [230, 235, 225], 12, 2.2);
-        this.popup(fx + 0.5, fy + 0.8, fz + 0.5, t('eggCrushed'), '#e2564a');
-        sfx.crack(1);
-        this.addShake(0.12);
-      }
-    }
+    this.updateBirdNests(dt);
 
     // ---- cave spiders: weave webs & lay eggs that hatch into spiderlings ----
     this.spiderTimer -= dt;
@@ -3750,23 +3964,29 @@ export class Engine {
     const water = this.world.findWaterNear(wx, wz, 8);
     if (!water) return;
     const regionKey = Engine.packCell(Math.floor(water[0] / 8), 0, Math.floor(water[2] / 8));
-    if (this.stockedWater.has(regionKey)) return;
+    if (this.stockedWater.has(regionKey)) {
+      // A school may have swum away or been recycled after the player left.
+      if (this.mobSys.mobs.some((m) => m.alive && m.id === 'fish' && Math.hypot(m.x - water[0], m.z - water[2]) < 9)) return;
+      this.stockedWater.delete(regionKey);
+    }
+    if (this.mobSys.mobs.filter((m) => m.alive && m.id === 'fish').length >= 36) return;
     this.stockedWater.add(regionKey);
     if (this.stockedWater.size > 400) this.stockedWater.clear(); // stale far-away regions
-    // school size respects the global mob cap loosely (fish are cheap: aquatic AI is trivial)
-    const school = 4 + Math.floor(Math.random() * 4);
+    // Small fish travel in larger, tighter schools; larger species mingle in
+    // smaller groups. A few deeper pools harbour drifting jellyfish.
+    const frySchool = Math.random() < 0.5;
+    const school = frySchool ? 9 + Math.floor(Math.random() * 5) : 4 + Math.floor(Math.random() * 3);
     for (let i = 0; i < school; i++) {
-      const fx = water[0] + (Math.random() - 0.5) * 5;
-      const fz = water[2] + (Math.random() - 0.5) * 5;
-      const px = Math.floor(fx);
-      const pz = Math.floor(fz);
-      // confirm the offset spot is still water at swim depth
+      const fx = water[0] + (Math.random() - 0.5) * (frySchool ? 2.5 : 5);
+      const fz = water[2] + (Math.random() - 0.5) * (frySchool ? 2.5 : 5);
       const fy = Math.max(2, water[1] - 1);
-      if (this.world.get(px, Math.floor(fy), pz) === WATER) {
-        this.mobSys.spawn('fish', fx, fy, fz);
-      } else {
-        this.mobSys.spawn('fish', water[0], fy, water[2]);
-      }
+      const px = Math.floor(fx), pz = Math.floor(fz);
+      const inWater = this.world.get(px, fy, pz) === WATER;
+      const vi = frySchool ? 4 : Math.floor(Math.random() * 4);
+      this.mobSys.spawn('fish', inWater ? fx : water[0], fy, inWater ? fz : water[2], vi);
+    }
+    if (this.world.get(Math.floor(water[0]), water[1] - 2, Math.floor(water[2])) === WATER && Math.random() < 0.32) {
+      this.mobSys.spawn('jellyfish', water[0], water[1] - 1, water[2]);
     }
   }
 
@@ -3814,6 +4034,29 @@ export class Engine {
     push(x, y, z - 1);
   }
 
+  private vineTips = new Map<number, { x: number; y: number; z: number; t: number }>();
+
+  private growVines(dt: number) {
+    for (const [key, tip] of this.vineTips) {
+      if (Math.hypot(tip.x - this.pos.x, tip.z - this.pos.z) > 80) {
+        this.vineTips.delete(key);
+        continue;
+      }
+      tip.t -= dt;
+      if (tip.t > 0) continue;
+      this.vineTips.delete(key);
+      if (this.world.get(tip.x, tip.y, tip.z) !== VINE ||
+          tip.y <= 1 || this.world.get(tip.x, tip.y - 1, tip.z) !== AIR) continue;
+      let anchorY = tip.y;
+      while (anchorY + 1 < WY && this.world.get(tip.x, anchorY + 1, tip.z) === VINE) anchorY++;
+      if (!isLeafId(this.world.get(tip.x, anchorY + 1, tip.z))) continue;
+      this.world.set(tip.x, tip.y - 1, tip.z, VINE);
+      this.markDirtyAt(tip.x, tip.z);
+      this.vineTips.set(Engine.packCell(tip.x, tip.y - 1, tip.z),
+        { ...tip, y: tip.y - 1, t: 4 + Math.random() * 4 });
+    }
+  }
+
   private updateBlockGravity() {
     if (!this.gravQueue.length) return;
     let crumbled = false;
@@ -3823,14 +4066,18 @@ export class Engine {
       this.gravSet.delete(k);
       const [x, y, z] = Engine.unpackCell(k);
       const id = this.world.get(x, y, z);
-      if (id === AIR || id === BEDROCK || id === LAVA || id === WATER || y <= 1) continue;
+      if (id === AIR || id === BEDROCK || id === LAVA || id === WATER || id === VINE || y <= 1) continue;
       if (isLeafId(id)) {
-        // leaves need a living trunk: any LOG within 2 blocks keeps them alive
+        // Palm crowns reach three blocks out; all leaf kinds recognise
+        // their matching living trunk (not only old oak logs).
         let alive = false;
+        const reach = id === COCONUT_LEAVES || id === BANANA_LEAVES ? 3 : 2;
         for (let dy = -2; dy <= 2 && !alive; dy++)
-          for (let dz2 = -2; dz2 <= 2 && !alive; dz2++)
-            for (let dx2 = -2; dx2 <= 2; dx2++)
-              if (this.world.get(x + dx2, y + dy, z + dz2) === LOG) {
+          for (let dz2 = -reach; dz2 <= reach && !alive; dz2++)
+            for (let dx2 = -reach; dx2 <= reach; dx2++)
+              if ((reach === 3 ?
+                this.world.get(x + dx2, y + dy, z + dz2) === PALM_LOG :
+                isLogId(this.world.get(x + dx2, y + dy, z + dz2)))) {
                 alive = true;
                 break;
               }
@@ -3886,14 +4133,16 @@ export class Engine {
       maxZ = this.pos.z + PLAYER_HALF + 0.02;
     if (px + 1 > minX && px < maxX && py + 1 > minY && py < maxY && pz + 1 > minZ && pz < maxZ) return;
 
-    this.world.set(px, py, pz, id);
+    // Placing lava into a water cell is itself a contact, not a free swap.
+    const placed = id === LAVA && targetCell === WATER ? VOLCANIC_STONE : id;
+    this.world.set(px, py, pz, placed);
     this.inventory.set(id, (this.inventory.get(id) ?? 0) - 1);
     this.enqueueFluid(px, py, pz); // placing next to fluid disturbs it
     this.rebuildAt(px, pz);
     this.placeCooldown = 0.18;
     this.startSwing(0.5);
     sfx.place();
-    this.burst(px + 0.5, py + 0.5, pz + 0.5, BLOCKS[id].tint, 5, 1.6);
+    this.burst(px + 0.5, py + 0.5, pz + 0.5, BLOCKS[placed].tint, 5, 1.6);
     this.syncHotbar(true);
   }
 
@@ -4037,6 +4286,16 @@ export class Engine {
         B(g, 0.05, 0.06, 0, 0.12, 0.04, 0.06, 0x88663e);
         break;
       }
+      case COCONUT: {
+        B(g, 0, 0, 0, 0.24, 0.22, 0.24, 0x75502e);
+        B(g, 0, 0.11, 0, 0.14, 0.07, 0.14, 0xb89261);
+        break;
+      }
+      case BANANA: {
+        B(g, 0, 0, 0, 0.07, 0.26, 0.07, 0xf3d34f, 0, 0.7);
+        B(g, 0.1, -0.08, 0, 0.08, 0.17, 0.07, 0xe6c035, 0, 0.4);
+        break;
+      }
       case APPLE: {
         // glossy red apple with stem and green leaf
         B(g, 0, 0, 0, 0.24, 0.24, 0.24, 0xe23628);
@@ -4074,10 +4333,15 @@ export class Engine {
     const fancy = this.buildFancyDrop(id);
     if (fancy) {
       d.fancy = fancy;
+      // Miniature parts extend below their group's origin (especially flower
+      // stems). Account for their full bounds, the display scale and bobbing.
+      const bounds = new THREE.Box3().setFromObject(fancy);
+      d.clearance = Math.max(0.14, -bounds.min.y * 0.3 * 2.6 + 0.08);
       fancy.position.set(x, y, z);
       this.scene.add(fancy);
       d.mesh.visible = false;
     } else {
+      d.clearance = 0.32; // a spinning cube's lowest corner plus bobbing
       d.mesh.visible = true;
       this.applyDropUV(d, id);
     }
@@ -4126,9 +4390,19 @@ export class Engine {
           nz = d.z + d.vz * dt;
         if (isSolid(this.world.get(Math.floor(nx), Math.floor(d.y), Math.floor(d.z)))) d.vx *= -0.35;
         else d.x = nx;
-        if (isSolid(this.world.get(Math.floor(d.x), Math.floor(ny), Math.floor(d.z)))) {
-          if (d.vy < 0) d.vy = 0;
-          else d.vy *= -0.3;
+        const floorY = Math.floor(ny - d.clearance);
+        let hitFloor: number | null = null;
+        for (let yy = Math.floor(d.y - d.clearance); yy >= floorY; yy--) {
+          if (isSolid(this.world.get(Math.floor(d.x), yy, Math.floor(d.z)))) {
+            hitFloor = yy;
+            break;
+          }
+        }
+        if (hitFloor !== null && d.vy < 0) {
+          d.y = hitFloor + 1 + d.clearance;
+          d.vy = 0;
+        } else if (isSolid(this.world.get(Math.floor(d.x), Math.floor(ny), Math.floor(d.z)))) {
+          d.vy *= -0.3;
         } else d.y = ny;
         if (isSolid(this.world.get(Math.floor(d.x), Math.floor(d.y), Math.floor(nz)))) d.vz *= -0.35;
         else d.z = nz;
@@ -4315,54 +4589,82 @@ export class Engine {
     this.stockWaterAhead(biasAngle);
 
     // ---- biome-aware wildlife ----
-    // Explorer mode gets a richer, denser zoo; survival keeps the classic mix.
+    // Keep separate local quotas: a handful of land animals must not consume
+    // all the slots before birds and insects have arrived nearby.
+    const nearby = this.mobSys.mobs.filter((m) =>
+      m.alive && !m.def.hostile && !m.hidden && Math.hypot(m.x - this.pos.x, m.z - this.pos.z) < 36,
+    );
+    const landCount = nearby.filter((m) => !m.def.aquatic && !['bird', 'bee', 'crab', 'turtle', 'penguin'].includes(m.id)).length;
+    const birds = nearby.filter((m) => m.id === 'bird').length;
+    const bees = nearby.filter((m) => m.id === 'bee').length;
+    const budget = this.survival ? 24 : 30;
     this.animalTimer -= dt;
     if (this.animalTimer <= 0) {
-      // travelling fast → spawn twice as often so new land is already populated
-      this.animalTimer = (this.survival ? 3.2 : 2.2) * (moving ? 0.5 : 1);
-      const cap = this.survival ? 16 : 22;
-      if (this.mobSys.count(false) < cap) {
+      this.animalTimer = (this.survival ? 2.8 : 2.1) * (moving ? 0.6 : 1);
+      if (landCount < (this.survival ? 6 : 8) && this.mobSys.count(false) < budget) {
         const water = this.world.findWaterNear(this.pos.x, this.pos.z, 26);
-        if (water && Math.random() < 0.4) {
+        const shoreCount = nearby.filter((m) => ['crab', 'turtle', 'penguin', 'seal'].includes(m.id)).length;
+        if (water && shoreCount < 3 && Math.random() < 0.35) {
           const winterShore = this.world.isWinter(Math.floor(water[0]), Math.floor(water[2]));
-          // shoreline: crabs & turtles on sand; penguins own frozen shores
-          const p = this.mobSys.findSpawnPoint(water[0], water[2], 1, 5);
-          if (p) {
-            const r = Math.random();
-            const id: MobId = winterShore ? 'penguin' : r < 0.6 ? 'crab' : 'turtle';
+          const p = this.mobSys.findSpawnPoint(water[0], water[2], 1, 6, null,
+            winterShore ? [ICE, SNOW_GRASS] : [SAND, GRASS]);
+          if (p && Math.hypot(p[0] - water[0], p[2] - water[2]) < 6) {
+            const id: MobId = winterShore ? (Math.random() < 0.55 ? 'penguin' : 'seal') :
+              (Math.random() < 0.55 ? 'crab' : 'turtle');
             this.mobSys.spawn(id, p[0], p[1], p[2]);
           }
         } else {
-          // land animals spawn in the cone ahead of a moving player, closer in
           const p = moving
-            ? this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 14, 30, biasAngle)
-            : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 12, 34);
+            ? this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 10, 25, biasAngle, [GRASS, SAND, STONE, VOLCANIC_STONE, SNOW_GRASS])
+            : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 9, 28, null, [GRASS, SAND, STONE, VOLCANIC_STONE, SNOW_GRASS]);
           if (p) {
-            const winter = this.world.isWinter(Math.floor(p[0]), Math.floor(p[2]));
+            const biome = this.world.biomeAt(Math.floor(p[0]), Math.floor(p[2]));
             const high = this.world.getHeight(Math.floor(p[0]), Math.floor(p[2])) > 26;
-            let list: MobId[];
-            if (winter) {
-              // taiga & frozen peaks: hares, white sheep, hardy cows, penguin wanderers
-              list = high
-                ? ['rabbit', 'sheep', 'rabbit', 'penguin']
-                : ['rabbit', 'rabbit', 'sheep', 'cow', 'penguin'];
-            } else if (high) {
-              // sunny mountains: sheep dominate, birds circle the peaks
-              list = ['sheep', 'sheep', 'rabbit', 'bird', 'cow'];
-            } else {
-              // plains & forest: farmyard + songbirds + bees + the odd lynx
-              list = ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'bird', 'bird', 'bee', 'bee', 'cat'];
-            }
+            // Pasture species belong on green ground only. Arctic wildlife
+            // lives around ice; camels and lizards inhabit the dry regions.
+            const ground = this.world.get(Math.floor(p[0]), Math.floor(p[1] - 1), Math.floor(p[2]));
+            const pasture = ground === GRASS;
+            const list: MobId[] = biome === 'winter'
+              ? ['rabbit', 'rabbit']
+              : biome === 'desert' || biome === 'canyon'
+                ? ['lizard', 'lizard', 'camel', 'camel']
+                : biome === 'jungle'
+                  ? ['monkey', 'monkey', 'monkey', 'lizard', 'pig', 'rabbit']
+                  : biome === 'volcanic'
+                    ? ['lizard', 'lizard', 'rabbit']
+                    : high ? (pasture ? ['sheep', 'sheep', 'rabbit'] : ['rabbit'])
+                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat'] : ['rabbit'];
             const spawnedId = list[Math.floor(Math.random() * list.length)];
             const spawned = this.mobSys.spawn(spawnedId, p[0], p[1], p[2]);
-            if (spawnedId === 'cow' && Math.random() < 0.65 && spawned) {
+            if (spawnedId === 'cow' && Math.random() < 0.55 && spawned) {
               const a = Math.random() * Math.PI * 2;
               const calf = this.mobSys.spawn('calf', p[0] + Math.cos(a) * 1.6, p[1], p[2] + Math.sin(a) * 1.6);
               if (calf) {
                 calf.grow = 60;
+                calf.group.scale.setScalar(calf.def.scale * 0.65);
               }
             }
           }
+        }
+      }
+    }
+
+    // A separate, faster trickle of birds and bees keeps the sky alive even
+    // when the ground-animal quota is already full.
+    this.ambientTimer -= dt;
+    if (this.ambientTimer <= 0) {
+      this.ambientTimer = (this.survival ? 1.5 : 1.2) * (moving ? 0.7 : 1);
+      const beeTarget = this.daylight < 0.35 || this.world.isWinter(Math.floor(this.pos.x), Math.floor(this.pos.z)) ? 0 : 4;
+      if (this.mobSys.count(false) < budget && (birds < 4 || bees < beeTarget)) {
+        const id: MobId = birds < 4 && (bees >= beeTarget || birds / 4 <= bees / beeTarget) ? 'bird' : 'bee';
+        if (id === 'bee') {
+          const flower = this.world.findFlowerNear(this.pos.x, this.pos.z, 24);
+          if (flower && this.world.biomeAt(Math.floor(flower[0]), Math.floor(flower[2])) !== 'winter')
+            this.mobSys.spawn('bee', flower[0], flower[1] + 0.3, flower[2]);
+        } else {
+          const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 8, 26, biasAngle,
+            [GRASS, SAND, STONE, SNOW_GRASS, VOLCANIC_STONE]);
+          if (p) this.mobSys.spawn('bird', p[0], p[1], p[2]);
         }
       }
     }
@@ -4373,7 +4675,7 @@ export class Engine {
         const m = this.mobSys.mobs[i];
         if (!m.alive || m.def.hostile || m.id === 'trader') continue;
         const d = Math.hypot(m.x - this.pos.x, m.z - this.pos.z);
-        if (d > 70) this.mobSys.remove(m);
+        if (d > 48) this.mobSys.remove(m); // free old slots for birds and insects nearby
       }
     }
 
@@ -4404,6 +4706,7 @@ export class Engine {
       (m, dmg) => this.mobHit(m, dmg),
       (m) => this.mobDied(m, true),
       (m) => this.mobShoot(m),
+      (x, y, z) => { this.markDirtyAt(x, z); this.enqueueSupportCheck(x, y, z); },
     );
   }
 
@@ -4668,14 +4971,16 @@ export class Engine {
     this.kills++;
     const def = m.def;
     // animals & birds drop meat — cooked straight away if they burned
-    if (!def.hostile) {
+    if (!def.hostile && def.id !== 'jellyfish') {
       const meat = burned ? COOKED_MEAT : RAW_MEAT;
       const small =
         def.id === 'chicken' ||
         def.id === 'rabbit' ||
         def.id === 'fish' ||
         def.id === 'bird' ||
-        def.id === 'calf';
+        def.id === 'calf' ||
+        def.id === 'lizard' ||
+        def.id === 'monkey';
       const n = small ? 1 : 2;
       for (let i = 0; i < n; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, meat);
       // species loot (Minecraft-style, percentage rolls)
@@ -4725,10 +5030,11 @@ export class Engine {
     this.combo++;
     this.comboTimer = 3;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    this.popup(m.x, m.y + 1.4, m.z, `+${gained}`, def.hostile ? '#ff9f5a' : '#93c95d', def.hostile);
+    const nearby = Math.hypot(m.x - this.pos.x, m.y - this.pos.y, m.z - this.pos.z);
+    if (nearby < 22) this.popup(m.x, m.y + 1.4, m.z, `+${gained}`, def.hostile ? '#ff9f5a' : '#93c95d', def.hostile);
     this.burst(m.x, m.y + 0.8, m.z, burned ? [255, 140, 40] : [200, 60, 60], 18, 3.6);
-    sfx.breakBlock(def.hostile ? 0.7 : 1.2);
-    this.addShake(0.24);
+    if (nearby < 16) sfx.breakBlock(def.hostile ? 0.7 : 1.2);
+    if (nearby < 12) this.addShake(0.24);
 
     // loot: gear drops as a physical bag AT the death spot — walk over to grab it
     if (def.hostile) {
@@ -4851,6 +5157,9 @@ export class Engine {
     [HONEY, 25],
     [NETHERITE, 800],
     [APPLE, 12],
+    [COCONUT, 15],
+    [BANANA, 12],
+    [VOLCANIC_STONE, 7],
     [BIRCH_LOG, 12],
     [CACTUS, 8],
     [CACTUS_PALE, 8],
@@ -5212,21 +5521,22 @@ export class Engine {
         arr.pop();
         continue;
       }
-      p.vy -= GRAVITY * 0.72 * dt;
+      if (!p.smoke) p.vy -= GRAVITY * 0.72 * dt;
+      else { p.vx += (Math.random() - 0.5) * dt; p.vz += (Math.random() - 0.5) * dt; }
       const nx = p.x + p.vx * dt,
         ny = p.y + p.vy * dt,
         nz = p.z + p.vz * dt;
-      if (isSolid(this.world.get(Math.floor(nx), Math.floor(p.y), Math.floor(p.z)))) {
+      if (!p.smoke && isSolid(this.world.get(Math.floor(nx), Math.floor(p.y), Math.floor(p.z)))) {
         p.vx *= -0.32;
       } else p.x = nx;
-      if (isSolid(this.world.get(Math.floor(p.x), Math.floor(ny), Math.floor(p.z)))) {
+      if (!p.smoke && isSolid(this.world.get(Math.floor(p.x), Math.floor(ny), Math.floor(p.z)))) {
         if (p.vy < 0) {
           p.vy *= -0.28;
           p.vx *= 0.72;
           p.vz *= 0.72;
         } else p.vy = 0;
       } else p.y = ny;
-      if (isSolid(this.world.get(Math.floor(p.x), Math.floor(p.y), Math.floor(nz)))) {
+      if (!p.smoke && isSolid(this.world.get(Math.floor(p.x), Math.floor(p.y), Math.floor(nz)))) {
         p.vz *= -0.32;
       } else p.z = nz;
     }

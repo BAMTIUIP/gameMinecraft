@@ -7,7 +7,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 20; // 80 tiles
+export const ATLAS_ROWS = 22; // 88 tiles
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -1068,6 +1068,80 @@ function drawTile(ctx: Ctx, index: number) {
       ctx.fillRect(ox + 7, oy + 2, 2, 3);
       ctx.fillStyle = '#56a832';
       ctx.fillRect(ox + 9, oy + 2, 3, 2);
+      break;
+    }
+    case T.volcanicStone: {
+      // Same fractured stone grain, but darker and flecked with deep red.
+      speckle(ctx, ox, oy, '#44434a', 21, 14);
+      for (let i = 0; i < 8; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 15), Math.floor(rand() * 15), 2, 1, rand() < 0.5 ? '#34333b' : '#57545a');
+      for (let i = 0; i < 20; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 2, 1, rand() < 0.4 ? '#65252b' : '#28272e');
+      }
+      break;
+    }
+    case T.palmLogSide: {
+      speckle(ctx, ox, oy, '#9a7045', 2017, 12);
+      ctx.fillStyle = '#66482d';
+      for (let y = 2; y < 16; y += 4) ctx.fillRect(ox, oy + y, 16, 1);
+      px(ctx, ox, oy, 5, 5, 3, 1, '#c19862');
+      break;
+    }
+    case T.palmLogTop: {
+      speckle(ctx, ox, oy, '#bd955f', 2023, 8);
+      ctx.strokeStyle = '#735031';
+      for (let r = 2; r < 8; r += 2) ctx.strokeRect(ox + 8 - r, oy + 8 - r, r * 2, r * 2);
+      break;
+    }
+    case T.dryBloom:
+    case T.desertThistle: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#8e7952'; ctx.fillRect(ox + 7, oy + 7, 2, 8);
+      ctx.fillStyle = index === T.dryBloom ? '#b37b5b' : '#9c9658';
+      for (const [x,y] of [[4,5],[9,4],[3,9],[10,8]]) ctx.fillRect(ox + x, oy + y, 3, 2);
+      ctx.fillStyle = '#d3a176'; ctx.fillRect(ox + 7, oy + 5, 2, 2);
+      break;
+    }
+    case T.birdNest:
+    case T.chickenNest: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = index === T.birdNest ? '#62432b' : '#d0a951';
+      ctx.fillRect(ox + 2, oy + 8, 12, 5);
+      ctx.fillStyle = index === T.birdNest ? '#3b291d' : '#9a793c';
+      ctx.fillRect(ox + 4, oy + 7, 8, 3);
+      ctx.fillStyle = '#ede7d2';
+      ctx.fillRect(ox + 5, oy + 5, 2, 4); ctx.fillRect(ox + 9, oy + 5, 2, 4);
+      break;
+    }
+    case T.coconutLeaves:
+    case T.bananaLeaves: {
+      const banana = index === T.bananaLeaves;
+      speckle(ctx, ox, oy, banana ? '#69a536' : '#38844b', 2029, 25);
+      const holes = mulberry32(2039 + index);
+      for (let i = 0; i < 22; i++) ctx.clearRect(ox + Math.floor(holes() * 16), oy + Math.floor(holes() * 16), 1, 1);
+      for (const [x,y] of [[4,5],[10,9],[6,11]]) px(ctx, ox, oy, x, y, banana ? 2 : 3, 2, banana ? '#eed04b' : '#80603a');
+      break;
+    }
+    case T.vine: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#366c2f'; ctx.fillRect(ox + 6, oy, 2, 16);
+      ctx.fillStyle = '#5da84c';
+      for (let y = 2; y < 16; y += 4) { ctx.fillRect(ox + 3, oy + y, 4, 2); ctx.fillRect(ox + 8, oy + y + 2, 5, 2); }
+      break;
+    }
+    case T.coconut:
+    case T.banana: {
+      ctx.clearRect(ox, oy, 16, 16);
+      if (index === T.coconut) {
+        ctx.fillStyle = '#694627'; ctx.fillRect(ox + 4, oy + 4, 9, 9);
+        ctx.fillStyle = '#9e7241'; ctx.fillRect(ox + 5, oy + 4, 6, 3);
+        px(ctx, ox, oy, 7, 8, 2, 2, '#d2b482');
+      } else {
+        ctx.fillStyle = '#f1cc45';
+        for (let x = 4; x < 12; x++) ctx.fillRect(ox + x, oy + 5 + Math.floor((x-8)*(x-8)/16), 2, 3);
+        px(ctx, ox, oy, 11, 9, 2, 1, '#694c2b');
+      }
       break;
     }
     case T.craftingTableTop: {
