@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Engine } from '../game/engine';
+import { t } from '../game/i18n';
 
 const R = 54; // joystick radius px
 const SENS = 0.0048;
@@ -142,14 +143,14 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
           }`}
           style={{ borderColor: '#06090a' }}
         >
-          RUN
+          {t('run')}
         </button>
         <button
           {...hold('place', (v) => engine?.setPlacing(v))}
           className={`${btn(pressed.place)} h-16 w-16 text-xs bg-gradient-to-b from-[#4b6f8a] to-[#26404f] text-white/90`}
           style={{ borderColor: '#06090a' }}
         >
-          PLACE
+          {t('place')}
         </button>
         <div className="flex flex-col gap-2.5">
           <button
@@ -157,14 +158,14 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
             className={`${btn(pressed.jump)} h-14 w-[74px] text-xs bg-gradient-to-b from-moss to-[#41702c] text-pit-950`}
             style={{ borderColor: '#06090a' }}
           >
-            JUMP
+            {t('jump')}
           </button>
           <button
             {...hold('mine', (v) => engine?.setMining(v))}
             className={`${btn(pressed.mine)} h-[74px] w-[74px] text-sm bg-gradient-to-b from-torch to-[#a8761f] text-pit-950 shadow-[0_0_22px_rgba(244,185,66,.35)]`}
             style={{ borderColor: '#06090a' }}
           >
-            MINE
+            {t('mine')}
           </button>
         </div>
       </div>

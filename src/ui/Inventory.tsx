@@ -259,7 +259,7 @@ export default function Inventory({
                         cursor: isTool ? 'grab' : 'pointer',
                       }}
                     >
-                      <img src={getBlockIcon(it.id)} alt={BLOCKS[it.id].name} className="pixelated h-[62%] w-[62%]" draggable={false} />
+                      <img src={getBlockIcon(it.id)} alt={blockName(it.id, BLOCKS[it.id].name)} className="pixelated h-[62%] w-[62%]" draggable={false} />
                       <span className="absolute bottom-0 right-0.5 font-display text-[11px] leading-none text-white text-shadow-hard">
                         {it.count}
                       </span>
@@ -381,7 +381,7 @@ export default function Inventory({
                           ? slot.id === HAND
                             ? t('emptyHand')
                             : slot.id >= 200
-                              ? `${toolLabel(slot.id)} — click to stash`
+                              ? `${toolLabel(slot.id)} — ${t('clickStash')}`
                               : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count}`
                           : `${i === 9 ? 0 : i + 1}`
                       }
@@ -595,7 +595,7 @@ function Recipes({
                     <span
                       key={id}
                       className="flex items-center gap-0.5"
-                      title={`${BLOCKS[id].name}: ${have}/${n}`}
+                      title={`${blockName(id, BLOCKS[id].name)}: ${have}/${n}`}
                     >
                       <img
                         src={getBlockIcon(id)}
@@ -621,7 +621,7 @@ function Recipes({
                   color: ready ? '#0a0e0c' : '#4c5b52',
                 }}
               >
-                CRAFT
+                {t('craft')}
               </button>
             </div>
           );
@@ -801,8 +801,8 @@ function AnvilPanel({
         <div className="font-display text-sm tracking-widest text-[#8a6a58]">{t('tab_anvil')}</div>
         <div className="text-[10px] tracking-wider text-white/40">{t('anvilHint')}</div>
         <div className="mt-1 flex gap-3 font-display text-[11px]">
-          <span className="text-[#8a6a58]">NETHERITE ×{netherite}</span>
-          <span className="text-white/50">IRON ×{iron}</span>
+          <span className="text-[#8a6a58]">{matName('NETHERITE')} ×{netherite}</span>
+          <span className="text-white/50">{matName('IRON')} ×{iron}</span>
         </div>
       </div>
       {allGear.length === 0 && (

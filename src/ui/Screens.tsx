@@ -3,7 +3,7 @@ import type { HudState } from '../game/engine';
 
 import { getBlockIcon } from '../game/textures';
 import type { ScoreEntry } from './scores';
-import { LANGS, t, type Lang } from '../game/i18n';
+import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
 import {
   BagIcon,
   ClockIcon,
@@ -81,7 +81,7 @@ function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: s
         <span className="flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
           <TrophyIcon size={13} /> {t('records')}
         </span>
-        <span className="font-display text-[10px] text-white/35">LOCAL</span>
+        <span className="font-display text-[10px] text-white/35">{t('local')}</span>
       </div>
       <div className="max-h-[38vh] overflow-y-auto">
         {scores.map((s, i) => {
@@ -96,13 +96,15 @@ function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: s
               <span className={`w-5 font-display text-sm ${i === 0 ? 'text-torch' : 'text-white/35'}`}>{i + 1}</span>
               <span className={`flex-1 truncate font-display text-sm tracking-wide ${mine ? 'text-torch' : 'text-white/85'}`}>
                 {s.name || '—'}
-                {mine && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ YOU</span>}
+                {mine && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ {t('you')}</span>}
               </span>
-              <span className="hidden font-display text-[10px] text-white/30 sm:inline">{s.tier}</span>
+              <span className="hidden font-display text-[10px] text-white/30 sm:inline">{matName(s.tier)}</span>
               <span className="hidden w-10 text-right font-display text-[10px] text-white/25 sm:inline">
                 {s.runTime ? fmtMinutes(s.runTime) : '—'}
               </span>
-              <span className="hidden w-12 text-right font-display text-[10px] text-white/30 sm:inline">{s.blocks} blk</span>
+              <span className="hidden w-12 text-right font-display text-[10px] text-white/30 sm:inline">
+                {s.blocks} {t('blk')}
+              </span>
               <span className="w-16 text-right font-display text-base tabular-nums text-white">{s.score.toLocaleString()}</span>
             </div>
           );
@@ -147,7 +149,7 @@ function SessionDropdown({
   sessionId,
   onSession,
 }: {
-  sessions: ReadonlyArray<{ id: string; label: string; time: number; sub: string; accent: string }>;
+  sessions: ReadonlyArray<{ id: string; labelKey: TKey; time: number; sub: string; accent: string }>;
   sessionId: string;
   onSession: (id: string) => void;
 }) {
@@ -168,7 +170,7 @@ function SessionDropdown({
           <span className="font-display text-2xl leading-none tabular-nums" style={{ color: cur.accent }}>
             {fmtMinutes(cur.time)}
           </span>
-          <span className="font-display text-[10px] tracking-widest text-white/55">{cur.label}</span>
+          <span className="font-display text-[10px] tracking-widest text-white/55">{t(cur.labelKey)}</span>
         </span>
         <svg viewBox="0 0 12 8" width="14" height="9" className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
           <path d="M1 1l5 5 5-5" fill="none" stroke={cur.accent} strokeWidth="2.4" />
@@ -194,7 +196,7 @@ function SessionDropdown({
                 <span className="font-display text-lg leading-none tabular-nums" style={{ color: s.accent }}>
                   {fmtMinutes(s.time)}
                 </span>
-                <span className="font-display text-[10px] tracking-widest text-white/45">{s.label}</span>
+                <span className="font-display text-[10px] tracking-widest text-white/45">{t(s.labelKey)}</span>
               </button>
             );
           })}
@@ -230,7 +232,7 @@ export function StartScreen({
   scores: ScoreEntry[];
   onPlay: () => void;
   onNewWorld: () => void;
-  sessions: ReadonlyArray<{ id: string; label: string; time: number; sub: string; accent: string }>;
+  sessions: ReadonlyArray<{ id: string; labelKey: TKey; time: number; sub: string; accent: string }>;
   sessionId: string;
   onSession: (id: string) => void;
   music: boolean;
@@ -448,7 +450,7 @@ export function StartScreen({
           <ScoreTable scores={scores} />
           <div className="bevel-flat notch p-3">
             <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
-              <BagIcon size={13} /> WORKBENCH <span className="text-white/30">· PRESS E MID-RUN</span>
+              <BagIcon size={13} /> {t('guideTitle')} <span className="text-white/30">· {t('guideSub')}</span>
             </div>
             <div className="flex flex-col gap-1.5">
               {[
@@ -459,7 +461,7 @@ export function StartScreen({
                 <div key={p.n} className="flex items-center gap-2">
                   <PickIcon size={15} style={{ color: p.c }} />
                   <span className="w-16 font-display text-[11px]" style={{ color: p.c }}>
-                    {p.n}
+                    {matName(p.n)}
                   </span>
                   <span className="flex items-center gap-1.5">
                     {p.ing.map(([id, n]) => (
@@ -473,22 +475,23 @@ export function StartScreen({
               ))}
             </div>
             <div className="mt-2 border-t border-white/10 pt-1.5 text-[10px] leading-relaxed text-white/40">
-              Plus lanterns, a +25s shift overdrive, a field patch and compressed gold / diamond blocks.
+              {t('guideMore')}
             </div>
           </div>
 
           <div className="bevel-flat notch p-3">
             <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-white/60">
-              <PickIcon size={13} className="text-copper" /> ORE VALUE TABLE
+              <PickIcon size={13} className="text-copper" /> {t('oreTableTitle')}
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
               {[5, 6, 7, 8, 3, 9].map((id) => (
                 <div key={id} className="flex items-center gap-2">
                   <img src={getBlockIcon(id)} alt="" className="pixelated h-7 w-7" draggable={false} />
                   <div className="leading-tight">
-                    <div className="font-display text-[11px] text-white/80">{BLOCK_LABEL[id]}</div>
+                    <div className="font-display text-[11px] text-white/80">{blockName(id, BLOCK_LABEL[id])}</div>
                     <div className="font-display text-[10px] text-torch">
-                      {BLOCK_SCORE[id]} pts · +{BLOCK_TIME[id]}s
+                      {BLOCK_SCORE[id]} {t('pts')} · +{BLOCK_TIME[id]}
+                      {t('secShort')}
                     </div>
                   </div>
                 </div>
@@ -532,7 +535,7 @@ export function PauseScreen({
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-pit-950/78 backdrop-blur-[3px]">
       <div className="bevel notch anim-pop w-[min(92vw,440px)] p-5 sm:p-6">
-        <div className="mb-1 font-display text-4xl leading-none text-white text-outline sm:text-5xl">PAUSED</div>
+        <div className="mb-1 font-display text-4xl leading-none text-white text-outline sm:text-5xl">{t('paused')}</div>
         <div className="mb-5 text-[11px] tracking-[0.3em] text-torch/70">
           {t('pausedSub')} · {fmtMinutes(hud.runTime)}
         </div>
@@ -705,9 +708,9 @@ export function GameOverScreen({
             <input
               value={name}
               maxLength={12}
-              onChange={(e) => onName(e.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, ''))}
+              onChange={(e) => onName(e.target.value.toUpperCase().replace(/[^A-ZА-ЯЁ0-9 _-]/g, ''))}
               className="sunken notch flex-1 px-2.5 py-1.5 font-display text-base tracking-widest text-torch outline-none focus:ring-2 focus:ring-torch/50"
-              placeholder="MINER"
+              placeholder={t('miner')}
             />
           </div>
           <ScoreTable scores={scores} highlight={token} />

@@ -113,7 +113,8 @@ export default function App() {
         /* ignore */
       }
       if (!hasManualChoice) {
-        const mapped: Lang = platformLang === 'ru' ? 'ru' : platformLang === 'fr' ? 'fr' : 'en';
+        const mapped: Lang =
+          platformLang === 'ru' ? 'ru' : platformLang === 'fr' ? 'fr' : platformLang === 'de' ? 'de' : 'en';
         setLang(mapped);
         setLangUi(mapped);
       }

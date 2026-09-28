@@ -202,7 +202,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
               className="font-display text-2xl leading-none sm:text-3xl"
               style={{ color: hud.comboMult > 3 ? '#f7d34b' : hud.comboMult > 2 ? '#5fe8dc' : '#93c95d', textShadow: '2px 2px 0 #05080a' }}
             >
-              COMBO x{hud.combo}
+              {t('combo')} x{hud.combo}
             </span>
             <span className="font-display text-base text-white/70">({hud.comboMult.toFixed(2)}x)</span>
           </div>
@@ -222,7 +222,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       {/* ---------------- TOP RIGHT: score + tier + buttons ---------------- */}
       <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-4 sm:top-4 sm:gap-2">
         <div className="bevel-flat notch px-3 py-1 text-right sm:px-4 sm:py-2">
-          <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">SCORE</div>
+          <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">{t('score').toUpperCase()}</div>
           <div
             key={bump}
             ref={scoreRef}
@@ -247,8 +247,8 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             className={`bevel-flat notch relative flex h-8 w-8 items-center justify-center transition active:scale-95 sm:h-9 sm:w-9 ${
               hud.craftHint ? 'text-torch' : 'text-white/70 hover:text-torch'
             }`}
-            aria-label="inventory & crafting"
-            title="Inventory & crafting (E)"
+            aria-label={t('bag')}
+            title={`${t('bag')} (E)`}
           >
             <BagIcon size={17} />
             {hud.craftHint && <span className="anim-flicker absolute -right-1 -top-1 h-2.5 w-2.5 bg-torch shadow-[0_0_8px_#f4b942]" />}
@@ -256,15 +256,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           <button
             onClick={onMute}
             className="bevel-flat notch flex h-8 w-8 items-center justify-center text-white/70 transition hover:text-torch active:scale-95 sm:h-9 sm:w-9"
-            aria-label="toggle sound"
-            title="Mute (M)"
+            aria-label={muted ? t('sfxOn') : t('sfxOff')}
+            title={`${muted ? t('sfxOn') : t('sfxOff')} (M)`}
           >
             <SoundIcon muted={muted} size={17} />
           </button>
           <button
             onClick={onPause}
             className="bevel-flat notch flex h-8 w-8 items-center justify-center text-white/70 transition hover:text-torch active:scale-95 sm:h-9 sm:w-9"
-            aria-label="pause"
+            aria-label={t('pause')}
           >
             <PauseIcon size={15} />
           </button>
@@ -369,15 +369,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           >
             <BagIcon size={14} className="anim-flicker text-torch" />
             <span className="font-display text-xs tracking-widest text-torch sm:text-sm">{hud.craftHint}</span>
-            <span className="font-display text-[10px] tracking-widest text-white/45">READY · [E]</span>
+            <span className="font-display text-[10px] tracking-widest text-white/45">
+              {t('ready')} · [E]
+            </span>
           </button>
         )}
 
         {hint && (
           <div className="bevel-flat notch anim-rise px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/55 sm:text-xs">
-            {isTouch
-              ? 'DRAG TO LOOK · HOLD MINE TO DIG · BAG TO CRAFT'
-              : 'LMB MINE · RMB PLACE · CTRL CROUCH · C CRAWL · TAB BAG'}
+            {isTouch ? t('hintTouch') : t('hintDesktop')}
           </div>
         )}
 
@@ -386,7 +386,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             onClick={onCaptureMouse}
             className="pointer-events-auto bevel-flat notch anim-pop flex items-center gap-2 px-4 py-2 font-display text-sm tracking-widest text-torch transition hover:brightness-125"
           >
-            <PlayIcon size={14} /> CLICK TO CAPTURE MOUSE
+            <PlayIcon size={14} /> {t('captureMouse')}
           </button>
         )}
 
@@ -394,12 +394,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           <div className="bevel-flat notch px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/45">
             {hud.freeLook ? (
               <>
-                <span className="text-torch">FREE-LOOK</span> — MOVE THE MOUSE TO TURN ·{' '}
-                <span className="text-torch">F</span> PLACE · <span className="text-torch">RMB</span> PRECISE AIM
+                <span className="text-torch">{t('freeLookTurn')}</span> · <span className="text-torch">{t('fPlace')}</span> ·{' '}
+                <span className="text-torch">{t('rmbAim')}</span>
               </>
             ) : (
               <>
-                <span className="text-torch">HOLD RMB</span> TO LOOK · <span className="text-torch">F / MMB</span> TO PLACE
+                <span className="text-torch">{t('holdRmbLook')}</span> · <span className="text-torch">{t('fMmbPlace')}</span>
               </>
             )}
           </div>
