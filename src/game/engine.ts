@@ -1460,6 +1460,47 @@ export class Engine {
     this.syncHud(true);
   }
 
+  /**
+   * Drag & drop: put tool `id` into hotbar slot `slot`, evicting the occupant.
+   * The tool may come from the stash or from another hotbar slot.
+   * Evicted tool → stash (never lost); evicted block → stays in the inventory.
+   */
+  moveToolToSlot(id: number, slot: number) {
+    if (id < 200 || id === HAND) return;
+    const i = Math.max(0, Math.min(9, Math.trunc(slot) || 0));
+
+    // the tool must be actually owned (hotbar or stash) — never fabricate one
+    if (!this.hotbar.includes(id) && !this.stashedTools.has(id)) return;
+    this.stashedTools.delete(id); // if it was dragged from the stash
+
+    const fromIdx = this.hotbar.indexOf(id);
+    const occupant = this.hotbar[i];
+    if (occupant === id) return; // already there
+
+    if (fromIdx >= 0 && occupant !== undefined && occupant !== HAND) {
+      // swap: the occupant (tool or block) takes the dragged tool's old slot
+      this.hotbar[fromIdx] = occupant;
+      this.hotbar[i] = id;
+    } else {
+      // remove the dragged tool (if it was in the bar) and evict the occupant:
+      // tool → stash, block → keeps ownership in the inventory
+      if (fromIdx >= 0) this.hotbar.splice(fromIdx, 1);
+      if (occupant !== undefined && occupant !== HAND) {
+        if (occupant >= 200) this.stashedTools.add(occupant);
+        this.hotbar.splice(i, 1);
+      }
+      // insert; the HAND pseudo-item is permanent, never sit on top of it
+      let at = Math.min(i, this.hotbar.length);
+      if (at === 0 && this.hotbar[0] === HAND) at = Math.min(1, this.hotbar.length);
+      this.hotbar.splice(at, 0, id);
+    }
+
+    this.selected = this.hotbar.indexOf(id);
+    sfx.ui(true);
+    this.syncHotbar(true);
+    this.syncHud(true);
+  }
+
   /** bring a stashed tool back into the hotbar */
   restoreTool(id: number) {
     if (!this.stashedTools.has(id) || this.hotbar.length >= 10) return;
@@ -5370,6 +5411,12 @@ export class Engine {
       if (id !== HAND && id < 200 && (this.inventory.get(id) ?? 0) <= 0) this.hotbar.splice(i, 1);
     }
     if (this.hotbar[0] !== HAND) this.hotbar.unshift(HAND);
+    // safety cap: the hand re-insert above may overflow the bar — excess tools go to the
+    // stash, excess blocks simply leave the hotbar (ownership stays in the inventory)
+    while (this.hotbar.length > 10) {
+      const x = this.hotbar.pop();
+      if (x !== undefined && x >= 200) this.stashedTools.add(x);
+    }
     const keep = this.hotbar.indexOf(selId);
     this.selected = keep >= 0 ? keep : Math.min(this.selected, Math.max(0, this.hotbar.length - 1));
     if (force) this.lastHudKey = '';

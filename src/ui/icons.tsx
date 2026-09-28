@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react';
 
 type P = { className?: string; size?: number; style?: CSSProperties };
 
-export const PickIcon = ({ className = '', size = 24 }: P) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="none">
+export const PickIcon = ({ className = '', size = 24, style }: P) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none">
     <path d="M3 8.5c3.6-3.4 8-4.6 12-3.4l-1.9 1.9 2.6 2.6 1.9-1.9c1.2 4 0 8.4-3.4 12" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
     <path d="M11.4 12.6 4.2 19.8" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
     <path d="M3 21l1.6-1.6" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" />

@@ -66,6 +66,7 @@ type Props = {
   onStashTool: (id: number) => void;
   onRestoreTool: (id: number) => void;
   onSalvageGear: (uid: string) => void;
+  onMoveTool: (id: number, slot: number) => void;
 };
 
 type Tab = 'tools' | 'blocks' | 'gear' | 'food' | 'trade' | 'anvil';
@@ -174,6 +175,7 @@ export default function Inventory({
   onStashTool,
   onRestoreTool,
   onSalvageGear,
+  onMoveTool,
 }: Props) {
   const craftable = new Set(hud.craftable);
   const st = hud.stats;
@@ -354,6 +356,12 @@ export default function Inventory({
                         if (onSelectSlot) onSelectSlot(i);
                         if (slot && slot.id >= 200 && slot.id !== HAND) onStashTool(slot.id);
                       }}
+                      draggable={!!slot && slot.id >= 200 && slot.id !== HAND}
+                      onDragStart={(e) => {
+                        if (!slot || slot.id < 200 || slot.id === HAND) return;
+                        e.dataTransfer.setData('text/plain', `tool:${slot.id}`);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
                       onDragOver={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -366,7 +374,7 @@ export default function Inventory({
                         if (!data) return;
                         if (data.startsWith('tool:')) {
                           const id = Number(data.slice(5));
-                          if (Number.isFinite(id)) onAssign(id, i);
+                          if (Number.isFinite(id)) onMoveTool(id, i);
                         }
                       }}
                       className={`notch relative flex aspect-square items-center justify-center p-0.5 transition-transform hover:-translate-y-0.5 ${
@@ -431,7 +439,12 @@ export default function Inventory({
                       <button
                         key={id}
                         onClick={() => onRestoreTool(id)}
-                        className="notch flex items-center justify-between px-2 py-1 opacity-75 transition-transform duration-100 hover:-translate-y-0.5 hover:opacity-100"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', `tool:${id}`);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        className="notch flex cursor-grab items-center justify-between px-2 py-1 opacity-75 transition-transform duration-100 hover:-translate-y-0.5 hover:opacity-100 active:cursor-grabbing"
                         style={{ background: 'linear-gradient(180deg,#141c17,#0c1210)', border: '2px dashed #33453a' }}
                       >
                         <span className="flex items-center gap-1.5 font-display text-[11px] text-white/60">
@@ -520,7 +533,6 @@ function Recipes({
       <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
         {recipes.map((r, i) => {
           const ready = craftable.has(r.key);
-          const lockedPick = r.kind === 'pickaxe' && r.tier !== undefined && r.tier !== hud.tier + 1;
           const justCrafted = hud.lastCraft === r.key;
           const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
           const needsFire = r.kind === 'cook' && !ready && r.inputs.every(([id, n]) => (hud.inventory.find((x) => x.id === id)?.count ?? 0) >= n);
@@ -573,11 +585,6 @@ function Recipes({
                   <span className="truncate font-display text-sm leading-tight sm:text-base" style={{ color: ready ? r.accent : '#c9d3cc' }}>
                     {rName}
                   </span>
-                  {lockedPick && r.kind === 'pickaxe' && (
-                    <span className="shrink-0 bg-pit-600 px-1 font-display text-[9px] tracking-wider text-white/40">
-                      {r.tier! > hud.tier + 1 ? '↓' : '✓'}
-                    </span>
-                  )}
                   {needsFire && (
                     <span className="shrink-0 bg-[#4a2c14] px-1 font-display text-[9px] tracking-wider text-[#ff8a2b]">
                       {t('needCampfire')}

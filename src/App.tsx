@@ -217,6 +217,7 @@ export default function App() {
   const sellGear = useCallback((uid: string) => engineRef.current?.sellGear(uid), []);
   const stashTool = useCallback((id: number) => engineRef.current?.removeFromHotbar(id), []);
   const restoreTool = useCallback((id: number) => engineRef.current?.restoreTool(id), []);
+  const moveTool = useCallback((id: number, slot: number) => engineRef.current?.moveToolToSlot(id, slot), []);
   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
 
   const toggleFreeLook = useCallback(() => {
@@ -373,6 +374,7 @@ export default function App() {
             onStashTool={stashTool}
             onRestoreTool={restoreTool}
             onSalvageGear={salvageGear}
+            onMoveTool={moveTool}
           />
         ) : (
           <PauseScreen

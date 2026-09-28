@@ -1,0 +1,1287 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 47e3f72..4d9367a 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -113,7 +113,8 @@ export default function App() {
+         /* ignore */
+       }
+       if (!hasManualChoice) {
+-        const mapped: Lang = platformLang === 'ru' ? 'ru' : platformLang === 'fr' ? 'fr' : 'en';
++        const mapped: Lang =
++          platformLang === 'ru' ? 'ru' : platformLang === 'fr' ? 'fr' : platformLang === 'de' ? 'de' : 'en';
+         setLang(mapped);
+         setLangUi(mapped);
+       }
+@@ -216,6 +217,7 @@ export default function App() {
+   const sellGear = useCallback((uid: string) => engineRef.current?.sellGear(uid), []);
+   const stashTool = useCallback((id: number) => engineRef.current?.removeFromHotbar(id), []);
+   const restoreTool = useCallback((id: number) => engineRef.current?.restoreTool(id), []);
++  const moveTool = useCallback((id: number, slot: number) => engineRef.current?.moveToolToSlot(id, slot), []);
+   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
+ 
+   const toggleFreeLook = useCallback(() => {
+@@ -372,6 +374,7 @@ export default function App() {
+             onStashTool={stashTool}
+             onRestoreTool={restoreTool}
+             onSalvageGear={salvageGear}
++            onMoveTool={moveTool}
+           />
+         ) : (
+           <PauseScreen
+diff --git a/src/game/engine.ts b/src/game/engine.ts
+index cf0728f..47cf5ca 100644
+--- a/src/game/engine.ts
++++ b/src/game/engine.ts
+@@ -99,7 +99,7 @@ import {
+   type Slot,
+   type Stats,
+ } from './items';
+-import { blockName, pickaxeLabel, swordLabel, t } from './i18n';
++import { blockName, matName, pickaxeLabel, recipeText, swordLabel, t } from './i18n';
+ import { yaServerTime } from './yandex';
+ 
+ const AFFIX_KEY = Object.fromEntries(
+@@ -179,12 +179,12 @@ const RUN_TIME = 150;
+ 
+ /** selectable shift lengths (seconds) */
+ export const SESSION_LENGTHS = [
+-  { id: 'sprint', label: 'SPRINT', time: 150, sub: '2:30', accent: '#f4b942' },
+-  { id: 'shift', label: 'FULL SHIFT', time: 600, sub: '10:00', accent: '#93c95d' },
+-  { id: 'marathon', label: 'MARATHON', time: 1200, sub: '20:00', accent: '#5fe8dc' },
+-  { id: 'half', label: 'HALF DAY', time: 1800, sub: '30:00', accent: '#d9844a' },
+-  { id: 'hour', label: 'FULL HOUR', time: 3600, sub: '1:00:00', accent: '#c58cff' },
+-  { id: 'double', label: 'DOUBLE SHIFT', time: 7200, sub: '2:00:00', accent: '#ff5f7a' },
++  { id: 'sprint', labelKey: 'sesSprint' as const, time: 150, sub: '2:30', accent: '#f4b942' },
++  { id: 'shift', labelKey: 'sesFull' as const, time: 600, sub: '10:00', accent: '#93c95d' },
++  { id: 'marathon', labelKey: 'sesMarathon' as const, time: 1200, sub: '20:00', accent: '#5fe8dc' },
++  { id: 'half', labelKey: 'sesHalf' as const, time: 1800, sub: '30:00', accent: '#d9844a' },
++  { id: 'hour', labelKey: 'sesHour' as const, time: 3600, sub: '1:00:00', accent: '#c58cff' },
++  { id: 'double', labelKey: 'sesDouble' as const, time: 7200, sub: '2:00:00', accent: '#ff5f7a' },
+ ] as const;
+ 
+ export type TradeOffer = { item: Item; cost: Array<[number, number]>; sold: boolean };
+@@ -1460,6 +1460,47 @@ export class Engine {
+     this.syncHud(true);
+   }
+ 
++  /**
++   * Drag & drop: put tool `id` into hotbar slot `slot`, evicting the occupant.
++   * The tool may come from the stash or from another hotbar slot.
++   * Evicted tool → stash (never lost); evicted block → stays in the inventory.
++   */
++  moveToolToSlot(id: number, slot: number) {
++    if (id < 200 || id === HAND) return;
++    const i = Math.max(0, Math.min(9, Math.trunc(slot) || 0));
++
++    // the tool must be actually owned (hotbar or stash) — never fabricate one
++    if (!this.hotbar.includes(id) && !this.stashedTools.has(id)) return;
++    this.stashedTools.delete(id); // if it was dragged from the stash
++
++    const fromIdx = this.hotbar.indexOf(id);
++    const occupant = this.hotbar[i];
++    if (occupant === id) return; // already there
++
++    if (fromIdx >= 0 && occupant !== undefined && occupant !== HAND) {
++      // swap: the occupant (tool or block) takes the dragged tool's old slot
++      this.hotbar[fromIdx] = occupant;
++      this.hotbar[i] = id;
++    } else {
++      // remove the dragged tool (if it was in the bar) and evict the occupant:
++      // tool → stash, block → keeps ownership in the inventory
++      if (fromIdx >= 0) this.hotbar.splice(fromIdx, 1);
++      if (occupant !== undefined && occupant !== HAND) {
++        if (occupant >= 200) this.stashedTools.add(occupant);
++        this.hotbar.splice(i, 1);
++      }
++      // insert; the HAND pseudo-item is permanent, never sit on top of it
++      let at = Math.min(i, this.hotbar.length);
++      if (at === 0 && this.hotbar[0] === HAND) at = Math.min(1, this.hotbar.length);
++      this.hotbar.splice(at, 0, id);
++    }
++
++    this.selected = this.hotbar.indexOf(id);
++    sfx.ui(true);
++    this.syncHotbar(true);
++    this.syncHud(true);
++  }
++
+   /** bring a stashed tool back into the hotbar */
+   restoreTool(id: number) {
+     if (!this.stashedTools.has(id) || this.hotbar.length >= 10) return;
+@@ -1545,7 +1586,7 @@ export class Engine {
+       sfx.upgrade();
+       return true;
+     } catch {
+-      this.pushBanner('SAVE FAILED', 'world too large for browser storage', '#e2564a');
++      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+       sfx.ui(false);
+       return false;
+     }
+@@ -1725,7 +1766,7 @@ export class Engine {
+     this.deepest = 0;
+     this.phase = 'playing';
+     this.banner = null;
+-    this.pushBanner('SHIFT START', 'Hold fire to mine · press E for the workbench', '#f4b942');
++    this.pushBanner(t('shiftStart'), t('shiftStartSub'), '#f4b942');
+     this.updatePickaxe();
+     sfx.start();
+     this.requestLock();
+@@ -1963,7 +2004,7 @@ export class Engine {
+       if (this.clock > 0.28 && this.clock < 0.5) {
+         this.sleeping = false;
+         this.health = Math.min(100, this.health + 25);
+-        this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, '+25 HP', '#93c95d', true);
++        this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+25 ${t('hp')}`, '#93c95d', true);
+         this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
+         sfx.start();
+       }
+@@ -2043,8 +2084,10 @@ export class Engine {
+     const hint = this.craftHint();
+     if (hint !== this.prevHint) {
+       this.prevHint = hint;
+-      if (hint && RECIPES.find((r) => r.name === hint)?.kind === 'pickaxe') {
+-        this.pushBanner('WORKBENCH READY', `${hint} — press E to craft`, '#f4b942');
++      const hintKey = this.craftHintKey();
++      const hintRecipe = hintKey ? RECIPES.find((r) => r.key === hintKey) : undefined;
++      if (hint && hintRecipe?.kind === 'pickaxe') {
++        this.pushBanner(t('workbenchReady'), `${hint} — ${t('pressE')}`, '#f4b942');
+       }
+     }
+     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
+@@ -2622,7 +2665,7 @@ export class Engine {
+     if (id === DIAMOND || id === GOLD) {
+       this.burst(x + 0.5, y + 0.5, z + 0.5, id === DIAMOND ? [120, 245, 235] : [255, 220, 90], 22, 4.4);
+       this.addShake(0.6);
+-      this.pushBanner(id === DIAMOND ? 'DIAMOND!' : 'GOLD!', `+${Math.round(def.timeBonus)}s on the clock`, id === DIAMOND ? '#5fe8dc' : '#f7d34b');
++      this.pushBanner(id === DIAMOND ? t('diamond') : t('gold'), `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`, id === DIAMOND ? '#5fe8dc' : '#f7d34b');
+     }
+     this.syncHotbar(false);
+     this.syncHud(true);
+@@ -3641,7 +3684,7 @@ export class Engine {
+     sfx.upgrade();
+     this.addShake(0.35);
+     this.flash = 0.4;
+-    this.pushBanner('NETHERITE', `${t(('slot_' + it.slot) as never)} · ⛨${it.armor}`, '#8a6a58');
++    this.pushBanner(matName('NETHERITE'), `${t(('slot_' + it.slot) as never)} · ⛨${it.armor}`, '#8a6a58');
+     this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [138, 106, 88], 20, 4);
+     this.syncHotbar(true);
+     this.syncHud(true);
+@@ -4137,7 +4180,7 @@ export class Engine {
+     if (d.id >= 5 && d.id <= 8) this.oresFound++;
+     if (def.timeBonus > 0) {
+       this.timeLeft = Math.min(this.runTime + 40, this.timeLeft + def.timeBonus);
+-      this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}s`, '#7ee7a0', true);
++      this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}${t('secShort')}`, '#7ee7a0', true);
+     }
+     if (d.id === DIAMOND) this.health = Math.min(100, this.health + 16);
+     else if (d.id === GOLD) this.health = Math.min(100, this.health + 8);
+@@ -4994,11 +5037,18 @@ export class Engine {
+     return r.inputs.every(([id, n]) => (this.inventory.get(id) ?? 0) >= n);
+   }
+ 
+-  craftHint() {
++  craftHintKey(): string | null {
+     const pick = RECIPES.find((r) => r.kind === 'pickaxe' && this.canCraft(r));
+-    if (pick) return pick.name;
++    if (pick) return pick.key;
+     const any = RECIPES.find((r) => this.canCraft(r));
+-    return any ? any.name : null;
++    return any ? any.key : null;
++  }
++
++  craftHint(): string | null {
++    const key = this.craftHintKey();
++    const r = key ? RECIPES.find((rr) => rr.key === key) : undefined;
++    if (!r) return null;
++    return recipeText(r.key, r.name, r.desc)[0];
+   }
+ 
+   craft(key: string): boolean {
+@@ -5009,6 +5059,7 @@ export class Engine {
+     }
+     for (const [id, n] of r.inputs) this.inventory.set(id, (this.inventory.get(id) ?? 0) - n);
+     this.lastCraft = r.key;
++    const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
+ 
+     if (r.out) {
+       const [id, n] = r.out;
+@@ -5022,7 +5073,7 @@ export class Engine {
+         this.selected = this.hotbar.length - 1;
+       }
+       sfx.upgrade();
+-      this.pushBanner(r.name, r.desc, r.accent);
++      this.pushBanner(rName, rDesc, r.accent);
+       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
+     } else if (r.kind === 'shovel' || r.kind === 'bow') {
+       const tool = r.kind === 'shovel' ? TOOL_SHOVEL : TOOL_BOW;
+@@ -5031,7 +5082,7 @@ export class Engine {
+         this.selected = this.hotbar.length - 1;
+       }
+       sfx.upgrade();
+-      this.pushBanner(r.name, r.desc, r.accent);
++      this.pushBanner(rName, rDesc, r.accent);
+       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
+     } else if (r.kind === 'torch') {
+       if (!this.hotbar.includes(TOOL_TORCH) && this.hotbar.length < 9) {
+@@ -5039,12 +5090,12 @@ export class Engine {
+         this.selected = this.hotbar.length - 1;
+       }
+       sfx.upgrade();
+-      this.pushBanner(t('handTorch'), r.desc, r.accent);
++      this.pushBanner(t('handTorch'), rDesc, r.accent);
+       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 176, 58], 12, 3);
+     } else if (r.kind === 'food') {
+       this.health = Math.min(100, this.health + (r.heal ?? 0));
+       sfx.pickup(4);
+-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} HP`, '#93c95d', true);
++      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} ${t('hp')}`, '#93c95d', true);
+     } else if (r.kind === 'gear' && r.slot && r.material) {
+       const it = makeItem(r.slot, r.material, 1, Math.random, true);
+       // Minecraft-flavoured specials
+@@ -5053,7 +5104,7 @@ export class Engine {
+       if (r.key === 'crab_shield') it.armor += 2;
+       this.bagItems.push(it);
+       sfx.upgrade();
+-      this.pushBanner(r.name, `+${it.armor} ${t('armorTotal')}`, r.accent);
++      this.pushBanner(rName, `+${it.armor} ${t('armorTotal')}`, r.accent);
+     } else if (r.kind === 'weapon' && r.weapon !== undefined) {
+       this.swordTier = Math.max(this.swordTier, r.weapon);
+       // the new sword is its own item — the old one stays and can be sold
+@@ -5064,7 +5115,7 @@ export class Engine {
+       }
+       sfx.upgrade();
+       this.addShake(0.4);
+-      this.pushBanner(r.name, r.desc, r.accent);
++      this.pushBanner(rName, rDesc, r.accent);
+     } else if (r.kind === 'pickaxe' && r.tier !== undefined) {
+       this.tier = r.tier;
+       // keep the previous pick in the hotbar — it still works and sells
+@@ -5078,20 +5129,20 @@ export class Engine {
+       this.addShake(0.55);
+       this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [255, 235, 160], 34, 5.5);
+       sfx.upgrade();
+-      this.pushBanner(pickaxeLabel(r.tier), r.desc, PICKAXE_TIERS[r.tier].color);
++      this.pushBanner(pickaxeLabel(r.tier), rDesc, PICKAXE_TIERS[r.tier].color);
+     } else if (r.kind === 'time') {
+       this.timeLeft = Math.min(this.runTime + 60, this.timeLeft + (r.seconds ?? 0));
+       sfx.upgrade();
+-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.seconds}s`, '#7ee7a0', true);
+-      this.pushBanner('SHIFT OVERDRIVE', `+${r.seconds} seconds on the clock`, '#7ee7a0');
++      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.seconds}${t('secShort')}`, '#7ee7a0', true);
++      this.pushBanner(t('overdrive'), `+${r.seconds}${t('secShort')} ${t('secondsOnClock')}`, '#7ee7a0');
+     } else if (r.kind === 'heal') {
+       this.health = Math.min(100, this.health + (r.heal ?? 0));
+       sfx.upgrade();
+-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} HP`, '#e2564a', true);
+-      this.pushBanner('PATCHED UP', `+${r.heal} health`, '#e2564a');
++      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} ${t('hp')}`, '#e2564a', true);
++      this.pushBanner(t('patchedUp'), `+${r.heal} ${t('health')}`, '#e2564a');
+     } else {
+       sfx.place();
+-      this.pushBanner(r.name, r.desc, r.accent);
++      this.pushBanner(rName, rDesc, r.accent);
+       this.burst(this.pos.x, this.pos.y + 1.1, this.pos.z, [255, 240, 190], 14, 3);
+     }
+     this.syncHotbar(true);
+@@ -5360,6 +5411,12 @@ export class Engine {
+       if (id !== HAND && id < 200 && (this.inventory.get(id) ?? 0) <= 0) this.hotbar.splice(i, 1);
+     }
+     if (this.hotbar[0] !== HAND) this.hotbar.unshift(HAND);
++    // safety cap: the hand re-insert above may overflow the bar — excess tools go to the
++    // stash, excess blocks simply leave the hotbar (ownership stays in the inventory)
++    while (this.hotbar.length > 10) {
++      const x = this.hotbar.pop();
++      if (x !== undefined && x >= 200) this.stashedTools.add(x);
++    }
+     const keep = this.hotbar.indexOf(selId);
+     this.selected = keep >= 0 ? keep : Math.min(this.selected, Math.max(0, this.hotbar.length - 1));
+     if (force) this.lastHudKey = '';
+diff --git a/src/game/i18n.ts b/src/game/i18n.ts
+index f07cd65..c3fb2f4 100644
+--- a/src/game/i18n.ts
++++ b/src/game/i18n.ts
+@@ -1,9 +1,10 @@
+-export type Lang = 'en' | 'ru' | 'fr';
++export type Lang = 'en' | 'ru' | 'fr' | 'de';
+ 
+ export const LANGS: Array<{ id: Lang; label: string; flag: string }> = [
+   { id: 'en', label: 'ENGLISH', flag: 'EN' },
+   { id: 'ru', label: 'РУССКИЙ', flag: 'RU' },
+   { id: 'fr', label: 'FRANÇAIS', flag: 'FR' },
++  { id: 'de', label: 'DEUTSCH', flag: 'DE' },
+ ];
+ 
+ const EN = {
+@@ -223,6 +224,44 @@ const EN = {
+   tool_sword_diamond: 'DIAMOND SWORD',
+   tool_shovel: 'SHOVEL',
+   tool_bow: 'BOW',
++  // score table & value table
++  blk: 'blk',
++  secShort: 's',
++  miner: 'MINER',
++  guideTitle: 'WORKBENCH',
++  guideSub: 'PRESS E MID-RUN',
++  oreTableTitle: 'ORE VALUE TABLE',
++  guideMore: 'Plus lanterns, a +25s shift overdrive, a field patch and compressed gold / diamond blocks.',
++  // hud hints
++  captureMouse: 'CLICK TO CAPTURE MOUSE',
++  freeLookTurn: 'FREE-LOOK — MOVE THE MOUSE TO TURN',
++  fPlace: 'F PLACE',
++  rmbAim: 'RMB PRECISE AIM',
++  holdRmbLook: 'HOLD RMB TO LOOK',
++  fMmbPlace: 'F / MMB TO PLACE',
++  hintDesktop: 'LMB MINE · RMB PLACE · CTRL CROUCH · C CRAWL · TAB BAG',
++  hintTouch: 'DRAG TO LOOK · HOLD MINE TO DIG · BAG TO CRAFT',
++  // banners & popups
++  saveFailed: 'SAVE FAILED',
++  saveFailedSub: 'world too large for browser storage',
++  diamond: 'DIAMOND!',
++  gold: 'GOLD!',
++  overdrive: 'SHIFT OVERDRIVE',
++  hp: 'HP',
++  clickStash: 'click to stash',
++  // touch controls
++  run: 'RUN',
++  place: 'PLACE',
++  mine: 'MINE',
++  // session lengths
++  sesSprint: 'SPRINT',
++  sesFull: 'FULL SHIFT',
++  sesMarathon: 'MARATHON',
++  sesHalf: 'HALF DAY',
++  sesHour: 'FULL HOUR',
++  sesDouble: 'DOUBLE SHIFT',
++  // page title
++  docTitle: 'ORE RUSH · Voxel Mining Sprint',
+ };
+ 
+ type Dict = typeof EN;
+@@ -433,6 +472,38 @@ const RU: Dict = {
+   tool_sword_diamond: 'АЛМАЗНЫЙ МЕЧ',
+   tool_shovel: 'ЛОПАТА',
+   tool_bow: 'ЛУК',
++  blk: 'блок',
++  secShort: 'с',
++  miner: 'ШАХТЁР',
++  guideTitle: 'ВЕРСТАК',
++  guideSub: 'E — В ПРОВОДЕ',
++  oreTableTitle: 'СТОИМОСТЬ РУДЫ',
++  guideMore: 'Плюс фонари, форсаж смены на +25 с, полевая перевязка и сжатые золотые / алмазные блоки.',
++  captureMouse: 'КЛИК — ЗАХВАТИТЬ МЫШЬ',
++  freeLookTurn: 'СВОБОДНЫЙ ОБЗОР — ВЕДИ МЫШЬ',
++  fPlace: 'F ПОСТАВИТЬ',
++  rmbAim: 'ПКМ ТРЕТЬЯ',
++  holdRmbLook: 'УДЕРЖИВАЙ ПКМ',
++  fMmbPlace: 'F / СКМ — ПОСТАВИТЬ',
++  hintDesktop: 'ЛКМ КОПАТЬ · ПКМ СТАВИТЬ · CTRL ПРИСЕСТЬ · C ПОЛЗТИ · TAB СЮРРУК',
++  hintTouch: 'ТАЩИ — ОБЗОР · УДЕРЖИВАЙ — КОПАТЬ · СЮРРУК — КРАФТ',
++  saveFailed: 'НЕ УДАЛОСЬ СОХРАНИТЬ',
++  saveFailedSub: 'мир слишком большой для хранилища браузера',
++  diamond: 'АЛМАЗ!',
++  gold: 'ЗОЛОТО!',
++  overdrive: 'ФОРСАЖ СМЕНЫ',
++  hp: 'хп',
++  clickStash: 'клик — убрать в запас',
++  run: 'БЕГ',
++  place: 'СТАВИТЬ',
++  mine: 'КОПАТЬ',
++  sesSprint: 'СПРИНТ',
++  sesFull: 'ПОЛНАЯ СМЕНА',
++  sesMarathon: 'МАРАФОН',
++  sesHalf: 'Полдня',
++  sesHour: 'ПОЛНЫЙ ЧАС',
++  sesDouble: 'ДВОЙНАЯ СМЕНА',
++  docTitle: 'ORE RUSH · Воксельный спринт',
+ };
+ 
+ const FR: Dict = {
+@@ -641,9 +712,281 @@ const FR: Dict = {
+   tool_sword_diamond: 'ÉPÉE EN DIAMANT',
+   tool_shovel: 'PELLE',
+   tool_bow: 'ARC',
++  blk: 'bloc',
++  secShort: 's',
++  miner: 'MINEUR',
++  guideTitle: 'ÉTABLI',
++  guideSub: 'APPUYEZ E EN JEU',
++  oreTableTitle: 'VALEUR DES MINERAIS',
++  guideMore: "Plus des lanternes, une surcharge de +25 s, un pansement de terrain et des blocs d'or / de diamant compressés.",
++  captureMouse: 'CLIQUEZ POUR CAPTURER LA SOURIS',
++  freeLookTurn: 'VUE LIBRE — BOUgez LA SOURIS POUR TOURNER',
++  fPlace: 'F POSER',
++  rmbAim: 'CDD VISE PRÉCISE',
++  holdRmbLook: 'MAINTENIR CDD',
++  fMmbPlace: 'F / CCM POUR POSER',
++  hintDesktop: 'CAG MINER · CDD POSER · CTRL SE GAUCHIR · C RAMPER · TAB SAC',
++  hintTouch: 'GLISSEZ POUR REGARDER · MAINTENIR POUR CREUSER · SAC POUR FABRIQUER',
++  saveFailed: 'SAUVEGARDE ÉCHOUÉE',
++  saveFailedSub: 'monde trop grand pour le stockage du navigateur',
++  diamond: 'DIAMANT !',
++  gold: 'OR !',
++  overdrive: 'SURRÉGIME DU POSTE',
++  hp: 'PV',
++  clickStash: 'cliquer pour ranger',
++  run: 'COURIR',
++  place: 'POSER',
++  mine: 'MINER',
++  sesSprint: 'SPRINT',
++  sesFull: 'POSTE COMPLET',
++  sesMarathon: 'MARATHON',
++  sesHalf: 'DEMI-JOURNÉE',
++  sesHour: 'HEURE COMPLÈTE',
++  sesDouble: 'POSTE DOUBLE',
++  docTitle: 'ORE RUSH · Sprint minier voxel',
+ };
+ 
+-const DICTS: Record<Lang, Dict> = { en: EN, ru: RU, fr: FR };
++const DE: Dict = {
++  tagline: 'UNENDLICHE VOXEL-WELT',
++  intro:
++    'Ein Voxel-Abbau-Run aus der Ich-Perspektive. Schwing den Spitzhammer, zerbrich die Erde, folge den Erzen in die Dunkelheit — und überlebe die Nacht. Jeder Fund kauft Sekunden, jede Ausbeute bessere Ausrüstung.',
++  play: 'JETZT ABBAUEN',
++  controls: 'STEUERUNG',
++  hideControls: 'STEUERUNG VERBERGEN',
++  newWorld: 'NEUE WELT',
++  shiftLength: 'SCHICHTLÄNGE',
++  mode: 'SPIELMODUS',
++  survival: 'ÜBERLEBEN',
++  survivalSub: 'Monster erscheinen nachts',
++  explorer: 'ENTDECKER',
++  explorerSub: 'Friedlich — nur Tiere',
++  language: 'SPRACHE',
++  musicOn: 'MUSIK AN',
++  musicOff: 'MUSIK AUS',
++  sfxOn: 'GERÄUSCHE AN',
++  sfxOff: 'GERÄUSCHE AUS',
++  freeLookOn: 'FREIE SICHT AN',
++  freeLookOff: 'FREIE SICHT AUS',
++  records: 'BESTE SCHICHTEN',
++  local: 'LOKAL',
++  you: 'DU',
++  keyboard: 'TASTATUR + MAUS',
++  touch: 'BERÜHRUNG',
++  move: 'Bewegen',
++  jump: 'Springen',
++  sprint: 'Sprint',
++  mineHold: 'Abbauen / angreifen (halten)',
++  placeBlock: 'Block setzen',
++  selectSlot: 'Feld wählen',
++  bag: 'Inventar / Werkbank',
++  pause: 'Pause',
++  stickMove: 'Linker Daumen = Bewegung',
++  dragLook: 'Rechte Seite = umsehen',
++  holdDig: 'Halten zum Graben',
++  hopBlock: 'Auf einen Block springen',
++  lockNote:
++    'Falls der Browser die Maus-Sperre blockiert, übernimmt die freie Sicht: einfach die Maus bewegen — je weiter vom Zentrum, desto schneller dreht die Kamera.',
++  carving: 'WELT WIRD GESCHAFFEN',
++  loadSub: 'UNENDLICHE WELT · CHUNKS LADEN BEIM GEHEN',
++  stTerrain: 'GELÄNDE WIRD GEHOBEN',
++  stForest: 'WÄLDER WERDEN GEPLANZT',
++  stMesh: 'CHUNK-MESHE WERDEN GEBAUT',
++  stSpawn: 'SPAWN WIRD GESUCHT',
++  score: 'PUNKTE',
++  depth: 'TIEFE',
++  ores: 'ERZE',
++  mined: 'GEBROCHEN',
++  combo: 'KOMBO',
++  day: 'TAG',
++  night: 'NACHT',
++  dusk: 'DÄMMERUNG',
++  dawn: 'MORGENROT',
++  kills: 'KILLS',
++  emptyHand: 'FAUST',
++  paused: 'PAUSIERT',
++  pausedSub: 'DIE SCHICHT IST ANGEHALTEN',
++  resume: 'FORTSETZEN',
++  restart: 'NEU STARTEN',
++  quit: 'BEENDEN',
++  workbench: 'WERKBANK',
++  escResume: 'DRÜCKE ESC ZUM FORTSETZEN',
++  haul: 'AUSBEUTE',
++  stacks: 'STAPEL',
++  emptyPack: 'LEERER RUCKSACK',
++  emptyPackSub: 'Brich Blöcke, um ihn zu füllen',
++  recipes: 'REZEPTE',
++  ready: 'BEREIT',
++  craft: 'BAUEN',
++  gear: 'AUSRÜSTUNG',
++  equipped: 'ANGELEGT',
++  unequip: 'ABNEHMEN',
++  equip: 'AUSSTATTEN',
++  emptySlot: 'LEER',
++  clickEquip: 'AUSRÜSTUNG ANKLICKEN = ANLEGEN · BLÖCKE ANKLICKEN = IN DIE SLEITENLEISTE',
++  hotbarSlots: 'SLEITENFÄCHER',
++  armorTotal: 'RÜSTUNG',
++  dmgTotal: 'SCHADEN',
++  closeHint: 'SCHLIESSEN · SCHNELLBASTELN · AUSRÜSTUNG IN REIHENFOLGE',
++  slot_head: 'HELM',
++  slot_chest: 'BRUNNHART',
++  slot_legs: 'HOSEN',
++  slot_feet: 'STIEFEL',
++  slot_hands: 'HANDSCHUHE',
++  slot_offhand: 'SCHILD',
++  runReport: 'LAUFBERICHT',
++  shift: 'SCHICHT',
++  shiftComplete: 'SCHICHT ABGESCHLOSSEN',
++  youMelted: 'DU BIST GESCHMOLZEN',
++  gravityWins: 'SCHWIEREKRAFT GEWINNT',
++  slain: 'GETÖTET',
++  overTime: 'Die Pfeife ist geblesen. Das hast du aus der Mine gebracht.',
++  overLava: 'Achte auf das Glühen unter dem Stein — es verzeiht nicht.',
++  overFall: 'Pass auf die Höhe auf. Beine sind nicht aus Kopfstein.',
++  overMob: 'Irgendwas im Dunkeln kam dir zuvor.',
++  finalScore: 'ENDPUNKTZAHL',
++  newBest: '★ NEUER REKORD',
++  bestCombo: 'BESTE KOMBO',
++  deepest: 'TIEFSTE STELLE',
++  pickaxe: 'SPITZHACKE',
++  mineAgain: 'NOCHMAL',
++  mainMenu: 'HAUPTMENÜ',
++  signLog: 'SCHREIB IN DIE LISTE',
++  shiftStart: 'SCHICHT START',
++  shiftStartSub: 'Hau einen Baum an, baue Bretter und eine Holzspitzhacke (TAB)',
++  nightFalls: 'NACHT BRICHT AN',
++  nightFallsSub: 'Monster kriechen hervor — pass auf deinen Rücken auf',
++  sunRises: 'SONNENAUFGANG',
++  sunRisesSub: 'Die Untoten brennen',
++  workbenchReady: 'WERKBANK BEREIT',
++  pressE: 'drücke E zum Bauen',
++  secondsOnClock: 'Sekunden auf der Uhr',
++  patchedUp: 'VERBAND VERSEHNT',
++  health: 'Leben',
++  looted: 'GEPLÜNDERT',
++  aff_fire: 'FLAMME',
++  aff_fireD: 'Zündet Feinde an · Verbrennungsschaden pro Sekunde',
++  aff_frost: 'FROST',
++  aff_frostD: 'Verlangsamt, was du triffst',
++  aff_thorns: 'DORNEN',
++  aff_thornsD: 'Spiegelt einen Teil des erlittenen Schadens',
++  aff_vamp: 'BLUTSAUGER',
++  aff_vampD: 'Heilt dich bei jedem Treffer',
++  aff_swift: 'SCHNELL',
++  aff_swiftD: 'Bewegung und Schlag schneller',
++  aff_tough: 'ZÄH',
++  aff_toughD: 'Zusätzliche Rüstungspanzerung',
++  aff_greed: 'GIER',
++  aff_greedD: 'Bonus-Punkte für jeden Fund',
++  aff_miner: 'BERGBAUER',
++  aff_minerD: 'Blöcke schneller brechen',
++  aff_magnet: 'MAGNET',
++  aff_magnetD: 'Zieht verworfene Ressourcen zu dir',
++  mob_pig: 'Schwein',
++  mob_sheep: 'Schaf',
++  mob_cow: 'Kuh',
++  mob_calf: 'Kalb',
++  mob_chicken: 'Huhn',
++  mob_creeper: 'Creeper',
++  mob_zombie: 'Zombie',
++  mob_spider: 'Spinne',
++  mob_skeleton: 'Gerippe',
++  mob_trader: 'Händler',
++  mob_fish: 'Fisch',
++  mob_crab: 'Krabbe',
++  mob_turtle: 'Schildkröte',
++  mob_rabbit: 'Hase',
++  mob_penguin: 'Pinguin',
++  mob_bird: 'Singvogel',
++  mob_bee: 'Biene',
++  mob_cat: 'Luchs',
++  mob_archer: 'Gerippe-Bogenschütze',
++  sellGear: 'AUSRÜSTUNG & WERKZEUGE VERKAUFEN',
++  tab_anvil: 'AMBOS',
++  anvilHint: 'DIAMANT-AUSRÜSTUNG + 1 NETHERIT → NETHERIT · VERSTÄRKEN: 4 EISEN = +2 RÜSTUNG',
++  upgradeNeth: 'NETHERIT',
++  reinforce: 'VERSTÄRKEN',
++  eggHatched: 'EIER AUSGEBRÜTET',
++  eggCrushed: 'KRACH…',
++  burning: 'BRENNT',
++  pressTrade: 'DRÜCKE E FÜR HANDEL',
++  tab_all: 'ALLE',
++  tab_tools: 'WAFFEN & WERKZEUGE',
++  tab_blocks: 'BAU',
++  tab_gear: 'RÜSTUNG',
++  tab_food: 'ESSEN & FEUER',
++  tab_trade: 'HÄNDLER',
++  trader: 'HANDELSMANN FÜR SELTENHEITEN',
++  traderSub: 'Verkauft Seltenes · kauft deine Ausbeute',
++  sell: 'VERKAUFEN',
++  buy: 'KAUFEN',
++  sellFor: 'für',
++  offerSold: 'VERKAUFT',
++  needCampfire: 'BENÖTIGT LAGERFEUER IN DER NÄHE',
++  handTorch: 'FACKEL',
++  pts: 'Pkt',
++  sleeping: 'SCHLAFEN…',
++  sleepingSub: 'Die Nacht rast vorbei',
++  sleepOnlyNight: 'Nur nachts',
++  myWorld: 'MEINE WELT',
++  createWorld: 'WELT ERSTELLEN',
++  continueWorld: 'WEITER',
++  saveWorldBtn: 'WELT SPEICHERN',
++  worldSaved: 'WELT GESPEICHERT',
++  myWorldSub: 'Kein Timer — bau und erkunde ewig. Jederzeit aus der Pause speichern.',
++  hotbarTitle: 'SLEITENFÄCHER (1–10)',
++  stash: 'BEISEITE',
++  restore: 'WIEDERHERSTELLEN',
++  stashHint: 'Aus der Leiste entfernen (bleibt unten im Vorrat)',
++  axeWood: 'HOLZAXT',
++  axeStone: 'STEINAXT',
++  salvage: 'ZURÜCKBAUEN',
++  salvaged: 'ZURÜCKGEBAUT',
++  tier_wood: 'HOLZ',
++  tier_stone: 'STEIN',
++  tier_iron: 'EISEN',
++  tier_diamond: 'DIAMANT',
++  tier_netherite: 'NETHERIT',
++  tool_pickaxe: 'SPITZHACKE',
++  tool_sword_wood: 'HOLZSCHWERT',
++  tool_sword_iron: 'EISENSCHWERT',
++  tool_sword_diamond: 'DIAMANTSCHWERT',
++  tool_shovel: 'SCHAUFEL',
++  tool_bow: 'BOGEN',
++  blk: 'Blk',
++  secShort: 's',
++  miner: 'BERGBAUER',
++  guideTitle: 'WERKBANK',
++  guideSub: 'E WÄHREND DES LAUFS',
++  oreTableTitle: 'ERZ-WERTE-TABELLE',
++  guideMore: 'Dazu Laternen, ein +25-s-Schicht-Overdrive, ein Feldverband und komprimierte Gold-/Diamantblöcke.',
++  captureMouse: 'KLICKEN ZUR MAUS-SPERRE',
++  freeLookTurn: 'FREIE SICHT — MAUS BEWEGEN ZUM DREHEN',
++  fPlace: 'F SETZEN',
++  rmbAim: 'RMT PRÄZISE ZIELEN',
++  holdRmbLook: 'RMT HALTEN',
++  fMmbPlace: 'F / MMT ZUM SETZEN',
++  hintDesktop: 'LMT ABBAUEN · RMT SETZEN · CTRL DUCKEN · C KRIECHEN · TAB RUCKSACK',
++  hintTouch: 'ZIEHEN = UMSCHAUEN · HALTEN = GRABEN · RUCKSACK = BASTELN',
++  saveFailed: 'SPEICHERUNG FEHLGESCHLAGEN',
++  saveFailedSub: 'Welt zu groß für den Browser-Speicher',
++  diamond: 'DIAMANT!',
++  gold: 'GOLD!',
++  overdrive: 'SCHICHT-OVERDRIVE',
++  hp: 'LP',
++  clickStash: 'klicken, um beiseitezuräumen',
++  run: 'LAUFEN',
++  place: 'SETZEN',
++  mine: 'ABBAU',
++  sesSprint: 'SPRINT',
++  sesFull: 'VOLLE SCHICHT',
++  sesMarathon: 'MARATHON',
++  sesHalf: 'HALBER TAG',
++  sesHour: 'VOLLE STUNDE',
++  sesDouble: 'DOPPELTSCHICHT',
++  docTitle: 'ORE RUSH · Voxel-Abbau-Sprint',
++};
++
++const DICTS: Record<Lang, Dict> = { en: EN, ru: RU, fr: FR, de: DE };
+ 
+ let current: Lang = 'en';
+ const listeners = new Set<() => void>();
+@@ -652,6 +995,15 @@ export function getLang() {
+   return current;
+ }
+ 
++function syncDocument(l: Lang) {
++  try {
++    document.title = DICTS[l].docTitle;
++    document.documentElement.lang = l;
++  } catch {
++    /* non-browser context */
++  }
++}
++
+ export function setLang(l: Lang) {
+   current = l;
+   try {
+@@ -659,6 +1011,7 @@ export function setLang(l: Lang) {
+   } catch {
+     /* ignore */
+   }
++  syncDocument(l);
+   listeners.forEach((fn) => fn());
+ }
+ 
+@@ -671,11 +1024,13 @@ export function initLang(): Lang {
+       const nav = navigator.language.slice(0, 2);
+       if (nav === 'ru') l = 'ru';
+       else if (nav === 'fr') l = 'fr';
++      else if (nav === 'de') l = 'de';
+     }
+   } catch {
+     /* ignore */
+   }
+   current = l;
++  syncDocument(l);
+   return l;
+ }
+ 
+@@ -768,6 +1123,8 @@ const RECIPES_RU: Record<string, [string, string]> = {
+   shield_diamond: ['АЛМАЗНЫЙ ЩИТ', 'ЩИТ · алмазные пластины'],
+   gold_block: ['ЗОЛОТОЙ БЛОК', 'Спрессованное богатство — памятник забегу'],
+   diamond_block: ['АЛМАЗНЫЙ БЛОК', 'Трофейный блок. Добудьте обратно за 1400.'],
++  anvil: ['НАКОВАЛЬНЯ', 'Поставьте и нажмите E — улучшение и укрепление снаряжения'],
++  eat_honey: ['СЪЕСТЬ МЁД', 'Сладкая энергия из улья — +15 хп'],
+ };
+ 
+ const RECIPES_FR: Record<string, [string, string]> = {
+@@ -825,11 +1182,72 @@ const RECIPES_FR: Record<string, [string, string]> = {
+   shield_diamond: ['BOUCLIER EN DIAMANT', 'BOUCLIER · plaques de diamant'],
+   gold_block: ["BLOC D'OR", 'Richesse compressée — un monument'],
+   diamond_block: ['BLOC DE DIAMANT', 'Le bloc trophée. Reminez-le pour 1400.'],
++  anvil: ['ENCLUME', 'Posez-la et appuyez sur E — amélioration et renforcement'],
++  eat_honey: ['MANGER DU MIEL', "Énergie sucrée de la ruche — rend 15 PV"],
++};
++
++const RECIPES_DE: Record<string, [string, string]> = {
++  planks: ['ECHENBRETTER', 'Einen Eichenstamm in Bau-Bretter spalten'],
++  planks_birch: ['BIRKENBRETTER', 'Einen Birkenstamm in Bau-Bretter spalten'],
++  crafting_table: ['WERKBANK', 'Überall hinstellen, E zum Basteln · 4 Bretter'],
++  lantern: ['LATERNE-BLOCK', 'Beleuchtet die Mine — überall hinstellbar'],
++  pick_wood: ['HOLZSPITZHACKE', 'Dein erstes echtes Werkzeug — 3 Bretter'],
++  pick_stone: ['STEINSPITZHACKE', 'Abbaurate 1.7x · Punkte 1.15x'],
++  pick_iron: ['EISENSPITZHACKE', 'Abbaurate 2.6x · Punkte 1.40x'],
++  pick_diamond: ['DIAMANTSPITZHACKE', 'Abbaurate 4.0x · Punkte 1.80x'],
++  sword_wood: ['HOLZSCHWERT', 'Schaden 9 · erscheint in der Leiste'],
++  sword_iron: ['EISENSCHWERT', 'Schaden 17 · mäht die Monster weg'],
++  sword_diamond: ['DIAMANTSCHWERT', 'Schaden 29 · erledigt fast alles in einem Schlag'],
++  overdrive: ['SCHICHT-OVERDRIVE', 'Verbrennt Gold für +25 Sekunden auf der Uhr'],
++  patch: ['FELDVERBAND', 'Eisen-Schienen und Blätter · +35 LP'],
++  axe_wood: ['HOLZAXT', 'Nur aus Brettern — fällt Bäume 2.0x schneller'],
++  axe_stone: ['STEINAXT', 'Mit Kopfstein — fällt Bäume 2.8x schneller'],
++  shovel: ['SCHAUFEL', 'Gräbt Erde und Sand 2.6x schneller'],
++  bow: ['BOGEN', 'Fernwaffe — braucht Pfeile im Rucksack'],
++  arrows: ['PFEILE ×8', 'Minecraft-Rezept: Stock + Feuerstein + Feder'],
++  torch_hand: ['FACKEL', 'Feuer in der Hand — beleuchtet Höhlen und die Nacht'],
++  campfire: ['LAGERFEUER', 'Hinstellen und Fleisch daneben garen'],
++  cook_meat: ['FLEISCH GAREN', 'Braucht ein brennendes Lagerfeuer in 4 Blöcken'],
++  eat_meat: ['STEAK ESSEN', 'Heiße Mahlzeit — stellt 30 LP wieder her'],
++  eat_apple: ['APFEL ESSEN', 'Saftiger Obstbaum-Apfel — +20 LP'],
++  eat_honey: ['HONIG ESSEN', 'Süße Energie aus dem Stock — +15 LP'],
++  anvil: ['AMBOS', 'Hinstellen und E drücken — Ausrüstung verbessern & verstärken'],
++  bed: ['BETT', 'Wie in Minecraft: 3 Wolle + 3 Bretter · E nachts = schlafen'],
++  wool_block: ['WOLLEBLOCK', 'Weicher Baublock aus gewebter Wolle'],
++  honey_elixir: ['HONIGELIXIER', 'Trank des goldenen Lichts — stellt 50 LP wieder her'],
++  turtle_helmet: ['SCHILDKRÖTENHELM', 'Schuppenhelm wie in Minecraft — solider Kopfschutz'],
++  crab_shield: ['KRABBENSCHILD', 'Chitin-Schild für die linke Hand'],
++  claw_gloves: ['KRALLEHANDSCHUHE', 'Luchs-Krallen in Seide — schnelle Schläge'],
++  lamp_red: ['ROTE LAMPE', 'Warmes Karmesinlicht für die Bude'],
++  lamp_blue: ['BLAUE LAMPE', 'Kühler Mondscheinton'],
++  lamp_yellow: ['GOLDENE LAMPE', 'Sonniges Licht für das Wohnzimmer'],
++  pedestal: ['STEINSOCKEL', 'Leuchtende Säule — Licht für das Haus'],
++  pedestal_gold: ['VERGOLDENER SOCKEL', 'Prunklicht für den Thronsaal'],
++  glass: ['FENSTERSCHEIBE', 'Mit Kohle gebrannter Sand. E öffnet sie'],
++  door_wood: ['HOLZTÜRE', 'Zwei hintereinander · E zum Öffnen'],
++  door_iron: ['EISENTÜRE', 'Monsterfester Eingang · E zum Öffnen'],
++  fence_wood: ['HOLZZAUN', 'Günstiger Grenzpfahl für den Hof'],
++  fence_stone: ['STEINZAUN', 'Niedrige Befestigungsmauer'],
++  fence_iron: ['EISENGELÄNDER', 'Gitter in Gefängnisqualität'],
++  helmet_leather: ['LEDERHELM', 'KOPF · Lederschutz'],
++  chest_leather: ['LEDERUNTERTUNIK', 'BRUST · Lederschutz'],
++  legs_iron: ['EISENHOSEN', 'BEINE · Eisenplatten'],
++  feet_iron: ['EISENSTIEFEL', 'FÜSSE · Eisenplatten'],
++  hands_iron: ['EISENHANDSCHUHE', 'HÄNDE · Eisenplatten'],
++  head_iron: ['EISENHELM', 'KOPF · Eisenplatten'],
++  chest_iron: ['EISENBRUNNHART', 'BRUST · Eisenplatten'],
++  shield_iron: ['EISENSCHILD', 'SCHILD · Eisenplatten'],
++  chest_diamond: ['DIAMANTBRUNNHART', 'BRUST · Diamantplatten'],
++  head_diamond: ['DIAMANTHELM', 'KOPF · Diamantplatten'],
++  hands_diamond: ['DIAMANTHANDSCHUHE', 'HÄNDE · Diamantplatten'],
++  shield_diamond: ['DIAMANTSCHILD', 'SCHILD · Diamantplatten'],
++  gold_block: ['GOLDBLOCK', 'Komprimierter Reichtum — ein Denkmal'],
++  diamond_block: ['DIAMANTBLOCK', 'Der Trophäenblock. Zurückabbauen für 1400.'],
+ };
+ 
+ /** localized recipe name + description; falls back to the English strings */
+ export function recipeText(key: string, fallbackName: string, fallbackDesc: string): [string, string] {
+-  const m = current === 'ru' ? RECIPES_RU : current === 'fr' ? RECIPES_FR : null;
++  const m = current === 'ru' ? RECIPES_RU : current === 'fr' ? RECIPES_FR : current === 'de' ? RECIPES_DE : null;
+   return m?.[key] ?? [fallbackName, fallbackDesc];
+ }
+ 
+@@ -871,21 +1289,42 @@ const BLOCKS_FR: Record<number, string> = {
+   68: 'Établi',
+ };
+ 
++const BLOCKS_DE: Record<number, string> = {
++  1: 'Gras', 2: 'Erde', 3: 'Stein', 4: 'Kopfstein', 5: 'Kohleerz', 6: 'Eisenerz',
++  7: 'Gold Erz', 8: 'Diamanterz', 9: 'Eichenstamm', 10: 'Laub', 11: 'Sand',
++  12: 'Bretter', 13: 'Fels', 14: 'Lava', 15: 'Laterne', 16: 'Goldblock', 17: 'Diamantblock',
++  18: 'Fenster', 19: 'Holztür', 20: 'Eisentür', 21: 'Holzzaun',
++  22: 'Steinzaun', 23: 'Eisengitter', 24: 'Lagerfeuer', 25: 'Steinsockel',
++  26: 'Vergoldener Sockel', 27: 'Rohes Fleisch', 28: 'Gekochtes Fleisch', 29: 'Spinnweben', 30: 'Knochen',
++  31: 'Faulfleisch', 32: 'Schießpulver', 33: 'Pfeil', 34: 'Beute', 35: 'Bett', 36: 'Wasser',
++  37: 'Rote Blume', 38: 'Gelbe Blume', 39: 'Blaue Blume',
++  40: 'Rote Lampe', 41: 'Blaue Lampe', 42: 'Goldene Lampe',
++  43: 'Schneebedecktes Gras', 44: 'Eis', 45: 'Gefrorenes Laub',
++  46: 'Bienenstock', 47: 'Schildkröten-Ei', 48: 'Ambos', 49: 'Antike Trümmer',
++  50: 'Honig', 51: 'Netherit-Barren', 52: 'Wolle', 53: 'Feder', 54: 'Schildkrötenpanzer',
++  55: 'Krabbenpanzer', 56: 'Fischschuppen', 57: 'Luchskralle', 58: 'Pinguin-Ei',
++  59: 'Hohes Gras', 60: 'Farne', 61: 'Toter Strauch', 62: 'Kaktus', 63: 'Blasser Kaktus',
++  64: 'Birkenstamm', 65: 'Birkenlaub', 66: 'Apfelbaumlaub', 67: 'Apfel',
++  68: 'Werkbank',
++};
++
+ export function blockName(id: number, fallback: string): string {
+-  const m = current === 'ru' ? BLOCKS_RU : current === 'fr' ? BLOCKS_FR : null;
++  const m = current === 'ru' ? BLOCKS_RU : current === 'fr' ? BLOCKS_FR : current === 'de' ? BLOCKS_DE : null;
+   return m?.[id] ?? fallback;
+ }
+ 
+ const MAT_RU: Record<string, string> = { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ' };
+ const MAT_FR: Record<string, string> = { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE' };
++const MAT_DE: Record<string, string> = { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT' };
+ const RAR_RU = ['ОБЫЧНЫЙ', 'ПРОЧНЫЙ', 'РЕДКИЙ', 'МИФИЧЕСКИЙ'];
+ const RAR_FR = ['COMMUN', 'SOLIDE', 'RARE', 'MYTHIQUE'];
++const RAR_DE = ['GEWÖHNLICH', 'ROBUST', 'SELTEN', 'MYTHISCH'];
+ 
+ export function matName(label: string): string {
+-  const m = current === 'ru' ? MAT_RU : current === 'fr' ? MAT_FR : null;
++  const m = current === 'ru' ? MAT_RU : current === 'fr' ? MAT_FR : current === 'de' ? MAT_DE : null;
+   return m?.[label] ?? label;
+ }
+ export function rarName(index: number, fallback: string): string {
+-  const m = current === 'ru' ? RAR_RU : current === 'fr' ? RAR_FR : null;
++  const m = current === 'ru' ? RAR_RU : current === 'fr' ? RAR_FR : current === 'de' ? RAR_DE : null;
+   return m?.[index] ?? fallback;
+ }
+diff --git a/src/ui/Hud.tsx b/src/ui/Hud.tsx
+index 1582616..331e29c 100644
+--- a/src/ui/Hud.tsx
++++ b/src/ui/Hud.tsx
+@@ -202,7 +202,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+               className="font-display text-2xl leading-none sm:text-3xl"
+               style={{ color: hud.comboMult > 3 ? '#f7d34b' : hud.comboMult > 2 ? '#5fe8dc' : '#93c95d', textShadow: '2px 2px 0 #05080a' }}
+             >
+-              COMBO x{hud.combo}
++              {t('combo')} x{hud.combo}
+             </span>
+             <span className="font-display text-base text-white/70">({hud.comboMult.toFixed(2)}x)</span>
+           </div>
+@@ -222,7 +222,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+       {/* ---------------- TOP RIGHT: score + tier + buttons ---------------- */}
+       <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-4 sm:top-4 sm:gap-2">
+         <div className="bevel-flat notch px-3 py-1 text-right sm:px-4 sm:py-2">
+-          <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">SCORE</div>
++          <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">{t('score').toUpperCase()}</div>
+           <div
+             key={bump}
+             ref={scoreRef}
+@@ -247,8 +247,8 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+             className={`bevel-flat notch relative flex h-8 w-8 items-center justify-center transition active:scale-95 sm:h-9 sm:w-9 ${
+               hud.craftHint ? 'text-torch' : 'text-white/70 hover:text-torch'
+             }`}
+-            aria-label="inventory & crafting"
+-            title="Inventory & crafting (E)"
++            aria-label={t('bag')}
++            title={`${t('bag')} (E)`}
+           >
+             <BagIcon size={17} />
+             {hud.craftHint && <span className="anim-flicker absolute -right-1 -top-1 h-2.5 w-2.5 bg-torch shadow-[0_0_8px_#f4b942]" />}
+@@ -256,15 +256,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+           <button
+             onClick={onMute}
+             className="bevel-flat notch flex h-8 w-8 items-center justify-center text-white/70 transition hover:text-torch active:scale-95 sm:h-9 sm:w-9"
+-            aria-label="toggle sound"
+-            title="Mute (M)"
++            aria-label={muted ? t('sfxOn') : t('sfxOff')}
++            title={`${muted ? t('sfxOn') : t('sfxOff')} (M)`}
+           >
+             <SoundIcon muted={muted} size={17} />
+           </button>
+           <button
+             onClick={onPause}
+             className="bevel-flat notch flex h-8 w-8 items-center justify-center text-white/70 transition hover:text-torch active:scale-95 sm:h-9 sm:w-9"
+-            aria-label="pause"
++            aria-label={t('pause')}
+           >
+             <PauseIcon size={15} />
+           </button>
+@@ -369,15 +369,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+           >
+             <BagIcon size={14} className="anim-flicker text-torch" />
+             <span className="font-display text-xs tracking-widest text-torch sm:text-sm">{hud.craftHint}</span>
+-            <span className="font-display text-[10px] tracking-widest text-white/45">READY · [E]</span>
++            <span className="font-display text-[10px] tracking-widest text-white/45">
++              {t('ready')} · [E]
++            </span>
+           </button>
+         )}
+ 
+         {hint && (
+           <div className="bevel-flat notch anim-rise px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/55 sm:text-xs">
+-            {isTouch
+-              ? 'DRAG TO LOOK · HOLD MINE TO DIG · BAG TO CRAFT'
+-              : 'LMB MINE · RMB PLACE · CTRL CROUCH · C CRAWL · TAB BAG'}
++            {isTouch ? t('hintTouch') : t('hintDesktop')}
+           </div>
+         )}
+ 
+@@ -386,7 +386,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+             onClick={onCaptureMouse}
+             className="pointer-events-auto bevel-flat notch anim-pop flex items-center gap-2 px-4 py-2 font-display text-sm tracking-widest text-torch transition hover:brightness-125"
+           >
+-            <PlayIcon size={14} /> CLICK TO CAPTURE MOUSE
++            <PlayIcon size={14} /> {t('captureMouse')}
+           </button>
+         )}
+ 
+@@ -394,12 +394,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
+           <div className="bevel-flat notch px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/45">
+             {hud.freeLook ? (
+               <>
+-                <span className="text-torch">FREE-LOOK</span> — MOVE THE MOUSE TO TURN ·{' '}
+-                <span className="text-torch">F</span> PLACE · <span className="text-torch">RMB</span> PRECISE AIM
++                <span className="text-torch">{t('freeLookTurn')}</span> · <span className="text-torch">{t('fPlace')}</span> ·{' '}
++                <span className="text-torch">{t('rmbAim')}</span>
+               </>
+             ) : (
+               <>
+-                <span className="text-torch">HOLD RMB</span> TO LOOK · <span className="text-torch">F / MMB</span> TO PLACE
++                <span className="text-torch">{t('holdRmbLook')}</span> · <span className="text-torch">{t('fMmbPlace')}</span>
+               </>
+             )}
+           </div>
+diff --git a/src/ui/Inventory.tsx b/src/ui/Inventory.tsx
+index 85eadac..6b9006b 100644
+--- a/src/ui/Inventory.tsx
++++ b/src/ui/Inventory.tsx
+@@ -66,6 +66,7 @@ type Props = {
+   onStashTool: (id: number) => void;
+   onRestoreTool: (id: number) => void;
+   onSalvageGear: (uid: string) => void;
++  onMoveTool: (id: number, slot: number) => void;
+ };
+ 
+ type Tab = 'tools' | 'blocks' | 'gear' | 'food' | 'trade' | 'anvil';
+@@ -174,6 +175,7 @@ export default function Inventory({
+   onStashTool,
+   onRestoreTool,
+   onSalvageGear,
++  onMoveTool,
+ }: Props) {
+   const craftable = new Set(hud.craftable);
+   const st = hud.stats;
+@@ -259,7 +261,7 @@ export default function Inventory({
+                         cursor: isTool ? 'grab' : 'pointer',
+                       }}
+                     >
+-                      <img src={getBlockIcon(it.id)} alt={BLOCKS[it.id].name} className="pixelated h-[62%] w-[62%]" draggable={false} />
++                      <img src={getBlockIcon(it.id)} alt={blockName(it.id, BLOCKS[it.id].name)} className="pixelated h-[62%] w-[62%]" draggable={false} />
+                       <span className="absolute bottom-0 right-0.5 font-display text-[11px] leading-none text-white text-shadow-hard">
+                         {it.count}
+                       </span>
+@@ -354,6 +356,12 @@ export default function Inventory({
+                         if (onSelectSlot) onSelectSlot(i);
+                         if (slot && slot.id >= 200 && slot.id !== HAND) onStashTool(slot.id);
+                       }}
++                      draggable={!!slot && slot.id >= 200 && slot.id !== HAND}
++                      onDragStart={(e) => {
++                        if (!slot || slot.id < 200 || slot.id === HAND) return;
++                        e.dataTransfer.setData('text/plain', `tool:${slot.id}`);
++                        e.dataTransfer.effectAllowed = 'move';
++                      }}
+                       onDragOver={(e) => {
+                         e.preventDefault();
+                         e.stopPropagation();
+@@ -366,7 +374,7 @@ export default function Inventory({
+                         if (!data) return;
+                         if (data.startsWith('tool:')) {
+                           const id = Number(data.slice(5));
+-                          if (Number.isFinite(id)) onAssign(id, i);
++                          if (Number.isFinite(id)) onMoveTool(id, i);
+                         }
+                       }}
+                       className={`notch relative flex aspect-square items-center justify-center p-0.5 transition-transform hover:-translate-y-0.5 ${
+@@ -381,7 +389,7 @@ export default function Inventory({
+                           ? slot.id === HAND
+                             ? t('emptyHand')
+                             : slot.id >= 200
+-                              ? `${toolLabel(slot.id)} — click to stash`
++                              ? `${toolLabel(slot.id)} — ${t('clickStash')}`
+                               : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count}`
+                           : `${i === 9 ? 0 : i + 1}`
+                       }
+@@ -431,7 +439,12 @@ export default function Inventory({
+                       <button
+                         key={id}
+                         onClick={() => onRestoreTool(id)}
+-                        className="notch flex items-center justify-between px-2 py-1 opacity-75 transition-transform duration-100 hover:-translate-y-0.5 hover:opacity-100"
++                        draggable
++                        onDragStart={(e) => {
++                          e.dataTransfer.setData('text/plain', `tool:${id}`);
++                          e.dataTransfer.effectAllowed = 'move';
++                        }}
++                        className="notch flex cursor-grab items-center justify-between px-2 py-1 opacity-75 transition-transform duration-100 hover:-translate-y-0.5 hover:opacity-100 active:cursor-grabbing"
+                         style={{ background: 'linear-gradient(180deg,#141c17,#0c1210)', border: '2px dashed #33453a' }}
+                       >
+                         <span className="flex items-center gap-1.5 font-display text-[11px] text-white/60">
+@@ -520,7 +533,6 @@ function Recipes({
+       <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
+         {recipes.map((r, i) => {
+           const ready = craftable.has(r.key);
+-          const lockedPick = r.kind === 'pickaxe' && r.tier !== undefined && r.tier !== hud.tier + 1;
+           const justCrafted = hud.lastCraft === r.key;
+           const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
+           const needsFire = r.kind === 'cook' && !ready && r.inputs.every(([id, n]) => (hud.inventory.find((x) => x.id === id)?.count ?? 0) >= n);
+@@ -573,11 +585,6 @@ function Recipes({
+                   <span className="truncate font-display text-sm leading-tight sm:text-base" style={{ color: ready ? r.accent : '#c9d3cc' }}>
+                     {rName}
+                   </span>
+-                  {lockedPick && r.kind === 'pickaxe' && (
+-                    <span className="shrink-0 bg-pit-600 px-1 font-display text-[9px] tracking-wider text-white/40">
+-                      {r.tier! > hud.tier + 1 ? '↓' : '✓'}
+-                    </span>
+-                  )}
+                   {needsFire && (
+                     <span className="shrink-0 bg-[#4a2c14] px-1 font-display text-[9px] tracking-wider text-[#ff8a2b]">
+                       {t('needCampfire')}
+@@ -595,7 +602,7 @@ function Recipes({
+                     <span
+                       key={id}
+                       className="flex items-center gap-0.5"
+-                      title={`${BLOCKS[id].name}: ${have}/${n}`}
++                      title={`${blockName(id, BLOCKS[id].name)}: ${have}/${n}`}
+                     >
+                       <img
+                         src={getBlockIcon(id)}
+@@ -621,7 +628,7 @@ function Recipes({
+                   color: ready ? '#0a0e0c' : '#4c5b52',
+                 }}
+               >
+-                CRAFT
++                {t('craft')}
+               </button>
+             </div>
+           );
+@@ -801,8 +808,8 @@ function AnvilPanel({
+         <div className="font-display text-sm tracking-widest text-[#8a6a58]">{t('tab_anvil')}</div>
+         <div className="text-[10px] tracking-wider text-white/40">{t('anvilHint')}</div>
+         <div className="mt-1 flex gap-3 font-display text-[11px]">
+-          <span className="text-[#8a6a58]">NETHERITE ×{netherite}</span>
+-          <span className="text-white/50">IRON ×{iron}</span>
++          <span className="text-[#8a6a58]">{matName('NETHERITE')} ×{netherite}</span>
++          <span className="text-white/50">{matName('IRON')} ×{iron}</span>
+         </div>
+       </div>
+       {allGear.length === 0 && (
+diff --git a/src/ui/Screens.tsx b/src/ui/Screens.tsx
+index 929c1ed..1bc18dc 100644
+--- a/src/ui/Screens.tsx
++++ b/src/ui/Screens.tsx
+@@ -3,7 +3,7 @@ import type { HudState } from '../game/engine';
+ 
+ import { getBlockIcon } from '../game/textures';
+ import type { ScoreEntry } from './scores';
+-import { LANGS, t, type Lang } from '../game/i18n';
++import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
+ import {
+   BagIcon,
+   ClockIcon,
+@@ -81,7 +81,7 @@ function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: s
+         <span className="flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
+           <TrophyIcon size={13} /> {t('records')}
+         </span>
+-        <span className="font-display text-[10px] text-white/35">LOCAL</span>
++        <span className="font-display text-[10px] text-white/35">{t('local')}</span>
+       </div>
+       <div className="max-h-[38vh] overflow-y-auto">
+         {scores.map((s, i) => {
+@@ -96,13 +96,15 @@ function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: s
+               <span className={`w-5 font-display text-sm ${i === 0 ? 'text-torch' : 'text-white/35'}`}>{i + 1}</span>
+               <span className={`flex-1 truncate font-display text-sm tracking-wide ${mine ? 'text-torch' : 'text-white/85'}`}>
+                 {s.name || '—'}
+-                {mine && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ YOU</span>}
++                {mine && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ {t('you')}</span>}
+               </span>
+-              <span className="hidden font-display text-[10px] text-white/30 sm:inline">{s.tier}</span>
++              <span className="hidden font-display text-[10px] text-white/30 sm:inline">{matName(s.tier)}</span>
+               <span className="hidden w-10 text-right font-display text-[10px] text-white/25 sm:inline">
+                 {s.runTime ? fmtMinutes(s.runTime) : '—'}
+               </span>
+-              <span className="hidden w-12 text-right font-display text-[10px] text-white/30 sm:inline">{s.blocks} blk</span>
++              <span className="hidden w-12 text-right font-display text-[10px] text-white/30 sm:inline">
++                {s.blocks} {t('blk')}
++              </span>
+               <span className="w-16 text-right font-display text-base tabular-nums text-white">{s.score.toLocaleString()}</span>
+             </div>
+           );
+@@ -147,7 +149,7 @@ function SessionDropdown({
+   sessionId,
+   onSession,
+ }: {
+-  sessions: ReadonlyArray<{ id: string; label: string; time: number; sub: string; accent: string }>;
++  sessions: ReadonlyArray<{ id: string; labelKey: TKey; time: number; sub: string; accent: string }>;
+   sessionId: string;
+   onSession: (id: string) => void;
+ }) {
+@@ -168,7 +170,7 @@ function SessionDropdown({
+           <span className="font-display text-2xl leading-none tabular-nums" style={{ color: cur.accent }}>
+             {fmtMinutes(cur.time)}
+           </span>
+-          <span className="font-display text-[10px] tracking-widest text-white/55">{cur.label}</span>
++          <span className="font-display text-[10px] tracking-widest text-white/55">{t(cur.labelKey)}</span>
+         </span>
+         <svg viewBox="0 0 12 8" width="14" height="9" className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+           <path d="M1 1l5 5 5-5" fill="none" stroke={cur.accent} strokeWidth="2.4" />
+@@ -194,7 +196,7 @@ function SessionDropdown({
+                 <span className="font-display text-lg leading-none tabular-nums" style={{ color: s.accent }}>
+                   {fmtMinutes(s.time)}
+                 </span>
+-                <span className="font-display text-[10px] tracking-widest text-white/45">{s.label}</span>
++                <span className="font-display text-[10px] tracking-widest text-white/45">{t(s.labelKey)}</span>
+               </button>
+             );
+           })}
+@@ -230,7 +232,7 @@ export function StartScreen({
+   scores: ScoreEntry[];
+   onPlay: () => void;
+   onNewWorld: () => void;
+-  sessions: ReadonlyArray<{ id: string; label: string; time: number; sub: string; accent: string }>;
++  sessions: ReadonlyArray<{ id: string; labelKey: TKey; time: number; sub: string; accent: string }>;
+   sessionId: string;
+   onSession: (id: string) => void;
+   music: boolean;
+@@ -448,7 +450,7 @@ export function StartScreen({
+           <ScoreTable scores={scores} />
+           <div className="bevel-flat notch p-3">
+             <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
+-              <BagIcon size={13} /> WORKBENCH <span className="text-white/30">· PRESS E MID-RUN</span>
++              <BagIcon size={13} /> {t('guideTitle')} <span className="text-white/30">· {t('guideSub')}</span>
+             </div>
+             <div className="flex flex-col gap-1.5">
+               {[
+@@ -459,7 +461,7 @@ export function StartScreen({
+                 <div key={p.n} className="flex items-center gap-2">
+                   <PickIcon size={15} style={{ color: p.c }} />
+                   <span className="w-16 font-display text-[11px]" style={{ color: p.c }}>
+-                    {p.n}
++                    {matName(p.n)}
+                   </span>
+                   <span className="flex items-center gap-1.5">
+                     {p.ing.map(([id, n]) => (
+@@ -473,22 +475,23 @@ export function StartScreen({
+               ))}
+             </div>
+             <div className="mt-2 border-t border-white/10 pt-1.5 text-[10px] leading-relaxed text-white/40">
+-              Plus lanterns, a +25s shift overdrive, a field patch and compressed gold / diamond blocks.
++              {t('guideMore')}
+             </div>
+           </div>
+ 
+           <div className="bevel-flat notch p-3">
+             <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-white/60">
+-              <PickIcon size={13} className="text-copper" /> ORE VALUE TABLE
++              <PickIcon size={13} className="text-copper" /> {t('oreTableTitle')}
+             </div>
+             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+               {[5, 6, 7, 8, 3, 9].map((id) => (
+                 <div key={id} className="flex items-center gap-2">
+                   <img src={getBlockIcon(id)} alt="" className="pixelated h-7 w-7" draggable={false} />
+                   <div className="leading-tight">
+-                    <div className="font-display text-[11px] text-white/80">{BLOCK_LABEL[id]}</div>
++                    <div className="font-display text-[11px] text-white/80">{blockName(id, BLOCK_LABEL[id])}</div>
+                     <div className="font-display text-[10px] text-torch">
+-                      {BLOCK_SCORE[id]} pts · +{BLOCK_TIME[id]}s
++                      {BLOCK_SCORE[id]} {t('pts')} · +{BLOCK_TIME[id]}
++                      {t('secShort')}
+                     </div>
+                   </div>
+                 </div>
+@@ -532,7 +535,7 @@ export function PauseScreen({
+   return (
+     <div className="absolute inset-0 z-30 flex items-center justify-center bg-pit-950/78 backdrop-blur-[3px]">
+       <div className="bevel notch anim-pop w-[min(92vw,440px)] p-5 sm:p-6">
+-        <div className="mb-1 font-display text-4xl leading-none text-white text-outline sm:text-5xl">PAUSED</div>
++        <div className="mb-1 font-display text-4xl leading-none text-white text-outline sm:text-5xl">{t('paused')}</div>
+         <div className="mb-5 text-[11px] tracking-[0.3em] text-torch/70">
+           {t('pausedSub')} · {fmtMinutes(hud.runTime)}
+         </div>
+@@ -705,9 +708,9 @@ export function GameOverScreen({
+             <input
+               value={name}
+               maxLength={12}
+-              onChange={(e) => onName(e.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, ''))}
++              onChange={(e) => onName(e.target.value.toUpperCase().replace(/[^A-ZА-ЯЁ0-9 _-]/g, ''))}
+               className="sunken notch flex-1 px-2.5 py-1.5 font-display text-base tracking-widest text-torch outline-none focus:ring-2 focus:ring-torch/50"
+-              placeholder="MINER"
++              placeholder={t('miner')}
+             />
+           </div>
+           <ScoreTable scores={scores} highlight={token} />
+diff --git a/src/ui/TouchControls.tsx b/src/ui/TouchControls.tsx
+index 4e2cf81..4a9fd7a 100644
+--- a/src/ui/TouchControls.tsx
++++ b/src/ui/TouchControls.tsx
+@@ -1,5 +1,6 @@
+ import { useCallback, useRef, useState } from 'react';
+ import type { Engine } from '../game/engine';
++import { t } from '../game/i18n';
+ 
+ const R = 54; // joystick radius px
+ const SENS = 0.0048;
+@@ -142,14 +143,14 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
+           }`}
+           style={{ borderColor: '#06090a' }}
+         >
+-          RUN
++          {t('run')}
+         </button>
+         <button
+           {...hold('place', (v) => engine?.setPlacing(v))}
+           className={`${btn(pressed.place)} h-16 w-16 text-xs bg-gradient-to-b from-[#4b6f8a] to-[#26404f] text-white/90`}
+           style={{ borderColor: '#06090a' }}
+         >
+-          PLACE
++          {t('place')}
+         </button>
+         <div className="flex flex-col gap-2.5">
+           <button
+@@ -157,14 +158,14 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
+             className={`${btn(pressed.jump)} h-14 w-[74px] text-xs bg-gradient-to-b from-moss to-[#41702c] text-pit-950`}
+             style={{ borderColor: '#06090a' }}
+           >
+-            JUMP
++            {t('jump')}
+           </button>
+           <button
+             {...hold('mine', (v) => engine?.setMining(v))}
+             className={`${btn(pressed.mine)} h-[74px] w-[74px] text-sm bg-gradient-to-b from-torch to-[#a8761f] text-pit-950 shadow-[0_0_22px_rgba(244,185,66,.35)]`}
+             style={{ borderColor: '#06090a' }}
+           >
+-            MINE
++            {t('mine')}
+           </button>
+         </div>
+       </div>
+diff --git a/src/ui/icons.tsx b/src/ui/icons.tsx
+index a34860a..c07e9ab 100644
+--- a/src/ui/icons.tsx
++++ b/src/ui/icons.tsx
+@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react';
+ 
+ type P = { className?: string; size?: number; style?: CSSProperties };
+ 
+-export const PickIcon = ({ className = '', size = 24 }: P) => (
+-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="none">
++export const PickIcon = ({ className = '', size = 24, style }: P) => (
++  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none">
+     <path d="M3 8.5c3.6-3.4 8-4.6 12-3.4l-1.9 1.9 2.6 2.6 1.9-1.9c1.2 4 0 8.4-3.4 12" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+     <path d="M11.4 12.6 4.2 19.8" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+     <path d="M3 21l1.6-1.6" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" />
+diff --git a/vite.config.ts b/vite.config.ts
+index 1f06afd..c4d50a3 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -11,6 +11,10 @@ const __dirname = path.dirname(__filename);
+ // https://vite.dev/config/
+ export default defineConfig({
+   plugins: [react(), tailwindcss(), viteSingleFile()],
++  server: {
++    // allow the Arena preview host to reach the dev server
++    allowedHosts: true,
++  },
+   resolve: {
+     alias: {
+       "@": path.resolve(__dirname, "src"),
