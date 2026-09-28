@@ -1,0 +1,498 @@
+// Block registry: ids, atlas tiles, hardness, score value, physics flags.
+
+export const AIR = 0;
+export const GRASS = 1;
+export const DIRT = 2;
+export const STONE = 3;
+export const COBBLE = 4;
+export const COAL = 5;
+export const IRON = 6;
+export const GOLD = 7;
+export const DIAMOND = 8;
+export const LOG = 9;
+export const LEAVES = 10;
+export const SAND = 11;
+export const PLANKS = 12;
+export const BEDROCK = 13;
+export const LAVA = 14;
+export const TORCH = 15;
+export const GOLD_BLOCK = 16;
+export const DIAMOND_BLOCK = 17;
+export const GLASS = 18;
+export const DOOR_WOOD = 19;
+export const DOOR_IRON = 20;
+export const FENCE_WOOD = 21;
+export const FENCE_STONE = 22;
+export const FENCE_IRON = 23;
+export const CAMPFIRE = 24;
+export const PEDESTAL = 25;
+export const PEDESTAL_GOLD = 26;
+/** resources that live in the pack but cannot be placed */
+export const RAW_MEAT = 27;
+export const COOKED_MEAT = 28;
+export const WEB = 29;
+export const BONE = 30;
+export const FLESH = 31;
+export const GUNPOWDER = 32;
+export const ARROW_ITEM = 33;
+/** a dropped piece of gear waiting on the ground */
+export const LOOT_BAG = 34;
+export const BED = 35;
+export const WATER = 36;
+export const FLOWER_RED = 37;
+export const FLOWER_YELLOW = 38;
+export const FLOWER_BLUE = 39;
+export const LAMP_RED = 40;
+export const LAMP_BLUE = 41;
+export const LAMP_YELLOW = 42;
+export const SNOW_GRASS = 43;
+export const ICE = 44;
+export const SNOW_LEAVES = 45;
+export const HIVE = 46;
+export const TURTLE_EGG = 47;
+export const ANVIL = 48;
+export const NETHERITE_ORE = 49;
+/** resources (non-placeable) */
+export const HONEY = 50;
+export const NETHERITE = 51;
+/** wool IS placeable, Minecraft-style */
+export const WOOL = 52;
+export const FEATHER = 53;
+export const TURTLE_SHELL = 54;
+export const CRAB_SHELL = 55;
+export const FISH_SCALE = 56;
+export const CAT_CLAW = 57;
+export const PENGUIN_EGG = 58;
+export const TALL_GRASS = 59;
+export const FERN = 60;
+export const DEAD_BUSH = 61;
+export const CACTUS = 62;
+export const CACTUS_PALE = 63;
+export const BIRCH_LOG = 64;
+export const BIRCH_LEAVES = 65;
+export const APPLE_LEAVES = 66;
+export const APPLE = 67;
+export const CRAFTING_TABLE = 68;
+
+export const isFluid = (id: number) => id === WATER || id === LAVA;
+export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE;
+export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH;
+export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG;
+export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG;
+export const isLeafId = (id: number) =>
+  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES;
+export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
+
+export const isResource = (id: number) =>
+  (id >= RAW_MEAT && id <= LOOT_BAG) ||
+  id === HONEY ||
+  id === NETHERITE ||
+  (id >= FEATHER && id <= CAT_CLAW) ||
+  id === APPLE;
+
+/** rough material class — tools are specialised per class */
+export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
+export function blockClass(id: number): BlockClass {
+  switch (id) {
+    case STONE:
+    case COBBLE:
+    case COAL:
+    case IRON:
+    case GOLD:
+    case DIAMOND:
+    case GOLD_BLOCK:
+    case DIAMOND_BLOCK:
+    case FENCE_STONE:
+    case PEDESTAL:
+    case PEDESTAL_GOLD:
+    case DOOR_IRON:
+    case FENCE_IRON:
+      return 'stone';
+    case DIRT:
+    case GRASS:
+    case SAND:
+    case SNOW_GRASS:
+      return 'earth';
+    case ICE:
+      return 'stone';
+    case LOG:
+    case BIRCH_LOG:
+    case PLANKS:
+    case LEAVES:
+    case BIRCH_LEAVES:
+    case APPLE_LEAVES:
+    case SNOW_LEAVES:
+    case DOOR_WOOD:
+    case FENCE_WOOD:
+    case CAMPFIRE:
+    case CRAFTING_TABLE:
+    case CACTUS:
+    case CACTUS_PALE:
+      return 'wood';
+    default:
+      return 'other';
+  }
+}
+
+export const T = {
+  grassTop: 0,
+  grassSide: 1,
+  dirt: 2,
+  stone: 3,
+  cobble: 4,
+  coal: 5,
+  iron: 6,
+  gold: 7,
+  diamond: 8,
+  logSide: 9,
+  logTop: 10,
+  leaves: 11,
+  sand: 12,
+  planks: 13,
+  bedrock: 14,
+  lava: 15,
+  torch: 16,
+  goldBlock: 17,
+  diamondBlock: 18,
+  glass: 19,
+  doorWood: 20,
+  doorIron: 21,
+  fenceWood: 22,
+  fenceStone: 23,
+  fenceIron: 24,
+  campfire: 25,
+  pedestal: 26,
+  pedestalGold: 27,
+  meatRaw: 28,
+  meatCooked: 29,
+  web: 30,
+  bone: 31,
+  flesh: 32,
+  gunpowder: 33,
+  arrowItem: 34,
+  lootBag: 35,
+  bed: 36,
+  water: 37,
+  flowerRed: 38,
+  flowerYellow: 39,
+  flowerBlue: 40,
+  lampRed: 41,
+  lampBlue: 42,
+  lampYellow: 43,
+  snowTop: 44,
+  snowSide: 45,
+  ice: 46,
+  snowLeaves: 47,
+  hive: 48,
+  turtleEgg: 49,
+  anvil: 50,
+  netheriteOre: 51,
+  honey: 52,
+  netherite: 53,
+  wool: 54,
+  feather: 55,
+  turtleShell: 56,
+  crabShell: 57,
+  fishScale: 58,
+  catClaw: 59,
+  penguinEgg: 60,
+  birchLogSide: 61,
+  birchLogTop: 62,
+  birchLeaves: 63,
+  appleLeaves: 64,
+  cactusSide: 65,
+  cactusTop: 66,
+  cactusPaleSide: 67,
+  cactusPaleTop: 68,
+  tallGrass: 69,
+  fern: 70,
+  deadBush: 71,
+  apple: 72,
+  craftingTableTop: 73,
+  craftingTableSide: 74,
+  craftingTableFront: 75,
+};
+
+export type BlockDef = {
+  id: number;
+  name: string;
+  top: number;
+  side: number;
+  bottom: number;
+  /** seconds to break with a wooden pickaxe */
+  hardness: number;
+  score: number;
+  /** bonus seconds granted on pickup */
+  timeBonus: number;
+  solid: boolean;
+  breakable: boolean;
+  /** drops this block id instead (0 = nothing) */
+  drop: number;
+  tint: [number, number, number];
+  emissive?: number;
+};
+
+const d = (o: Partial<BlockDef> & { id: number; name: string }): BlockDef => {
+  const side = o.side ?? T.stone;
+  return {
+    hardness: 1,
+    score: 1,
+    timeBonus: 0,
+    solid: true,
+    breakable: true,
+    drop: o.id,
+    tint: [255, 255, 255],
+    ...o,
+    top: o.top ?? side,
+    side,
+    bottom: o.bottom ?? side,
+  };
+};
+
+export const BLOCKS: BlockDef[] = [
+  d({ id: AIR, name: 'Air', side: T.stone, solid: false, breakable: false, drop: 0, score: 0 }),
+  d({
+    id: GRASS,
+    name: 'Grass',
+    top: T.grassTop,
+    side: T.grassSide,
+    bottom: T.dirt,
+    hardness: 0.5,
+    score: 4,
+    drop: DIRT,
+    tint: [124, 189, 107],
+  }),
+  d({ id: DIRT, name: 'Dirt', side: T.dirt, hardness: 0.45, score: 2, tint: [134, 96, 67] }),
+  d({
+    id: STONE,
+    name: 'Stone',
+    side: T.stone,
+    hardness: 1.15,
+    score: 6,
+    drop: COBBLE,
+    tint: [128, 128, 132],
+  }),
+  d({ id: COBBLE, name: 'Cobblestone', side: T.cobble, hardness: 1.1, score: 5, tint: [122, 122, 126] }),
+  d({
+    id: COAL,
+    name: 'Coal Ore',
+    side: T.coal,
+    hardness: 1.5,
+    score: 45,
+    timeBonus: 1.5,
+    tint: [70, 68, 72],
+  }),
+  d({
+    id: IRON,
+    name: 'Iron Ore',
+    side: T.iron,
+    hardness: 1.9,
+    score: 110,
+    timeBonus: 2.5,
+    tint: [206, 168, 130],
+  }),
+  d({
+    id: GOLD,
+    name: 'Gold Ore',
+    side: T.gold,
+    hardness: 2.1,
+    score: 240,
+    timeBonus: 4,
+    tint: [250, 214, 92],
+  }),
+  d({
+    id: DIAMOND,
+    name: 'Diamond Ore',
+    side: T.diamond,
+    hardness: 2.6,
+    score: 620,
+    timeBonus: 7,
+    tint: [96, 232, 224],
+  }),
+  d({ id: LOG, name: 'Oak Log', top: T.logTop, side: T.logSide, hardness: 0.85, score: 14, tint: [112, 84, 51] }),
+  d({ id: LEAVES, name: 'Leaves', side: T.leaves, hardness: 0.22, score: 3, tint: [86, 152, 62] }),
+  d({ id: SAND, name: 'Sand', side: T.sand, hardness: 0.45, score: 3, tint: [219, 205, 152] }),
+  d({ id: PLANKS, name: 'Planks', side: T.planks, hardness: 0.8, score: 8, tint: [178, 141, 84] }),
+  d({
+    id: BEDROCK,
+    name: 'Bedrock',
+    side: T.bedrock,
+    hardness: Infinity,
+    score: 0,
+    breakable: false,
+    tint: [60, 60, 64],
+  }),
+  d({
+    id: LAVA,
+    name: 'Lava',
+    side: T.lava,
+    hardness: Infinity,
+    score: 0,
+    breakable: false,
+    solid: false,
+    drop: 0,
+    tint: [255, 122, 34],
+    emissive: 1,
+  }),
+  d({
+    id: TORCH,
+    name: 'Lantern',
+    side: T.torch,
+    hardness: 0.16,
+    score: 2,
+    tint: [255, 208, 110],
+    emissive: 1,
+  }),
+  d({
+    id: GOLD_BLOCK,
+    name: 'Gold Block',
+    side: T.goldBlock,
+    hardness: 2.2,
+    score: 500,
+    tint: [250, 214, 92],
+  }),
+  d({
+    id: DIAMOND_BLOCK,
+    name: 'Diamond Block',
+    side: T.diamondBlock,
+    hardness: 2.8,
+    score: 1400,
+    tint: [120, 245, 235],
+  }),
+  d({ id: GLASS, name: 'Window', side: T.glass, hardness: 0.35, score: 4, tint: [200, 230, 240] }),
+  d({ id: DOOR_WOOD, name: 'Wooden Door', side: T.doorWood, hardness: 0.8, score: 6, tint: [178, 141, 84] }),
+  d({ id: DOOR_IRON, name: 'Iron Door', side: T.doorIron, hardness: 1.6, score: 10, tint: [206, 210, 215] }),
+  d({ id: FENCE_WOOD, name: 'Wooden Fence', side: T.fenceWood, hardness: 0.7, score: 4, tint: [178, 141, 84] }),
+  d({ id: FENCE_STONE, name: 'Stone Fence', side: T.fenceStone, hardness: 1.1, score: 5, tint: [128, 128, 132] }),
+  d({ id: FENCE_IRON, name: 'Iron Fence', side: T.fenceIron, hardness: 1.4, score: 7, tint: [206, 210, 215] }),
+  d({
+    id: CAMPFIRE,
+    name: 'Campfire',
+    side: T.campfire,
+    hardness: 0.5,
+    score: 6,
+    tint: [255, 150, 60],
+    emissive: 1,
+  }),
+  d({ id: PEDESTAL, name: 'Stone Pedestal', side: T.pedestal, hardness: 0.9, score: 8, tint: [200, 200, 205], emissive: 1 }),
+  d({ id: PEDESTAL_GOLD, name: 'Gilded Pedestal', side: T.pedestalGold, hardness: 1.1, score: 16, tint: [250, 214, 92], emissive: 1 }),
+  d({ id: RAW_MEAT, name: 'Raw Meat', side: T.meatRaw, hardness: 1, score: 5, solid: false, breakable: false, drop: 0, tint: [220, 90, 80] }),
+  d({ id: COOKED_MEAT, name: 'Cooked Meat', side: T.meatCooked, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [190, 120, 60] }),
+  d({ id: WEB, name: 'Spider Web', side: T.web, hardness: 1, score: 12, solid: false, breakable: false, drop: 0, tint: [230, 230, 235] }),
+  d({ id: BONE, name: 'Bone', side: T.bone, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [232, 226, 214] }),
+  d({ id: FLESH, name: 'Rotten Flesh', side: T.flesh, hardness: 1, score: 6, solid: false, breakable: false, drop: 0, tint: [140, 170, 90] }),
+  d({ id: GUNPOWDER, name: 'Gunpowder', side: T.gunpowder, hardness: 1, score: 20, solid: false, breakable: false, drop: 0, tint: [90, 90, 95] }),
+  d({ id: ARROW_ITEM, name: 'Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [200, 190, 170] }),
+  d({ id: LOOT_BAG, name: 'Loot', side: T.lootBag, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [217, 140, 255] }),
+  d({ id: BED, name: 'Bed', top: T.bed, side: T.planks, bottom: T.planks, hardness: 0.6, score: 8, tint: [200, 70, 60] }),
+  d({ id: WATER, name: 'Water', side: T.water, hardness: Infinity, score: 0, breakable: false, solid: false, drop: 0, tint: [70, 130, 220] }),
+  d({ id: FLOWER_RED, name: 'Red Flower', side: T.flowerRed, hardness: 0.1, score: 3, solid: false, tint: [226, 86, 74] }),
+  d({ id: FLOWER_YELLOW, name: 'Yellow Flower', side: T.flowerYellow, hardness: 0.1, score: 3, solid: false, tint: [244, 200, 66] }),
+  d({ id: FLOWER_BLUE, name: 'Blue Flower', side: T.flowerBlue, hardness: 0.1, score: 3, solid: false, tint: [94, 140, 255] }),
+  d({ id: LAMP_RED, name: 'Red Lamp', side: T.lampRed, hardness: 0.4, score: 8, tint: [255, 110, 100], emissive: 1 }),
+  d({ id: LAMP_BLUE, name: 'Blue Lamp', side: T.lampBlue, hardness: 0.4, score: 8, tint: [110, 150, 255], emissive: 1 }),
+  d({ id: LAMP_YELLOW, name: 'Yellow Lamp', side: T.lampYellow, hardness: 0.4, score: 8, tint: [255, 220, 100], emissive: 1 }),
+  d({
+    id: SNOW_GRASS,
+    name: 'Snowy Grass',
+    top: T.snowTop,
+    side: T.snowSide,
+    bottom: T.dirt,
+    hardness: 0.5,
+    score: 4,
+    drop: DIRT,
+    tint: [235, 240, 248],
+  }),
+  d({ id: ICE, name: 'Ice', side: T.ice, hardness: 0.6, score: 5, drop: 0, tint: [160, 200, 240] }),
+  d({
+    id: SNOW_LEAVES,
+    name: 'Frosted Leaves',
+    side: T.snowLeaves,
+    hardness: 0.22,
+    score: 3,
+    drop: LEAVES,
+    tint: [200, 220, 215],
+  }),
+  d({ id: HIVE, name: 'Bee Hive', side: T.hive, hardness: 0.6, score: 12, drop: HONEY, tint: [230, 180, 70] }),
+  d({
+    id: TURTLE_EGG,
+    name: 'Turtle Egg',
+    side: T.turtleEgg,
+    hardness: 0.1,
+    score: 4,
+    solid: false,
+    drop: 0,
+    tint: [230, 235, 225],
+  }),
+  d({ id: ANVIL, name: 'Anvil', side: T.anvil, hardness: 1.8, score: 15, tint: [80, 82, 90] }),
+  d({
+    id: NETHERITE_ORE,
+    name: 'Ancient Debris',
+    side: T.netheriteOre,
+    hardness: 3.6,
+    score: 900,
+    timeBonus: 10,
+    drop: NETHERITE,
+    tint: [110, 70, 55],
+  }),
+  d({ id: HONEY, name: 'Honey', side: T.honey, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [244, 180, 60] }),
+  d({ id: NETHERITE, name: 'Netherite Scrap', side: T.netherite, hardness: 1, score: 100, solid: false, breakable: false, drop: 0, tint: [90, 60, 50] }),
+  d({ id: WOOL, name: 'Wool', side: T.wool, hardness: 0.4, score: 5, tint: [238, 238, 235] }),
+  d({ id: FEATHER, name: 'Feather', side: T.feather, hardness: 1, score: 4, solid: false, breakable: false, drop: 0, tint: [240, 240, 244] }),
+  d({ id: TURTLE_SHELL, name: 'Turtle Shell', side: T.turtleShell, hardness: 1, score: 30, solid: false, breakable: false, drop: 0, tint: [77, 140, 90] }),
+  d({ id: CRAB_SHELL, name: 'Crab Shell', side: T.crabShell, hardness: 1, score: 22, solid: false, breakable: false, drop: 0, tint: [216, 90, 58] }),
+  d({ id: FISH_SCALE, name: 'Fish Scale', side: T.fishScale, hardness: 1, score: 6, solid: false, breakable: false, drop: 0, tint: [110, 170, 220] }),
+  d({ id: CAT_CLAW, name: 'Lynx Claw', side: T.catClaw, hardness: 1, score: 28, solid: false, breakable: false, drop: 0, tint: [230, 220, 200] }),
+  d({
+    id: PENGUIN_EGG,
+    name: 'Penguin Egg',
+    side: T.penguinEgg,
+    hardness: 0.1,
+    score: 4,
+    solid: false,
+    drop: 0,
+    tint: [225, 232, 240],
+  }),
+  d({ id: TALL_GRASS, name: 'Tall Grass', side: T.tallGrass, hardness: 0.05, score: 2, solid: false, drop: 0, tint: [95, 151, 56] }),
+  d({ id: FERN, name: 'Fern', side: T.fern, hardness: 0.05, score: 3, solid: false, drop: 0, tint: [65, 130, 45] }),
+  d({ id: DEAD_BUSH, name: 'Dead Bush', side: T.deadBush, hardness: 0.05, score: 2, solid: false, drop: 0, tint: [180, 150, 100] }),
+  d({ id: CACTUS, name: 'Cactus', side: T.cactusSide, top: T.cactusTop, bottom: T.cactusTop, hardness: 0.45, score: 6, tint: [85, 155, 60] }),
+  d({ id: CACTUS_PALE, name: 'Pale Cactus', side: T.cactusPaleSide, top: T.cactusPaleTop, bottom: T.cactusPaleTop, hardness: 0.45, score: 6, tint: [120, 170, 120] }),
+  d({ id: BIRCH_LOG, name: 'Birch Log', side: T.birchLogSide, top: T.birchLogTop, bottom: T.birchLogTop, hardness: 0.8, score: 14, drop: LOG, tint: [230, 230, 235] }),
+  d({ id: BIRCH_LEAVES, name: 'Birch Leaves', side: T.birchLeaves, hardness: 0.2, score: 3, drop: LEAVES, tint: [120, 185, 65] }),
+  d({ id: APPLE_LEAVES, name: 'Apple Leaves', side: T.appleLeaves, hardness: 0.25, score: 5, drop: APPLE, tint: [220, 60, 50] }),
+  d({ id: APPLE, name: 'Apple', side: T.apple, hardness: 1, score: 8, solid: false, breakable: false, drop: 0, tint: [225, 55, 45] }),
+  d({ id: CRAFTING_TABLE, name: 'Workbench', top: T.craftingTableTop, side: T.craftingTableSide, bottom: T.planks, hardness: 0.8, score: 8, tint: [180, 140, 85] }),
+];
+
+/** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
+export const isCutout = (id: number) =>
+  id === GLASS ||
+  id === DOOR_WOOD ||
+  id === DOOR_IRON ||
+  id === FENCE_WOOD ||
+  id === FENCE_STONE ||
+  id === FENCE_IRON ||
+  isLeafId(id);
+
+/** door / window / workbench blocks the player can interact with E */
+export const isInteractive = (id: number) => id === DOOR_WOOD || id === DOOR_IRON || id === GLASS || id === CRAFTING_TABLE;
+
+export const isOpaque = (id: number) =>
+  id !== AIR &&
+  id !== WATER &&
+  !(
+    isCutout(id) ||
+    isPlant(id) ||
+    id === TURTLE_EGG ||
+    id === PENGUIN_EGG
+  );
+export const isSolid = (id: number) => BLOCKS[id]?.solid ?? false;
+export const isBreakable = (id: number) => BLOCKS[id]?.breakable ?? false;
+
+export const PICKAXE_TIERS = [
+  { name: 'WOOD', speed: 1.0, mult: 1.0, at: 0, color: '#b98a4d' },
+  { name: 'STONE', speed: 1.7, mult: 1.15, at: 250, color: '#9aa0a6' },
+  { name: 'IRON', speed: 2.6, mult: 1.4, at: 1100, color: '#e6c39a' },
+  { name: 'DIAMOND', speed: 4.0, mult: 1.8, at: 3200, color: '#5fe8dc' },
+] as const;

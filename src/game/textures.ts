@@ -1,0 +1,1290 @@
+import * as THREE from 'three';
+import { mulberry32 } from './noise';
+import { T, BLOCKS } from './blocks';
+
+export const TILE = 16;
+/** gutter of replicated edge pixels on every side — stops mipmap bleeding between tiles */
+export const GUT = 8;
+export const CELL = TILE + GUT * 2;
+export const ATLAS_COLS = 4;
+export const ATLAS_ROWS = 20; // 80 tiles
+export const ATLAS_W = CELL * ATLAS_COLS;
+export const ATLAS_H = CELL * ATLAS_ROWS;
+
+export function tileOrigin(index: number): [number, number] {
+  return [(index % ATLAS_COLS) * CELL + GUT, Math.floor(index / ATLAS_COLS) * CELL + GUT];
+}
+
+function expandGutters(ctx: Ctx) {
+  const c = ctx.canvas;
+  ctx.imageSmoothingEnabled = false;
+  for (let i = 0; i < ATLAS_COLS * ATLAS_ROWS; i++) {
+    const [ox, oy] = tileOrigin(i);
+    // edges stretched outward
+    ctx.drawImage(c, ox, oy, 1, TILE, ox - GUT, oy, GUT, TILE);
+    ctx.drawImage(c, ox + TILE - 1, oy, 1, TILE, ox + TILE, oy, GUT, TILE);
+    ctx.drawImage(c, ox, oy, TILE, 1, ox, oy - GUT, TILE, GUT);
+    ctx.drawImage(c, ox, oy + TILE - 1, TILE, 1, ox, oy + TILE, TILE, GUT);
+    // corners
+    ctx.drawImage(c, ox, oy, 1, 1, ox - GUT, oy - GUT, GUT, GUT);
+    ctx.drawImage(c, ox + TILE - 1, oy, 1, 1, ox + TILE, oy - GUT, GUT, GUT);
+    ctx.drawImage(c, ox, oy + TILE - 1, 1, 1, ox - GUT, oy + TILE, GUT, GUT);
+    ctx.drawImage(c, ox + TILE - 1, oy + TILE - 1, 1, 1, ox + TILE, oy + TILE, GUT, GUT);
+  }
+}
+
+type Ctx = CanvasRenderingContext2D;
+
+function px(ctx: Ctx, ox: number, oy: number, x: number, y: number, w: number, h: number, c: string) {
+  ctx.fillStyle = c;
+  ctx.fillRect(ox + x, oy + y, w, h);
+}
+
+function shade(hex: string, amt: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (n >> 16) + amt));
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
+  const b = Math.max(0, Math.min(255, (n & 255) + amt));
+  return `rgb(${r},${g},${b})`;
+}
+
+/** fills a 16x16 tile with a speckled base colour */
+function speckle(ctx: Ctx, ox: number, oy: number, base: string, seed: number, spread = 16, density = 0.9) {
+  const rand = mulberry32(seed);
+  ctx.fillStyle = base;
+  ctx.fillRect(ox, oy, 16, 16);
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      if (rand() > density) continue;
+      const a = Math.round((rand() - 0.5) * 2 * spread);
+      if (a === 0) continue;
+      px(ctx, ox, oy, x, y, 1, 1, shade(base, a));
+    }
+  }
+}
+
+function blobs(
+  ctx: Ctx,
+  ox: number,
+  oy: number,
+  seed: number,
+  colors: string[],
+  count: number,
+  size = 2,
+  cells: Array<[number, number]> = [],
+) {
+  const rand = mulberry32(seed);
+  const spots = cells.length
+    ? cells
+    : Array.from({ length: count }, () => [Math.floor(rand() * 13) + 1, Math.floor(rand() * 13) + 1] as [number, number]);
+  spots.forEach(([cx, cy], i) => {
+    const col = colors[i % colors.length];
+    const s = size + (rand() < 0.4 ? 1 : 0);
+    for (let dy = 0; dy < s; dy++) {
+      for (let dx = 0; dx < s; dx++) {
+        if (dx === s - 1 && dy === s - 1 && rand() < 0.6) continue;
+        const x = cx + dx,
+          y = cy + dy;
+        if (x < 0 || y < 0 || x > 15 || y > 15) continue;
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.25 ? shade(col, 34) : col);
+      }
+    }
+  });
+}
+
+function oreTile(ctx: Ctx, ox: number, oy: number, seed: number, colors: string[]) {
+  speckle(ctx, ox, oy, '#83838a', seed * 7 + 3, 14);
+  blobs(ctx, ox, oy, seed, colors, 4, 2);
+  blobs(ctx, ox, oy, seed + 91, colors, 3, 2);
+}
+
+function drawTile(ctx: Ctx, index: number) {
+  const [ox, oy] = tileOrigin(index);
+  const rand = mulberry32(index * 1337 + 11);
+
+  switch (index) {
+    case T.grassTop: {
+      speckle(ctx, ox, oy, '#6da83f', 5, 22);
+      for (let i = 0; i < 26; i++) {
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#7cbb4b' : '#5b9135');
+      }
+      break;
+    }
+    case T.grassSide: {
+      speckle(ctx, ox, oy, '#8a6244', 9, 20);
+      ctx.fillStyle = '#6da83f';
+      ctx.fillRect(ox, oy, 16, 4);
+      for (let x = 0; x < 16; x++) {
+        const h = 3 + Math.floor(rand() * 3);
+        ctx.fillStyle = rand() < 0.5 ? '#6da83f' : '#5f9738';
+        ctx.fillRect(ox + x, oy, 1, h);
+        px(ctx, ox, oy, x, h, 1, 1, '#7c4a2f');
+      }
+      for (let i = 0; i < 14; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), 5 + Math.floor(rand() * 11), 1, 1, rand() < 0.5 ? '#7a5539' : '#96704f');
+      break;
+    }
+    case T.dirt: {
+      speckle(ctx, ox, oy, '#8a6244', 13, 22);
+      for (let i = 0; i < 12; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#6f4c33' : '#9c7250');
+      break;
+    }
+    case T.stone: {
+      speckle(ctx, ox, oy, '#83838a', 21, 14);
+      for (let i = 0; i < 8; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 15), Math.floor(rand() * 15), 2, 1, rand() < 0.5 ? '#767680' : '#909099');
+      break;
+    }
+    case T.cobble: {
+      speckle(ctx, ox, oy, '#5f5f66', 33, 8);
+      const stones: Array<[number, number, number, number]> = [
+        [1, 1, 6, 5],
+        [8, 1, 7, 4],
+        [1, 7, 4, 4],
+        [6, 6, 5, 5],
+        [12, 6, 3, 5],
+        [1, 12, 7, 3],
+        [9, 12, 6, 3],
+      ];
+      const r2 = mulberry32(77);
+      stones.forEach(([sx, sy, sw, sh]) => {
+        const base = r2() < 0.5 ? '#8d8d95' : '#7e7e87';
+        ctx.fillStyle = base;
+        ctx.fillRect(ox + sx, oy + sy, sw, sh);
+        ctx.fillStyle = shade(base, 22);
+        ctx.fillRect(ox + sx, oy + sy, sw, 1);
+        ctx.fillStyle = shade(base, -30);
+        ctx.fillRect(ox + sx, oy + sy + sh - 1, sw, 1);
+      });
+      break;
+    }
+    case T.coal:
+      oreTile(ctx, ox, oy, 41, ['#26262b', '#33333a', '#1b1b20']);
+      break;
+    case T.iron:
+      oreTile(ctx, ox, oy, 53, ['#d3a177', '#c08f68', '#e6bd95']);
+      break;
+    case T.gold:
+      oreTile(ctx, ox, oy, 67, ['#f7d34b', '#e0b62f', '#fff08a']);
+      break;
+    case T.diamond:
+      oreTile(ctx, ox, oy, 83, ['#4fe3d6', '#37c9bd', '#a6fff4']);
+      break;
+    case T.logSide: {
+      speckle(ctx, ox, oy, '#6d5233', 97, 12);
+      for (let x = 0; x < 16; x++) {
+        if (rand() < 0.55) {
+          const c = rand() < 0.5 ? '#5b4327' : '#7d5f3d';
+          ctx.fillStyle = c;
+          ctx.fillRect(ox + x, oy, 1, 16);
+        }
+      }
+      px(ctx, ox, oy, 4, 3, 2, 6, '#4e3921');
+      px(ctx, ox, oy, 11, 9, 2, 5, '#4e3921');
+      break;
+    }
+    case T.logTop: {
+      speckle(ctx, ox, oy, '#a8814e', 111, 10);
+      ctx.strokeStyle = '#7c5c34';
+      for (let r = 2; r < 8; r += 2) {
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ox + 8 - r + 0.5, oy + 8 - r + 0.5, r * 2 - 1, r * 2 - 1);
+      }
+      break;
+    }
+    case T.leaves: {
+      // Fancy foliage: rich oak green with dithered transparent cutout holes
+      speckle(ctx, ox, oy, '#48852d', 123, 26);
+      for (let i = 0; i < 35; i++) {
+        const x = Math.floor(rand() * 16),
+          y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.5 ? '#366420' : '#5da238');
+      }
+      for (let i = 0; i < 12; i++) px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, '#74ba46');
+      // see-through canopy holes
+      const rHole = mulberry32(127);
+      for (let i = 0; i < 18; i++) {
+        const hx = Math.floor(rHole() * 15);
+        const hy = Math.floor(rHole() * 15);
+        ctx.clearRect(ox + hx, oy + hy, 1, 1);
+        if (rHole() < 0.4) ctx.clearRect(ox + hx + 1, oy + hy, 1, 1);
+      }
+      break;
+    }
+    case T.sand: {
+      speckle(ctx, ox, oy, '#dbcb98', 137, 14);
+      for (let i = 0; i < 12; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#cbb884' : '#ecdfb4');
+      break;
+    }
+    case T.planks: {
+      speckle(ctx, ox, oy, '#b08a53', 151, 10);
+      ctx.fillStyle = '#8b6a3c';
+      for (const y of [3, 7, 11, 15]) ctx.fillRect(ox, oy + y, 16, 1);
+      for (const [x, y] of [
+        [5, 0],
+        [11, 4],
+        [3, 8],
+        [9, 12],
+      ])
+        ctx.fillRect(ox + x, oy + y, 1, 4);
+      for (let i = 0; i < 14; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 2, 1, rand() < 0.5 ? '#a37e49' : '#c09a61');
+      break;
+    }
+    case T.bedrock: {
+      speckle(ctx, ox, oy, '#3b3b41', 163, 10);
+      for (let i = 0; i < 20; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 15), Math.floor(rand() * 15), 2, 2, rand() < 0.5 ? '#26262a' : '#57575f');
+      break;
+    }
+    case T.lava: {
+      speckle(ctx, ox, oy, '#e0521a', 177, 18);
+      blobs(ctx, ox, oy, 191, ['#ffb03a', '#ff7a18', '#ffd970'], 5, 3);
+      for (let i = 0; i < 10; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#8f2b0c' : '#ffe9a8');
+      break;
+    }
+    case T.torch: {
+      // glowing lantern-block: warm core, charred frame
+      speckle(ctx, ox, oy, '#6b4a22', 211, 12);
+      ctx.fillStyle = '#ffcf5c';
+      ctx.fillRect(ox + 3, oy + 3, 10, 10);
+      ctx.fillStyle = '#fff3b8';
+      ctx.fillRect(ox + 5, oy + 5, 6, 6);
+      ctx.fillStyle = '#ffe08a';
+      ctx.fillRect(ox + 7, oy + 7, 2, 2);
+      for (let i = 0; i < 16; i++) {
+        const x = Math.floor(rand() * 16),
+          y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.5 ? '#ff9c2e' : '#5a3a18');
+      }
+      ctx.fillStyle = '#3a2611';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      break;
+    }
+    case T.goldBlock: {
+      speckle(ctx, ox, oy, '#e8b92f', 233, 12);
+      ctx.fillStyle = '#fff08a';
+      ctx.fillRect(ox + 2, oy + 2, 12, 2);
+      ctx.fillRect(ox + 2, oy + 2, 2, 12);
+      ctx.fillStyle = '#a8801a';
+      ctx.fillRect(ox + 2, oy + 12, 12, 2);
+      ctx.fillRect(ox + 12, oy + 2, 2, 12);
+      for (let i = 0; i < 12; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#f6d65c' : '#c99a20');
+      break;
+    }
+    case T.glass: {
+      // transparent centre, pale frame + cross bars, a few glints
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#dfeef4';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillStyle = '#c3d9e2';
+      ctx.fillRect(ox + 7, oy, 2, 16);
+      ctx.fillRect(ox, oy + 7, 16, 2);
+      ctx.fillStyle = 'rgba(235,250,255,0.6)';
+      px(ctx, ox, oy, 3, 3, 1, 1, 'rgba(255,255,255,0.75)');
+      px(ctx, ox, oy, 4, 4, 1, 1, 'rgba(255,255,255,0.5)');
+      px(ctx, ox, oy, 12, 11, 1, 1, 'rgba(255,255,255,0.6)');
+      break;
+    }
+    case T.doorWood: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#a37e49';
+      ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#8b6a3c';
+      for (const yy of [0, 5, 10, 15]) ctx.fillRect(ox, oy + yy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      // window hole (transparent!)
+      ctx.clearRect(ox + 4, oy + 2, 8, 3);
+      ctx.fillStyle = '#6e532c';
+      ctx.fillRect(ox + 3, oy + 1, 10, 1);
+      ctx.fillRect(ox + 3, oy + 5, 10, 1);
+      // handle
+      px(ctx, ox, oy, 12, 8, 2, 2, '#3f3f46');
+      for (let i = 0; i < 10; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 14) + 1, Math.floor(rand() * 8) + 7, 1, 1, rand() < 0.5 ? '#96733f' : '#b08a53');
+      break;
+    }
+    case T.doorIron: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#c8ccd2';
+      ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#9aa0a8';
+      for (const yy of [0, 5, 10, 15]) ctx.fillRect(ox, oy + yy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.clearRect(ox + 5, oy + 2, 6, 2);
+      ctx.fillStyle = '#7d838c';
+      ctx.fillRect(ox + 4, oy + 1, 8, 1);
+      ctx.fillRect(ox + 4, oy + 4, 8, 1);
+      for (const [rx, ry] of [
+        [2, 7],
+        [13, 7],
+        [2, 13],
+        [13, 13],
+      ])
+        px(ctx, ox, oy, rx, ry, 1, 1, '#6e747d');
+      px(ctx, ox, oy, 12, 8, 2, 2, '#4a4e55');
+      break;
+    }
+    case T.fenceWood:
+    case T.fenceStone:
+    case T.fenceIron: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const cols =
+        index === T.fenceWood
+          ? ['#a37e49', '#8b6a3c']
+          : index === T.fenceStone
+            ? ['#8d8d95', '#6e6e76']
+            : ['#c8ccd2', '#8f959d'];
+      // two vertical posts
+      ctx.fillStyle = cols[0];
+      ctx.fillRect(ox + 2, oy, 3, 16);
+      ctx.fillRect(ox + 11, oy, 3, 16);
+      ctx.fillStyle = cols[1];
+      ctx.fillRect(ox + 4, oy, 1, 16);
+      ctx.fillRect(ox + 13, oy, 1, 16);
+      // two horizontal rails
+      ctx.fillStyle = cols[0];
+      ctx.fillRect(ox, oy + 3, 16, 2);
+      ctx.fillRect(ox, oy + 10, 16, 2);
+      ctx.fillStyle = cols[1];
+      ctx.fillRect(ox, oy + 4, 16, 1);
+      ctx.fillRect(ox, oy + 11, 16, 1);
+      if (index === T.fenceIron) {
+        for (const yy of [0, 15]) {
+          px(ctx, ox, oy, 3, yy, 1, 1, '#6e747d');
+          px(ctx, ox, oy, 12, yy, 1, 1, '#6e747d');
+        }
+      }
+      break;
+    }
+    case T.campfire: {
+      // charred logs crossed over embers
+      speckle(ctx, ox, oy, '#3a2a1c', 401, 10);
+      ctx.fillStyle = '#5a4126';
+      ctx.fillRect(ox + 1, oy + 10, 14, 3);
+      ctx.fillRect(ox + 1, oy + 3, 14, 3);
+      ctx.fillStyle = '#2c1f12';
+      ctx.fillRect(ox + 1, oy + 12, 14, 1);
+      blobs(ctx, ox, oy, 403, ['#ff8a2b', '#ffc84a', '#ff5f1f'], 5, 2, [
+        [4, 6],
+        [8, 7],
+        [11, 5],
+        [6, 9],
+        [9, 10],
+      ]);
+      px(ctx, ox, oy, 7, 2, 2, 2, '#ffe9a0');
+      px(ctx, ox, oy, 5, 4, 1, 1, '#fff4c8');
+      px(ctx, ox, oy, 10, 3, 1, 1, '#fff4c8');
+      break;
+    }
+    case T.pedestal: {
+      speckle(ctx, ox, oy, '#9a9aa2', 411, 10);
+      ctx.fillStyle = '#83838a';
+      ctx.fillRect(ox, oy + 13, 16, 3);
+      ctx.fillRect(ox + 5, oy + 4, 6, 10);
+      ctx.fillStyle = '#b9b9c0';
+      ctx.fillRect(ox + 4, oy + 3, 8, 2);
+      // glowing crystal on top
+      px(ctx, ox, oy, 6, 0, 4, 3, '#ffd76a');
+      px(ctx, ox, oy, 7, 0, 2, 2, '#fff3bc');
+      break;
+    }
+    case T.pedestalGold: {
+      speckle(ctx, ox, oy, '#c99a20', 421, 14);
+      ctx.fillStyle = '#a8801a';
+      ctx.fillRect(ox, oy + 13, 16, 3);
+      ctx.fillRect(ox + 5, oy + 4, 6, 10);
+      ctx.fillStyle = '#f6d65c';
+      ctx.fillRect(ox + 4, oy + 3, 8, 2);
+      px(ctx, ox, oy, 6, 0, 4, 3, '#a6fff4');
+      px(ctx, ox, oy, 7, 0, 2, 2, '#e2fffb');
+      break;
+    }
+    case T.meatRaw: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#d2574c';
+      ctx.fillRect(ox + 3, oy + 4, 10, 9);
+      ctx.fillStyle = '#b23c34';
+      ctx.fillRect(ox + 3, oy + 11, 10, 2);
+      ctx.fillStyle = '#f0938a';
+      ctx.fillRect(ox + 5, oy + 6, 4, 3);
+      ctx.fillStyle = '#f8e3d4';
+      ctx.fillRect(ox + 11, oy + 5, 2, 8); // fat rim
+      px(ctx, ox, oy, 4, 2, 2, 2, '#e8e2d6'); // bone
+      px(ctx, ox, oy, 10, 2, 2, 2, '#e8e2d6');
+      break;
+    }
+    case T.meatCooked: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#9a5a2c';
+      ctx.fillRect(ox + 3, oy + 4, 10, 9);
+      ctx.fillStyle = '#6e3d1c';
+      ctx.fillRect(ox + 3, oy + 11, 10, 2);
+      ctx.fillStyle = '#c07c42';
+      ctx.fillRect(ox + 5, oy + 6, 5, 3);
+      ctx.fillStyle = '#5a3116';
+      for (const [gx, gy] of [
+        [4, 5],
+        [8, 9],
+        [11, 6],
+      ])
+        ctx.fillRect(ox + gx, oy + gy, 2, 1); // grill marks
+      px(ctx, ox, oy, 4, 2, 2, 2, '#e8e2d6');
+      px(ctx, ox, oy, 10, 2, 2, 2, '#e8e2d6');
+      break;
+    }
+    case T.web: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.strokeStyle = 'rgba(238,240,245,0.9)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(ox + 8.5, oy + 8.5);
+        const a = (i * Math.PI) / 4;
+        ctx.lineTo(ox + 8.5 + Math.cos(a) * 8, oy + 8.5 + Math.sin(a) * 8);
+        ctx.moveTo(ox + 8.5, oy + 8.5);
+        ctx.lineTo(ox + 8.5 - Math.cos(a) * 8, oy + 8.5 - Math.sin(a) * 8);
+        ctx.stroke();
+      }
+      for (const r of [3, 6]) ctx.strokeRect(ox + 8.5 - r, oy + 8.5 - r, r * 2, r * 2);
+      break;
+    }
+    case T.bone: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#e8e2d2';
+      ctx.fillRect(ox + 6, oy + 4, 4, 9);
+      ctx.fillRect(ox + 4, oy + 2, 8, 3);
+      ctx.fillRect(ox + 4, oy + 12, 8, 3);
+      ctx.fillStyle = '#c9c2ae';
+      ctx.fillRect(ox + 6, oy + 6, 1, 6);
+      px(ctx, ox, oy, 4, 2, 2, 2, '#f4efe2');
+      px(ctx, ox, oy, 10, 12, 2, 2, '#f4efe2');
+      break;
+    }
+    case T.flesh: {
+      ctx.clearRect(ox, oy, 16, 16);
+      speckle(ctx, ox, oy, '#7a9a4a', 431, 20);
+      ctx.clearRect(ox, oy, 16, 3);
+      ctx.clearRect(ox, oy + 13, 16, 3);
+      ctx.clearRect(ox, oy, 3, 16);
+      ctx.clearRect(ox + 13, oy, 3, 16);
+      ctx.fillStyle = '#5a7a34';
+      ctx.fillRect(ox + 5, oy + 6, 3, 2);
+      ctx.fillRect(ox + 9, oy + 9, 2, 3);
+      ctx.fillStyle = '#a05a4a';
+      ctx.fillRect(ox + 7, oy + 4, 4, 2);
+      break;
+    }
+    case T.gunpowder: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const r3 = mulberry32(441);
+      for (let i = 0; i < 46; i++) {
+        const x = 2 + Math.floor(r3() * 12);
+        const y = 4 + Math.floor(r3() * 10);
+        px(ctx, ox, oy, x, y, 1, 1, r3() < 0.6 ? '#55555c' : r3() < 0.5 ? '#3a3a40' : '#7a7a84');
+      }
+      // little pile shape
+      ctx.fillStyle = '#4a4a52';
+      ctx.fillRect(ox + 5, oy + 10, 6, 3);
+      ctx.fillRect(ox + 6, oy + 8, 4, 2);
+      px(ctx, ox, oy, 7, 6, 2, 2, '#8a8a94');
+      break;
+    }
+    case T.arrowItem: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.strokeStyle = '#a88a5c';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(ox + 3, oy + 13);
+      ctx.lineTo(ox + 12, oy + 4);
+      ctx.stroke();
+      ctx.fillStyle = '#c8ccd2';
+      ctx.fillRect(ox + 11, oy + 2, 3, 3);
+      ctx.fillStyle = '#e8e2d2';
+      ctx.fillRect(ox + 2, oy + 12, 2, 2);
+      px(ctx, ox, oy, 4, 10, 1, 1, '#e8e2d2');
+      break;
+    }
+    case T.lootBag: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#7a4bb8';
+      ctx.fillRect(ox + 3, oy + 6, 10, 8);
+      ctx.fillStyle = '#9a6ad8';
+      ctx.fillRect(ox + 3, oy + 6, 10, 2);
+      ctx.fillStyle = '#5a3390';
+      ctx.fillRect(ox + 3, oy + 12, 10, 2);
+      ctx.fillStyle = '#c9a24a';
+      ctx.fillRect(ox + 6, oy + 3, 4, 3);
+      px(ctx, ox, oy, 7, 8, 2, 3, '#ffd76a'); // clasp
+      px(ctx, ox, oy, 5, 7, 1, 1, '#d9b3ff');
+      break;
+    }
+    case T.bed: {
+      // top-down bed: white pillow, red blanket, wooden frame
+      ctx.fillStyle = '#8b6a3c';
+      ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#c2453a';
+      ctx.fillRect(ox + 1, oy + 5, 14, 10);
+      ctx.fillStyle = '#a83228';
+      ctx.fillRect(ox + 1, oy + 13, 14, 2);
+      ctx.fillRect(ox + 1, oy + 5, 14, 1);
+      ctx.fillStyle = '#e8e2d6';
+      ctx.fillRect(ox + 2, oy + 1, 12, 4);
+      ctx.fillStyle = '#c9c2b2';
+      ctx.fillRect(ox + 2, oy + 4, 12, 1);
+      px(ctx, ox, oy, 3, 2, 2, 1, '#f7f3e8');
+      for (let i = 0; i < 5; i++)
+        px(ctx, ox, oy, 3 + Math.floor(rand() * 10), 7 + Math.floor(rand() * 6), 1, 1, rand() < 0.5 ? '#d2574c' : '#b23c34');
+      break;
+    }
+    case T.water: {
+      speckle(ctx, ox, oy, '#3a6ec8', 501, 12);
+      const r4 = mulberry32(503);
+      for (let i = 0; i < 14; i++) {
+        const x = Math.floor(r4() * 14);
+        const y = Math.floor(r4() * 16);
+        px(ctx, ox, oy, x, y, 2 + Math.floor(r4() * 2), 1, r4() < 0.5 ? '#5a8ede' : '#2f5cb0');
+      }
+      px(ctx, ox, oy, 3, 3, 3, 1, '#8ab4f0');
+      px(ctx, ox, oy, 10, 9, 3, 1, '#8ab4f0');
+      break;
+    }
+    case T.flowerRed:
+    case T.flowerYellow:
+    case T.flowerBlue: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const petal = index === T.flowerRed ? '#e2564a' : index === T.flowerYellow ? '#f4c842' : '#5e8cff';
+      const core = index === T.flowerYellow ? '#b8722a' : '#f4c842';
+      // stem + leaves
+      ctx.fillStyle = '#4d8c31';
+      ctx.fillRect(ox + 7, oy + 7, 2, 9);
+      px(ctx, ox, oy, 5, 11, 2, 1, '#5f9738');
+      px(ctx, ox, oy, 9, 9, 2, 1, '#5f9738');
+      // petals
+      ctx.fillStyle = petal;
+      ctx.fillRect(ox + 6, oy + 2, 4, 4);
+      ctx.fillRect(ox + 4, oy + 3, 2, 2);
+      ctx.fillRect(ox + 10, oy + 3, 2, 2);
+      ctx.fillRect(ox + 7, oy, 2, 2);
+      ctx.fillRect(ox + 7, oy + 6, 2, 1);
+      px(ctx, ox, oy, 7, 3, 2, 2, core);
+      break;
+    }
+    case T.lampRed:
+    case T.lampBlue:
+    case T.lampYellow: {
+      const glow = index === T.lampRed ? ['#ff6e64', '#ffb0a8'] : index === T.lampBlue ? ['#6e96ff', '#b0c8ff'] : ['#ffdc64', '#fff0b0'];
+      speckle(ctx, ox, oy, '#5a4126', 521 + index, 8);
+      ctx.fillStyle = glow[0];
+      ctx.fillRect(ox + 3, oy + 3, 10, 10);
+      ctx.fillStyle = glow[1];
+      ctx.fillRect(ox + 5, oy + 5, 6, 6);
+      ctx.fillStyle = '#3a2611';
+      ctx.fillRect(ox, oy, 16, 2);
+      ctx.fillRect(ox, oy + 14, 16, 2);
+      ctx.fillRect(ox, oy, 2, 16);
+      ctx.fillRect(ox + 14, oy, 2, 16);
+      px(ctx, ox, oy, 7, 7, 2, 2, '#ffffff');
+      break;
+    }
+    case T.snowTop: {
+      speckle(ctx, ox, oy, '#eef2f8', 601, 8);
+      for (let i = 0; i < 12; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#dde4ee' : '#ffffff');
+      px(ctx, ox, oy, 4, 5, 2, 1, '#cdd6e4');
+      px(ctx, ox, oy, 11, 10, 2, 1, '#cdd6e4');
+      break;
+    }
+    case T.snowSide: {
+      speckle(ctx, ox, oy, '#8a6244', 611, 20);
+      ctx.fillStyle = '#eef2f8';
+      ctx.fillRect(ox, oy, 16, 4);
+      for (let x = 0; x < 16; x++) {
+        const h = 3 + Math.floor(rand() * 2);
+        ctx.fillStyle = rand() < 0.5 ? '#eef2f8' : '#dde4ee';
+        ctx.fillRect(ox + x, oy, 1, h);
+      }
+      for (let i = 0; i < 10; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), 6 + Math.floor(rand() * 10), 1, 1, rand() < 0.5 ? '#7a5539' : '#96704f');
+      break;
+    }
+    case T.ice: {
+      speckle(ctx, ox, oy, '#a8cbec', 621, 10);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillRect(ox, oy, 16, 2);
+      // cracks
+      ctx.strokeStyle = '#7fa8d4';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ox + 2.5, oy + 12.5);
+      ctx.lineTo(ox + 7.5, oy + 6.5);
+      ctx.lineTo(ox + 13.5, oy + 9.5);
+      ctx.stroke();
+      px(ctx, ox, oy, 3, 3, 2, 1, '#e8f2fc');
+      px(ctx, ox, oy, 11, 5, 2, 1, '#e8f2fc');
+      break;
+    }
+    case T.snowLeaves: {
+      speckle(ctx, ox, oy, '#447f2a', 631, 22);
+      for (let i = 0; i < 26; i++) {
+        const x = Math.floor(rand() * 16),
+          y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.5 ? '#356320' : '#5ba236');
+      }
+      // snow caps + transparent see-through holes
+      ctx.fillStyle = '#eef2f8';
+      ctx.fillRect(ox, oy, 16, 2);
+      for (let i = 0; i < 14; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 12), 2, 1, rand() < 0.6 ? '#eef2f8' : '#ffffff');
+      const rHoleS = mulberry32(637);
+      for (let i = 0; i < 14; i++) {
+        const hx = Math.floor(rHoleS() * 15);
+        const hy = 3 + Math.floor(rHoleS() * 12);
+        ctx.clearRect(ox + hx, oy + hy, 1, 1);
+      }
+      break;
+    }
+    case T.hive: {
+      // woven wax hive with a dark entrance and honey drips
+      speckle(ctx, ox, oy, '#d8a848', 701, 12);
+      ctx.fillStyle = '#b8892e';
+      for (const yy of [3, 7, 11]) ctx.fillRect(ox, oy + yy, 16, 1);
+      ctx.fillStyle = '#3a2a14';
+      ctx.fillRect(ox + 6, oy + 9, 4, 3);
+      ctx.fillStyle = '#f4c85c';
+      ctx.fillRect(ox + 2, oy + 4, 2, 2);
+      ctx.fillRect(ox + 12, oy + 5, 2, 1);
+      px(ctx, ox, oy, 5, 13, 1, 2, '#f4b83a'); // drip
+      px(ctx, ox, oy, 11, 12, 1, 3, '#f4b83a');
+      break;
+    }
+    case T.turtleEgg: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // sandy nest mound hugging the ground
+      ctx.fillStyle = '#d4c491';
+      ctx.fillRect(ox + 1, oy + 13, 14, 3);
+      ctx.fillStyle = '#c4b481';
+      ctx.fillRect(ox + 2, oy + 12, 12, 1);
+      px(ctx, ox, oy, 3, 14, 2, 1, '#e0d0a0');
+      px(ctx, ox, oy, 11, 15, 2, 1, '#b8a878');
+      // plump rounded eggs nestled into the sand
+      const egg = (ex: number, ey: number, w: number, h: number) => {
+        // rounded silhouette: main body + trimmed corners
+        ctx.fillStyle = '#eef2e4';
+        ctx.fillRect(ox + ex + 1, oy + ey, w - 2, h);
+        ctx.fillRect(ox + ex, oy + ey + 1, w, h - 2);
+        // highlight + shading
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(ox + ex + 1, oy + ey + 1, 2, 1);
+        ctx.fillStyle = '#c8d0b8';
+        ctx.fillRect(ox + ex + 1, oy + ey + h - 1, w - 2, 1);
+        ctx.fillRect(ox + ex + w - 1, oy + ey + 2, 1, h - 3);
+        // speckles
+        px(ctx, ox, oy, ex + 2, ey + 3, 1, 1, '#9aa888');
+        px(ctx, ox, oy, ex + w - 3, ey + 2, 1, 1, '#9aa888');
+      };
+      egg(1, 7, 6, 7); // left egg
+      egg(9, 8, 6, 6); // right egg
+      egg(5, 4, 6, 7); // back egg peeking over
+      break;
+    }
+    case T.anvil: {
+      speckle(ctx, ox, oy, '#4a4c54', 711, 8);
+      // top face
+      ctx.fillStyle = '#5e626c';
+      ctx.fillRect(ox + 1, oy + 2, 14, 4);
+      ctx.fillStyle = '#787c88';
+      ctx.fillRect(ox + 1, oy + 2, 14, 1);
+      // waist + base
+      ctx.fillStyle = '#3a3c44';
+      ctx.fillRect(ox + 5, oy + 6, 6, 5);
+      ctx.fillStyle = '#4e5058';
+      ctx.fillRect(ox + 3, oy + 11, 10, 4);
+      px(ctx, ox, oy, 2, 3, 2, 1, '#9aa0ac'); // glint
+      break;
+    }
+    case T.netheriteOre: {
+      speckle(ctx, ox, oy, '#4a3028', 721, 10);
+      blobs(ctx, ox, oy, 723, ['#7a4a38', '#8a5a42', '#5a3a2c'], 5, 2);
+      // gold-ish sparks of ancient metal
+      px(ctx, ox, oy, 4, 5, 2, 1, '#c8925a');
+      px(ctx, ox, oy, 10, 9, 1, 2, '#c8925a');
+      px(ctx, ox, oy, 7, 12, 2, 1, '#a87848');
+      break;
+    }
+    case T.honey: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // honey pot
+      ctx.fillStyle = '#b8792e';
+      ctx.fillRect(ox + 4, oy + 6, 8, 7);
+      ctx.fillStyle = '#f4b83a';
+      ctx.fillRect(ox + 4, oy + 5, 8, 3);
+      ctx.fillStyle = '#ffd97a';
+      ctx.fillRect(ox + 5, oy + 5, 3, 1);
+      ctx.fillStyle = '#8a5a1e';
+      ctx.fillRect(ox + 5, oy + 12, 6, 1);
+      px(ctx, ox, oy, 7, 3, 2, 2, '#f4b83a'); // drip above
+      break;
+    }
+    case T.netherite: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // jagged dark ingot
+      ctx.fillStyle = '#4a3830';
+      ctx.fillRect(ox + 3, oy + 6, 10, 6);
+      ctx.fillStyle = '#6a5248';
+      ctx.fillRect(ox + 3, oy + 6, 10, 2);
+      ctx.fillStyle = '#2c201a';
+      ctx.fillRect(ox + 3, oy + 11, 10, 1);
+      px(ctx, ox, oy, 5, 8, 2, 1, '#8a6a58');
+      px(ctx, ox, oy, 10, 9, 1, 1, '#8a6a58');
+      px(ctx, ox, oy, 4, 4, 2, 2, '#4a3830'); // shard
+      px(ctx, ox, oy, 11, 4, 1, 2, '#4a3830');
+      break;
+    }
+    case T.wool: {
+      // fluffy knit texture
+      speckle(ctx, ox, oy, '#eeeeeb', 801, 6);
+      const r5 = mulberry32(803);
+      for (let i = 0; i < 22; i++) {
+        const x = Math.floor(r5() * 15);
+        const y = Math.floor(r5() * 15);
+        px(ctx, ox, oy, x, y, 2, 1, r5() < 0.5 ? '#e0e0dc' : '#f8f8f5');
+      }
+      for (const yy of [4, 9, 14]) {
+        for (let x = 0; x < 16; x += 3) px(ctx, ox, oy, x + ((yy / 4) | 0), yy, 2, 1, '#d8d8d2');
+      }
+      break;
+    }
+    case T.feather: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // quill diagonal + barbs
+      ctx.strokeStyle = '#c8c4b8';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(ox + 3, oy + 13);
+      ctx.lineTo(ox + 12, oy + 3);
+      ctx.stroke();
+      ctx.fillStyle = '#f2f2f6';
+      for (let i = 0; i < 6; i++) {
+        ctx.fillRect(ox + 4 + i, oy + 10 - i, 4, 2);
+      }
+      ctx.fillStyle = '#dcdce4';
+      for (let i = 0; i < 5; i++) px(ctx, ox, oy, 5 + i, 10 - i, 1, 1, '#dcdce4');
+      break;
+    }
+    case T.turtleShell: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4d8c5a';
+      ctx.fillRect(ox + 3, oy + 5, 10, 8);
+      ctx.fillRect(ox + 4, oy + 4, 8, 10);
+      ctx.fillStyle = '#7ab88a';
+      ctx.fillRect(ox + 5, oy + 6, 3, 3);
+      ctx.fillRect(ox + 9, oy + 9, 3, 3);
+      ctx.fillStyle = '#3a6a44';
+      ctx.fillRect(ox + 3, oy + 12, 10, 1);
+      px(ctx, ox, oy, 5, 5, 1, 1, '#8fcf9e');
+      break;
+    }
+    case T.crabShell: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#d85a3a';
+      ctx.fillRect(ox + 3, oy + 6, 10, 6);
+      ctx.fillRect(ox + 4, oy + 5, 8, 8);
+      ctx.fillStyle = '#f2836a';
+      ctx.fillRect(ox + 5, oy + 6, 6, 2);
+      ctx.fillStyle = '#a83c22';
+      ctx.fillRect(ox + 4, oy + 11, 8, 1);
+      // little spikes
+      px(ctx, ox, oy, 3, 4, 1, 2, '#a83c22');
+      px(ctx, ox, oy, 12, 4, 1, 2, '#a83c22');
+      break;
+    }
+    case T.fishScale: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // overlapping shiny scales
+      ctx.fillStyle = '#6eaadc';
+      ctx.fillRect(ox + 5, oy + 5, 6, 7);
+      ctx.fillRect(ox + 4, oy + 6, 8, 5);
+      ctx.fillStyle = '#9ecdf2';
+      ctx.fillRect(ox + 5, oy + 5, 6, 2);
+      ctx.fillStyle = '#4d80b8';
+      ctx.fillRect(ox + 5, oy + 11, 6, 1);
+      px(ctx, ox, oy, 6, 6, 2, 1, '#d0e8fa');
+      break;
+    }
+    case T.penguinEgg: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // single large bluish egg on a snow patch
+      ctx.fillStyle = '#eef2f8';
+      ctx.fillRect(ox + 2, oy + 13, 12, 3);
+      ctx.fillStyle = '#e1e8f0';
+      ctx.fillRect(ox + 5, oy + 4, 6, 10);
+      ctx.fillRect(ox + 4, oy + 5, 8, 8);
+      ctx.fillStyle = '#f4f8fc';
+      ctx.fillRect(ox + 6, oy + 5, 3, 2);
+      ctx.fillStyle = '#b8c8dc';
+      ctx.fillRect(ox + 5, oy + 12, 6, 1);
+      break;
+    }
+    case T.catClaw: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // curved talon
+      ctx.strokeStyle = '#e6dcc8';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(ox + 5, oy + 3);
+      ctx.quadraticCurveTo(ox + 12, oy + 6, ox + 10, oy + 13);
+      ctx.stroke();
+      ctx.fillStyle = '#c8bca4';
+      ctx.fillRect(ox + 4, oy + 2, 3, 3); // root
+      break;
+    }
+    case T.diamondBlock: {
+      speckle(ctx, ox, oy, '#3fd4c8', 251, 14);
+      ctx.fillStyle = '#a6fff4';
+      ctx.fillRect(ox + 2, oy + 2, 12, 2);
+      ctx.fillRect(ox + 2, oy + 2, 2, 12);
+      ctx.fillStyle = '#1e9c93';
+      ctx.fillRect(ox + 2, oy + 12, 12, 2);
+      ctx.fillRect(ox + 12, oy + 2, 2, 12);
+      for (let i = 0; i < 14; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#7ff5ea' : '#25b3a8');
+      break;
+    }
+    case T.birchLogSide: {
+      // white paper birch bark with realistic horizontal black lenticel streaks
+      speckle(ctx, ox, oy, '#e8e8e6', 853, 14);
+      for (let i = 0; i < 20; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#dcdcd8' : '#f5f5f2');
+      ctx.fillStyle = '#2b2a28';
+      // horizontal dark notches
+      ctx.fillRect(ox + 2, oy + 3, 4, 1);
+      ctx.fillRect(ox + 10, oy + 5, 5, 1);
+      ctx.fillRect(ox + 1, oy + 9, 3, 1);
+      ctx.fillRect(ox + 7, oy + 11, 6, 1);
+      ctx.fillRect(ox + 3, oy + 14, 4, 1);
+      px(ctx, ox, oy, 6, 3, 1, 1, '#686660');
+      px(ctx, ox, oy, 9, 5, 1, 1, '#686660');
+      px(ctx, ox, oy, 13, 11, 1, 1, '#686660');
+      break;
+    }
+    case T.birchLogTop: {
+      speckle(ctx, ox, oy, '#e8e8e6', 863, 10);
+      ctx.fillStyle = '#cbb27a';
+      ctx.fillRect(ox + 1, oy + 1, 14, 14);
+      ctx.fillStyle = '#b99e65';
+      for (let r = 2; r < 7; r += 2) {
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ox + 8 - r + 0.5, oy + 8 - r + 0.5, r * 2 - 1, r * 2 - 1);
+      }
+      break;
+    }
+    case T.birchLeaves: {
+      // bright spring emerald leaves with cutout transparent holes
+      speckle(ctx, ox, oy, '#6cb33a', 877, 24);
+      for (let i = 0; i < 35; i++) {
+        const x = Math.floor(rand() * 16),
+          y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.5 ? '#539327' : '#88d44c');
+      }
+      for (let i = 0; i < 10; i++) px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, '#a4eb6a');
+      const rHoleB = mulberry32(881);
+      for (let i = 0; i < 18; i++) {
+        const hx = Math.floor(rHoleB() * 15);
+        const hy = Math.floor(rHoleB() * 15);
+        ctx.clearRect(ox + hx, oy + hy, 1, 1);
+      }
+      break;
+    }
+    case T.appleLeaves: {
+      // deep green oak leaves with cutout holes AND glossy red apples!
+      speckle(ctx, ox, oy, '#3d7826', 893, 26);
+      for (let i = 0; i < 30; i++) {
+        const x = Math.floor(rand() * 16),
+          y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.5 ? '#2c5b1b' : '#529634');
+      }
+      // transparent holes
+      const rHoleA = mulberry32(899);
+      for (let i = 0; i < 16; i++) {
+        const hx = Math.floor(rHoleA() * 15);
+        const hy = Math.floor(rHoleA() * 15);
+        ctx.clearRect(ox + hx, oy + hy, 1, 1);
+      }
+      // red apples with highlight and stem
+      const drawApple = (ax: number, ay: number) => {
+        ctx.fillStyle = '#dc3224';
+        ctx.fillRect(ox + ax, oy + ay, 3, 3);
+        ctx.fillRect(ox + ax + 1, oy + ay - 1, 1, 1); // top bulge
+        px(ctx, ox, oy, ax, ay, 1, 1, '#ff6b5e'); // glint
+        px(ctx, ox, oy, ax + 1, ay - 1, 1, 1, '#5a3d1c'); // stem
+      };
+      drawApple(3, 4);
+      drawApple(10, 9);
+      drawApple(4, 11);
+      break;
+    }
+    case T.cactusSide: {
+      // vertical ribbed bands with white spine clusters
+      speckle(ctx, ox, oy, '#559c3c', 911, 14);
+      ctx.fillStyle = '#3f7c2a';
+      for (const rx of [0, 5, 10, 15]) ctx.fillRect(ox + rx, oy, 1, 16);
+      ctx.fillStyle = '#71be52';
+      for (const rx of [2, 7, 12]) ctx.fillRect(ox + rx, oy, 2, 16);
+      // spine / needle clusters
+      for (const [sx, sy] of [
+        [3, 3],
+        [8, 6],
+        [13, 2],
+        [3, 11],
+        [8, 13],
+        [13, 10],
+      ]) {
+        px(ctx, ox, oy, sx, sy, 1, 1, '#ffffff');
+        px(ctx, ox, oy, sx - 1, sy, 1, 1, '#e8eedc');
+        px(ctx, ox, oy, sx + 1, sy, 1, 1, '#e8eedc');
+        px(ctx, ox, oy, sx, sy - 1, 1, 1, '#4a3212'); // dark root
+      }
+      break;
+    }
+    case T.cactusTop: {
+      speckle(ctx, ox, oy, '#4b8a34', 921, 10);
+      ctx.fillStyle = '#396d24';
+      ctx.fillRect(ox + 7, oy, 2, 16);
+      ctx.fillRect(ox, oy + 7, 16, 2);
+      ctx.fillStyle = '#65ab46';
+      ctx.fillRect(ox + 4, oy + 4, 8, 8);
+      px(ctx, ox, oy, 7, 7, 2, 2, '#85cf62');
+      for (const [sx, sy] of [
+        [4, 4],
+        [11, 4],
+        [4, 11],
+        [11, 11],
+      ])
+        px(ctx, ox, oy, sx, sy, 1, 1, '#ffffff');
+      break;
+    }
+    case T.cactusPaleSide: {
+      // pale sage/dusty desert cactus
+      speckle(ctx, ox, oy, '#78a878', 931, 14);
+      ctx.fillStyle = '#5c8a5c';
+      for (const rx of [0, 5, 10, 15]) ctx.fillRect(ox + rx, oy, 1, 16);
+      ctx.fillStyle = '#94c294';
+      for (const rx of [2, 7, 12]) ctx.fillRect(ox + rx, oy, 2, 16);
+      for (const [sx, sy] of [
+        [3, 4],
+        [8, 8],
+        [13, 3],
+        [3, 12],
+        [8, 14],
+        [13, 11],
+      ]) {
+        px(ctx, ox, oy, sx, sy, 1, 1, '#f8fdf4');
+        px(ctx, ox, oy, sx - 1, sy, 1, 1, '#d8e4d2');
+        px(ctx, ox, oy, sx, sy - 1, 1, 1, '#403820');
+      }
+      break;
+    }
+    case T.cactusPaleTop: {
+      speckle(ctx, ox, oy, '#669666', 941, 10);
+      ctx.fillStyle = '#4e7a4e';
+      ctx.fillRect(ox + 7, oy, 2, 16);
+      ctx.fillRect(ox, oy + 7, 16, 2);
+      ctx.fillStyle = '#8ab88a';
+      ctx.fillRect(ox + 4, oy + 4, 8, 8);
+      px(ctx, ox, oy, 7, 7, 2, 2, '#a4d4a4');
+      break;
+    }
+    case T.tallGrass: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#5f9738';
+      for (const [gx, gy, gw, gh] of [
+        [3, 4, 2, 12],
+        [6, 2, 2, 14],
+        [9, 5, 2, 11],
+        [12, 3, 2, 13],
+      ]) {
+        ctx.fillRect(ox + gx, oy + gy, gw, gh);
+      }
+      ctx.fillStyle = '#78b54e';
+      for (let i = 0; i < 10; i++)
+        px(ctx, ox, oy, 3 + Math.floor(rand() * 11), 3 + Math.floor(rand() * 12), 1, 1, '#8ed05e');
+      break;
+    }
+    case T.fern: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#41822d';
+      ctx.fillRect(ox + 7, oy + 3, 2, 13);
+      for (let i = 0; i < 4; i++) {
+        const fy = 4 + i * 3;
+        const fw = 3 + i;
+        ctx.fillRect(ox + 7 - fw, oy + fy, fw * 2 + 2, 1);
+        ctx.fillRect(ox + 7 - fw + 1, oy + fy + 1, (fw - 1) * 2 + 2, 1);
+      }
+      px(ctx, ox, oy, 7, 2, 2, 1, '#66aa4e');
+      break;
+    }
+    case T.deadBush: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.strokeStyle = '#a4845c';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(ox + 8, oy + 15);
+      ctx.lineTo(ox + 8, oy + 8);
+      ctx.lineTo(ox + 4, oy + 3);
+      ctx.moveTo(ox + 8, oy + 9);
+      ctx.lineTo(ox + 13, oy + 4);
+      ctx.moveTo(ox + 6, oy + 6);
+      ctx.lineTo(ox + 2, oy + 8);
+      ctx.moveTo(ox + 10, oy + 7);
+      ctx.lineTo(ox + 14, oy + 10);
+      ctx.stroke();
+      break;
+    }
+    case T.apple: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#e23628';
+      ctx.fillRect(ox + 4, oy + 5, 8, 8);
+      ctx.fillRect(ox + 5, oy + 4, 6, 10);
+      ctx.fillRect(ox + 3, oy + 6, 10, 6);
+      ctx.fillStyle = '#ff6c5e';
+      ctx.fillRect(ox + 5, oy + 5, 2, 3);
+      ctx.fillStyle = '#b81e12';
+      ctx.fillRect(ox + 5, oy + 12, 6, 1);
+      // stem + leaf
+      ctx.fillStyle = '#5c3d18';
+      ctx.fillRect(ox + 7, oy + 2, 2, 3);
+      ctx.fillStyle = '#56a832';
+      ctx.fillRect(ox + 9, oy + 2, 3, 2);
+      break;
+    }
+    case T.craftingTableTop: {
+      // Classic wooden crafting table top with 3x3 carved grid
+      speckle(ctx, ox, oy, '#ba905a', 951, 8);
+      ctx.fillStyle = '#7a4e24';
+      ctx.fillRect(ox, oy, 16, 2);
+      ctx.fillRect(ox, oy + 14, 16, 2);
+      ctx.fillRect(ox, oy, 2, 16);
+      ctx.fillRect(ox + 14, oy, 2, 16);
+      // 3x3 crafting grid in the center
+      ctx.fillStyle = '#9e6e3c';
+      ctx.fillRect(ox + 3, oy + 3, 10, 10);
+      ctx.fillStyle = '#5e3814';
+      ctx.fillRect(ox + 6, oy + 3, 1, 10);
+      ctx.fillRect(ox + 9, oy + 3, 1, 10);
+      ctx.fillRect(ox + 3, oy + 6, 10, 1);
+      ctx.fillRect(ox + 3, oy + 9, 10, 1);
+      // tiny carved hammer/tool icons in corner
+      px(ctx, ox, oy, 13, 2, 1, 2, '#4a2c0f');
+      px(ctx, ox, oy, 2, 13, 2, 1, '#4a2c0f');
+      break;
+    }
+    case T.craftingTableSide:
+    case T.craftingTableFront: {
+      // Wood plank base with hanging saw, shears & drawer
+      speckle(ctx, ox, oy, '#a87e46', 961, 10);
+      ctx.fillStyle = '#6a421c';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      // drawer / compartment
+      ctx.fillStyle = '#5c3514';
+      ctx.fillRect(ox + 3, oy + 3, 10, 5);
+      ctx.fillStyle = '#8f6334';
+      ctx.fillRect(ox + 4, oy + 4, 8, 3);
+      px(ctx, ox, oy, 7, 5, 2, 1, '#2c1808'); // drawer pull
+      // hanging saw / tool on side
+      ctx.fillStyle = '#c4cacf';
+      ctx.fillRect(ox + 4, oy + 10, 6, 2);
+      ctx.fillStyle = '#724921';
+      ctx.fillRect(ox + 10, oy + 9, 2, 4);
+      px(ctx, ox, oy, 5, 12, 1, 1, '#8c9298');
+      px(ctx, ox, oy, 7, 12, 1, 1, '#8c9298');
+      break;
+    }
+  }
+}
+
+let atlasTex: THREE.Texture | null = null;
+let atlasCanvas: HTMLCanvasElement | null = null;
+
+export function getAtlasCanvas(): HTMLCanvasElement {
+  if (atlasCanvas) return atlasCanvas;
+  const c = document.createElement('canvas');
+  c.width = ATLAS_W;
+  c.height = ATLAS_H;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  for (let i = 0; i < ATLAS_COLS * ATLAS_ROWS; i++) drawTile(ctx, i);
+  expandGutters(ctx);
+  atlasCanvas = c;
+  return c;
+}
+
+export function getAtlasTexture(): THREE.Texture {
+  if (atlasTex) return atlasTex;
+  const tex = new THREE.CanvasTexture(getAtlasCanvas());
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  atlasTex = tex;
+  return tex;
+}
+
+const UV_PAD_U = 0.5 / ATLAS_W;
+const UV_PAD_V = 0.5 / ATLAS_H;
+
+/** UV rect (in atlas space) of a tile index */
+export function tileUV(index: number) {
+  const [ox, oy] = tileOrigin(index);
+  const u0 = ox / ATLAS_W + UV_PAD_U;
+  const u1 = (ox + TILE) / ATLAS_W - UV_PAD_U;
+  // canvas y grows downward, three's v grows upward
+  const v1 = 1 - oy / ATLAS_H - UV_PAD_V;
+  const v0 = 1 - (oy + TILE) / ATLAS_H + UV_PAD_V;
+  return [u0, v0, u1, v1];
+}
+
+/** 10-stage crack overlay strip (160 x 16) */
+let crackTex: THREE.Texture | null = null;
+export function getCrackTexture(): THREE.Texture {
+  if (crackTex) return crackTex;
+  const c = document.createElement('canvas');
+  c.width = 160;
+  c.height = 16;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  for (let stage = 0; stage < 10; stage++) {
+    const ox = stage * 16;
+    const rand = mulberry32(stage * 977 + 5);
+    const lines = stage + 2;
+    ctx.strokeStyle = 'rgba(12,10,14,0.78)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < lines; i++) {
+      let x = rand() * 16;
+      let y = rand() * 16;
+      ctx.beginPath();
+      ctx.moveTo(ox + x + 0.5, y + 0.5);
+      const segs = 2 + Math.floor(rand() * 3);
+      for (let s = 0; s < segs; s++) {
+        x += (rand() - 0.5) * 9;
+        y += (rand() - 0.5) * 9;
+        ctx.lineTo(ox + Math.max(0, Math.min(16, x)) + 0.5, Math.max(0, Math.min(16, y)) + 0.5);
+      }
+      ctx.stroke();
+    }
+    for (let i = 0; i < stage * 3; i++) {
+      ctx.fillStyle = 'rgba(8,6,10,0.55)';
+      ctx.fillRect(ox + Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  crackTex = tex;
+  return tex;
+}
+
+export function crackTileUV(stage: number) {
+  const w = 1 / 10;
+  return [stage * w + 0.001, 0.001, (stage + 1) * w - 0.001, 0.999];
+}
+
+/** Sky gradient dome texture */
+export function getSkyTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 256;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0.0, '#1f4f8f');
+  g.addColorStop(0.28, '#3f7ec4');
+  g.addColorStop(0.55, '#7fb2e0');
+  g.addColorStop(0.78, '#bcd9ec');
+  g.addColorStop(1.0, '#e8d7b8');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 8, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+
+/** Chunky Minecraft-style cloud sheet */
+export function getCloudTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d')!;
+  const rand = mulberry32(4242);
+  ctx.clearRect(0, 0, 128, 128);
+  for (let i = 0; i < 46; i++) {
+    const cx = Math.floor(rand() * 16) * 8;
+    const cy = Math.floor(rand() * 16) * 8;
+    const w = (2 + Math.floor(rand() * 5)) * 8;
+    const h = (2 + Math.floor(rand() * 4)) * 8;
+    const a = 0.55 + rand() * 0.35;
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.fillRect(cx, cy, w, h);
+    ctx.fillStyle = `rgba(226,236,246,${a * 0.8})`;
+    ctx.fillRect(cx, cy + h - 2, w, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const iconCache = new Map<number, string>();
+
+/** 48x48 pixel-art inventory icon for a block id (returns a data URL) */
+export function getBlockIcon(id: number): string {
+  const cached = iconCache.get(id);
+  if (cached) return cached;
+  const atlas = getAtlasCanvas();
+  const def = BLOCKS[id];
+  const size = 48;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  // top face (squashed, lighter)
+  const [tx, ty] = tileOrigin(def.top);
+  ctx.save();
+  ctx.translate(0, 0);
+  ctx.transform(1, 0, 0, 0.42, 0, 0);
+  ctx.drawImage(atlas, tx, ty, TILE, TILE, 0, 0, size, size);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.fillRect(0, 0, size, size * 0.42);
+  // front face
+  const [sx, sy] = tileOrigin(def.side);
+  ctx.drawImage(atlas, sx, sy, TILE, TILE, 0, size * 0.42, size, size * 0.58);
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillRect(0, size * 0.42, size, size * 0.58);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(0, size * 0.42, size * 0.12, size * 0.58);
+  const url = c.toDataURL();
+  iconCache.set(id, url);
+  return url;
+}
