@@ -127,7 +127,8 @@ export type HudState = {
   bestCombo: number;
   deepest: number;
   oresFound: number;
-  hotbar: { id: number; count: number }[];
+  /** 10 fixed quick slots; `null` = empty hole (sparse hotbar) */
+  hotbar: ({ id: number; count: number } | null)[];
   selected: number;
   target: { id: number; name: string } | null;
   banner: { text: string; sub: string; color: string; key: number } | null;
@@ -152,7 +153,6 @@ export type HudState = {
   heldKind: 'pick' | 'sword' | 'block' | 'fist' | 'torch' | 'axe' | 'shovel' | 'bow';
   offers: TradeOffer[];
   sellPrices: Record<number, number>;
-  stashedTools: number[];
   invTab: string;
   tradeNear: boolean;
   anvilNear: boolean;
@@ -300,7 +300,8 @@ export class Engine {
   private deepest = 0;
   private tier = 0;
   private inventory = new Map<number, number>();
-  private hotbar: number[] = [];
+  /** sparse 10-slot quick bar: blocks / tools / HAND / empty holes */
+  private hotbar: (number | undefined)[] = [];
   private selected = 0;
   private deathCause: HudState['deathCause'] = null;
   // --- world clock / mobs / gear ---
@@ -898,7 +899,7 @@ export class Engine {
     }
     if (kind === 'block') {
       const id = this.hotbar[this.selected];
-      if (id !== this.blockShown) {
+      if (id !== undefined && id !== this.blockShown) {
         this.blockShown = id;
         const def = BLOCKS[id];
         const uv = this.toolBlock.geometry.getAttribute('uv') as THREE.BufferAttribute;
@@ -1322,10 +1323,11 @@ export class Engine {
     return this.freeLook;
   }
   private onWheel = (e: WheelEvent) => {
-    if (this.phase !== 'playing' || !this.hotbar.length) return;
+    if (this.phase !== 'playing') return;
     e.preventDefault();
     const dir = e.deltaY > 0 ? 1 : -1;
-    this.selectSlot((this.selected + dir + this.hotbar.length) % this.hotbar.length);
+    // cycle through all 10 fixed slots — an empty hole selects the bare hand
+    this.selectSlot((this.selected + dir + 10) % 10);
   };
   private onContext = (e: Event) => e.preventDefault();
   private onResize = () => {
@@ -1439,40 +1441,92 @@ export class Engine {
     this.placing = v;
   }
   selectSlot(i: number) {
-    // 10 fixed slots — selecting an empty one falls back to the bare hand
+    // 10 fixed slots — selecting an empty hole falls back to the bare hand
     if (i < 0 || i >= 10) return;
-    this.selected = Math.min(i, Math.max(0, this.hotbar.length - 1));
-    if (i < this.hotbar.length) this.selected = i;
+    this.selected = i;
     sfx.ui(true);
     this.syncHotbar(true);
   }
 
-  /** remove a tool from the hotbar (stash it — usable again via inventory) */
-  removeFromHotbar(id: number) {
-    if (id === HAND) return; // the hand never leaves
-    const i = this.hotbar.indexOf(id);
-    if (i < 0) return;
-    this.hotbar.splice(i, 1);
-    if (id >= 200) this.stashedTools.add(id); // tools go to the stash list
-    this.selected = Math.min(this.selected, this.hotbar.length - 1);
-    sfx.ui(false);
-    this.syncHotbar(true);
-    this.syncHud(true);
+  /**
+   * First empty hotbar slot (0-9), or -1 when the bar is full.
+   * The hotbar is sparse: slots can hold blocks, tools, the HAND pseudo-item or be empty.
+   */
+  private firstFreeSlot(): number {
+    for (let i = 0; i < 10; i++) if (this.hotbar[i] === undefined) return i;
+    return -1;
   }
 
-  /** bring a stashed tool back into the hotbar */
-  restoreTool(id: number) {
-    if (!this.stashedTools.has(id) || this.hotbar.length >= 10) return;
-    this.stashedTools.delete(id);
-    this.hotbar.push(id);
-    this.selected = this.hotbar.length - 1;
+  /**
+   * Unified hotbar placement (drag&drop + click):
+   * - fromSlot defined → the item is dragged from another hotbar slot:
+   *   occupied target → swap, empty target → move.
+   * - fromSlot undefined → the item comes from the inventory list:
+   *   placed into the target slot, evicting the occupant (which stays owned in
+   *   the inventory). The HAND pseudo-item can never be pushed out of the bar.
+   */
+  placeInSlot(id: number, slot: number | undefined, fromSlot?: number) {
+    if (id === undefined || id === null) return;
+    const target = slot !== undefined ? Math.max(0, Math.min(9, Math.trunc(slot))) : this.firstFreeSlot();
+    if (target < 0) {
+      sfx.ui(false);
+      return;
+    }
+
+    if (fromSlot !== undefined) {
+      if (this.hotbar[fromSlot] !== id) return;
+      if (target === fromSlot) return;
+      const occupant = this.hotbar[target];
+      this.hotbar[fromSlot] = occupant; // swap if occupied, clear if empty
+      this.hotbar[target] = id;
+    } else {
+      // from the inventory list — ownership must exist (the HAND only lives in the bar)
+      const owned = id === HAND ? this.hotbar.includes(HAND) : (this.inventory.get(id) ?? 0) > 0;
+      if (!owned) return;
+      const occupant = this.hotbar[target];
+      if (occupant === HAND) {
+        sfx.ui(false); // the hand is permanent — clear that slot first
+        return;
+      }
+      // one placement per item: move it if it sits in another slot
+      const existing = this.hotbar.indexOf(id);
+      if (existing >= 0 && existing !== target) this.hotbar[existing] = undefined;
+      // the evicted occupant keeps its ownership in the inventory — just clear the slot
+      this.hotbar[target] = id;
+    }
+
+    this.selected = target;
     sfx.ui(true);
     this.syncHotbar(true);
     this.syncHud(true);
   }
 
-  /** tools removed from the hotbar but still owned */
-  stashedTools = new Set<number>();
+  /**
+   * Remove an item from a hotbar slot (drag it back toward the inventory area).
+   * Blocks/tools keep their ownership in the inventory list.
+   * The HAND pseudo-item can't disappear — it slides back to slot 1.
+   */
+  removeFromSlot(slot: number) {
+    const i = Math.max(0, Math.min(9, Math.trunc(slot) || 0));
+    const id = this.hotbar[i];
+    if (id === undefined) return;
+    if (id === HAND) {
+      if (i === 0) return;
+      if (this.hotbar[0] !== undefined) {
+        sfx.ui(false);
+        return;
+      }
+      this.hotbar[0] = HAND;
+      this.hotbar[i] = undefined;
+    } else {
+      this.hotbar[i] = undefined;
+    }
+    if (this.selected === i) this.selected = 0;
+    sfx.ui(true);
+    this.syncHotbar(true);
+    this.syncHud(true);
+  }
+
   setDom(refs: DomRefs) {
     this.dom = refs;
   }
@@ -1587,8 +1641,11 @@ export class Engine {
     this.health = data.health;
     this.score = data.score;
     this.inventory = new Map(data.inventory);
-    this.hotbar = data.hotbar;
-    this.selected = Math.min(data.selected, Math.max(0, this.hotbar.length - 1));
+    // normalize the quick bar to the sparse 10-slot model (old saves are dense;
+    // JSON round-trips empty holes as null)
+    const rawBar: unknown[] = Array.isArray(data.hotbar) ? (data.hotbar as unknown[]) : [HAND];
+    this.hotbar = rawBar.slice(0, 10).map((x) => (typeof x === 'number' ? x : undefined));
+    this.selected = Math.max(0, Math.min(9, Number(data.selected) || 0));
     this.tier = data.tier;
     this.swordTier = data.swordTier;
     this.equipped = data.equipped ?? {};
@@ -1668,10 +1725,9 @@ export class Engine {
       p.el.style.opacity = '0';
     });
     [DIRT, COBBLE, SAND, PLANKS, STONE, LEAVES].forEach((id) => this.inventory.set(id, 0));
-    // the pickaxe is a real hotbar item now — slot 1
-    this.hotbar = [HAND]; // slot 1 is always the bare hand
+    // the bare hand starts in slot 1 — it can be dragged to any slot later
+    this.hotbar = [HAND];
     this.selected = 0;
-    this.stashedTools.clear();
     this.swordTier = -1;
     this.equipped = {};
     this.bagItems = [];
@@ -4159,9 +4215,9 @@ export class Engine {
 
   private addToHotbar(id: number) {
     if (this.hotbar.includes(id)) return;
-    if (this.hotbar.length >= 9) return;
-    this.hotbar.push(id);
-    if (this.hotbar.length === 1) this.selected = 0;
+    const f = this.firstFreeSlot();
+    if (f < 0) return;
+    this.hotbar[f] = id;
   }
 
   // ================= DAY / NIGHT =================
@@ -4710,15 +4766,15 @@ export class Engine {
   // ================= HELD ITEM =================
   /** tier of the pick currently in hand (0 if none) */
   heldPickTier(): number {
-    const id = this.hotbar[this.selected];
+    const id = this.hotbar[this.selected] ?? -1;
     return isPickTool(id) ? id - PICK_TOOLS[0] : 0;
   }
   heldSwordTier(): number {
-    const id = this.hotbar[this.selected];
+    const id = this.hotbar[this.selected] ?? -1;
     return isSwordTool(id) ? id - SWORD_TOOLS[0] : -1;
   }
   heldAxeTier(): number {
-    const id = this.hotbar[this.selected];
+    const id = this.hotbar[this.selected] ?? -1;
     if (id === TOOL_AXE) return 1;
     return isAxeTool(id) ? id - AXE_TOOLS[0] : 0;
   }
@@ -4745,7 +4801,7 @@ export class Engine {
     if (k === 'shovel') return t('tool_shovel');
     if (k === 'bow') return `${t('tool_bow')} · ${this.inventory.get(ARROW_ITEM) ?? 0}`;
     if (k === 'fist') return t('emptyHand'); // bare hand (slot 1 or empty)
-    const id = this.hotbar[this.selected];
+    const id = this.hotbar[this.selected] ?? -1;
     return blockName(id, BLOCKS[id]?.name ?? '');
   }
 
@@ -4819,10 +4875,15 @@ export class Engine {
 
   /** sell a tool straight out of the hotbar */
   sellTool(id: number) {
+    if (id < 200) return;
+    const count = this.inventory.get(id) ?? 0;
+    if (count <= 0) return; // nothing owned — never sell an air slot
+    // clear the quick-bar placement (if any) and drop one from the owned count
     const i = this.hotbar.indexOf(id);
-    if (i < 0 || id < 200) return;
-    this.hotbar.splice(i, 1);
-    if (this.selected >= this.hotbar.length) this.selected = Math.max(0, this.hotbar.length - 1);
+    if (i >= 0) this.hotbar[i] = undefined;
+    this.inventory.set(id, count - 1);
+    if (count - 1 <= 0) this.inventory.delete(id);
+    if (this.selected === i) this.selected = 0;
     const gained = toolSellPrice(id);
     this.score += gained;
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
@@ -4974,24 +5035,7 @@ export class Engine {
 
   canCraft(r: Recipe) {
     // Any tool or item can be crafted at any time if you have the ingredients —
-    // no prerequisite pickaxe tier or previous recipe unlock required.
-    if (r.kind === 'pickaxe') {
-      // If you already have this exact pickaxe in your hotbar or stash, don't duplicate
-      const toolId = PICK_TOOLS[r.tier ?? 0];
-      if (toolId !== undefined && (this.hotbar.includes(toolId) || this.stashedTools.has(toolId))) return false;
-    }
-    if (r.kind === 'weapon' && r.weapon !== undefined) {
-      const toolId = SWORD_TOOLS[r.weapon];
-      if (toolId !== undefined && (this.hotbar.includes(toolId) || this.stashedTools.has(toolId))) return false;
-    }
-    if (r.kind === 'torch' && this.hotbar.includes(TOOL_TORCH)) return false;
-    if (r.kind === 'axe') {
-      const toolId = r.tier === 0 ? AXE_TOOLS[0] : AXE_TOOLS[1];
-      if (this.hotbar.includes(toolId) || this.stashedTools.has(toolId)) return false;
-    }
-    if (r.kind === 'shovel' && this.hotbar.includes(TOOL_SHOVEL)) return false;
-    if (r.kind === 'bow' && this.hotbar.includes(TOOL_BOW)) return false;
-    if (r.kind === 'weapon' && r.weapon !== undefined && r.weapon <= this.swordTier) return false;
+    // no prerequisite tier, no previous-recipe unlock, no duplicate limit.
     if (r.kind === 'cook' && !this.campfireNear()) return false;
     return r.inputs.every(([id, n]) => (this.inventory.get(id) ?? 0) >= n);
   }
@@ -5026,28 +5070,20 @@ export class Engine {
       this.addToHotbar(id);
     }
     if (r.kind === 'axe') {
+      // crafted tools land in the inventory list — the player drags them into a quick slot
       const tool = r.tier === 0 ? AXE_TOOLS[0] : AXE_TOOLS[1];
-      if (!this.hotbar.includes(tool) && this.hotbar.length < 10) {
-        this.hotbar.push(tool);
-        this.selected = this.hotbar.length - 1;
-      }
+      this.inventory.set(tool, (this.inventory.get(tool) ?? 0) + 1);
       sfx.upgrade();
       this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
     } else if (r.kind === 'shovel' || r.kind === 'bow') {
       const tool = r.kind === 'shovel' ? TOOL_SHOVEL : TOOL_BOW;
-      if (!this.hotbar.includes(tool) && this.hotbar.length < 10) {
-        this.hotbar.push(tool);
-        this.selected = this.hotbar.length - 1;
-      }
+      this.inventory.set(tool, (this.inventory.get(tool) ?? 0) + 1);
       sfx.upgrade();
       this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
     } else if (r.kind === 'torch') {
-      if (!this.hotbar.includes(TOOL_TORCH) && this.hotbar.length < 9) {
-        this.hotbar.push(TOOL_TORCH);
-        this.selected = this.hotbar.length - 1;
-      }
+      this.inventory.set(TOOL_TORCH, (this.inventory.get(TOOL_TORCH) ?? 0) + 1);
       sfx.upgrade();
       this.pushBanner(t('handTorch'), rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 176, 58], 12, 3);
@@ -5066,23 +5102,19 @@ export class Engine {
       this.pushBanner(rName, `+${it.armor} ${t('armorTotal')}`, r.accent);
     } else if (r.kind === 'weapon' && r.weapon !== undefined) {
       this.swordTier = Math.max(this.swordTier, r.weapon);
-      // the new sword is its own item — the old one stays and can be sold
+      // the new sword is a real inventory item like everything else — count accumulates,
+      // the player drags it into a quick slot themselves
       const toolId = SWORD_TOOLS[r.weapon];
-      if (!this.hotbar.includes(toolId) && this.hotbar.length < 9) {
-        this.hotbar.push(toolId);
-        this.selected = this.hotbar.length - 1;
-      }
+      this.inventory.set(toolId, (this.inventory.get(toolId) ?? 0) + 1);
       sfx.upgrade();
       this.addShake(0.4);
       this.pushBanner(rName, rDesc, r.accent);
     } else if (r.kind === 'pickaxe' && r.tier !== undefined) {
-      this.tier = r.tier;
-      // keep the previous pick in the hotbar — it still works and sells
+      this.tier = Math.max(this.tier, r.tier);
+      // the pickaxe is a real inventory item — count accumulates, the player
+      // drags it into a quick slot themselves
       const toolId = PICK_TOOLS[r.tier];
-      if (!this.hotbar.includes(toolId) && this.hotbar.length < 9) {
-        this.hotbar.push(toolId);
-        this.selected = this.hotbar.length - 1;
-      }
+      this.inventory.set(toolId, (this.inventory.get(toolId) ?? 0) + 1);
       this.updatePickaxe();
       this.flash = 0.5;
       this.addShake(0.55);
@@ -5110,58 +5142,11 @@ export class Engine {
   }
 
   /**
-   * Assign an item into a specific hotbar slot. Existing content in that slot
-   * is safely moved back to the inventory or tool stash instead of disappearing.
+   * Click-to-assign: put an owned inventory item into a hotbar slot
+   * (or the first free slot when `slot` is omitted). Delegates to placeInSlot.
    */
   assignToHotbar(id: number, slot?: number) {
-    if ((this.inventory.get(id) ?? 0) <= 0) return;
-
-    // Deduplicate the item so it exists in only one slot.
-    const existingIdx = this.hotbar.indexOf(id);
-    if (existingIdx >= 0) {
-      if (slot === undefined) {
-        this.selected = existingIdx;
-        sfx.ui(true);
-        this.syncHotbar(true);
-        this.syncHud(true);
-        return;
-      }
-      this.hotbar.splice(existingIdx, 1);
-    }
-
-    let target = slot !== undefined ? Math.max(0, Math.min(9, slot)) : this.hotbar.length;
-    if (target > 9) target = 9;
-
-    // Safely move the previous tool out of the target slot.
-    const prevId = this.hotbar[target];
-    if (prevId !== undefined && prevId !== id) {
-      if (prevId >= 200) {
-        this.stashedTools.add(prevId);
-      }
-      // For blocks: keep ownership implicit via inventory; do NOT fabricate count
-      this.hotbar.splice(target, 1);
-    }
-
-    if (target < this.hotbar.length) this.hotbar[target] = id;
-    else this.hotbar.push(id);
-
-    this.selected = this.hotbar.indexOf(id);
-    sfx.ui(true);
-    this.syncHotbar(true);
-    this.syncHud(true);
-  }
-
-  swapHotbarSlots(a: number, b: number) {
-    if (a === b) return;
-    const aId = this.hotbar[a];
-    const bId = this.hotbar[b];
-    if (bId !== undefined) this.hotbar[a] = bId;
-    else delete this.hotbar[a];
-    if (aId !== undefined) this.hotbar[b] = aId;
-    else delete this.hotbar[b];
-    sfx.ui(true);
-    this.syncHotbar(true);
-    this.syncHud(true);
+    this.placeInSlot(id, slot);
   }
 
   openInventory() {
@@ -5362,16 +5347,20 @@ export class Engine {
   }
 
   private syncHotbar(force: boolean) {
-    // blocks & resources vanish from the hotbar the moment they run out
-    // (the HAND pseudo-item in slot 1 is permanent)
-    const selId = this.hotbar[this.selected];
-    for (let i = this.hotbar.length - 1; i >= 0; i--) {
+    // sparse 10-slot bar: blocks & resources vanish when they run out,
+    // tools stay (ownership lives in the inventory), the HAND is permanent
+    for (let i = 0; i < this.hotbar.length; i++) {
       const id = this.hotbar[i];
-      if (id !== HAND && id < 200 && (this.inventory.get(id) ?? 0) <= 0) this.hotbar.splice(i, 1);
+      if (id !== undefined && id !== HAND && id < 200 && (this.inventory.get(id) ?? 0) <= 0) {
+        this.hotbar[i] = undefined;
+      }
     }
-    if (this.hotbar[0] !== HAND) this.hotbar.unshift(HAND);
-    const keep = this.hotbar.indexOf(selId);
-    this.selected = keep >= 0 ? keep : Math.min(this.selected, Math.max(0, this.hotbar.length - 1));
+    while (this.hotbar.length > 10) this.hotbar.pop();
+    if (!this.hotbar.includes(HAND)) {
+      const f = this.firstFreeSlot();
+      if (f >= 0) this.hotbar[f] = HAND;
+    }
+    this.selected = Math.max(0, Math.min(9, this.selected));
     if (force) this.lastHudKey = '';
   }
 
@@ -5408,7 +5397,7 @@ export class Engine {
       this.inventoryOpen ? 1 : 0,
       this.lastCraft ?? '-',
       t ? t.id : 0,
-      this.hotbar.map((id) => `${id}:${this.inventory.get(id) ?? 0}`).join('|'),
+      this.hotbar.map((id) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}`).join('|'),
       this.craftSignature(),
     ].join('~');
     if (!force && key === this.lastHudKey) {
@@ -5430,7 +5419,11 @@ export class Engine {
       bestCombo: this.bestCombo,
       deepest: Math.round(this.deepest),
       oresFound: this.oresFound,
-      hotbar: this.hotbar.map((id) => ({ id, count: this.inventory.get(id) ?? 0 })),
+      // sparse hotbar: pad to 10 fixed slots, empty holes become null
+      hotbar: Array.from({ length: 10 }, (_, i) => {
+        const id = this.hotbar[i];
+        return id === undefined ? null : { id, count: this.inventory.get(id) ?? 0 };
+      }),
       selected: this.selected,
       target: t && t.id !== AIR ? { id: t.id, name: blockName(t.id, BLOCKS[t.id].name) } : null,
       banner: this.banner,
@@ -5453,7 +5446,6 @@ export class Engine {
       stats: this.stats,
       killedBy: this.killedBy,
       offers: this.offers,
-      stashedTools: Array.from(this.stashedTools),
       sellPrices: Object.fromEntries(Engine.SELL_PRICES),
       invTab: this.invTab,
       tradeNear: this.phase === 'playing' || this.inventoryOpen ? this.traderNear() !== null : false,

@@ -52,7 +52,11 @@ function toolLabel(id: number): string {
 type Props = {
   hud: HudState;
   onCraft: (key: string) => void;
-  onAssign: (id: number, slot?: number) => void;
+  // sparse hotbar: place an owned item into a slot (or the first free one).
+  // `fromSlot` is set when the item is dragged from another hotbar slot (swap/move).
+  onPlaceItem: (id: number, slot?: number, fromSlot?: number) => void;
+  // remove the item currently in a hotbar slot (it stays owned in the inventory)
+  onRemoveSlot: (slot: number) => void;
   onSelectSlot?: (i: number) => void;
   onClose: () => void;
   onEquip: (uid: string) => void;
@@ -63,9 +67,8 @@ type Props = {
   onReinforce: (uid: string) => void;
   onSellTool: (id: number) => void;
   onSellGear: (uid: string) => void;
-  onStashTool: (id: number) => void;
-  onRestoreTool: (id: number) => void;
   onSalvageGear: (uid: string) => void;
+  isTouch?: boolean;
 };
 
 type Tab = 'tools' | 'blocks' | 'gear' | 'food' | 'trade' | 'anvil';
@@ -100,11 +103,17 @@ function GearCard({
   const rar = RARITY[item.rarity];
   return (
     <div
-      className="notch group relative flex w-full items-center justify-between gap-2 px-2 py-1.5 transition-transform duration-100 hover:translate-x-0.5"
+      className="notch group relative flex w-full cursor-grab items-center justify-between gap-2 px-2 py-1.5 transition-transform duration-100 hover:translate-x-0.5 active:cursor-grabbing"
       style={{
         background: `linear-gradient(90deg, ${rar.color}1f, rgba(255,255,255,.02) 60%)`,
         borderLeft: `4px solid ${rar.color}`,
       }}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', `gear:${item.uid}`);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      title={`${t('dragHint')} ${t(SLOT_KEY[item.slot])}`}
     >
       <button onClick={onClick} className="min-w-0 flex-1 text-left">
         <div className="flex items-center justify-between gap-2">
@@ -160,7 +169,8 @@ function GearCard({
 export default function Inventory({
   hud,
   onCraft,
-  onAssign,
+  onPlaceItem,
+  onRemoveSlot,
   onSelectSlot,
   onClose,
   onEquip,
@@ -171,9 +181,8 @@ export default function Inventory({
   onReinforce,
   onSellTool,
   onSellGear,
-  onStashTool,
-  onRestoreTool,
   onSalvageGear,
+  isTouch,
 }: Props) {
   const craftable = new Set(hud.craftable);
   const st = hud.stats;
@@ -216,8 +225,22 @@ export default function Inventory({
         </div>
 
         <div className="grid flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_1.55fr]">
-          {/* ---------- haul ---------- */}
-          <div className="anim-rise bevel-flat notch flex flex-col p-3" style={{ animationDelay: '60ms' }}>
+          {/* ---------- inventory / gear (also a drop zone: drop a quick-slot item here to remove it) ---------- */}
+          <div
+            className="anim-rise bevel-flat notch flex flex-col p-3"
+            style={{ animationDelay: '60ms' }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              const data = e.dataTransfer.getData('text/plain');
+              if (!data.startsWith('hotbar:')) return;
+              e.preventDefault();
+              const from = Number(data.split(':')[2]);
+              if (Number.isFinite(from)) onRemoveSlot(from);
+            }}
+          >
             <div className="mb-2 flex items-baseline justify-between">
               <span className="font-display text-sm tracking-widest text-torch">{t('haul')}</span>
               <span className="font-display text-[11px] text-white/35">
@@ -234,20 +257,19 @@ export default function Inventory({
             ) : (
               <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
                 {hud.inventory.map((it, i) => {
-                  const inBar = hud.hotbar.some((h) => h.id === it.id);
+                  const inBar = hud.hotbar.some((h) => h !== null && h.id === it.id);
                   const isTool = it.id >= 200;
+                  const label = isTool ? toolLabel(it.id) : blockName(it.id, BLOCKS[it.id]?.name ?? '');
                   return (
                     <button
                       key={it.id}
-                      onClick={() => onAssign(it.id)}
-                      draggable={isTool}
+                      onClick={() => onPlaceItem(it.id)}
+                      draggable
                       onDragStart={(e) => {
-                        if (isTool) {
-                          e.dataTransfer.setData('text/plain', `tool:${it.id}`);
-                          e.dataTransfer.effectAllowed = 'move';
-                        }
+                        e.dataTransfer.setData('text/plain', `item:${it.id}`);
+                        e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={blockName(it.id, BLOCKS[it.id].name)}
+                      title={`${label} — ${t('dragHint')}`}
                       className="anim-pop notch group relative flex aspect-square items-center justify-center transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         animationDelay: `${i * 22}ms`,
@@ -256,15 +278,19 @@ export default function Inventory({
                         boxShadow: inBar
                           ? 'inset 2px 2px 0 rgba(255,255,255,.1), 0 0 10px rgba(147,201,93,.18)'
                           : 'inset 2px 2px 0 rgba(255,255,255,.06), inset -2px -2px 0 rgba(0,0,0,.45)',
-                        cursor: isTool ? 'grab' : 'pointer',
+                        cursor: 'grab',
                       }}
                     >
-                      <img src={getBlockIcon(it.id)} alt={blockName(it.id, BLOCKS[it.id].name)} className="pixelated h-[62%] w-[62%]" draggable={false} />
+                      {isTool ? (
+                        <span className="flex h-[62%] w-[62%] items-center justify-center">{toolIcon(it.id, 24).el}</span>
+                      ) : (
+                        <img src={getBlockIcon(it.id)} alt={label} className="pixelated h-[62%] w-[62%]" draggable={false} />
+                      )}
                       <span className="absolute bottom-0 right-0.5 font-display text-[11px] leading-none text-white text-shadow-hard">
                         {it.count}
                       </span>
                       <span className="pointer-events-none absolute inset-x-0 -bottom-5 hidden truncate px-1 text-center font-display text-[9px] text-torch group-hover:block">
-                        {blockName(it.id, BLOCKS[it.id].name)}
+                        {label}
                       </span>
                     </button>
                   );
@@ -287,28 +313,56 @@ export default function Inventory({
                 const it = hud.equipped[slot];
                 const rar = it ? RARITY[it.rarity] : null;
                 return (
-                  <button
+                  <div
                     key={slot}
-                    onClick={() => it && onUnequip(slot)}
-                    className="notch relative px-1.5 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
-                    style={{
-                      background: it ? `linear-gradient(180deg, ${rar!.color}22, rgba(10,14,12,.9))` : 'rgba(255,255,255,.02)',
-                      border: `2px solid ${it ? rar!.color : '#1d2823'}`,
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
                     }}
-                    title={it ? t('unequip') : t('emptySlot')}
+                    onDrop={(e) => {
+                      const data = e.dataTransfer.getData('text/plain');
+                      if (!data.startsWith('gear:')) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const uid = data.slice(5);
+                      // only the matching slot accepts the piece
+                      const bag = hud.bagItems.find((b) => b.uid === uid);
+                      if (bag && bag.slot === slot) onEquip(uid);
+                    }}
+                    className="notch relative transition-transform duration-100"
                   >
-                    <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
-                    <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? rar!.color : '#3f4c44' }}>
-                      {it ? MATERIALS[it.material].label : '—'}
-                    </div>
-                    {it && it.affixes.length > 0 && (
-                      <div className="mt-0.5 flex gap-0.5">
-                        {it.affixes.map((a) => (
-                          <span key={a.id} className="h-1.5 w-1.5" style={{ background: AFFIXES[a.id].color }} />
-                        ))}
+                    <button
+                      onClick={() => it && onUnequip(slot)}
+                      className="notch relative w-full px-1.5 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
+                      style={{
+                        background: it ? `linear-gradient(180deg, ${rar!.color}22, rgba(10,14,12,.9))` : 'rgba(255,255,255,.02)',
+                        border: `2px solid ${it ? rar!.color : '#1d2823'}`,
+                      }}
+                      title={it ? t('unequip') : t('emptySlot')}
+                    >
+                      <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
+                      <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? rar!.color : '#3f4c44' }}>
+                        {it ? MATERIALS[it.material].label : '—'}
                       </div>
+                      {it && it.affixes.length > 0 && (
+                        <div className="mt-0.5 flex gap-0.5">
+                          {it.affixes.map((a) => (
+                            <span key={a.id} className="h-1.5 w-1.5" style={{ background: AFFIXES[a.id].color }} />
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                    {it && (
+                      <button
+                        onClick={() => onUnequip(slot)}
+                        className="btn-mc notch absolute -right-1 -top-1 z-10 px-1 py-0.5 font-display text-[8px] leading-none"
+                        style={{ background: 'linear-gradient(180deg,#3d1f1c,#241210)', border: '1px solid #e2564a55', color: '#f2b3ae' }}
+                        title={t('unequip')}
+                      >
+                        {t('unequip')}
+                      </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -336,24 +390,22 @@ export default function Inventory({
               </div>
             )}
 
-            {/* ---------- hotbar management: 10 quick slots + stash / restore ---------- */}
+            {/* ---------- hotbar management: 10 quick slots (sparse, drag & drop) ---------- */}
             <div className="mt-3 border-t border-white/10 pt-2.5">
               <div className="mb-1.5 flex items-baseline justify-between">
                 <span className="font-display text-xs tracking-widest text-torch">{t('hotbarTitle')}</span>
-                <span className="font-display text-[10px] text-white/40">{hud.hotbar.length}/10</span>
+                <span className="font-display text-[10px] text-white/40">
+                  {hud.hotbar.filter(Boolean).length}/10
+                </span>
               </div>
 
-              {/* 10 visual hotbar slots (drag & drop targets) */}
-              <div className="mb-2 grid grid-cols-5 gap-1 sm:grid-cols-10">
+              {/* 10 fixed hotbar slots — empty holes allowed, anything can be moved or removed */}
+              <div className="mb-1.5 grid grid-cols-5 gap-1 sm:grid-cols-10">
                 {Array.from({ length: 10 }, (_, i) => hud.hotbar[i] ?? null).map((slot, i) => {
                   const active = i === hud.selected;
                   return (
-                    <button
+                    <div
                       key={i}
-                      onClick={() => {
-                        if (onSelectSlot) onSelectSlot(i);
-                        if (slot && slot.id >= 200 && slot.id !== HAND) onStashTool(slot.id);
-                      }}
                       onDragOver={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -364,85 +416,97 @@ export default function Inventory({
                         e.stopPropagation();
                         const data = e.dataTransfer.getData('text/plain');
                         if (!data) return;
-                        if (data.startsWith('tool:')) {
-                          const id = Number(data.slice(5));
-                          if (Number.isFinite(id)) onAssign(id, i);
+                        const parts = data.split(':');
+                        if (parts[0] === 'hotbar') {
+                          const id = Number(parts[1]);
+                          const from = Number(parts[2]);
+                          if (Number.isFinite(id) && Number.isFinite(from)) onPlaceItem(id, i, from);
+                        } else if (parts[0] === 'item') {
+                          const id = Number(parts[1]);
+                          if (Number.isFinite(id)) onPlaceItem(id, i);
                         }
                       }}
-                      className={`notch relative flex aspect-square items-center justify-center p-0.5 transition-transform hover:-translate-y-0.5 ${
+                      className={`notch group/cell relative flex aspect-square items-center justify-center p-0.5 transition-transform hover:-translate-y-0.5 ${
                         active ? 'ring-2 ring-torch' : ''
                       }`}
                       style={{
                         background: slot ? (active ? '#2e4236' : '#1b241f') : '#101713',
                         border: `2px solid ${active ? '#f4b942' : '#06090a'}`,
                       }}
-                      title={
-                        slot
-                          ? slot.id === HAND
-                            ? t('emptyHand')
-                            : slot.id >= 200
-                              ? `${toolLabel(slot.id)} — ${t('clickStash')}`
-                              : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count}`
-                          : `${i === 9 ? 0 : i + 1}`
-                      }
                     >
-                      {slot ? (
-                        slot.id === HAND ? (
-                          <span className="text-sm sm:text-base">✊</span>
-                        ) : isPickTool(slot.id) ? (
-                          <PickIcon size={16} style={{ color: PICKAXE_TIERS[slot.id - PICK_TOOLS[0]]?.color ?? '#b98a4d' }} />
-                        ) : isSwordTool(slot.id) ? (
-                          <SwordIcon size={16} style={{ color: SWORDS[slot.id - SWORD_TOOLS[0]]?.color ?? '#d9dde2' }} />
-                        ) : isAxeTool(slot.id) ? (
-                          <AxeIcon size={16} style={{ color: slot.id === AXE_TOOLS[0] ? '#b98a4d' : '#9aa0a6' }} />
-                        ) : slot.id === 202 ? (
-                          <span className="text-sm text-torch">⨙</span>
-                        ) : slot.id === 204 ? (
-                          <ShovelIcon size={16} style={{ color: '#b9bec4' }} />
-                        ) : slot.id === 205 ? (
-                          <BowIcon size={16} style={{ color: '#93c95d' }} />
-                        ) : slot.id >= 200 ? (
-                          <PickIcon size={16} style={{ color: PICKAXE_TIERS[isPickTool(slot.id) ? slot.id - PICK_TOOLS[0] : 0].color }} />
+                      <button
+                        onClick={() => {
+                          if (onSelectSlot) onSelectSlot(i); // selecting an empty hole = bare hand
+                        }}
+                        draggable={!!slot}
+                        onDragStart={(e) => {
+                          if (!slot) return;
+                          e.dataTransfer.setData('text/plain', `hotbar:${slot.id}:${i}`);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        className="absolute inset-0 flex items-center justify-center cursor-grab active:cursor-grabbing"
+                        title={
+                          slot
+                            ? slot.id === HAND
+                              ? `${t('emptyHand')} — ${t('dragHint')}`
+                              : slot.id >= 200
+                                ? `${toolLabel(slot.id)} — ${t('dragHint')}`
+                                : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count} — ${t('dragHint')}`
+                            : t('emptySlot')
+                        }
+                      >
+                        {slot ? (
+                          slot.id === HAND ? (
+                            <span className="text-sm sm:text-base">✊</span>
+                          ) : isPickTool(slot.id) ? (
+                            <PickIcon size={16} style={{ color: PICKAXE_TIERS[slot.id - PICK_TOOLS[0]]?.color ?? '#b98a4d' }} />
+                          ) : isSwordTool(slot.id) ? (
+                            <SwordIcon size={16} style={{ color: SWORDS[slot.id - SWORD_TOOLS[0]]?.color ?? '#d9dde2' }} />
+                          ) : isAxeTool(slot.id) ? (
+                            <AxeIcon size={16} style={{ color: slot.id === AXE_TOOLS[0] ? '#b98a4d' : '#9aa0a6' }} />
+                          ) : slot.id === 202 ? (
+                            <span className="text-sm text-torch">⨙</span>
+                          ) : slot.id === 204 ? (
+                            <ShovelIcon size={16} style={{ color: '#b9bec4' }} />
+                          ) : slot.id === 205 ? (
+                            <BowIcon size={16} style={{ color: '#93c95d' }} />
+                          ) : slot.id >= 200 ? (
+                            <PickIcon size={16} style={{ color: PICKAXE_TIERS[isPickTool(slot.id) ? slot.id - PICK_TOOLS[0] : 0].color }} />
+                          ) : (
+                            <img src={getBlockIcon(slot.id)} alt="" className="pixelated h-5 w-5 sm:h-6 sm:w-6" draggable={false} />
+                          )
                         ) : (
-                          <img src={getBlockIcon(slot.id)} alt="" className="pixelated h-5 w-5 sm:h-6 sm:w-6" draggable={false} />
-                        )
-                      ) : (
-                        <span className="font-display text-[8px] text-white/20">{i === 9 ? 0 : i + 1}</span>
+                          <span className="font-display text-[8px] text-white/20">{i === 9 ? 0 : i + 1}</span>
+                        )}
+                        {slot && slot.id < 200 && slot.id !== HAND && (
+                          <span className="absolute bottom-0 right-0.5 font-display text-[8px] leading-none text-white text-shadow-hard">
+                            {slot.count}
+                          </span>
+                        )}
+                      </button>
+                      {slot && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveSlot(i);
+                          }}
+                          className={`absolute -right-1 -top-1 z-10 h-4 w-4 items-center justify-center rounded-full text-[9px] leading-none text-white shadow ${
+                            isTouch ? 'flex' : 'hidden group-hover/cell:flex'
+                          }`}
+                          style={{ background: '#e2564a', border: '1px solid #7a2620' }}
+                          title={t('removeSlot')}
+                        >
+                          ×
+                        </button>
                       )}
-                      {slot && slot.id < 200 && slot.id !== HAND && (
-                        <span className="absolute bottom-0 right-0.5 font-display text-[8px] leading-none text-white text-shadow-hard">
-                          {slot.count}
-                        </span>
-                      )}
-                      <span className="absolute left-0.5 top-0 font-display text-[7px] leading-none text-white/30">
+                      <span className="pointer-events-none absolute left-0.5 top-0 font-display text-[7px] leading-none text-white/30">
                         {i === 9 ? 0 : i + 1}
                       </span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
-
-              {/* stashed tools list */}
-              {hud.stashedTools.length > 0 && (
-                <div className="flex flex-col gap-1">
-                  {hud.stashedTools.map((id) => {
-                    const { el, label } = toolIcon(id, 16);
-                    return (
-                      <button
-                        key={id}
-                        onClick={() => onRestoreTool(id)}
-                        className="notch flex items-center justify-between px-2 py-1 opacity-75 transition-transform duration-100 hover:-translate-y-0.5 hover:opacity-100"
-                        style={{ background: 'linear-gradient(180deg,#141c17,#0c1210)', border: '2px dashed #33453a' }}
-                      >
-                        <span className="flex items-center gap-1.5 font-display text-[11px] text-white/60">
-                          {el} {label}
-                        </span>
-                        <span className="font-display text-[10px] text-moss">↑ {t('restore')}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="mb-1 text-[9px] leading-snug tracking-wide text-white/30">{t('hotbarHint')}</div>
             </div>
 
             <div className="mt-2.5 border-t border-white/10 pt-2 text-[10px] leading-relaxed tracking-wide text-white/35">
@@ -520,7 +584,6 @@ function Recipes({
       <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
         {recipes.map((r, i) => {
           const ready = craftable.has(r.key);
-          const lockedPick = r.kind === 'pickaxe' && r.tier !== undefined && r.tier !== hud.tier + 1;
           const justCrafted = hud.lastCraft === r.key;
           const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
           const needsFire = r.kind === 'cook' && !ready && r.inputs.every(([id, n]) => (hud.inventory.find((x) => x.id === id)?.count ?? 0) >= n);
@@ -573,11 +636,6 @@ function Recipes({
                   <span className="truncate font-display text-sm leading-tight sm:text-base" style={{ color: ready ? r.accent : '#c9d3cc' }}>
                     {rName}
                   </span>
-                  {lockedPick && r.kind === 'pickaxe' && (
-                    <span className="shrink-0 bg-pit-600 px-1 font-display text-[9px] tracking-wider text-white/40">
-                      {r.tier! > hud.tier + 1 ? '↓' : '✓'}
-                    </span>
-                  )}
                   {needsFire && (
                     <span className="shrink-0 bg-[#4a2c14] px-1 font-display text-[9px] tracking-wider text-[#ff8a2b]">
                       {t('needCampfire')}
@@ -650,8 +708,8 @@ function TradePanel({
   onSellTool: (id: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0);
-  const tools = hud.hotbar.filter((s) => s.id >= 200);
+  const sellable = hud.inventory.filter((it) => it.count > 0 && it.id < 200);
+  const tools = hud.inventory.filter((it) => it.id >= 200);
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">
       <div>
@@ -723,7 +781,10 @@ function TradePanel({
                 className="notch flex items-center justify-between px-2 py-1 transition-transform duration-100 hover:-translate-y-0.5 hover:brightness-125"
                 style={{ background: 'linear-gradient(180deg,#243129,#121a16)', border: '2px solid #06090a' }}
               >
-                <span className="font-display text-[11px] text-white/75">{toolLabel(s.id)}</span>
+                <span className="font-display text-[11px] text-white/75">
+                  {toolLabel(s.id)}
+                  {s.count > 1 ? ` ×${s.count}` : ''}
+                </span>
                 <span className="font-display text-[10px] text-torch">
                   +{toolSellPrice(s.id)} {t('pts')}
                 </span>

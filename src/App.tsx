@@ -24,7 +24,7 @@ const INITIAL_HUD: HudState = {
   bestCombo: 0,
   deepest: 0,
   oresFound: 0,
-  hotbar: [],
+  hotbar: new Array(10).fill(null),
   selected: 0,
   target: null,
   banner: null,
@@ -53,7 +53,6 @@ const INITIAL_HUD: HudState = {
   killedBy: null,
   offers: [],
   sellPrices: {},
-  stashedTools: [],
   invTab: 'tools',
   tradeNear: false,
   anvilNear: false,
@@ -215,8 +214,12 @@ export default function App() {
   const reinforceItem = useCallback((uid: string) => engineRef.current?.reinforceItem(uid), []);
   const sellTool = useCallback((id: number) => engineRef.current?.sellTool(id), []);
   const sellGear = useCallback((uid: string) => engineRef.current?.sellGear(uid), []);
-  const stashTool = useCallback((id: number) => engineRef.current?.removeFromHotbar(id), []);
-  const restoreTool = useCallback((id: number) => engineRef.current?.restoreTool(id), []);
+  // sparse hotbar: place any owned item into a slot (swap / evict), or remove it back
+  const placeItem = useCallback(
+    (id: number, slot?: number, fromSlot?: number) => engineRef.current?.placeInSlot(id, slot, fromSlot),
+    [],
+  );
+  const removeSlot = useCallback((slot: number) => engineRef.current?.removeFromSlot(slot), []);
   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
 
   const toggleFreeLook = useCallback(() => {
@@ -296,7 +299,6 @@ export default function App() {
   const selectSlot = useCallback((i: number) => engineRef.current?.selectSlot(i), []);
   const captureMouse = useCallback(() => engineRef.current?.requestLock(), []);
   const craft = useCallback((key: string) => engineRef.current?.craft(key), []);
-  const assignItem = useCallback((id: number) => engineRef.current?.assignToHotbar(id), []);
   const openInventory = useCallback(() => engineRef.current?.openInventory(), []);
   const closeInventory = useCallback(() => engineRef.current?.closeInventory(), []);
 
@@ -359,7 +361,6 @@ export default function App() {
           <Inventory
             hud={hud}
             onCraft={craft}
-            onAssign={assignItem}
             onSelectSlot={selectSlot}
             onClose={closeInventory}
             onEquip={equip}
@@ -370,9 +371,10 @@ export default function App() {
             onReinforce={reinforceItem}
             onSellTool={sellTool}
             onSellGear={sellGear}
-            onStashTool={stashTool}
-            onRestoreTool={restoreTool}
+            onPlaceItem={placeItem}
+            onRemoveSlot={removeSlot}
             onSalvageGear={salvageGear}
+            isTouch={isTouch}
           />
         ) : (
           <PauseScreen
