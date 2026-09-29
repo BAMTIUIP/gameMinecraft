@@ -37,7 +37,7 @@ import {
   BIRCH_LOG,
   BIRCH_LEAVES,
   APPLE_LEAVES,
-  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, isFlower,
+  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, isFlower,
 } from './blocks';
 import { fbm2, fbm3, mulberry32, noise3, seedNoise } from './noise';
 
