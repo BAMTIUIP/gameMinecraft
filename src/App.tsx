@@ -305,7 +305,7 @@ export default function App() {
   const playing = hud.phase === 'playing' || hud.phase === 'paused';
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-pit-950 font-body text-white">
+    <div className="responsive-ui relative h-full w-full overflow-hidden bg-pit-950 font-body text-white">
       {/* three.js canvas + engine fx layer mount here */}
       <div ref={hostRef} className="absolute inset-0" />
 

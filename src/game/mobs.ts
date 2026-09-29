@@ -29,7 +29,11 @@ export type MobId =
   | 'camel'
   | 'seal'
   | 'monkey'
-  | 'jellyfish';
+  | 'jellyfish'
+  | 'deer'
+  | 'roe_deer'
+  | 'moose'
+  | 'hedgehog';
 
 export type MobDef = {
   id: MobId;
@@ -74,6 +78,10 @@ export const MOBS: Record<MobId, MobDef> = {
   camel: { id: 'camel', nameKey: 'mob_camel', hostile: false, hp: 24, speed: 1.3, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 34, level: 0, body: '#c9a26a', accent: '#e3bb82', legs: '#9c764b' },
   seal: { id: 'seal', nameKey: 'mob_seal', hostile: false, hp: 16, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.9, score: 28, level: 0, body: '#83949a', accent: '#b9c8c9', legs: '#596972', aquatic: true },
   monkey: { id: 'monkey', nameKey: 'mob_monkey', hostile: false, hp: 10, speed: 2.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 23, level: 0, body: '#8b6444', accent: '#d3a97c', legs: '#674729' },
+  deer: { id: 'deer', nameKey: 'mob_deer', hostile: false, hp: 14, speed: 2.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 30, level: 0, body: '#a8794f', accent: '#d7bd91', legs: '#594332' },
+  roe_deer: { id: 'roe_deer', nameKey: 'mob_roe_deer', hostile: false, hp: 10, speed: 3.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.8, score: 24, level: 0, body: '#b78355', accent: '#e2c897', legs: '#594332' },
+  moose: { id: 'moose', nameKey: 'mob_moose', hostile: false, hp: 26, speed: 2.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.6, score: 46, level: 0, body: '#70513d', accent: '#ad8968', legs: '#49392e' },
+  hedgehog: { id: 'hedgehog', nameKey: 'mob_hedgehog', hostile: false, hp: 7, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.48, score: 18, level: 0, body: '#8d6747', accent: '#e4c9a3', legs: '#574234' },
   jellyfish: { id: 'jellyfish', nameKey: 'mob_jellyfish', hostile: false, hp: 4, speed: 1.1, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.7, score: 13, level: 0, body: '#d38cdd', accent: '#f5b9f0', legs: '#b674cb', aquatic: true },
   fish: { id: 'fish', nameKey: 'mob_fish', hostile: false, hp: 4, speed: 1.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.5, score: 14, level: 0, body: '#5e9cd8', accent: '#f4c842', legs: '#3f6ea8', aquatic: true },
   crab: { id: 'crab', nameKey: 'mob_crab', hostile: false, hp: 8, speed: 1.9, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.62, score: 22, level: 0, body: '#d85a3a', accent: '#f2836a', legs: '#a83c22' },
@@ -153,6 +161,8 @@ export type Mob = {
   feedFoodId: number;
   /** animated lower jaw on grazing species */
   feedJaw: THREE.Object3D | null;
+  /** torso pivot animated with the feeding reach */
+  feedBody: THREE.Object3D | null;
 };
 
 const GRAV = 26;
@@ -606,6 +616,39 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     return { group: g, head, legs, mats };
   }
 
+  if (['deer', 'roe_deer', 'moose', 'hedgehog'].includes(def.id)) {
+    const hedgehog = def.id === 'hedgehog';
+    const moose = def.id === 'moose';
+    const body = box(hedgehog ? 0.42 : moose ? 0.78 : 0.58, hedgehog ? 0.35 : moose ? 0.78 : 0.62, hedgehog ? 0.58 : moose ? 1.35 : 1.02, def.body, mats);
+    body.position.y = hedgehog ? 0.4 : moose ? 1.0 : 0.82; g.add(body);
+    const neck = box(hedgehog ? 0.26 : moose ? 0.38 : 0.3, hedgehog ? 0.22 : moose ? 0.75 : 0.62, hedgehog ? 0.25 : 0.34, def.body, mats);
+    neck.position.set(0, hedgehog ? 0.4 : moose ? 1.2 : 1.08, -0.48); g.add(neck);
+    const hd = box(hedgehog ? 0.28 : 0.38, hedgehog ? 0.22 : 0.34, 0.38, def.accent, mats);
+    hd.position.set(0, hedgehog ? 0.44 : moose ? 1.48 : 1.34, -0.68); g.add(hd); head = hd;
+    if (hedgehog) {
+      for (let i=0;i<8;i++) for (const side of [-1,1]) {
+        const spine=box(0.045,0.18,0.045,'#554436',mats);
+        spine.position.set(side*(0.08+(i%3)*0.07),0.58,0.24-i*0.07); spine.rotation.z=side*0.28; g.add(spine);
+      }
+    } else {
+      // Branching antlers; moose have broad palmate-like beams, deer narrow forks.
+      const baseY=moose?1.68:1.48, spread=moose?0.52:0.31;
+      for(const side of [-1,1]) {
+        const beam=box(moose?0.13:0.075,moose?0.65:0.48,0.09,'#d5c5a1',mats);
+        beam.position.set(side*spread,baseY,-0.62); beam.rotation.z=side*(moose?0.38:0.2); g.add(beam);
+        for(let fork=0;fork<(moose?3:2);fork++) {
+          const tine=box(0.065,moose?0.3:0.24,0.07,'#d5c5a1',mats);
+          tine.position.set(side*(spread+(fork-1)*(moose?0.16:0.1)),baseY+0.16,-0.62); tine.rotation.z=side*(fork===0?-0.5:0.5); g.add(tine);
+        }
+      }
+    }
+    for(const side of [-1,1]) for(const z of [-0.32,0.34]) {
+      const leg=box(0.12,hedgehog?0.2:moose?0.72:0.58,0.13,def.legs,mats);
+      leg.position.set(side*(hedgehog?0.14:0.2),hedgehog?0.12:moose?0.36:0.29,z); g.add(leg); legs.push(leg);
+    }
+    return { group:g, head, legs, mats };
+  }
+
   const quad = def.id === 'pig' || def.id === 'sheep' || def.id === 'cow' || def.id === 'calf';
   if (quad) {
     const isCow = def.id === 'cow';
@@ -617,12 +660,14 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     const bodyY = isCow ? 0.84 : isCalf ? 0.58 : 0.76;
 
     const body = box(bodyW, bodyH, bodyD, def.body, mats);
+    body.userData.grazeBody = true;
     body.position.y = bodyY;
     g.add(body);
 
     if (def.id === 'sheep') {
       const wool = box(0.8, 0.72, 1.18, def.body, mats);
       wool.position.y = 0.78;
+      wool.userData.grazeBody = true;
       g.add(wool);
     }
 
@@ -970,6 +1015,9 @@ export class MobSystem {
     } else if (this.mobs.length >= this.maxMobs) return null;
     const def = MOBS[id];
     let { group, head, legs, mats } = buildBody(def);
+    if (['deer','roe_deer','moose'].includes(id) && this.world.isWinter(Math.floor(x), Math.floor(z))) {
+      for (const mat of mats) mat.color.lerp(new THREE.Color('#d9d4c9'), 0.16);
+    }
     if (id === 'jellyfish') for (const mat of mats) { mat.transparent = true; mat.opacity = 0.78; mat.depthWrite = false; }
     if (id === 'fish') {
       const vi = fishVariant === undefined ? Math.floor(Math.random() * (FISH_VARIANTS.length - 1)) :
@@ -1115,6 +1163,8 @@ export class MobSystem {
       }
     }
     let feedJaw: THREE.Object3D | null = null;
+    let feedBody: THREE.Object3D | null = null;
+    group.traverse((part) => { if (part.userData.grazeBody) feedBody = part; });
     if (head && (id === 'cow' || id === 'calf' || id === 'sheep' || id === 'pig' || id === 'camel')) {
       const rig = makeFeedingHead(group, head, mats, id);
       head = rig.pivot;
@@ -1172,6 +1222,7 @@ export class MobSystem {
       feedClock: 0,
       feedFoodId: 0,
       feedJaw,
+      feedBody,
     };
     // wire up per-species extras prepared above
     mob.retractParts = ((group.userData as { retract?: THREE.Object3D[] }).retract ?? []) as THREE.Object3D[];
@@ -1651,6 +1702,7 @@ export class MobSystem {
             const food = this.world.get(m.taskX, m.taskY, m.taskZ);
             if (!m.onGround || food !== m.feedFoodId) {
               m.task = 0; // the player or another animal took the food
+              m.feedClock = 0;
             } else if (m.taskT <= 0) {
               if (m.id === 'camel' ? isFlower(food) || food === CACTUS || food === CACTUS_PALE :
                 isFlower(food) || food === TALL_GRASS || food === FERN) {
@@ -2004,8 +2056,16 @@ export class MobSystem {
         const sipping = m.task === 11 && Math.hypot(m.tx - m.x, m.tz - m.z) < 1.4;
         const cactus = m.id === 'camel' && (m.feedFoodId === CACTUS || m.feedFoodId === CACTUS_PALE);
         const bend = m.id === 'camel' ? (cactus ? 0.58 : 0.98) : 0.75;
-        const target = chewing ? -bend * dip : sipping ? -0.35 : Math.sin(m.walkPhase * 0.7) * 0.06;
+        // Small grazers reach down; tall cattle lift the head slightly, while
+        // pigs/sheep make a modest forward reach. The torso follows the dip so
+        // the movement reads as a neck-and-body stretch rather than a nod.
+        const reach = m.id === 'camel' ? -bend : m.def.scale < 0.85 ? -0.82 : m.def.scale > 1.1 ? 0.34 : -0.38;
+        const target = chewing ? reach * dip : sipping ? -0.35 : Math.sin(m.walkPhase * 0.7) * 0.06;
         m.head.rotation.x += (target - m.head.rotation.x) * Math.min(1, mdt * 12);
+        if (m.feedBody) {
+          const bodyTarget = chewing ? (m.def.scale < 0.85 ? -0.12 : 0.08) * dip : 0;
+          m.feedBody.rotation.x += (bodyTarget - m.feedBody.rotation.x) * Math.min(1, mdt * 7);
+        }
         if (m.feedJaw) {
           m.feedJaw.position.y = (m.feedJaw.userData.restY as number) -
             (chewing ? Math.max(0, Math.sin(cycle * 2)) * 0.065 : 0);

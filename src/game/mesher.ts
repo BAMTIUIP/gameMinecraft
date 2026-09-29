@@ -186,6 +186,17 @@ function addFern(P: number[], C: number[], I: number[], x: number, y: number, z:
   addBox(P, C, I, cx, y + h * 0.5, cz - 0.14, 0.12, 0.05, 0.22, ...COL.fernB);
 }
 
+function addMushroom(P: number[], C: number[], I: number[], x: number, y: number, z: number, seed: number) {
+  const cx = x + 0.5, cz = z + 0.5;
+  const cap = seed % 3 === 0 ? srgb(0xd57a39) : srgb(0xb74636);
+  const stem = srgb(0xe9ddc5);
+  addBox(P, C, I, cx, y + 0.2, cz, 0.1, 0.4, 0.1, ...stem);
+  addBox(P, C, I, cx, y + 0.4, cz, 0.42, 0.14, 0.4, ...cap);
+  addBox(P, C, I, cx, y + 0.47, cz, 0.28, 0.08, 0.28, ...cap);
+  addBox(P, C, I, cx - 0.1, y + 0.45, cz - 0.04, 0.07, 0.035, 0.07, ...stem);
+  addBox(P, C, I, cx + 0.08, y + 0.45, cz + 0.07, 0.07, 0.035, 0.07, ...stem);
+}
+
 function addDeadBush(P: number[], C: number[], I: number[], x: number, y: number, z: number, seed: number) {
   const cx = x + 0.5;
   const cz = z + 0.5;
@@ -329,6 +340,10 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         }
         if (id === FERN) {
           addFern(dPositions, dColors, dIndices, x, y, z, x * 31 + z * 17 + y);
+          continue;
+        }
+        if (id === MUSHROOM) {
+          addMushroom(dPositions, dColors, dIndices, x, y, z, x * 31 + z * 17 + y);
           continue;
         }
         if (id === DEAD_BUSH) {

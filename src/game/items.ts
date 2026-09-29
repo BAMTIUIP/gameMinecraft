@@ -1,5 +1,5 @@
 import { mulberry32 } from './noise';
-import type { TKey } from './i18n';
+import { matName, rarName, type TKey } from './i18n';
 import { yaServerTime } from './yandex';
 
 export type Slot = 'head' | 'chest' | 'legs' | 'feet' | 'hands' | 'offhand';
@@ -201,5 +201,5 @@ export function damageReduction(armor: number) {
 }
 
 export function itemLabel(it: Item): string {
-  return `${MATERIALS[it.material].label} ${RARITY[it.rarity].name}`;
+  return `${matName(MATERIALS[it.material].label)} ${rarName(it.rarity, RARITY[it.rarity].name)}`;
 }

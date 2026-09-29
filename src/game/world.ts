@@ -367,6 +367,25 @@ export class World {
         }
       }
     }
+
+    // Generation may place sea water after cave lava (or the neighbour chunk
+    // may already contain water). Resolve every newly generated contact now,
+    // before the chunk is ever shown; no waiting for the player's fluid queue.
+    const contacts: Array<[number, number, number]> = [];
+    for (let lz = 0; lz < CHUNK; lz++) for (let lx = 0; lx < CHUNK; lx++) {
+      const x = cx * CHUNK + lx, z = cz * CHUNK + lz;
+      for (let y = 1; y < WY; y++) {
+        const id = this.get(x,y,z);
+        const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+        if (id === LAVA && dirs.some(([dx,dy,dz]) => this.get(x+dx,y+dy,z+dz) === WATER))
+          contacts.push([x,y,z]);
+        // Water may have just been generated on this side of a chunk border,
+        // while its contacting lava belonged to an already-generated chunk.
+        if (id === WATER) for (const [dx,dy,dz] of dirs)
+          if (this.get(x+dx,y+dy,z+dz) === LAVA) contacts.push([x+dx,y+dy,z+dz]);
+      }
+    }
+    for (const [x,y,z] of contacts) this.set(x,y,z, VOLCANIC_STONE);
   }
 
   /**
@@ -431,6 +450,19 @@ export class World {
         const pz = gz + Math.floor(rand() * 5) - 2;
         const h = this.getHeight(px, pz);
         if (this.get(px, h, pz) === GRASS && this.get(px, h + 1, pz) === AIR) this.set(px, h + 1, pz, plantId);
+      }
+    }
+
+    // ---- small mushroom clusters in warm, leafy forest floors ----
+    if (['plains', 'jungle'].includes(this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8))) {
+      for (let i = 0; i < 5; i++) {
+        if (rand() > 0.62) continue;
+        const mx = cx * CHUNK + 1 + Math.floor(rand() * 14);
+        const mz = cz * CHUNK + 1 + Math.floor(rand() * 14);
+        const mh = this.getHeight(mx, mz);
+        if (this.get(mx, mh, mz) === GRASS && this.get(mx, mh + 1, mz) === AIR &&
+            this.get(mx, mh + 2, mz) === AIR && !this.isWinter(mx, mz, mh))
+          this.set(mx, mh + 1, mz, MUSHROOM);
       }
     }
 

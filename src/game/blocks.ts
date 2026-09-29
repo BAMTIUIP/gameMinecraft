@@ -84,11 +84,12 @@ export const DRY_BLOOM = 76;
 export const DESERT_THISTLE = 77;
 export const BIRD_NEST = 78;
 export const CHICKEN_NEST = 79;
+export const MUSHROOM = 80;
 
 export const isFluid = (id: number) => id === WATER || id === LAVA;
 export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === DRY_BLOOM || id === DESERT_THISTLE;
-export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE;
-export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST;
+export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM;
+export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
   id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES || id === COCONUT_LEAVES || id === BANANA_LEAVES;
@@ -238,6 +239,7 @@ export const T = {
   desertThistle: 85,
   birdNest: 86,
   chickenNest: 87,
+  mushroom: 88,
 };
 
 export type BlockDef = {
@@ -489,6 +491,7 @@ export const BLOCKS: BlockDef[] = [
   d({ id: BIRCH_LEAVES, name: 'Birch Leaves', side: T.birchLeaves, hardness: 0.2, score: 3, drop: LEAVES, tint: [120, 185, 65] }),
   d({ id: APPLE_LEAVES, name: 'Apple Leaves', side: T.appleLeaves, hardness: 0.25, score: 5, drop: APPLE, tint: [220, 60, 50] }),
   d({ id: APPLE, name: 'Apple', side: T.apple, hardness: 1, score: 8, solid: false, breakable: false, drop: 0, tint: [225, 55, 45] }),
+  d({ id: CRAFTING_TABLE, name: 'Workbench', top: T.craftingTableTop, side: T.craftingTableSide, bottom: T.planks, hardness: 0.8, score: 8, tint: [180, 140, 85] }),
   d({ id: VOLCANIC_STONE, name: 'Volcanic Stone', side: T.volcanicStone, hardness: 1.3, score: 8, tint: [66, 61, 65] }),
   d({ id: PALM_LOG, name: 'Palm Trunk', side: T.palmLogSide, top: T.palmLogTop, bottom: T.palmLogTop, hardness: 0.9, score: 12, drop: LOG, tint: [150, 110, 69] }),
   d({ id: COCONUT_LEAVES, name: 'Coconut Palm Leaves', side: T.coconutLeaves, hardness: 0.22, score: 4, drop: COCONUT, tint: [65, 154, 71] }),
@@ -500,7 +503,7 @@ export const BLOCKS: BlockDef[] = [
   d({ id: DESERT_THISTLE, name: 'Desert Thistle', side: T.desertThistle, hardness: 0.08, score: 3, solid: false, tint: [172, 143, 85] }),
   d({ id: BIRD_NEST, name: 'Twig Nest', side: T.birdNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [102, 68, 42] }),
   d({ id: CHICKEN_NEST, name: 'Straw Nest', side: T.chickenNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [208, 173, 83] }),
-  d({ id: CRAFTING_TABLE, name: 'Workbench', top: T.craftingTableTop, side: T.craftingTableSide, bottom: T.planks, hardness: 0.8, score: 8, tint: [180, 140, 85] }),
+  d({ id: MUSHROOM, name: 'Forest Mushroom', side: T.mushroom, hardness: 0.08, score: 3, solid: false, drop: 0, tint: [202, 95, 68] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
