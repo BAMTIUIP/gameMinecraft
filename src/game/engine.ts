@@ -363,6 +363,7 @@ export class Engine {
   private inWater = false;
   private cactusCooldown = 0;
   private volcanoSmokeTimer = 0;
+  private desertWindTimer = 0;
   private hurtTimer = 0;
   private bob = 0;
   private stepSmooth = 0;
@@ -2453,6 +2454,16 @@ export class Engine {
         }
       }
     }
+    // Soft ground-level dust gusts in hot desert regions.
+    this.desertWindTimer -= dt;
+    if (this.desertWindTimer <= 0) {
+      this.desertWindTimer = 0.09;
+      if (this.world.biomeAt(Math.floor(this.pos.x),Math.floor(this.pos.z)) === 'desert' && Math.random()<0.65 && this.particles.length<MAX_PARTICLES) {
+        this.particles.push({x:this.pos.x+(Math.random()-0.5)*18,y:this.pos.y+Math.random()*1.8,z:this.pos.z+(Math.random()-0.5)*18,
+          vx:1.1+Math.random()*1.1,vy:0.08+Math.random()*0.15,vz:(Math.random()-0.5)*0.35,
+          life:1.1+Math.random()*0.8,max:1.8,size:0.025+Math.random()*0.025,r:0.72,g:0.62,b:0.43});
+      }
+    }
     // clouds drift
     const mat = this.clouds.material as THREE.MeshBasicMaterial;
     (mat.map as THREE.Texture).offset.x = (this.time * 0.0035) % 1;
@@ -4140,6 +4151,15 @@ export class Engine {
       const [x, y, z] = Engine.unpackCell(k);
       const id = this.world.get(x, y, z);
       if (id === AIR || id === BEDROCK || id === LAVA || id === WATER || id === VINE || y <= 1) continue;
+      if (id === SAND) {
+        // Sand is gravity-driven: drop it into the first supported cell below.
+        let fallY=y;
+        while (fallY>1 && this.world.get(x,fallY-1,z)===AIR) {
+          this.world.set(x,fallY,z,AIR); this.world.set(x,fallY-1,z,SAND); fallY--;
+        }
+        if (fallY!==y) { this.markDirtyAt(x,z); this.enqueueSupportCheck(x,fallY,z); this.enqueueSupportCheck(x,y,z); }
+        continue;
+      }
       if (isLeafId(id)) {
         // Palm crowns reach three blocks out; all leaf kinds recognise
         // their matching living trunk (not only old oak logs).
@@ -4700,7 +4720,7 @@ export class Engine {
             const list: MobId[] = biome === 'winter'
               ? ['rabbit', 'deer', 'roe_deer', 'moose', 'hedgehog']
               : biome === 'desert' || biome === 'canyon'
-                ? ['lizard', 'lizard', 'camel', 'camel']
+                ? ['lizard', 'lizard', 'camel', 'tumbleweed', 'tumbleweed', 'tumbleweed']
                 : biome === 'jungle'
                   ? ['monkey', 'monkey', 'monkey', 'lizard', 'pig', 'rabbit', 'hedgehog']
                   : biome === 'volcanic'

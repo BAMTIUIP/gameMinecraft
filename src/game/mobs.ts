@@ -33,7 +33,8 @@ export type MobId =
   | 'deer'
   | 'roe_deer'
   | 'moose'
-  | 'hedgehog';
+  | 'hedgehog'
+  | 'tumbleweed';
 
 export type MobDef = {
   id: MobId;
@@ -81,6 +82,7 @@ export const MOBS: Record<MobId, MobDef> = {
   deer: { id: 'deer', nameKey: 'mob_deer', hostile: false, hp: 14, speed: 2.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 30, level: 0, body: '#a8794f', accent: '#d7bd91', legs: '#594332' },
   roe_deer: { id: 'roe_deer', nameKey: 'mob_roe_deer', hostile: false, hp: 10, speed: 3.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.8, score: 24, level: 0, body: '#b78355', accent: '#e2c897', legs: '#594332' },
   moose: { id: 'moose', nameKey: 'mob_moose', hostile: false, hp: 26, speed: 2.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.6, score: 46, level: 0, body: '#70513d', accent: '#ad8968', legs: '#49392e' },
+  tumbleweed: { id: 'tumbleweed', nameKey: 'mob_tumbleweed', hostile: false, hp: 3, speed: 1.35, damage: 0, cooldown: 1, reach: 0.5, burns: false, scale: 0.62, score: 8, level: 0, body: '#a9844c', accent: '#c5a367', legs: '#765d37' },
   hedgehog: { id: 'hedgehog', nameKey: 'mob_hedgehog', hostile: false, hp: 7, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.48, score: 18, level: 0, body: '#8d6747', accent: '#e4c9a3', legs: '#574234' },
   jellyfish: { id: 'jellyfish', nameKey: 'mob_jellyfish', hostile: false, hp: 4, speed: 1.1, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.7, score: 13, level: 0, body: '#d38cdd', accent: '#f5b9f0', legs: '#b674cb', aquatic: true },
   fish: { id: 'fish', nameKey: 'mob_fish', hostile: false, hp: 4, speed: 1.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.5, score: 14, level: 0, body: '#5e9cd8', accent: '#f4c842', legs: '#3f6ea8', aquatic: true },
@@ -616,6 +618,18 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     return { group: g, head, legs, mats };
   }
 
+  if (def.id === 'tumbleweed') {
+    const roll = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3,0), new THREE.MeshLambertMaterial({color:def.body}));
+    roll.add(core);
+    for(let i=0;i<9;i++) {
+      const twig=box(0.045,0.06,0.72,i%3===0?def.accent:def.legs,mats);
+      twig.rotation.set(i*0.71,i*1.17,i*0.43); roll.add(twig);
+    }
+    roll.position.y=0.34; g.add(roll); g.userData.roller=roll;
+    return {group:g,head:null,legs,mats};
+  }
+
   if (['deer', 'roe_deer', 'moose', 'hedgehog'].includes(def.id)) {
     const hedgehog = def.id === 'hedgehog';
     const moose = def.id === 'moose';
@@ -625,6 +639,18 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     neck.position.set(0, hedgehog ? 0.4 : moose ? 1.2 : 1.08, -0.48); g.add(neck);
     const hd = box(hedgehog ? 0.28 : 0.38, hedgehog ? 0.22 : 0.34, 0.38, def.accent, mats);
     hd.position.set(0, hedgehog ? 0.44 : moose ? 1.48 : 1.34, -0.68); g.add(hd); head = hd;
+    if (!hedgehog) {
+      const muzzle = box(moose ? 0.30 : 0.25, moose ? 0.28 : 0.2, moose ? 0.62 : 0.48, def.accent, mats);
+      muzzle.position.set(0, moose ? 1.34 : 1.24, moose ? -0.98 : -0.96); g.add(muzzle);
+      const nose = box(moose ? 0.22 : 0.18, 0.12, 0.1, '#49372c', mats);
+      nose.position.set(0, moose ? 1.34 : 1.24, moose ? -1.29 : -1.22); g.add(nose);
+      for (const side of [-1,1]) {
+        const eye = box(0.075,0.075,0.045,'#27231f',mats);
+        eye.position.set(side*0.17, moose?1.55:1.39,-0.88); g.add(eye);
+        const ear = box(0.14,0.09,0.22,def.body,mats);
+        ear.position.set(side*(moose?0.3:0.27),moose?1.62:1.48,-0.51); ear.rotation.z=side*0.24; g.add(ear);
+      }
+    }
     if (hedgehog) {
       for (let i=0;i<8;i++) for (const side of [-1,1]) {
         const spine=box(0.045,0.18,0.045,'#554436',mats);
@@ -632,13 +658,13 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
       }
     } else {
       // Branching antlers; moose have broad palmate-like beams, deer narrow forks.
-      const baseY=moose?1.68:1.48, spread=moose?0.52:0.31;
+      const baseY=moose?1.67:1.46, spread=moose?0.48:0.27;
       for(const side of [-1,1]) {
         const beam=box(moose?0.13:0.075,moose?0.65:0.48,0.09,'#d5c5a1',mats);
-        beam.position.set(side*spread,baseY,-0.62); beam.rotation.z=side*(moose?0.38:0.2); g.add(beam);
+        beam.position.set(side*spread,baseY,-0.68); beam.rotation.z=side*(moose?0.38:0.2); g.add(beam);
         for(let fork=0;fork<(moose?3:2);fork++) {
           const tine=box(0.065,moose?0.3:0.24,0.07,'#d5c5a1',mats);
-          tine.position.set(side*(spread+(fork-1)*(moose?0.16:0.1)),baseY+0.16,-0.62); tine.rotation.z=side*(fork===0?-0.5:0.5); g.add(tine);
+          tine.position.set(side*(spread+(fork-1)*(moose?0.16:0.1)),baseY+0.16,-0.68); tine.rotation.z=side*(fork===0?-0.5:0.5); g.add(tine);
         }
       }
     }
@@ -1329,22 +1355,19 @@ export class MobSystem {
         }
       }
       if (!freed) {
-        // fully entombed — nudge sideways to the nearest open column
-        for (const [ox, oz] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ]) {
-          if (!this.collidesBox(m.x + ox, m.y + 1, m.z + oz, half, height)) {
-            m.x += ox;
-            m.z += oz;
-            m.y += 1;
-            freed = true;
-            break;
+        // Search expanding rings around the mob before giving up: terrain edits
+        // or falling sand should relocate animals into the nearest safe space.
+        for (let radius=1;radius<=4 && !freed;radius++) {
+          const candidates: [number,number][]=[];
+          for(let ox=-radius;ox<=radius;ox++) for(let oz=-radius;oz<=radius;oz++)
+            if(Math.max(Math.abs(ox),Math.abs(oz))===radius) candidates.push([ox,oz]);
+          for(const [ox,oz] of candidates) for(let up=0;up<=2;up+=0.5) {
+            if (!this.collidesBox(m.x+ox,m.y+up,m.z+oz,half,height)) {
+              m.x+=ox; m.z+=oz; m.y+=up; freed=true; break;
+            }
           }
         }
-        if (!freed) m.hp = 0; // buried alive
+        if (!freed) { m.vx=0; m.vz=0; m.y += 0.25; } // retry next frame; don't kill a trapped animal
       }
       m.vy = Math.min(m.vy, 0);
     }
@@ -1676,7 +1699,7 @@ export class MobSystem {
 
         // Grazers deliberately visit plants and water, rather than just
         // wandering over them. Keep food and drink cooldowns separate.
-        const grazer = ['cow', 'calf', 'sheep', 'pig', 'camel'].includes(m.id);
+        const grazer = ['cow', 'calf', 'sheep', 'pig', 'camel', 'deer', 'roe_deer', 'moose'].includes(m.id);
         if (grazer) {
           m.forageCd -= mdt;
           m.drinkCd -= mdt;
@@ -1685,7 +1708,7 @@ export class MobSystem {
             m.taskT -= mdt;
             const food = this.world.get(m.taskX, m.taskY, m.taskZ);
             if (m.taskT <= 0 || food === 0) m.task = 0;
-            else if (m.onGround && Math.hypot(m.tx - m.x, m.tz - m.z) < 1.2 &&
+            else if (m.onGround && Math.hypot(m.tx - m.x, m.tz - m.z) < 0.48 &&
                 Math.abs(m.y - m.taskY) < 2) {
               // Do not eat on contact. Settle in place for several visible
               // head dips and bites; the plant remains until the last bite.
@@ -1698,6 +1721,8 @@ export class MobSystem {
           } else if (m.task === 14) {
             m.think = 1;
             m.tx = m.x; m.tz = m.z;
+            const fx = m.taskX + 0.5 - m.x, fz = m.taskZ + 0.5 - m.z;
+            if (Math.hypot(fx, fz) > 0.01) m.yaw = Math.atan2(-fx, -fz);
             const previousFeedClock = m.feedClock;
             m.feedClock += mdt;
             m.taskT -= mdt;
@@ -1751,19 +1776,22 @@ export class MobSystem {
               if (desert ? plant !== CACTUS && plant !== CACTUS_PALE && plant !== DRY_BLOOM && plant !== DESERT_THISTLE :
                 !isFlower(plant) && plant !== TALL_GRASS && plant !== FERN) continue;
               m.taskX = bx; m.taskY = h + 1; m.taskZ = bz;
-              // Stand beside a cactus instead of attempting to walk through it.
-              let ox = 0, oz = 0;
-              if (plant === CACTUS || plant === CACTUS_PALE) {
-                const sides = [[1,0],[-1,0],[0,1],[0,-1]];
-                sides.sort((a,b) =>
-                  Math.hypot(bx + a[0] + 0.5 - m.x, bz + a[1] + 0.5 - m.z) -
-                  Math.hypot(bx + b[0] + 0.5 - m.x, bz + b[1] + 0.5 - m.z));
-                const side = sides.find(([dx,dz]) => this.world.get(bx + dx, h, bz + dz) === SAND &&
-                  this.world.get(bx + dx, h + 1, bz + dz) === 0);
-                if (!side) continue;
-                [ox, oz] = side;
+              // Stop immediately beside the plant, with the muzzle facing it.
+              // This keeps the head within reach without walking into the block.
+              let approach: [number, number] | null = null;
+              const sides: [number, number][] = [[1,0],[-1,0],[0,1],[0,-1]];
+              sides.sort((a,b) =>
+                Math.hypot(bx + b[0] * 0.62 + 0.5 - m.x, bz + b[1] * 0.62 + 0.5 - m.z) -
+                Math.hypot(bx + a[0] * 0.62 + 0.5 - m.x, bz + a[1] * 0.62 + 0.5 - m.z));
+              for (const [dx,dz] of sides) {
+                const tx = bx + 0.5 + dx * 0.62, tz = bz + 0.5 + dz * 0.62;
+                if (this.world.get(bx + dx, h, bz + dz) !== (desert ? SAND : GRASS)) continue;
+                if (this.world.get(bx + dx, h + 1, bz + dz) !== 0) continue;
+                if (this.collidesBox(tx, m.y, tz, this.mobHalf(m), this.mobHeight(m))) continue;
+                approach = [tx,tz]; break;
               }
-              m.tx = bx + 0.5 + ox; m.tz = bz + 0.5 + oz;
+              if (!approach) continue;
+              [m.tx, m.tz] = approach;
               m.task = 10;
               m.taskT = 4 + Math.hypot(m.tx - m.x, m.tz - m.z) / (m.def.speed * 0.5);
               break;
@@ -2031,6 +2059,11 @@ export class MobSystem {
       // --- animation --- (skipped entirely for hidden far mobs)
       m.group.position.set(m.x, m.y, m.z);
       m.group.rotation.y = m.yaw;
+      if (m.id === 'tumbleweed' && m.group.userData.roller) {
+        const roller=m.group.userData.roller as THREE.Group;
+        roller.rotation.x += Math.hypot(m.vx,m.vz)*mdt*1.6;
+        roller.rotation.z += Math.hypot(m.vx,m.vz)*mdt*0.8;
+      }
       if (!m.group.visible) continue;
       const moving = Math.hypot(m.vx, m.vz);
       m.walkPhase += mdt * (m.id === 'bird' ? 11 : 2 + moving * 2.4);
@@ -2059,15 +2092,14 @@ export class MobSystem {
         const dip = chewing ? (1 - Math.cos(cycle)) * 0.5 : 0;
         const sipping = m.task === 11 && Math.hypot(m.tx - m.x, m.tz - m.z) < 1.4;
         const cactus = m.id === 'camel' && (m.feedFoodId === CACTUS || m.feedFoodId === CACTUS_PALE);
-        const bend = m.id === 'camel' ? (cactus ? 0.58 : 0.98) : 0.75;
         // Small grazers reach down; tall cattle lift the head slightly, while
         // pigs/sheep make a modest forward reach. The torso follows the dip so
         // the movement reads as a neck-and-body stretch rather than a nod.
-        const reach = m.id === 'camel' ? -bend : m.def.scale < 0.85 ? -0.82 : m.def.scale > 1.1 ? 0.34 : -0.38;
-        const target = chewing ? reach * dip : sipping ? -0.35 : Math.sin(m.walkPhase * 0.7) * 0.06;
+        const reach = m.id === 'camel' ? (cactus ? -0.72 : -1.15) : ['deer','roe_deer','moose'].includes(m.id) ? -0.78 : m.def.scale < 0.85 ? -0.9 : m.def.scale > 1.1 ? 0.28 : -0.52;
+        const target = chewing ? reach * dip : sipping ? (m.id === 'camel' ? -0.8 : -0.62) : Math.sin(m.walkPhase * 0.7) * 0.06;
         m.head.rotation.x += (target - m.head.rotation.x) * Math.min(1, mdt * 12);
         if (m.feedBody) {
-          const bodyTarget = chewing ? (m.def.scale < 0.85 ? -0.12 : 0.08) * dip : 0;
+          const bodyTarget = chewing ? (m.id === 'camel' ? -0.2 : m.def.scale < 0.85 ? -0.12 : 0.08) * dip : sipping ? -0.08 : 0;
           m.feedBody.rotation.x += (bodyTarget - m.feedBody.rotation.x) * Math.min(1, mdt * 7);
         }
         if (m.feedJaw) {

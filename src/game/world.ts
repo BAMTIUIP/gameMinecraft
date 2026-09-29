@@ -259,7 +259,7 @@ export class World {
     const heat = this.temperatureAt(x, z, SEA + 6);
     const dry = smooth((-humidity - 0.06) * 5) * smooth((heat + 0.04) * 5);
     const ravine = Math.abs(fbm2(x * 0.017 + 31, z * 0.017 - 83, 3));
-    h += dry * (3 + fbm2(x * 0.04, z * 0.04, 2) * 2 - smooth((0.16 - ravine) / 0.12) * 15);
+    h += dry * (1.2 + fbm2(x * 0.04, z * 0.04, 2) * 0.8 - smooth((0.16 - ravine) / 0.12) * 5); // broad, mostly level desert plains
 
     const volcano = this.volcanoAt(x, z);
     if (volcano && volcano.distance < volcano.radius) {
@@ -360,6 +360,11 @@ export class World {
             if (chunk.blocks[cidx(lx, y, lz)] === AIR) chunk.blocks[cidx(lx, y, lz)] = WATER;
           }
           if (winter && chunk.blocks[cidx(lx, SEA, lz)] === WATER) chunk.blocks[cidx(lx, SEA, lz)] = ICE;
+          // Lava reservoirs must never be visible beneath ocean/lake water.
+          // Harden any deep lava in a flooded column before the chunk is shown.
+          for (let y = 1; y <= SEA; y++) {
+            if (chunk.blocks[cidx(lx, y, lz)] === LAVA) chunk.blocks[cidx(lx, y, lz)] = VOLCANIC_STONE;
+          }
         }
         if (rand() < 0.004) {
           const hy = Math.max(1, h - 1);
@@ -424,6 +429,16 @@ export class World {
         if (biome === 'jungle' && rand() < 0.48) this.growPalm(x, h + 1, z, rand);
         else this.growDiverseTree(x, h + 1, z, rand, winter, biome === 'jungle');
       }
+    }
+
+    // ---- rare date palms punctuate otherwise open desert plains ----
+    if (rand() < 0.07) {
+      const x = cx * CHUNK + 3 + Math.floor(rand() * 10);
+      const z = cz * CHUNK + 3 + Math.floor(rand() * 10);
+      const h = this.getHeight(x, z);
+      if (this.biomeAt(x,z,h) === 'desert' && h > SEA && this.get(x,h,z) === SAND &&
+          this.get(x,h+1,z) === AIR && Math.hypot(x-ORIGIN_X,z-ORIGIN_Z) > 48)
+        this.growPalm(x,h+1,z,rand);
     }
 
     // ---- cacti of various sizes and colors on sand ----
@@ -575,10 +590,52 @@ export class World {
     // keep the spawn basin itself clear
     const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
     if (!nearSpawn) {
-      if (roll < 0.055) this.buildCottage(cx, cz, sRand);
+      const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
+      if (biome === 'desert' && roll < 0.12) {
+        if (sRand() < 0.76) this.buildDesertPyramid(cx, cz, sRand);
+        else this.buildSphinx(cx, cz, sRand);
+      } else if (roll < 0.055) this.buildCottage(cx, cz, sRand);
       else if (roll < 0.085) this.buildTower(cx, cz, sRand);
       else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
     }
+  }
+
+  private buildDesertPyramid(cx: number, cz: number, rand: () => number) {
+    const x0 = cx * CHUNK + 8, z0 = cz * CHUNK + 8;
+    const ground = this.getHeight(x0,z0);
+    if (this.biomeAt(x0,z0,ground) !== 'desert' || ground <= SEA) return;
+    const radius = 3 + Math.floor(rand()*3), height = radius + 2;
+    const ruined = rand() < 0.38;
+    for (let layer=0;layer<height;layer++) {
+      const r = Math.max(0,radius-layer);
+      for(let dx=-r;dx<=r;dx++) for(let dz=-r;dz<=r;dz++) {
+        const edge=Math.abs(dx)===r || Math.abs(dz)===r;
+        if (!edge && layer > 1) continue; // hollow, walk-in center
+        if (ruined && rand() < 0.045 + layer*0.012) continue;
+        const block = (layer===0 || (Math.abs(dx)+Math.abs(dz)+layer)%7===0) ? STONE : SAND;
+        this.set(x0+dx,ground+1+layer,z0+dz,block);
+      }
+    }
+    // small dark doorway and a recognizable capstone
+    this.set(x0,ground+1,z0-radius,SAND);
+    this.set(x0,ground+height,z0,STONE);
+  }
+
+  private buildSphinx(cx: number, cz: number, rand: () => number) {
+    const x0=cx*CHUNK+8,z0=cz*CHUNK+8,ground=this.getHeight(x0,z0);
+    if (this.biomeAt(x0,z0,ground)!=='desert' || ground<=SEA) return;
+    const ruined=rand()<0.55;
+    // recumbent stone body, paws extending toward the front (-Z), raised head
+    for(let x=-2;x<=2;x++) for(let z=-3;z<=2;z++) {
+      if(ruined && rand()<0.12) continue;
+      this.set(x0+x,ground+1,z0+z,STONE);
+      if(Math.abs(x)<=1 && z>=-2 && z<=1) this.set(x0+x,ground+2,z0+z,SAND);
+    }
+    for(let y=2;y<=4;y++) for(let x=-1;x<=1;x++)
+      if(!ruined || rand()>0.2) this.set(x0+x,ground+y,z0-2,STONE);
+    // nose and ear-like crown make the silhouette read as a sphinx
+    this.set(x0,ground+3,z0-3,STONE);
+    this.set(x0-1,ground+5,z0-2,SAND); this.set(x0+1,ground+5,z0-2,SAND);
   }
 
   private placeOreColumn(x: number, z: number, kind: number, depth: number) {
