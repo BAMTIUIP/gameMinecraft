@@ -82,7 +82,7 @@ export const MOBS: Record<MobId, MobDef> = {
   deer: { id: 'deer', nameKey: 'mob_deer', hostile: false, hp: 14, speed: 2.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 30, level: 0, body: '#a8794f', accent: '#d7bd91', legs: '#594332' },
   roe_deer: { id: 'roe_deer', nameKey: 'mob_roe_deer', hostile: false, hp: 10, speed: 3.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.8, score: 24, level: 0, body: '#b78355', accent: '#e2c897', legs: '#594332' },
   moose: { id: 'moose', nameKey: 'mob_moose', hostile: false, hp: 26, speed: 2.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.6, score: 46, level: 0, body: '#70513d', accent: '#ad8968', legs: '#49392e' },
-  tumbleweed: { id: 'tumbleweed', nameKey: 'mob_tumbleweed', hostile: false, hp: 3, speed: 1.35, damage: 0, cooldown: 1, reach: 0.5, burns: false, scale: 0.62, score: 8, level: 0, body: '#a9844c', accent: '#c5a367', legs: '#765d37' },
+  tumbleweed: { id: 'tumbleweed', nameKey: 'mob_tumbleweed', hostile: false, hp: 1, speed: 1.35, damage: 0, cooldown: 1, reach: 0.5, burns: false, scale: 0.62, score: 0, level: 0, body: '#7da54b', accent: '#b4ca71', legs: '#647d3d' },
   hedgehog: { id: 'hedgehog', nameKey: 'mob_hedgehog', hostile: false, hp: 7, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.48, score: 18, level: 0, body: '#8d6747', accent: '#e4c9a3', legs: '#574234' },
   jellyfish: { id: 'jellyfish', nameKey: 'mob_jellyfish', hostile: false, hp: 4, speed: 1.1, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.7, score: 13, level: 0, body: '#d38cdd', accent: '#f5b9f0', legs: '#b674cb', aquatic: true },
   fish: { id: 'fish', nameKey: 'mob_fish', hostile: false, hp: 4, speed: 1.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.5, score: 14, level: 0, body: '#5e9cd8', accent: '#f4c842', legs: '#3f6ea8', aquatic: true },
@@ -620,7 +620,8 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
 
   if (def.id === 'tumbleweed') {
     const roll = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3,0), new THREE.MeshLambertMaterial({color:def.body}));
+    const coreMat = new THREE.MeshLambertMaterial({color:def.body, transparent:true, opacity:0.62, depthWrite:false});
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34,1), coreMat);
     roll.add(core);
     for(let i=0;i<9;i++) {
       const twig=box(0.045,0.06,0.72,i%3===0?def.accent:def.legs,mats);

@@ -5076,6 +5076,13 @@ export class Engine {
 
   private mobDied(m: Mob, burned: boolean) {
     if (!m.alive) return;
+    // Tumbleweeds are rolling plants, not animals: one hit breaks them cleanly,
+    // with no meat, kill count, score, or animal-drop logic.
+    if (m.id === 'tumbleweed') {
+      this.burst(m.x,m.y+0.25,m.z,[145,175,88],5,0.65,0.45);
+      this.mobSys.remove(m);
+      return;
+    }
     this.kills++;
     const def = m.def;
     // animals & birds drop meat — cooked straight away if they burned
