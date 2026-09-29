@@ -1404,6 +1404,7 @@ export class MobSystem {
     onBurnDeath: (m: Mob) => void,
     onRanged?: (m: Mob) => void,
     onForage?: (x: number, y: number, z: number) => void,
+    onFeed?: (x: number, y: number, z: number, food: number) => void,
   ) {
     this.tick++;
     // cats scare creepers & spiders — collect their positions once per frame
@@ -1697,9 +1698,12 @@ export class MobSystem {
           } else if (m.task === 14) {
             m.think = 1;
             m.tx = m.x; m.tz = m.z;
+            const previousFeedClock = m.feedClock;
             m.feedClock += mdt;
             m.taskT -= mdt;
             const food = this.world.get(m.taskX, m.taskY, m.taskZ);
+            if (Math.floor(previousFeedClock / 0.78) < Math.floor(m.feedClock / 0.78))
+              onFeed?.(m.x, m.y + 0.5, m.z, food);
             if (!m.onGround || food !== m.feedFoodId) {
               m.task = 0; // the player or another animal took the food
               m.feedClock = 0;

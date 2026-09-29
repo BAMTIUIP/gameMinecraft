@@ -3798,7 +3798,7 @@ export class Engine {
           m.think = 2;
           m.taskT -= 0.55;
           const near = Math.hypot(m.x - m.taskX, m.z - m.taskZ) < 1.4;
-          if (near && m.group.visible) this.burst(m.taskX, m.taskY + 0.7, m.taskZ, [255, 220, 120], 3, 1);
+          if (near && m.group.visible) this.burst(m.taskX, m.taskY + 0.7, m.taskZ, [255, 220, 120], 3, 1, 0.25);
           const flowerGone = !isFlower(this.world.get(Math.floor(m.taskX), m.taskY, Math.floor(m.taskZ)));
           if (m.taskT <= 0 || flowerGone) {
             // time's up → fly to the hive with whatever pollen was gathered
@@ -4780,6 +4780,11 @@ export class Engine {
       (m) => this.mobDied(m, true),
       (m) => this.mobShoot(m),
       (x, y, z) => { this.markDirtyAt(x, z); this.enqueueSupportCheck(x, y, z); },
+      (x, y, z, food) => {
+        const tint = BLOCKS[food]?.tint ?? [220, 180, 100];
+        const particles = tint[0] > tint[1] * 1.25 && tint[0] > tint[2] * 1.25 ? [245, 190, 80] : tint;
+        this.burst(x, y, z, particles, 2, 0.35, 0.25);
+      },
     );
   }
 
@@ -5570,7 +5575,7 @@ export class Engine {
   }
 
   // ================= PARTICLES =================
-  burst(x: number, y: number, z: number, rgb: [number, number, number] | number[], count: number, power = 3) {
+  burst(x: number, y: number, z: number, rgb: [number, number, number] | number[], count: number, power = 3, sizeScale = 1) {
     for (let i = 0; i < count; i++) {
       if (this.particles.length >= MAX_PARTICLES) break;
       const a = Math.random() * Math.PI * 2;
@@ -5586,7 +5591,7 @@ export class Engine {
         vz: Math.sin(a) * Math.cos(b) * sp,
         life: 0.5 + Math.random() * 0.75,
         max: 1.25,
-        size: 0.07 + Math.random() * 0.11,
+        size: (0.07 + Math.random() * 0.11) * sizeScale,
         r: Math.max(0, Math.min(1, (rgb[0] + jitter()) / 255)),
         g: Math.max(0, Math.min(1, (rgb[1] + jitter()) / 255)),
         b: Math.max(0, Math.min(1, (rgb[2] + jitter()) / 255)),
