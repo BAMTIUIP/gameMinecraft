@@ -323,8 +323,8 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
 
       {/* ---------------- HOTBAR ---------------- */}
       <div
-        className={`absolute left-1/2 -translate-x-1/2 origin-bottom scale-[0.86] sm:scale-100 ${
-          isTouch ? 'bottom-44 sm:bottom-8' : 'bottom-4 sm:bottom-6'
+        className={`hud-hotbar absolute left-1/2 -translate-x-1/2 origin-bottom ${
+          isTouch ? 'bottom-44' : 'bottom-4 sm:bottom-6'
         }`}
       >
         <div className="pointer-events-auto flex gap-0.5 p-1 sm:gap-1.5 sm:p-1.5">

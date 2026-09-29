@@ -329,14 +329,76 @@ input[type='text'] {
   right: max(1rem, env(safe-area-inset-right));
   bottom: max(1.25rem, env(safe-area-inset-bottom));
 }
-@media (max-height: 460px) and (pointer: coarse) {
-  /* landscape phone: compress the control clusters so the view stays clear */
+/* ---------- responsive browser UI: phones, tablets and desktop ---------- */
+:root {
+  font-size: clamp(16px, calc(15px + 0.18vw), 19px);
+}
+
+/* Keep tiny desktop HUD labels readable on high-density, narrow screens. */
+@media (max-width: 700px) {
+  .responsive-ui [class~="text-[9px]"] { font-size: 11px !important; }
+  .responsive-ui [class~="text-[10px]"] { font-size: 12px !important; }
+  .responsive-ui [class~="text-[11px]"] { font-size: 12px !important; }
+  .responsive-ui [class~="text-[12px]"] { font-size: 13px !important; }
+  .responsive-ui [class~="text-xs"] { font-size: 0.82rem; }
+}
+@media (min-width: 701px) and (max-width: 1100px) {
+  .responsive-ui [class~="text-[9px]"] { font-size: 10px !important; }
+  .responsive-ui [class~="text-[10px]"] { font-size: 11px !important; }
+  .responsive-ui [class~="text-[11px]"] { font-size: 12px !important; }
+}
+
+/* Touch controls scale to the usable viewport instead of assuming one phone size. */
+.touch-left {
+  width: clamp(112px, 19vmin, 154px) !important;
+  height: clamp(112px, 19vmin, 154px) !important;
+  left: max(0.75rem, env(safe-area-inset-left));
+  bottom: max(0.9rem, env(safe-area-inset-bottom));
+}
+.touch-left > div:nth-child(2) { inset: 10% !important; }
+.touch-left > div:last-child {
+  width: 42% !important;
+  height: 42% !important;
+}
+.touch-right {
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.9rem, env(safe-area-inset-bottom));
+  gap: clamp(0.35rem, 1.2vmin, 0.75rem) !important;
+}
+.touch-right button {
+  min-width: 48px;
+  min-height: 48px;
+  width: clamp(52px, 10vmin, 78px) !important;
+  height: clamp(52px, 10vmin, 78px) !important;
+  font-size: clamp(11px, 1.8vmin, 15px) !important;
+  padding: 0.25rem !important;
+  touch-action: none;
+}
+.touch-right > div { gap: clamp(0.35rem, 1vmin, 0.7rem) !important; }
+
+/* Lift the ten-slot bar above the touch clusters; reserve the home-indicator area. */
+@media (pointer: coarse) {
+  .hud-hotbar { bottom: max(11.5rem, calc(env(safe-area-inset-bottom) + 10.5rem)) !important; }
+  .hud-hotbar > div {
+    transform: scale(clamp(0.68, calc(100vw / 430), 1));
+    transform-origin: center bottom;
+  }
+}
+@media (max-height: 500px) and (pointer: coarse) {
+  .touch-left, .touch-right { bottom: max(0.5rem, env(safe-area-inset-bottom)); }
   .touch-left {
-    transform: scale(0.8);
-    transform-origin: bottom left;
+    width: clamp(96px, 25vmin, 122px) !important;
+    height: clamp(96px, 25vmin, 122px) !important;
   }
-  .touch-right {
-    transform: scale(0.8);
-    transform-origin: bottom right;
+  .touch-right button {
+    width: clamp(48px, 13vmin, 62px) !important;
+    height: clamp(48px, 13vmin, 62px) !important;
   }
+  .hud-hotbar { bottom: max(5.2rem, calc(env(safe-area-inset-bottom) + 4.8rem)) !important; }
+}
+
+/* Desktop/tablet browser menus stay centered and scroll rather than clipping. */
+@media (max-width: 700px) {
+  .responsive-ui .bevel, .responsive-ui .bevel-flat { border-width: 2px; }
+  .responsive-ui .btn-mc { min-height: 44px; }
 }

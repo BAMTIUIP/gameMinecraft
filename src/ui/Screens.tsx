@@ -542,7 +542,7 @@ export function PauseScreen({
 
         <div className="sunken notch mb-5 grid grid-cols-2 gap-px bg-white/5 p-px sm:grid-cols-4">
           <Stat icon={<TrophyIcon size={13} />} label={t('score')} value={hud.score.toLocaleString()} color="#f4b942" />
-          <Stat icon={<ClockIcon size={13} />} label={t('shift')} value={`${Math.ceil(hud.timeLeft)}s`} color="#e8efe9" />
+          <Stat icon={<ClockIcon size={13} />} label={t('shift')} value={`${Math.ceil(hud.timeLeft)}${t('secShort')}`} color="#e8efe9" />
           <Stat icon={<CubeIcon size={13} />} label={t('mined')} value={String(hud.blocksMined)} color="#93c95d" />
           <Stat icon={<DepthIcon size={13} />} label={t('depth')} value={String(hud.deepest)} color="#d9844a" />
         </div>

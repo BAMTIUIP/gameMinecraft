@@ -52,6 +52,7 @@ import {
   TALL_GRASS,
   FERN,
   DEAD_BUSH,
+  MUSHROOM,
   isFlower,
   isPlant,
   isInstaBreak,
@@ -362,6 +363,7 @@ export class Engine {
   private inWater = false;
   private cactusCooldown = 0;
   private volcanoSmokeTimer = 0;
+  private desertWindTimer = 0;
   private hurtTimer = 0;
   private bob = 0;
   private stepSmooth = 0;
@@ -2452,6 +2454,16 @@ export class Engine {
         }
       }
     }
+    // Soft ground-level dust gusts in hot desert regions.
+    this.desertWindTimer -= dt;
+    if (this.desertWindTimer <= 0) {
+      this.desertWindTimer = 0.09;
+      if (this.world.biomeAt(Math.floor(this.pos.x),Math.floor(this.pos.z)) === 'desert' && Math.random()<0.65 && this.particles.length<MAX_PARTICLES) {
+        this.particles.push({x:this.pos.x+(Math.random()-0.5)*18,y:this.pos.y+Math.random()*1.8,z:this.pos.z+(Math.random()-0.5)*18,
+          vx:1.1+Math.random()*1.1,vy:0.08+Math.random()*0.15,vz:(Math.random()-0.5)*0.35,
+          life:1.1+Math.random()*0.8,max:1.8,size:0.025+Math.random()*0.025,r:0.72,g:0.62,b:0.43});
+      }
+    }
     // clouds drift
     const mat = this.clouds.material as THREE.MeshBasicMaterial;
     (mat.map as THREE.Texture).offset.x = (this.time * 0.0035) % 1;
@@ -3170,7 +3182,10 @@ export class Engine {
       const [x, y, z] = Engine.unpackCell(k);
       const id = this.world.get(x, y, z);
       if (id !== WATER && id !== LAVA) continue;
-      if (id === LAVA && (this.frameNo & 3) !== 0) {
+      if (id === LAVA && (this.frameNo & 3) !== 0 &&
+          ![[x,y-1,z],[x+1,y,z],[x-1,y,z],[x,y,z+1],[x,y,z-1],[x,y+1,z]]
+            .some(([ax,ay,az]) => { const b = this.world.get(ax,ay,az); return b === WATER || b === ICE; })) {
+        // Keep slow lava flow, but never delay a water contact behind its flow tick.
         defer.push(k);
         continue;
       }
@@ -3458,8 +3473,77 @@ export class Engine {
     }
   }
 
+  private fruitFallTimer = 5;
   private updateNature(dt: number) {
     this.crushEggsUnderfoot();
+    // Hedgehogs forage for fallen apples: carry one on their back, then eat it.
+    for (const hedgehog of this.mobSys.mobs) {
+      if (!hedgehog.alive || hedgehog.id !== 'hedgehog') continue;
+      const carried = hedgehog.group.userData.carriedApple as THREE.Mesh | undefined;
+      if (carried) {
+        hedgehog.group.userData.appleEatTime = (hedgehog.group.userData.appleEatTime ?? 8) - dt;
+        if (hedgehog.group.userData.appleEatTime <= 0) {
+          hedgehog.group.remove(carried);
+          carried.geometry.dispose();
+          (carried.material as THREE.Material).dispose();
+          delete hedgehog.group.userData.carriedApple;
+          hedgehog.group.userData.appleEatTime = 8;
+        }
+        continue;
+      }
+      // In the summer forest, pause to nibble a nearby mushroom. The plant stays
+      // in place throughout the chew and is removed only on the final bite.
+      if (!this.world.isWinter(Math.floor(hedgehog.x), Math.floor(hedgehog.z))) {
+        const bx = Math.floor(hedgehog.x), bz = Math.floor(hedgehog.z), by = Math.floor(hedgehog.y);
+        if (hedgehog.group.userData.mushroomNibble === undefined) {
+          outer: for (let dx=-2;dx<=2;dx++) for (let dz=-2;dz<=2;dz++) for (let dy=-1;dy<=1;dy++) {
+            if (this.world.get(bx+dx,by+dy,bz+dz) === MUSHROOM) {
+              hedgehog.group.userData.mushroomNibble = {x:bx+dx,y:by+dy,z:bz+dz,t:4.6};
+              break outer;
+            }
+          }
+        }
+        const nibble = hedgehog.group.userData.mushroomNibble as {x:number;y:number;z:number;t:number}|undefined;
+        if (nibble) {
+          nibble.t -= dt;
+          if (nibble.t <= 0) {
+            if (this.world.get(nibble.x,nibble.y,nibble.z) === MUSHROOM) {
+              this.world.set(nibble.x,nibble.y,nibble.z,AIR);
+              this.markDirtyAt(nibble.x,nibble.z);
+            }
+            delete hedgehog.group.userData.mushroomNibble;
+          }
+          continue;
+        }
+      }
+      const apple = this.drops.find((d) => d.active && d.id === APPLE && Math.hypot(d.x - hedgehog.x, d.z - hedgehog.z) < 1.1 && Math.abs(d.y - hedgehog.y) < 1.5);
+      if (apple) {
+        apple.active = false; this.scene.remove(apple.mesh);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.18,0.18), new THREE.MeshLambertMaterial({color:'#d84c38'}));
+        mesh.position.set(0,0.72,0.12); hedgehog.group.add(mesh);
+        hedgehog.group.userData.carriedApple = mesh;
+        hedgehog.group.userData.appleEatTime = 8;
+      }
+    }
+    // Occasionally a ripe fruit drops from a nearby living tree canopy.
+    this.fruitFallTimer -= dt;
+    if (this.fruitFallTimer <= 0) {
+      this.fruitFallTimer = 7 + Math.random() * 13;
+      if (Math.random() < 0.7) {
+        const px = Math.floor(this.pos.x), pz = Math.floor(this.pos.z);
+        for (let attempt = 0; attempt < 16; attempt++) {
+          const x = px + Math.floor(Math.random() * 25) - 12;
+          const z = pz + Math.floor(Math.random() * 25) - 12;
+          const y = Math.floor(this.pos.y) + 2 + Math.floor(Math.random() * 11);
+          const leaf = this.world.get(x, y, z);
+          const fruit = leaf === APPLE_LEAVES ? APPLE : leaf === COCONUT_LEAVES ? COCONUT : leaf === BANANA_LEAVES ? BANANA : 0;
+          if (fruit && this.world.get(x, y - 1, z) === AIR) {
+            this.spawnDrop(x + 0.5, y - 0.15, z + 0.5, fruit);
+            break;
+          }
+        }
+      }
+    }
     // ---- egg laying: turtles ONLY on sand, penguins ONLY on snowy ground ----
     this.eggTimer -= dt;
     if (this.eggTimer <= 0) {
@@ -3725,7 +3809,7 @@ export class Engine {
           m.think = 2;
           m.taskT -= 0.55;
           const near = Math.hypot(m.x - m.taskX, m.z - m.taskZ) < 1.4;
-          if (near && m.group.visible) this.burst(m.taskX, m.taskY + 0.7, m.taskZ, [255, 220, 120], 3, 1);
+          if (near && m.group.visible) this.burst(m.taskX, m.taskY + 0.7, m.taskZ, [255, 220, 120], 3, 1, 0.25);
           const flowerGone = !isFlower(this.world.get(Math.floor(m.taskX), m.taskY, Math.floor(m.taskZ)));
           if (m.taskT <= 0 || flowerGone) {
             // time's up → fly to the hive with whatever pollen was gathered
@@ -4067,6 +4151,15 @@ export class Engine {
       const [x, y, z] = Engine.unpackCell(k);
       const id = this.world.get(x, y, z);
       if (id === AIR || id === BEDROCK || id === LAVA || id === WATER || id === VINE || y <= 1) continue;
+      if (id === SAND) {
+        // Sand is gravity-driven: drop it into the first supported cell below.
+        let fallY=y;
+        while (fallY>1 && this.world.get(x,fallY-1,z)===AIR) {
+          this.world.set(x,fallY,z,AIR); this.world.set(x,fallY-1,z,SAND); fallY--;
+        }
+        if (fallY!==y) { this.markDirtyAt(x,z); this.enqueueSupportCheck(x,fallY,z); this.enqueueSupportCheck(x,y,z); }
+        continue;
+      }
       if (isLeafId(id)) {
         // Palm crowns reach three blocks out; all leaf kinds recognise
         // their matching living trunk (not only old oak logs).
@@ -4625,15 +4718,15 @@ export class Engine {
             const ground = this.world.get(Math.floor(p[0]), Math.floor(p[1] - 1), Math.floor(p[2]));
             const pasture = ground === GRASS;
             const list: MobId[] = biome === 'winter'
-              ? ['rabbit', 'rabbit']
+              ? ['rabbit', 'deer', 'roe_deer', 'moose', 'hedgehog']
               : biome === 'desert' || biome === 'canyon'
-                ? ['lizard', 'lizard', 'camel', 'camel']
+                ? ['lizard', 'lizard', 'camel', 'tumbleweed', 'tumbleweed', 'tumbleweed']
                 : biome === 'jungle'
-                  ? ['monkey', 'monkey', 'monkey', 'lizard', 'pig', 'rabbit']
+                  ? ['monkey', 'monkey', 'monkey', 'lizard', 'pig', 'rabbit', 'hedgehog']
                   : biome === 'volcanic'
                     ? ['lizard', 'lizard', 'rabbit']
                     : high ? (pasture ? ['sheep', 'sheep', 'rabbit'] : ['rabbit'])
-                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat'] : ['rabbit'];
+                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat', 'deer', 'roe_deer', 'hedgehog'] : ['rabbit'];
             const spawnedId = list[Math.floor(Math.random() * list.length)];
             const spawned = this.mobSys.spawn(spawnedId, p[0], p[1], p[2]);
             if (spawnedId === 'cow' && Math.random() < 0.55 && spawned) {
@@ -4707,6 +4800,11 @@ export class Engine {
       (m) => this.mobDied(m, true),
       (m) => this.mobShoot(m),
       (x, y, z) => { this.markDirtyAt(x, z); this.enqueueSupportCheck(x, y, z); },
+      (x, y, z, food) => {
+        const tint = BLOCKS[food]?.tint ?? [220, 180, 100];
+        const particles = tint[0] > tint[1] * 1.25 && tint[0] > tint[2] * 1.25 ? [245, 190, 80] : tint;
+        this.burst(x, y, z, particles, 2, 0.35, 0.25);
+      },
     );
   }
 
@@ -4798,7 +4896,17 @@ export class Engine {
       this.popup(this.pos.x, this.pos.y + 1.6, this.pos.z, `+${this.stats.vamp.toFixed(0)}`, '#ff5f7a');
     }
 
-    this.burst(m.x, m.y + 0.9, m.z, [230, 60, 50], crit ? 14 : 7, crit ? 4 : 2.6);
+    // Friendly, model-matched hit puffs; scale both count and spread to the animal.
+    // Red coats use soft cream particles so hits never resemble blood.
+    if (!m.def.hostile) {
+      const hex = m.def.body.replace('#', '');
+      const rgb = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      const color = rgb[0] > rgb[1] * 1.35 && rgb[0] > rgb[2] * 1.2 ? [238, 224, 190] : rgb;
+      const size = Math.max(0.3, Math.min(1.35, m.def.scale));
+      this.burst(m.x, m.y + 0.65 * size, m.z, color, Math.max(2, Math.round((crit ? 9 : 5) * size)), (crit ? 2.3 : 1.5) * size);
+    } else {
+      this.burst(m.x, m.y + 0.9, m.z, [230, 60, 50], crit ? 14 : 7, crit ? 4 : 2.6);
+    }
     this.popup(m.x, m.y + 1.5, m.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#ffffff', crit);
     this.addShake(crit ? 0.32 : 0.16);
     sfx.breakBlock(1.4);
@@ -4968,6 +5076,13 @@ export class Engine {
 
   private mobDied(m: Mob, burned: boolean) {
     if (!m.alive) return;
+    // Tumbleweeds are rolling plants, not animals: one hit breaks them cleanly,
+    // with no meat, kill count, score, or animal-drop logic.
+    if (m.id === 'tumbleweed') {
+      this.burst(m.x,m.y+0.25,m.z,[145,175,88],5,0.65,0.45);
+      this.mobSys.remove(m);
+      return;
+    }
     this.kills++;
     const def = m.def;
     // animals & birds drop meat — cooked straight away if they burned
@@ -5487,7 +5602,7 @@ export class Engine {
   }
 
   // ================= PARTICLES =================
-  burst(x: number, y: number, z: number, rgb: [number, number, number] | number[], count: number, power = 3) {
+  burst(x: number, y: number, z: number, rgb: [number, number, number] | number[], count: number, power = 3, sizeScale = 1) {
     for (let i = 0; i < count; i++) {
       if (this.particles.length >= MAX_PARTICLES) break;
       const a = Math.random() * Math.PI * 2;
@@ -5503,7 +5618,7 @@ export class Engine {
         vz: Math.sin(a) * Math.cos(b) * sp,
         life: 0.5 + Math.random() * 0.75,
         max: 1.25,
-        size: 0.07 + Math.random() * 0.11,
+        size: (0.07 + Math.random() * 0.11) * sizeScale,
         r: Math.max(0, Math.min(1, (rgb[0] + jitter()) / 255)),
         g: Math.max(0, Math.min(1, (rgb[1] + jitter()) / 255)),
         b: Math.max(0, Math.min(1, (rgb[2] + jitter()) / 255)),

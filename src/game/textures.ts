@@ -7,7 +7,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 22; // 88 tiles
+export const ATLAS_ROWS = 23; // 92 tiles
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -1071,13 +1071,15 @@ function drawTile(ctx: Ctx, index: number) {
       break;
     }
     case T.volcanicStone: {
-      // Same fractured stone grain, but darker and flecked with deep red.
-      speckle(ctx, ox, oy, '#44434a', 21, 14);
-      for (let i = 0; i < 8; i++)
-        px(ctx, ox, oy, Math.floor(rand() * 15), Math.floor(rand() * 15), 2, 1, rand() < 0.5 ? '#34333b' : '#57545a');
-      for (let i = 0; i < 20; i++) {
-        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
-        px(ctx, ox, oy, x, y, 2, 1, rand() < 0.4 ? '#65252b' : '#28272e');
+      // Charcoal grey volcanic basalt with unmistakable ember/ruby inclusions.
+      speckle(ctx, ox, oy, '#3d4144', 21, 13);
+      for (let i = 0; i < 13; i++)
+        px(ctx, ox, oy, Math.floor(rand() * 15), Math.floor(rand() * 15), 2, 1, rand() < 0.5 ? '#303438' : '#505458');
+      for (let i = 0; i < 9; i++) {
+        const x = 1 + Math.floor(rand() * 13), y = 1 + Math.floor(rand() * 14);
+        const ruby = rand() < 0.55;
+        px(ctx, ox, oy, x, y, 2, 1, ruby ? '#b8432e' : '#852f2b');
+        if (ruby && i % 3 === 0) px(ctx, ox, oy, x, y - 1, 1, 1, '#e16a3e');
       }
       break;
     }
@@ -1142,6 +1144,20 @@ function drawTile(ctx: Ctx, index: number) {
         for (let x = 4; x < 12; x++) ctx.fillRect(ox + x, oy + 5 + Math.floor((x-8)*(x-8)/16), 2, 3);
         px(ctx, ox, oy, 11, 9, 2, 1, '#694c2b');
       }
+      break;
+    }
+    case T.mushroom: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // Pixel-art red-capped woodland mushroom with a stout cream stem.
+      ctx.fillStyle = '#e9ddc5';
+      ctx.fillRect(ox + 6, oy + 8, 4, 7);
+      ctx.fillRect(ox + 5, oy + 11, 6, 3);
+      ctx.fillStyle = '#a84436';
+      ctx.fillRect(ox + 3, oy + 4, 10, 5);
+      ctx.fillRect(ox + 5, oy + 2, 6, 3);
+      ctx.fillStyle = '#d96a4c';
+      ctx.fillRect(ox + 5, oy + 3, 5, 2);
+      for (const [x,y] of [[4,6],[8,4],[11,6]]) px(ctx, ox, oy, x, y, 1, 1, '#f3e7d0');
       break;
     }
     case T.craftingTableTop: {

@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from 'react';
 import type { Engine } from '../game/engine';
 import { t } from '../game/i18n';
 
-const R = 54; // joystick radius px
 const SENS = 0.0048;
 
 export default function TouchControls({ engine }: { engine: Engine | null }) {
@@ -29,13 +28,14 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
+      const radius = Math.max(40, Math.min(66, Math.min(rect.width, rect.height) / 2 - 18));
       let dx = e.clientX - cx;
       let dy = e.clientY - cy;
       const len = Math.hypot(dx, dy) || 1;
-      const clamped = Math.min(1, len / R);
+      const clamped = Math.min(1, len / radius);
       dx = (dx / len) * clamped;
       dy = (dy / len) * clamped;
-      setKnob({ x: dx * R, y: dy * R, active: true });
+      setKnob({ x: dx * radius, y: dy * radius, active: true });
       engine.setMove(dx, dy);
     },
     [engine],

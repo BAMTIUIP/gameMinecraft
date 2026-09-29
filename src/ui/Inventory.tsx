@@ -113,7 +113,7 @@ function GearCard({
         e.dataTransfer.setData('text/plain', `gear:${item.uid}`);
         e.dataTransfer.effectAllowed = 'move';
       }}
-      title={`${t('dragHint')} ${t(SLOT_KEY[item.slot])}`}
+      title={`${t('dragHint')} · ${t(SLOT_KEY[item.slot])} · ${matName(MATERIALS[item.material].label)} · ${rarName(item.rarity, rar.name)}`}
     >
       <button onClick={onClick} className="min-w-0 flex-1 text-left">
         <div className="flex items-center justify-between gap-2">
@@ -217,7 +217,7 @@ export default function Inventory({
             <button
               onClick={onClose}
               className="bevel-flat notch flex h-10 w-10 items-center justify-center text-white/60 transition hover:text-blood active:scale-95"
-              aria-label="close"
+              aria-label={t('closeHint')}
             >
               <CloseIcon size={17} />
             </button>
@@ -342,7 +342,7 @@ export default function Inventory({
                     >
                       <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
                       <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? rar!.color : '#3f4c44' }}>
-                        {it ? MATERIALS[it.material].label : '—'}
+                        {it ? matName(MATERIALS[it.material].label) : '—'}
                       </div>
                       {it && it.affixes.length > 0 && (
                         <div className="mt-0.5 flex gap-0.5">
