@@ -2113,12 +2113,12 @@ export class Engine {
     const isDry = biome === 'desert' || biome === 'canyon';
     const species: MobId[] =
       biome === 'winter'
-        ? ['penguin', 'seal', 'rabbit']
+        ? ['penguin', 'seal', 'rabbit', 'fawn']
         : isDry
-          ? ['tumbleweed', 'tumbleweed', 'camel', 'lizard']
+          ? ['tumbleweed', 'tumbleweed', 'camel', 'camel_calf', 'lizard']
           : biome === 'jungle'
-            ? ['bird', 'monkey', 'bee', 'rabbit']
-            : ['cow', 'sheep', 'chicken', 'rabbit'];
+            ? ['bird', 'monkey', 'bee', 'frog', 'rabbit']
+            : ['cow', 'sheep', 'chicken', 'rabbit', 'cat', 'deer'];
     const preferredGround = isDry ? [SAND] : biome === 'winter' ? [SNOW_GRASS] : [GRASS];
     for (const id of species) {
       const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround);
@@ -5574,14 +5574,15 @@ export class Engine {
       this.animalTimer = (this.survival ? 2.8 : 2.1) * (moving ? 0.6 : 1);
       if (landCount < (this.survival ? 6 : 8) && this.mobSys.count(false) < budget) {
         const water = this.world.findWaterNear(this.pos.x, this.pos.z, 26);
-        const shoreCount = nearby.filter((m) => ['crab', 'turtle', 'penguin', 'seal'].includes(m.id)).length;
+        const shoreCount = nearby.filter((m) => ['crab', 'turtle', 'penguin', 'seal', 'frog'].includes(m.id)).length;
         if (water && shoreCount < 3 && Math.random() < 0.35) {
           const winterShore = this.world.isWinter(Math.floor(water[0]), Math.floor(water[2]));
+          const shoreBiome = this.world.biomeAt(Math.floor(water[0]), Math.floor(water[2]));
           const p = this.mobSys.findSpawnPoint(water[0], water[2], 1, 6, null,
             winterShore ? [ICE, SNOW_GRASS] : [SAND, GRASS]);
           if (p && Math.hypot(p[0] - water[0], p[2] - water[2]) < 6) {
             const id: MobId = winterShore ? (Math.random() < 0.55 ? 'penguin' : 'seal') :
-              (Math.random() < 0.55 ? 'crab' : 'turtle');
+              shoreBiome === 'jungle' || Math.random() < 0.42 ? 'frog' : (Math.random() < 0.55 ? 'crab' : 'turtle');
             this.mobSys.spawn(id, p[0], p[1], p[2]);
           }
         } else {
@@ -5596,15 +5597,15 @@ export class Engine {
             const ground = this.world.get(Math.floor(p[0]), Math.floor(p[1] - 1), Math.floor(p[2]));
             const pasture = ground === GRASS;
             const list: MobId[] = biome === 'winter'
-              ? ['rabbit', 'deer', 'roe_deer', 'moose', 'hedgehog']
+              ? ['rabbit', 'deer', 'roe_deer', 'fawn', 'moose', 'hedgehog']
               : biome === 'desert' || biome === 'canyon'
-                ? ['lizard', 'lizard', 'camel', 'tumbleweed', 'tumbleweed', 'tumbleweed']
+                ? ['lizard', 'lizard', 'camel', 'camel', 'camel_calf', 'tumbleweed', 'tumbleweed', 'tumbleweed']
                 : biome === 'jungle'
-                  ? ['monkey', 'monkey', 'monkey', 'lizard', 'pig', 'rabbit', 'hedgehog']
+                  ? ['monkey', 'monkey', 'monkey', 'frog', 'frog', 'lizard', 'pig', 'rabbit', 'hedgehog']
                   : biome === 'volcanic'
                     ? ['lizard', 'lizard', 'rabbit']
-                    : high ? (pasture ? ['sheep', 'sheep', 'rabbit'] : ['rabbit'])
-                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat', 'deer', 'roe_deer', 'hedgehog'] : ['rabbit'];
+                    : high ? (pasture ? ['sheep', 'sheep', 'rabbit', 'deer'] : ['rabbit'])
+                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat', 'deer', 'roe_deer', 'fawn', 'hedgehog'] : ['rabbit'];
             const spawnedId = list[Math.floor(Math.random() * list.length)];
             const spawned = this.mobSys.spawn(spawnedId, p[0], p[1], p[2]);
             if (spawnedId === 'cow' && Math.random() < 0.55 && spawned) {
@@ -5613,6 +5614,20 @@ export class Engine {
               if (calf) {
                 calf.grow = 60;
                 calf.group.scale.setScalar(calf.def.scale * 0.65);
+              }
+            } else if ((spawnedId === 'deer' || spawnedId === 'roe_deer') && Math.random() < 0.48 && spawned) {
+              const a = Math.random() * Math.PI * 2;
+              const fawn = this.mobSys.spawn('fawn', p[0] + Math.cos(a) * 1.35, p[1], p[2] + Math.sin(a) * 1.35);
+              if (fawn) {
+                fawn.grow = 70;
+                fawn.group.scale.setScalar(fawn.def.scale * 0.78);
+              }
+            } else if (spawnedId === 'camel' && Math.random() < 0.48 && spawned) {
+              const a = Math.random() * Math.PI * 2;
+              const camelCalf = this.mobSys.spawn('camel_calf', p[0] + Math.cos(a) * 1.8, p[1], p[2] + Math.sin(a) * 1.8);
+              if (camelCalf) {
+                camelCalf.grow = 80;
+                camelCalf.group.scale.setScalar(camelCalf.def.scale * 0.78);
               }
             }
           }
@@ -5964,7 +5979,7 @@ export class Engine {
     this.kills++;
     const def = m.def;
     // animals & birds drop meat — cooked straight away if they burned
-    if (!def.hostile && def.id !== 'jellyfish') {
+    if (!def.hostile && def.id !== 'jellyfish' && def.id !== 'frog') {
       const meat = burned ? COOKED_MEAT : RAW_MEAT;
       const small =
         def.id === 'chicken' ||
@@ -5972,6 +5987,8 @@ export class Engine {
         def.id === 'fish' ||
         def.id === 'bird' ||
         def.id === 'calf' ||
+        def.id === 'fawn' ||
+        def.id === 'camel_calf' ||
         def.id === 'lizard' ||
         def.id === 'monkey';
       const n = small ? 1 : 2;
