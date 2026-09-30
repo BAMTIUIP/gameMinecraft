@@ -230,7 +230,8 @@ const CRAWL_HALF_WIDTH = 0.33;
 const CRAWL_HALF_LENGTH = 0.96;
 const CRAWL_BODY_CENTER = 0.96;
 const EYE = 1.62;
-const REACH = 5.6;
+const BASE_INTERACTION_REACH = 1.5;
+const MAX_INTERACTION_REACH = 4.5;
 
 type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
 type WeatherKind = 'clear' | 'rain' | 'snow';
@@ -3683,6 +3684,11 @@ if (tpClipActive > 0.5) {
   // ================= MINING =================
   private eyeV = new THREE.Vector3();
   private dirV = new THREE.Vector3();
+
+  private interactionReach() {
+    return Math.min(MAX_INTERACTION_REACH, BASE_INTERACTION_REACH + this.stats.reach);
+  }
+
   private updateTarget() {
     // First-person mines from the eyes. Third-person uses the screen-centre
     // camera ray but ignores the transparent camera→avatar corridor, so the
@@ -3691,21 +3697,22 @@ if (tpClipActive > 0.5) {
       sp = Math.sin(this.pitch);
     this.dirV.set(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp);
     this.eyeV.set(this.pos.x, this.pos.y + EYE, this.pos.z);
+    const reach = this.interactionReach();
     if (this.thirdPerson && this.phase === 'playing') {
       const camDir = new THREE.Vector3();
       this.camera.getWorldDirection(camDir);
       const focus = new THREE.Vector3(this.pos.x, this.pos.y + EYE - this.crawlLerp * (EYE - 0.52) + 0.05, this.pos.z);
       const skip = Math.max(0, this.camera.position.distanceTo(focus) - 0.35);
-      const hit = this.raycast(this.camera.position, camDir, skip + REACH + 1.6, skip);
+      const hit = this.raycast(this.camera.position, camDir, skip + reach + 0.75, skip);
       if (hit) {
         const hx = hit.x + 0.5, hy = hit.y + 0.5, hz = hit.z + 0.5;
-        if (Math.hypot(hx - this.pos.x, hy - (this.pos.y + EYE), hz - this.pos.z) <= REACH + 2.2) {
+        if (Math.hypot(hx - this.pos.x, hy - (this.pos.y + EYE), hz - this.pos.z) <= reach) {
           this.target = hit;
           return;
         }
       }
     }
-    this.target = this.raycast(this.eyeV, this.dirV, REACH);
+    this.target = this.raycast(this.eyeV, this.dirV, reach);
   }
 
   private raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, minDist = 0) {
@@ -6475,7 +6482,7 @@ if (tpClipActive > 0.5) {
   /** player swings at whatever the crosshair is on */
   private tryAttack() {
     if (this.attackCd > 0) return false;
-    const reach = this.heldKind() === 'sword' ? 4.2 : 3.4;
+    const reach = this.interactionReach();
     const m = this.mobSys.raycast(this.eyeV.x, this.eyeV.y, this.eyeV.z, this.dirV.x, this.dirV.y, this.dirV.z, reach);
     if (!m) return false;
     if (m.id === 'trader') return true; // he's a merchant, not target practice

@@ -407,12 +407,13 @@ export default function Inventory({
                 })}
               </div>
 
-              {(st.fire > 0 || st.frost > 0 || st.vamp > 0 || st.thorns > 0) && (
+              {(st.fire > 0 || st.frost > 0 || st.vamp > 0 || st.thorns > 0 || st.reach > 0) && (
                 <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/10 pt-2">
                   {st.fire > 0 && <Badge c={AFFIXES.fire.color} txt={`${t('aff_fire')} ${st.fire.toFixed(1)}/s`} />}
                   {st.frost > 0 && <Badge c={AFFIXES.frost.color} txt={`${t('aff_frost')} ${st.frost.toFixed(0)}%`} />}
                   {st.vamp > 0 && <Badge c={AFFIXES.vamp.color} txt={`${t('aff_vamp')} ${st.vamp.toFixed(1)}`} />}
                   {st.thorns > 0 && <Badge c={AFFIXES.thorns.color} txt={`${t('aff_thorns')} ${st.thorns.toFixed(0)}%`} />}
+                  {st.reach > 0 && <Badge c={AFFIXES.reach.color} txt={`${t('aff_reach')} +${st.reach.toFixed(1)}m`} />}
                 </div>
               )}
 
