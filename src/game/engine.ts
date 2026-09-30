@@ -4757,24 +4757,23 @@ export class Engine {
         break;
       }
       case GOLD: {
-        // 3D Royal Sun-Stamped Gold Bullion Trapezoid with Ruby Solar Seal
-        B(g, 0, -0.04, 0, 0.36, 0.07, 0.22, 0xc48210); // lower wide bevel
-        B(g, 0, 0.02, 0, 0.30, 0.07, 0.17, 0xf5be24); // middle gold table
-        B(g, 0, 0.06, 0, 0.24, 0.03, 0.13, 0xfff39e); // gleaming top rim
-        B(g, 0, 0.08, 0, 0.09, 0.03, 0.08, 0xe61e38); // inset ruby solar crest
-        B(g, 0, 0.09, 0, 0.04, 0.02, 0.04, 0xff99a8); // ruby glint
+        // 3D Gleaming Beveled Pure-Gold Bullion Ingot (stepped trapezoidal gold bar with stamped mint ridges)
+        B(g, 0, -0.045, 0, 0.36, 0.055, 0.21, 0xb8760b); // deep amber-gold base bevel
+        B(g, 0, 0.005, 0, 0.32, 0.055, 0.175, 0xe8ad15); // warm gold middle body
+        B(g, 0, 0.048, 0, 0.27, 0.035, 0.14, 0xfcd12a); // radiant sun-gold top table
+        // Two raised stamped gold bullion bands + white-gold specular edge glint
+        B(g, -0.065, 0.07, 0, 0.05, 0.018, 0.11, 0xffe975);
+        B(g, 0.065, 0.07, 0, 0.05, 0.018, 0.11, 0xffe975);
+        B(g, 0, 0.068, -0.045, 0.23, 0.014, 0.025, 0xfffbe0);
         break;
       }
       case LAPIS: {
-        // 3D Celestial Crescent Astral Sapphire Shard with Golden Pyrite Stars
-        B(g, -0.03, 0, 0, 0.14, 0.22, 0.10, 0x1e42b8, 0, 0.15); // crescent spine
-        B(g, 0.04, 0.10, 0, 0.14, 0.11, 0.09, 0x2b58de, 0, -0.45); // upper horn
-        B(g, 0.04, -0.10, 0, 0.14, 0.11, 0.09, 0x2b58de, 0, 0.45); // lower horn
-        B(g, -0.01, 0.01, 0.02, 0.09, 0.15, 0.09, 0x5c8cff, 0, 0.15); // bright azure ridge
-        // Golden pyrite star studs
-        B(g, -0.02, 0.06, 0.055, 0.04, 0.04, 0.03, 0xffe052);
-        B(g, 0.04, 0.11, 0.045, 0.035, 0.035, 0.03, 0xffe052);
-        B(g, 0.01, -0.07, 0.05, 0.035, 0.035, 0.03, 0xffe052);
+        // 3D Faceted Royal Sapphire-Lazuli Gemstone (multi-tiered diamond/marquise-cut azure crystal)
+        B(g, 0, 0, 0, 0.18, 0.28, 0.10, 0x142e8c, 0.08, 0.18); // deep ultramarine outer pavilion
+        B(g, 0, 0, 0, 0.22, 0.20, 0.11, 0x1e46c7, 0.08, 0.18); // royal cobalt girdle
+        B(g, 0, 0.01, 0, 0.15, 0.22, 0.13, 0x3369f5, 0.08, 0.18); // vivid azure crown facets
+        B(g, 0, 0.01, 0, 0.10, 0.15, 0.15, 0x6ba1ff, 0.08, 0.18); // bright sky-blue central table
+        B(g, -0.02, 0.05, 0.065, 0.045, 0.065, 0.03, 0xe0f0ff, 0.08, 0.18); // crisp white-azure gem shine
         break;
       }
       case DIAMOND: {
