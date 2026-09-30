@@ -1214,6 +1214,10 @@ if (tpClipActive > 0.5) {
 
   private buildPlayerAvatar() {
     const g = new THREE.Group();
+    // YXZ makes yaw apply around world-up before the prone/swim pitch.  With the
+    // default XYZ order, a -90° swim pitch locked the body direction, so the
+    // puppet looked like it was sliding sideways instead of following the crosshair.
+    g.rotation.order = 'YXZ';
     const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
     const shirt = new THREE.MeshLambertMaterial({ color: 0x4a7a52 });
     const shirtDark = new THREE.MeshLambertMaterial({ color: 0x335c3d });
