@@ -8,7 +8,16 @@ import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, ty
 import Inventory from './ui/Inventory';
 import { EMPTY_STATS, type Slot } from './game/items';
 import { initLang, setLang, type Lang } from './game/i18n';
-import { initYandex, yaGameplayStart, yaGameplayStop, yaLang, yaLoadingReady, yaServerTime } from './game/yandex';
+import {
+  initYandex,
+  yaGameplayStart,
+  yaGameplayStop,
+  yaLang,
+  yaLoadingReady,
+  yaOnPause,
+  yaOnResume,
+  yaServerTime,
+} from './game/yandex';
 
 const INITIAL_HUD: HudState = {
   phase: 'loading',
@@ -155,7 +164,15 @@ export default function App() {
     window.addEventListener('keydown', unlock);
 
     window.addEventListener('keydown', onKey);
+
+    // Yandex Games pauses / resumes the game on its own — ad or purchase window, tab switch, minimised
+    // window, focus moved to another window — and calls GameplayAPI.stop()/start() for it. The game has
+    // to follow, or the gameplay indicator says "playing" over a frozen game (and "stopped" over a live one)
+    const offYaPause = yaOnPause(() => eng.systemPause());
+    const offYaResume = yaOnResume(() => eng.systemResume());
     return () => {
+      offYaPause();
+      offYaResume();
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
       window.removeEventListener('keydown', onKey);
@@ -229,7 +246,10 @@ export default function App() {
   }, []);
 
   // Yandex Games lifecycle: ready() once the menu is interactive,
-  // GameplayAPI.start/stop around actual play (rules 2.20 / gameplay signals)
+  // GameplayAPI.start/stop around actual play (rules 2.20 / gameplay signals).
+  // Only phase 'playing' is gameplay. The pause menu AND the inventory / workbench / trader are 'paused': the
+  // world is frozen there (shift timer and world clock stand still, see Engine.updateIdle), and the moderation
+  // methodology (1.19.3) wants a red indicator for any menu or shop that takes the player out of the run.
   useEffect(() => {
     if (hud.phase !== 'loading') yaLoadingReady();
     if (hud.phase === 'playing') yaGameplayStart();
