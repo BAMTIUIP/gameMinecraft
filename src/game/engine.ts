@@ -435,6 +435,10 @@ export class Engine {
   private weatherTargetIntensity = 0;
   private weatherTimer = 0;
   private weatherSpawnAcc = 0;
+  /** smoothed visual biome blend for global lighting; prevents one-block biome borders from popping exposure */
+  private visualDry = 0;
+  private visualWinter = 0;
+  private visualClimateReady = false;
   private banner: HudState['banner'] = null;
   private bannerTimer = 0;
   private loadTasks: (() => boolean)[] = [];
@@ -1540,6 +1544,7 @@ if (tpClipActive > 0.5) {
     this.weatherTargetIntensity = 0;
     this.weatherTimer = 6;
     this.weatherSpawnAcc = 0;
+    this.visualClimateReady = false;
     seedNoise(seed);
     this.world.reset(seed);
     this.rand = mulberry32(seed);
@@ -1573,6 +1578,8 @@ if (tpClipActive > 0.5) {
       this.pos.set(x, y, z);
       this.yaw = this.world.spawnYawFor(x, z);
       this.pitch = -0.14;
+      this.visualClimateReady = false;
+      this.setMenuClockForMode();
       this.seedStarterWildlife(x, z, this.yaw);
       return true;
     });
@@ -2300,6 +2307,7 @@ if (tpClipActive > 0.5) {
     this.survivalNight = data.survivalNight ?? 0;
     this.firstSurvivalDay = data.firstSurvivalDay ?? false;
     this.clock = data.clock ?? 0.3;
+    this.visualClimateReady = false;
     this.updateClock(0);
     this.wasNight = this.isNightClock();
     this.syncHotbar(true);
@@ -2389,8 +2397,7 @@ if (tpClipActive > 0.5) {
     this.firstSurvivalDay = survivalRun;
     if (survivalRun) this.clock = SURVIVAL_START_CLOCK;
     else if (sandbox) this.clock = MENU_EXPLORER_CLOCK;
-    this.updateClock(0);
-    this.wasNight = this.isNightClock();
+    this.visualClimateReady = false;
     this.sleeping = false;
     this.sleepDark = 0;
     this.crouching = false;
@@ -2437,6 +2444,8 @@ if (tpClipActive > 0.5) {
     this.fallStart = y;
     this.yaw = this.world.spawnYawFor(x, z);
     this.pitch = -0.1;
+    this.updateClock(0);
+    this.wasNight = this.isNightClock();
     this.seedStarterWildlife(x, z, this.yaw);
     this.deepest = 0;
     this.phase = 'playing';
@@ -6250,6 +6259,49 @@ if (tpClipActive > 0.5) {
     return this.clockPhase(clock) === 'night';
   }
 
+  private sampleVisualClimate() {
+    const px = Math.floor(this.pos.x);
+    const pz = Math.floor(this.pos.z);
+    // Blend a small neighbourhood instead of using the exact block under the player.
+    // Desert/plains/canyon borders often run through villages and tree lines, so a
+    // single-step biome flip used to change the whole scene exposure instantly.
+    const samples: Array<[number, number, number]> = [
+      [0, 0, 1.8],
+      [14, 0, 1],
+      [-14, 0, 1],
+      [0, 14, 1],
+      [0, -14, 1],
+      [10, 10, 0.7],
+      [-10, 10, 0.7],
+      [10, -10, 0.7],
+      [-10, -10, 0.7],
+    ];
+    let dry = 0;
+    let winter = 0;
+    let total = 0;
+    for (const [dx, dz, w] of samples) {
+      const b = this.world.biomeAt(px + dx, pz + dz);
+      if (b === 'desert' || b === 'canyon' || b === 'volcanic') dry += w;
+      else if (b === 'winter') winter += w;
+      total += w;
+    }
+    return { dry: dry / total, winter: winter / total };
+  }
+
+  private updateVisualClimate(dt: number) {
+    const target = this.sampleVisualClimate();
+    if (!this.visualClimateReady || (dt <= 0 && this.phase !== 'playing' && this.phase !== 'paused')) {
+      this.visualDry = target.dry;
+      this.visualWinter = target.winter;
+      this.visualClimateReady = true;
+      return;
+    }
+    if (dt <= 0) return;
+    const k = 1 - Math.pow(0.001, dt / 7.5);
+    this.visualDry += (target.dry - this.visualDry) * k;
+    this.visualWinter += (target.winter - this.visualWinter) * k;
+  }
+
   private updateClock(dt: number) {
     if (dt > 0) {
       const phase = this.clockPhase();
@@ -6272,14 +6324,15 @@ if (tpClipActive > 0.5) {
     const d = this.daylight;
     if (this.skyMesh) this.skyMesh.position.copy(this.camera.position);
     if (this.stars) this.stars.position.copy(this.camera.position);
-    const biome = this.world.biomeAt(Math.floor(this.pos.x), Math.floor(this.pos.z));
-    const dry = biome === 'desert' || biome === 'canyon';
-    const weather = dry ? 0 : this.weatherIntensity;
+    this.updateVisualClimate(dt);
+    const dry = Math.max(0, Math.min(1, this.visualDry));
+    const winter = Math.max(0, Math.min(1, this.visualWinter * (1 - dry)));
+    const weather = this.weatherIntensity * (1 - dry * 0.85);
 
     const night = new THREE.Color(0x050914);
-    const dawn = new THREE.Color(dry ? 0xffba72 : 0xff9866);
-    const day = new THREE.Color(dry ? 0xf0fbff : biome === 'winter' ? 0xe5f5ff : 0xdaf2ff);
-    const storm = new THREE.Color(biome === 'winter' ? 0xbcc9d8 : 0x8799a8);
+    const dawn = new THREE.Color(0xff9c66).lerp(new THREE.Color(0xffba72), dry).lerp(new THREE.Color(0xffaa82), winter);
+    const day = new THREE.Color(0xe8f8ff).lerp(new THREE.Color(0xf0fbff), dry).lerp(new THREE.Color(0xe5f5ff), winter);
+    const storm = new THREE.Color(0x8799a8).lerp(new THREE.Color(0xbcc9d8), winter);
     const c = new THREE.Color();
     if (phase === 'night') c.copy(night);
     else if (phase === 'dawn') c.copy(night).lerp(dawn, smooth01(prog)).lerp(day, smooth01(Math.max(0, prog - 0.45) / 0.55) * 0.55);
@@ -6294,7 +6347,7 @@ if (tpClipActive > 0.5) {
     fog.far = this.renderDist * nightHaze * weatherHaze;
     fog.near = fog.far * (0.34 + weather * 0.07);
     this.scene.background = c;
-    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar((dry ? 0.92 : 0.82) + d * (dry ? 0.56 : 0.52));
+    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
 
     const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();
     this.sunDir.copy(sunDir);
@@ -6305,14 +6358,14 @@ if (tpClipActive > 0.5) {
       this.sunMesh.lookAt(this.camera.position);
       this.sunMesh.visible = sunDir.y > 0.02 && d > 0.18;
       const mat = this.sunMesh.material as THREE.MeshBasicMaterial;
-      const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.32)) * (dry ? 1 : 1 - weather * 0.5);
+      const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.32)) * (1 - weather * 0.5);
       mat.opacity = sunOpacity;
-      mat.color.set(dry ? 0xffc933 : d < 0.45 ? 0xffa347 : 0xffd24a);
+      mat.color.copy(new THREE.Color(d < 0.45 ? 0xffa347 : 0xffd24a).lerp(new THREE.Color(0xffc933), dry));
       if (this.sunHaloMat) {
         const dayHalo = d > 0.84 && sunDir.y > 0.52 ? Math.min(1, (d - 0.84) / 0.16) : 0;
-        this.sunHaloMat.opacity = sunOpacity * dayHalo * (dry ? 0.3 : 0.18) * (1 - weather * 0.45);
+        this.sunHaloMat.opacity = sunOpacity * dayHalo * (0.2 + dry * 0.1) * (1 - weather * 0.45);
       }
-      const sc = dry && d > 0.65 ? 1.18 : 1;
+      const sc = 1 + (d > 0.65 ? dry * 0.18 : 0);
       this.sunMesh.scale.setScalar(sc);
     }
     if (this.moonMesh) {
@@ -6327,19 +6380,21 @@ if (tpClipActive > 0.5) {
     const lightDir = sunDir.y > -0.04 ? sunDir : moonDir;
     if (this.sunLight) {
       this.sunLight.position.copy(lightDir);
-      this.sunLight.color.set(sunDir.y > -0.04 ? (dry ? 0xffdfa0 : 0xfff2cf) : 0x88a6d8);
-      const sunPower = sunDir.y > -0.04 ? 0.2 + d * (dry ? 1.2 : 1.05) : 0.04 + (1 - d) * 0.065;
+      const dayLightColor = new THREE.Color(0xfff2cf).lerp(new THREE.Color(0xffdfa0), dry).lerp(new THREE.Color(0xeaf6ff), winter * 0.25);
+      this.sunLight.color.copy(sunDir.y > -0.04 ? dayLightColor : new THREE.Color(0x88a6d8));
+      const sunPower = sunDir.y > -0.04 ? 0.22 + d * (1.14 + dry * 0.08 - winter * 0.04) : 0.04 + (1 - d) * 0.065;
       this.sunLight.intensity = sunPower * (1 - weather * 0.32);
     }
     if (this.ambLight) {
-      const ambient = (0.08 + d * (dry ? 0.58 : 0.52)) * (1 - weather * 0.22) + (dry && d > 0.5 ? 0.09 : 0);
+      const ambient = (0.09 + d * (0.58 + dry * 0.08 - winter * 0.03)) * (1 - weather * 0.22) + dry * (d > 0.5 ? 0.09 : 0);
       this.ambLight.intensity = ambient;
-      this.ambLight.color.set(d < 0.25 ? 0x9fb8ff : dry ? 0xffedc8 : 0xf0f6ff);
+      const ambientColor = new THREE.Color(d < 0.25 ? 0x9fb8ff : 0xf0f6ff).lerp(new THREE.Color(0xffedc8), dry).lerp(new THREE.Color(0xe8f5ff), winter * 0.35);
+      this.ambLight.color.copy(ambientColor);
     }
 
     const tint = new THREE.Color();
     if (d < 0.22) tint.setRGB(0.58 + d * 1.35, 0.64 + d * 1.12, 0.86 + d * 0.62);
-    else tint.setRGB(dry ? 1.06 : 1.04, dry ? 1.03 : 1.04, dry ? 0.92 : 1.02);
+    else tint.setRGB(1.055 + dry * 0.005 - winter * 0.02, 1.045 - dry * 0.015, 1.0 - dry * 0.08 + winter * 0.04);
     if (weather > 0) tint.lerp(new THREE.Color(0xb7c1ca), weather * 0.24);
     this.material.color.copy(tint);
     if (this.cutoutMat) this.cutoutMat.color.copy(tint);
