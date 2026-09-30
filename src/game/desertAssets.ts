@@ -847,12 +847,12 @@ function buildDesertPergolaHouse(world: World, x0: number, y0: number, z0: numbe
     }
   }
 
-  // Rooftop lounge plants & chain-suspended lanterns under the lattice pergola
+  // Rooftop lounge plants & chain-suspended lanterns under the lattice pergola beams (rx=2,4, rz=2,4 have PLANKS at y0+wallH+3)
   world.set(hx0 + 2, y0 + wallH + 1, hz0 + 2, LEAVES);
   world.set(hx1 - 2, y0 + wallH + 1, hz1 - 2, LEAVES);
-  world.set(hx0 + 3, y0 + wallH + 2, hz0 + 3, TORCH);
-  world.set(hx0 + 5, y0 + wallH + 2, hz0 + 3, FENCE_IRON);
-  world.set(hx0 + 5, y0 + wallH + 1, hz0 + 3, TORCH);
+  world.set(hx0 + 2, y0 + wallH + 2, hz0 + 4, TORCH);
+  world.set(hx0 + 4, y0 + wallH + 2, hz0 + 2, FENCE_IRON);
+  world.set(hx0 + 4, y0 + wallH + 1, hz0 + 2, TORCH);
 
   // Interior furniture + front bracket lantern
   world.set(hx0 + 2, y0 + 1, hz0 + 2, TORCH);
@@ -1338,8 +1338,11 @@ function buildDesertTemple(world: World, x0: number, y0: number, z0: number, ran
   }
   placeWallBracketLantern(world, x0 + 4, y0 + 2, z0);
   placeWallBracketLantern(world, x0 + 8, y0 + 2, z0);
-  world.set(cx - 2, y0 + 3, cz, TORCH);
-  world.set(cx + 2, y0 + 3, cz, TORCH);
+  // Interior temple lanterns resting on carved sandstone pedestals
+  world.set(cx - 2, y0 + 1, cz, CHISELED_SANDSTONE);
+  world.set(cx - 2, y0 + 2, cz, TORCH);
+  world.set(cx + 2, y0 + 1, cz, CHISELED_SANDSTONE);
+  world.set(cx + 2, y0 + 2, cz, TORCH);
 
   // Underground treasure room
   const vaultDepth = Math.min(4, Math.max(2, y0 - 3));

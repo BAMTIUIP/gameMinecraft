@@ -61,8 +61,15 @@ function prepareFoundation(
   clearH: number,
   floorBlock = SANDSTONE,
 ) {
-  for (let z = z0 - 1; z <= z0 + d; z++) {
-    for (let x = x0 - 1; x <= x0 + w; x++) {
+  const cx = Math.floor((x0 + (w >> 1)) / CHUNK);
+  const cz = Math.floor((z0 + (d >> 1)) / CHUNK);
+  const minX = Math.max(cx * CHUNK, x0 - 1);
+  const maxX = Math.min(cx * CHUNK + CHUNK - 1, x0 + w);
+  const minZ = Math.max(cz * CHUNK, z0 - 1);
+  const maxZ = Math.min(cz * CHUNK + CHUNK - 1, z0 + d);
+
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
       const inFootprint = x >= x0 && x < x0 + w && z >= z0 && z < z0 + d;
       for (let y = y0 + 1; y < Math.min(WY - 1, y0 + clearH); y++) {
         world.set(x, y, z, AIR);
@@ -159,6 +166,7 @@ export function buildDesertOasisLagoon(world: World, x0: number, y0: number, z0:
   // Small sandstone water-steps / oasis pier on the front bank
   world.set(cx, y0, z0 + 2, CHISELED_SANDSTONE);
   world.set(cx + 1, y0, z0 + 2, SANDSTONE);
+  world.set(cx - 1, y0, z0 + 2, CHISELED_SANDSTONE);
   world.set(cx - 1, y0 + 1, z0 + 2, FENCE_WOOD);
   world.set(cx - 1, y0 + 2, z0 + 2, TORCH);
 
@@ -243,7 +251,7 @@ export function buildDesertGablePergolaHouse(world: World, x0: number, y0: numbe
     }
   }
 
-  // Door, windows, flowerboxes & lanterns
+  // Door, windows, flowerboxes & wall-bracket lanterns flanking the entrance
   world.set(hx0 + 2, y0 + 1, hz0, DOOR_WOOD);
   world.set(hx0 + 2, y0 + 2, hz0, DOOR_WOOD);
   world.set(hx0 + 4, y0 + 2, hz0, FENCE_WOOD);
@@ -251,8 +259,11 @@ export function buildDesertGablePergolaHouse(world: World, x0: number, y0: numbe
   world.set(hx0 + 4, y0 + 2, hz0 - 1, FLOWER_RED);
   world.set(hx0 + 2, y0 + 5, hz0, FENCE_WOOD);
   world.set(hx0 + 3, y0 + 5, hz0, FENCE_WOOD);
-  world.set(hx0 + 1, y0 + 4, hz0 - 1, TORCH);
-  world.set(hx0 + 4, y0 + 4, hz0 - 1, TORCH);
+  // Wall-bracket lanterns bolted to the front wall (FENCE_WOOD bracket at y0+3, lantern hanging at y0+2)
+  world.set(hx0 + 1, y0 + 3, hz0 - 1, FENCE_WOOD);
+  world.set(hx0 + 1, y0 + 2, hz0 - 1, TORCH);
+  world.set(hx0 + 3, y0 + 3, hz0 - 1, FENCE_WOOD);
+  world.set(hx0 + 3, y0 + 2, hz0 - 1, TORCH);
 
   // Climbing greenery & vines on front-left corner
   world.set(hx0, y0 + 1, hz0 - 1, LEAVES);
@@ -264,23 +275,29 @@ export function buildDesertGablePergolaHouse(world: World, x0: number, y0: numbe
   for (let z = hz0 + 1; z <= hz1 - 1; z++) {
     for (let x = x0 + 7; x <= x0 + 9; x++) {
       if (x === x0 + 8 && z > hz0 + 1 && z < hz1 - 1) {
+        world.set(x, y0 - 1, z, SANDSTONE);
         world.set(x, y0, z, WATER);
       } else {
         world.set(x, y0, z, GRASS);
-        world.set(x, y0 + 1, z, (x + z) % 2 === 0 ? TALL_GRASS : FLOWER_YELLOW);
+        if (x !== x0 + 9 || (z !== hz0 + 1 && z !== hz1 - 1)) {
+          world.set(x, y0 + 1, z, (x + z) % 2 === 0 ? TALL_GRASS : FLOWER_YELLOW);
+        }
       }
-      // Overhead pergola lattice at y0 + 3
-      if ((x + z) % 2 === 0) {
-        world.set(x, y0 + 3, z, FENCE_WOOD);
+      // Solid connected overhead timber trellis beams at y0 + 4
+      const onBeam = x === x0 + 7 || x === x0 + 9 || z === hz0 + 1 || z === hz0 + 4 || z === hz1 - 1;
+      if (onBeam) {
+        world.set(x, y0 + 4, z, PLANKS);
       }
     }
   }
+  // Full vertical oak-log corner support pillars from ground (y0+1) to trellis roof (y0+4)
   for (const pz of [hz0 + 1, hz1 - 1]) {
-    for (let py = 1; py <= 3; py++) {
+    for (let py = 1; py <= 4; py++) {
       world.set(x0 + 9, y0 + py, pz, LOG);
     }
   }
-  world.set(x0 + 9, y0 + 2, hz0 + 1, TORCH);
+  // Hanging lantern suspended under the front pergola beam (y0 + 4 is PLANKS)
+  world.set(x0 + 8, y0 + 3, hz0 + 1, TORCH);
 
   // Interior bed & workbench
   world.set(hx0 + 3, y0 + 1, hz1 - 1, BED);
@@ -340,19 +357,24 @@ export function buildDesertTieredLanternVilla(world: World, x0: number, y0: numb
     for (let x = vx0 + 5; x <= vx1 - 1; x++) {
       world.set(x, y0 + 4, z, GRASS);
       world.set(x, y0 + 5, z, (x + z) % 2 === 0 ? TALL_GRASS : FLOWER_YELLOW);
-      world.set(x, y0 + 7, z, FENCE_WOOD);
+      const onBeam = x === vx0 + 5 || x === vx1 - 1 || z === vz0 + 1 || z === vz1 - 1;
+      if (onBeam) {
+        world.set(x, y0 + 7, z, PLANKS);
+      }
     }
   }
-  world.set(vx1, y0 + 5, vz0 + 1, LOG);
-  world.set(vx1, y0 + 6, vz0 + 1, LOG);
-  world.set(vx1, y0 + 5, vz1 - 1, LOG);
-  world.set(vx1, y0 + 6, vz1 - 1, LOG);
+  for (const pz of [vz0 + 1, vz1 - 1]) {
+    for (let py = 5; py <= 7; py++) {
+      world.set(vx1, y0 + py, pz, LOG);
+    }
+  }
+  world.set(vx0 + 7, y0 + 6, vz0 + 1, TORCH);
 
-  // Corner wooden lantern brackets with hanging 3D lanterns
+  // Corner wooden lantern brackets with hanging 3D lanterns on the front facade
   for (const [lx, lz] of [
     [vx0, vz0 - 1],
+    [vx0 + 4, vz0 - 1],
     [vx1, vz0 - 1],
-    [vx0 + 4, vz0],
   ]) {
     world.set(lx, y0 + 4, lz, FENCE_WOOD);
     world.set(lx, y0 + 3, lz, TORCH);
@@ -459,6 +481,7 @@ export function buildPyramidSteppedMaya(world: World, x0: number, y0: number, z0
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz + 1, GOLD_BLOCK);
   world.set(cx + 1, y0 + 1, cz + 1, rand() < 0.7 ? DIAMOND_BLOCK : EMERALD_BLOCK);
+  world.set(cx, y0 + 4, cz, FENCE_IRON);
   world.set(cx, y0 + 3, cz, TORCH);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'tower' });
 }
@@ -537,6 +560,7 @@ export function buildPyramidLavaHorus(world: World, x0: number, y0: number, z0: 
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz, GOLD_BLOCK);
   world.set(cx + 1, y0 + 1, cz, DIAMOND_BLOCK);
+  world.set(cx, y0 + 4, cz, FENCE_IRON);
   world.set(cx, y0 + 3, cz, TORCH);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'tower' });
 }
@@ -639,6 +663,7 @@ export function buildPyramidSkullGate(world: World, x0: number, y0: number, z0: 
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz, GOLD_BLOCK);
   world.set(cx + 1, y0 + 1, cz, rand() < 0.75 ? DIAMOND_BLOCK : GOLD_BLOCK);
+  world.set(cx, y0 + 4, cz, FENCE_IRON);
   world.set(cx, y0 + 3, cz, TORCH);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'tower' });
 }
@@ -706,11 +731,14 @@ export function buildPyramidPharaohRed(world: World, x0: number, y0: number, z0:
     world.set(cx, y0 + 1, z, AIR);
     world.set(cx, y0 + 2, z, AIR);
   }
-  world.set(cx - 1, y0 + 3, z0 + 2, TORCH);
-  world.set(cx + 1, y0 + 3, z0 + 2, TORCH);
+  world.set(cx - 1, y0 + 1, z0 + 2, CHISELED_SANDSTONE);
+  world.set(cx - 1, y0 + 2, z0 + 2, TORCH);
+  world.set(cx + 1, y0 + 1, z0 + 2, CHISELED_SANDSTONE);
+  world.set(cx + 1, y0 + 2, z0 + 2, TORCH);
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz + 1, GOLD_BLOCK);
   world.set(cx + 1, y0 + 1, cz + 1, DIAMOND_BLOCK);
+  world.set(cx, y0 + 4, cz, FENCE_IRON);
   world.set(cx, y0 + 3, cz, TORCH);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'tower' });
 }
@@ -820,11 +848,11 @@ export function buildGreatSphinxMonument(world: World, x0: number, y0: number, z
     // Front claws
     world.set(cx + side, y0 + 1, z0 + 1, CHISELED_SANDSTONE);
   }
-  // Sacred Dream Stela & Gold Altar between the Sphinx's paws
+  // Sacred Dream Stela & Gold Altar between the Sphinx's paws (lanterns resting on the front paw pedestals)
   world.set(cx, y0 + 1, z0 + 3, PEDESTAL_GOLD);
   world.set(cx, y0 + 2, z0 + 4, GOLD_BLOCK);
-  world.set(cx - 1, y0 + 2, z0 + 1, TORCH);
-  world.set(cx + 1, y0 + 2, z0 + 1, TORCH);
+  world.set(cx - 2, y0 + 2, z0 + 1, TORCH);
+  world.set(cx + 2, y0 + 2, z0 + 1, TORCH);
 
   // 2. Lion Body (z = z0 + 5 .. z0 + 12, x = cx - 2 .. cx + 2, y = 1..5)
   for (let y = 1; y <= 5; y++) {
@@ -1365,6 +1393,7 @@ export function buildRuinedDesertCastle(world: World, x0: number, y0: number, z0
   world.set(tx, y0 + 1, tz, PEDESTAL_GOLD);
   world.set(tx - 1, y0 + 1, tz, GOLD_BLOCK);
   world.set(tx + 1, y0 + 1, tz, rand() < 0.7 ? DIAMOND_BLOCK : LAPIS_BLOCK);
+  world.set(tx, y0 + 4, tz, FENCE_IRON);
   world.set(tx, y0 + 3, tz, TORCH);
   world.structureSites.push({ x: tx, y: y0 + 1, z: tz, kind: 'ruin' });
 }
@@ -1477,7 +1506,9 @@ export function buildCliffsideCarvedTemple(world: World, cx: number, cz: number,
     }
     world.set(midX - 1, y0 + 7, facadeZ - 1, FENCE_WOOD);
     world.set(midX + 1, y0 + 7, facadeZ - 1, FENCE_WOOD);
+    world.set(midX - 2, y0 + 8, facadeZ - 2, FENCE_WOOD);
     world.set(midX - 2, y0 + 7, facadeZ - 2, TORCH);
+    world.set(midX + 2, y0 + 8, facadeZ - 2, FENCE_WOOD);
     world.set(midX + 2, y0 + 7, facadeZ - 2, TORCH);
 
     // Lush hanging vines & leaves cascading down the cliff face
@@ -1499,43 +1530,51 @@ export function buildCliffsideCarvedTemple(world: World, cx: number, cz: number,
       for (const wz of [z0 + 2, z0 + 3]) {
         world.set(bx, y0 + 1, wz, PLANKS);
       }
+      world.set(bx, y0 + 1, z0 + 1, CHISELED_SANDSTONE);
       world.set(bx, y0 + 2, z0 + 1, FENCE_WOOD);
       world.set(bx, y0 + 3, z0 + 1, TORCH);
     }
   }
 
-  // 2. Carve the Deep Walkable Cave Entrance Tunnel into the Mountain (z = facadeZ .. z0 + 13)
+  // 2. Carve the Deep Walkable Cave Entrance Tunnel into the Mountain (z = facadeZ .. z0 + 12)
   for (let z = facadeZ - 1; z <= z0 + 12; z++) {
-    const caveFloorOffset = z >= facadeZ + 4 ? -1 : 0;
-    for (let dy = caveFloorOffset; dy <= 3; dy++) {
+    for (let dy = 0; dy <= 3; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (dy === 3 && Math.abs(dx) === 1) continue; // Arched cave ceiling
         world.set(midX + dx, y0 + 1 + dy, z, AIR);
       }
     }
-    if (z === facadeZ + 2 || z === facadeZ + 6) {
+    // Tunnel lanterns on carved stone pedestals along the side walls
+    if (z === facadeZ + 2) {
+      world.set(midX - 1, y0 + 1, z, FENCE_STONE);
       world.set(midX - 1, y0 + 2, z, TORCH);
+      world.set(midX + 1, y0 + 1, z, FENCE_STONE);
       world.set(midX + 1, y0 + 2, z, TORCH);
     }
   }
 
-  // 3. Subterranean Mountain Cavern & Treasure Grotto at the end of the cave tunnel (z0 + 10..12)
+  // 3. Subterranean Mountain Cavern & Treasure Grotto at the end of the cave tunnel (z0 + 9..12)
   for (let z = z0 + 9; z <= z0 + 12; z++) {
     for (let dx = -3; dx <= 3; dx++) {
-      for (let dy = -1; dy <= 3; dy++) {
+      // Solid stone floor at y0 so nothing inside the grotto ever floats
+      world.set(midX + dx, y0, z, (dx + z) % 2 === 0 ? STONE : SANDSTONE);
+      for (let dy = 0; dy <= 3; dy++) {
         world.set(midX + dx, y0 + 1 + dy, z, AIR);
       }
     }
   }
-  // Ore veins & treasure inside the mountain cave grotto
-  world.set(midX - 3, y0 + 2, z0 + 11, GOLD_ORE);
-  world.set(midX + 3, y0 + 2, z0 + 11, IRON_ORE);
-  world.set(midX - 2, y0 + 1, z0 + 12, COAL_ORE);
-  world.set(midX + 2, y0 + 1, z0 + 12, EMERALD_ORE);
-  world.set(midX, y0, z0 + 11, PEDESTAL_GOLD);
-  world.set(midX - 1, y0, z0 + 11, GOLD_BLOCK);
-  world.set(midX + 1, y0, z0 + 11, rand() < 0.5 ? DIAMOND_BLOCK : rand() < 0.5 ? EMERALD_BLOCK : QUARTZ_BLOCK);
-  world.set(midX, y0 + 2, z0 + 12, REDSTONE_BLOCK);
+  // Embed mineral ore veins directly into the solid side walls (dx = ±4) & back wall (z0 + 13) or resting on y0 floor!
+  world.set(midX - 4, y0 + 2, z0 + 11, GOLD_ORE);
+  world.set(midX + 4, y0 + 2, z0 + 11, IRON_ORE);
+  world.set(midX - 2, y0 + 1, z0 + 13, COAL_ORE);
+  world.set(midX + 2, y0 + 1, z0 + 13, EMERALD_ORE);
+  // Treasure blocks & altar resting firmly on the solid grotto floor (y0 + 1)
+  world.set(midX, y0 + 1, z0 + 11, PEDESTAL_GOLD);
+  world.set(midX - 1, y0 + 1, z0 + 11, GOLD_BLOCK);
+  world.set(midX + 1, y0 + 1, z0 + 11, rand() < 0.5 ? DIAMOND_BLOCK : rand() < 0.5 ? EMERALD_BLOCK : QUARTZ_BLOCK);
+  world.set(midX, y0 + 1, z0 + 12, REDSTONE_BLOCK);
+  // Central grotto lantern suspended on a wrought-iron chain from the rock ceiling at y0 + 5
+  world.set(midX, y0 + 4, z0 + 11, FENCE_IRON);
   world.set(midX, y0 + 3, z0 + 11, TORCH);
 
   world.structureSites.push({ x: midX, y: y0 + 1, z: facadeZ + 2, kind: 'ruin' });

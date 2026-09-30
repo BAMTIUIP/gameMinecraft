@@ -1176,7 +1176,7 @@ export class World {
     }
     this.set(x0 + 2, y0 + 1, z0, AIR);
     this.set(x0 + 2, y0 + 2, z0, AIR);
-    if (z0 - 1 >= cx * CHUNK) {
+    if (!ruined && z0 - 1 >= cx * CHUNK) {
       this.set(x0 + 1, y0 + 3, z0 - 1, FENCE_STONE);
       this.set(x0 + 1, y0 + 2, z0 - 1, TORCH);
       this.set(x0 + 3, y0 + 3, z0 - 1, FENCE_STONE);

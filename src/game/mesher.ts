@@ -461,8 +461,30 @@ function addLantern(P: number[], C: number[], I: number[], x: number, y: number,
   const cz = z + 0.5;
   const above = world.get(x, y + 1, z);
   const below = world.get(x, y - 1, z);
-  const hanging = below === AIR && above !== AIR && above !== WATER;
-  const by = hanging ? y + 0.08 : y;
+  const hasFloor = below !== AIR && below !== WATER;
+  const hasCeiling = above !== AIR && above !== WATER;
+  const hanging = !hasFloor && hasCeiling;
+
+  // Detect adjacent wall if neither floor nor ceiling is present
+  let wallDx = 0;
+  let wallDz = 0;
+  if (!hasFloor && !hasCeiling) {
+    for (const [dx, dz] of [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ] as const) {
+      const nid = world.get(x + dx, y, z + dz);
+      if (isOpaque(nid) || nid === FENCE_WOOD || nid === FENCE_STONE) {
+        wallDx = dx;
+        wallDz = dz;
+        break;
+      }
+    }
+  }
+  const wallMounted = wallDx !== 0 || wallDz !== 0;
+  const by = hanging || wallMounted ? y + 0.08 : y;
 
   // 1. 4 Corner Feet at bottom
   for (const dx of [-0.15, 0.15]) {
@@ -510,9 +532,64 @@ function addLantern(P: number[], C: number[], I: number[], x: number, y: number,
   addBox(P, C, I, cx + 0.072, by + 0.715, cz, 0.05, 0.09, 0.05, ...LANTERN_IRON_DARK);
   addBox(P, C, I, cx, by + 0.77, cz, 0.195, 0.048, 0.05, ...LANTERN_IRON_DARK);
 
-  // 8. Upper Chain Link if suspended under a ceiling/beam/fence
+  // 8. Physical Mounting Hardware:
   if (hanging) {
-    addBox(P, C, I, cx, y + 0.93, cz, 0.048, 0.15, 0.09, ...LANTERN_IRON_DARK);
+    // Interlocking 3D iron chain links + ceiling flange plate connecting up to y + 1.0
+    addBox(P, C, I, cx, y + 0.91, cz, 0.11, 0.14, 0.055, ...LANTERN_IRON_DARK);
+    addBox(P, C, I, cx, y + 0.94, cz, 0.055, 0.12, 0.11, ...LANTERN_IRON_TOP);
+    addBox(P, C, I, cx, y + 0.98, cz, 0.18, 0.04, 0.18, ...LANTERN_IRON_MID);
+  } else if (wallMounted) {
+    // 3D Wall-Mount Timber & Wrought-Iron Bracket bolted to the adjacent wall (wallDx, wallDz)
+    const alongX = wallDx !== 0;
+    const plateX = cx + wallDx * 0.45;
+    const plateZ = cz + wallDz * 0.45;
+    // Vertical wall backplate bolted against the wall
+    addBox(
+      P,
+      C,
+      I,
+      plateX,
+      y + 0.74,
+      plateZ,
+      alongX ? 0.10 : 0.22,
+      0.38,
+      alongX ? 0.22 : 0.10,
+      ...FENCE_WOOD_DARK,
+    );
+    // Horizontal cantilevered bracket beam extending from wall out over the lantern center
+    const armCx = cx + wallDx * 0.22;
+    const armCz = cz + wallDz * 0.22;
+    addBox(
+      P,
+      C,
+      I,
+      armCx,
+      y + 0.91,
+      armCz,
+      alongX ? 0.62 : 0.14,
+      0.11,
+      alongX ? 0.14 : 0.62,
+      ...FENCE_WOOD_MAIN,
+    );
+    // Diagonal iron/wood brace strut under the bracket arm
+    addBox(
+      P,
+      C,
+      I,
+      cx + wallDx * 0.32,
+      y + 0.76,
+      cz + wallDz * 0.32,
+      alongX ? 0.24 : 0.08,
+      0.18,
+      alongX ? 0.08 : 0.24,
+      ...LANTERN_IRON_MID,
+    );
+    // Iron chain link connecting the bracket arm down to the lantern handle
+    addBox(P, C, I, cx, y + 0.86, cz, 0.08, 0.08, 0.08, ...LANTERN_IRON_DARK);
+  } else if (!hasFloor) {
+    // Safety net: if a lantern ever lacks floor, ceiling, and wall, anchor it with a post to the ground below
+    addBox(P, C, I, cx, y - 0.5, cz, 0.24, 1.0, 0.24, ...FENCE_WOOD_MAIN);
+    addBox(P, C, I, cx, y - 0.04, cz, 0.32, 0.08, 0.32, ...FENCE_WOOD_DARK);
   }
 }
 
