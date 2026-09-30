@@ -842,10 +842,7 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
       // Deer faces: narrow skull, short tapering muzzle, side-set eyes and tall leaf ears.
       // This removes the square, dog-like snout while staying blocky/Minecraft-like.
       const faceFront = headZ - headD / 2;
-      const bridge = box(fawn ? 0.13 : 0.15, fawn ? 0.22 : 0.27, 0.032, def.accent, mats);
-      bridge.position.set(0, headY - (fawn ? 0.02 : 0.03), faceFront - 0.018);
-      bridge.userData.deerHead = true;
-      g.add(bridge);
+      coatPatch(g, mats, 'front', 0, headY - (fawn ? 0.02 : 0.03), faceFront - 0.004, fawn ? 0.13 : 0.15, fawn ? 0.22 : 0.27, def.accent, 'deerPatch');
 
       const snoutW = fawn ? 0.14 : roe ? 0.16 : 0.17;
       const snoutH = fawn ? 0.095 : roe ? 0.115 : 0.12;
@@ -855,27 +852,17 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
       muzzle.userData.deerHead = true;
       g.add(muzzle);
 
-      const chin = box(snoutW * 0.82, snoutH * 0.45, snoutD * 0.62, '#f0ddbd', mats);
-      chin.position.set(0, muzzle.position.y - snoutH * 0.55, muzzle.position.z + snoutD * 0.05);
-      chin.userData.deerHead = true;
-      g.add(chin);
+      const muzzleFront = muzzle.position.z - snoutD * 0.5 - 0.004;
+      coatPatch(g, mats, 'front', 0, muzzle.position.y - snoutH * 0.24, muzzleFront, snoutW * 0.78, snoutH * 0.56, '#f0ddbd', 'deerPatch');
+      coatPatch(g, mats, 'front', 0, muzzle.position.y + snoutH * 0.1, muzzleFront - 0.002, snoutW * 0.64, fawn ? 0.04 : 0.05, '#33231b', 'deerPatch');
 
-      const nose = box(snoutW * 0.7, fawn ? 0.045 : 0.055, 0.042, '#33231b', mats);
-      nose.position.set(0, muzzle.position.y + snoutH * 0.05, muzzle.position.z - snoutD * 0.5 - 0.022);
-      nose.userData.deerHead = true;
-      g.add(nose);
-
-      const throat = box(fawn ? 0.14 : 0.18, fawn ? 0.2 : 0.25, 0.035, '#f0ddbd', mats);
-      throat.position.set(0, fawn ? 0.79 : roe ? 0.93 : 0.98, headZ - 0.02);
-      g.add(throat);
+      const neckFront = fawn ? -0.676 : -0.726;
+      coatPatch(g, mats, 'front', 0, fawn ? 0.79 : roe ? 0.93 : 0.98, neckFront - 0.004, fawn ? 0.13 : 0.16, fawn ? 0.18 : 0.23, '#f0ddbd', 'deerPatch');
 
       for (const side of [-1, 1]) {
         const face: PatchFace = side < 0 ? 'left' : 'right';
         coatPatch(g, mats, face, side * (headW / 2 + 0.004), headY + (fawn ? 0.025 : 0.04), headZ - 0.055, fawn ? 0.055 : 0.065, fawn ? 0.07 : 0.078, '#231b16', 'deerEye');
-        const tear = box(0.018, fawn ? 0.055 : 0.065, 0.028, '#e7d4b5', mats);
-        tear.position.set(side * (headW / 2 + 0.02), headY - (fawn ? 0.03 : 0.02), headZ - 0.1);
-        tear.userData.deerHead = true;
-        g.add(tear);
+        coatPatch(g, mats, face, side * (headW / 2 + 0.006), headY - (fawn ? 0.03 : 0.02), headZ - 0.1, 0.032, fawn ? 0.055 : 0.065, '#e7d4b5', 'deerPatch');
 
         const earH = fawn ? 0.31 : roe ? 0.34 : 0.36;
         const ear = box(fawn ? 0.07 : 0.08, earH, fawn ? 0.075 : 0.085, def.body, mats);
@@ -1240,7 +1227,7 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
 
 /** Rotate the whole face (eyes, muzzle and ears included), not just the head
  * cube. The neck is included on camels so they can reach down to eat. */
-function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId) {
+function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId): { pivot: THREE.Group; mouth: THREE.Object3D | null } {
   const camel = id === 'camel' || id === 'camel_calf';
   const camelCalf = id === 'camel_calf';
   const deerLike = id === 'deer' || id === 'roe_deer' || id === 'fawn';
@@ -1260,6 +1247,7 @@ function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.M
     }
   }
   group.add(pivot);
+  if (deerLike) return { pivot, mouth: null };
   const mouth = box(
     camelCalf ? 0.17 : camel ? 0.22 : deerLike ? (id === 'fawn' ? 0.11 : 0.14) : 0.2,
     deerLike ? 0.045 : 0.07,
