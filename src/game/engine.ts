@@ -385,6 +385,19 @@ export class Engine {
   private avatarRightArm: THREE.Object3D | null = null;
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
+  private avatarHeldRoot!: THREE.Group;
+  private avatarHeldPick!: THREE.Group;
+  private avatarHeldAxe!: THREE.Group;
+  private avatarHeldSword!: THREE.Group;
+  private avatarHeldShovel!: THREE.Group;
+  private avatarHeldBow!: THREE.Group;
+  private avatarHeldTorch!: THREE.Group;
+  private avatarHeldBlock!: THREE.Mesh;
+  private avatarHeldPickMats: THREE.MeshLambertMaterial[] = [];
+  private avatarHeldSwordMat!: THREE.MeshLambertMaterial;
+  private avatarHeldAxeHeadMat!: THREE.MeshLambertMaterial;
+  private avatarHeldAxeEdgeMat!: THREE.MeshLambertMaterial;
+  private avatarHeldBlockMat!: THREE.MeshLambertMaterial;
   private thirdPersonClipUniforms: Array<{
     active: { value: number };
     start: { value: THREE.Vector3 };
@@ -1202,6 +1215,69 @@ if (tpClipActive > 0.5) {
     g.add(rightArm);
     this.avatarRightArm = rightArm;
 
+    const heldRoot = new THREE.Group();
+    heldRoot.position.set(0.02, -0.78, -0.14);
+    heldRoot.rotation.set(-0.72, 0.08, -0.18);
+    rightArm.add(heldRoot);
+    this.avatarHeldRoot = heldRoot;
+
+    const makeHeldGroup = () => {
+      const group = new THREE.Group();
+      group.visible = false;
+      heldRoot.add(group);
+      return group;
+    };
+    const woodHeld = new THREE.MeshLambertMaterial({ color: 0x9c7743 });
+    const ironHeld = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
+    const darkHeld = new THREE.MeshLambertMaterial({ color: 0x262423 });
+
+    this.avatarHeldPick = makeHeldGroup();
+    this.avatarHeldPickMats = [new THREE.MeshLambertMaterial({ color: PICKAXE_TIERS[0].color })];
+    addBox(0.07, 0.62, 0.07, woodHeld, 0, -0.02, 0, this.avatarHeldPick);
+    addBox(0.12, 0.12, 0.46, this.avatarHeldPickMats[0], 0, 0.34, 0, this.avatarHeldPick);
+    addBox(0.11, 0.11, 0.2, this.avatarHeldPickMats[0], 0, 0.32, -0.28, this.avatarHeldPick).rotation.x = -0.48;
+    addBox(0.11, 0.11, 0.2, this.avatarHeldPickMats[0], 0, 0.32, 0.28, this.avatarHeldPick).rotation.x = 0.48;
+    this.avatarHeldPick.rotation.set(0.18, 0, 0.68);
+
+    this.avatarHeldAxe = makeHeldGroup();
+    this.avatarHeldAxeHeadMat = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
+    this.avatarHeldAxeEdgeMat = new THREE.MeshLambertMaterial({ color: 0xd6d9dd });
+    addBox(0.07, 0.6, 0.07, woodHeld, 0, 0, 0, this.avatarHeldAxe);
+    addBox(0.24, 0.22, 0.1, this.avatarHeldAxeHeadMat, 0.12, 0.28, 0, this.avatarHeldAxe);
+    addBox(0.07, 0.28, 0.11, this.avatarHeldAxeEdgeMat, 0.28, 0.28, 0, this.avatarHeldAxe);
+    this.avatarHeldAxe.rotation.set(0.08, 0, 0.55);
+
+    this.avatarHeldSword = makeHeldGroup();
+    this.avatarHeldSwordMat = new THREE.MeshLambertMaterial({ color: 0xd9dde2 });
+    addBox(0.07, 0.68, 0.045, this.avatarHeldSwordMat, 0, 0.28, 0, this.avatarHeldSword);
+    addBox(0.25, 0.07, 0.07, woodHeld, 0, -0.08, 0, this.avatarHeldSword);
+    addBox(0.08, 0.22, 0.07, darkHeld, 0, -0.22, 0, this.avatarHeldSword);
+    this.avatarHeldSword.rotation.set(0.05, 0, 0.25);
+
+    this.avatarHeldShovel = makeHeldGroup();
+    addBox(0.06, 0.6, 0.06, woodHeld, 0, 0, 0, this.avatarHeldShovel);
+    addBox(0.17, 0.24, 0.055, ironHeld, 0, 0.36, 0, this.avatarHeldShovel);
+    this.avatarHeldShovel.rotation.set(0.1, 0, 0.32);
+
+    this.avatarHeldBow = makeHeldGroup();
+    addBox(0.055, 0.42, 0.07, woodHeld, 0.05, 0.22, 0, this.avatarHeldBow).rotation.z = -0.38;
+    addBox(0.055, 0.42, 0.07, woodHeld, 0.05, -0.22, 0, this.avatarHeldBow).rotation.z = 0.38;
+    addBox(0.018, 0.78, 0.018, new THREE.MeshBasicMaterial({ color: 0xe8e2d2 }), 0.2, 0, 0, this.avatarHeldBow);
+    this.avatarHeldBow.rotation.set(0, 0.15, 0.25);
+
+    this.avatarHeldTorch = makeHeldGroup();
+    addBox(0.07, 0.45, 0.07, woodHeld, 0, 0, 0, this.avatarHeldTorch);
+    addBox(0.12, 0.13, 0.12, new THREE.MeshBasicMaterial({ color: 0xffc84a }), 0, 0.28, 0, this.avatarHeldTorch);
+    addBox(0.09, 0.12, 0.09, new THREE.MeshBasicMaterial({ color: 0xffec8c, transparent: true, opacity: 0.9 }), 0, 0.42, 0, this.avatarHeldTorch);
+    this.avatarHeldTorch.rotation.set(0.05, 0, 0.2);
+
+    this.avatarHeldBlockMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    this.avatarHeldBlock = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), this.avatarHeldBlockMat);
+    this.avatarHeldBlock.position.set(0, 0.08, -0.02);
+    this.avatarHeldBlock.rotation.set(0.25, 0.55, 0.1);
+    this.avatarHeldBlock.visible = false;
+    heldRoot.add(this.avatarHeldBlock);
+
     const leftLeg = new THREE.Group();
     leftLeg.position.set(-0.15, 0.7, 0);
     addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, leftLeg);
@@ -1311,6 +1387,48 @@ if (tpClipActive > 0.5) {
         }
         uv.needsUpdate = true;
       }
+    }
+    this.syncThirdPersonHeldItem();
+  }
+
+  private syncThirdPersonHeldItem() {
+    if (!this.avatarHeldRoot) return;
+    const all = [
+      this.avatarHeldPick,
+      this.avatarHeldAxe,
+      this.avatarHeldSword,
+      this.avatarHeldShovel,
+      this.avatarHeldBow,
+      this.avatarHeldTorch,
+    ];
+    for (const g of all) if (g) g.visible = false;
+    if (this.avatarHeldBlock) this.avatarHeldBlock.visible = false;
+    const kind = this.heldKind();
+    const heldId = this.hotbar[this.selected];
+    if (kind === 'pick') {
+      this.avatarHeldPick.visible = true;
+      const c = PICKAXE_TIERS[this.heldPickTier()].color;
+      this.avatarHeldPickMats.forEach((m) => m.color.set(c));
+    } else if (kind === 'axe') {
+      this.avatarHeldAxe.visible = true;
+      const tier = this.heldAxeTier();
+      if (tier === 0) {
+        this.avatarHeldAxeHeadMat.color.set('#b98a4d');
+        this.avatarHeldAxeEdgeMat.color.set('#c09a61');
+      } else {
+        this.avatarHeldAxeHeadMat.color.set('#a8aeb4');
+        this.avatarHeldAxeEdgeMat.color.set('#d6d9dd');
+      }
+    } else if (kind === 'sword') {
+      this.avatarHeldSword.visible = true;
+      this.avatarHeldSwordMat.color.set(SWORDS[Math.max(0, this.heldSwordTier())].color);
+    } else if (kind === 'shovel') this.avatarHeldShovel.visible = true;
+    else if (kind === 'bow') this.avatarHeldBow.visible = true;
+    else if (kind === 'torch' || heldId === TORCH) this.avatarHeldTorch.visible = true;
+    else if ((kind === 'block' || kind === 'gear') && heldId !== undefined) {
+      this.avatarHeldBlock.visible = true;
+      const tint = BLOCKS[heldId]?.tint ?? [210, 210, 210];
+      this.avatarHeldBlockMat.color.setRGB(tint[0] / 255, tint[1] / 255, tint[2] / 255, THREE.SRGBColorSpace);
     }
   }
 
@@ -2874,18 +2992,19 @@ if (tpClipActive > 0.5) {
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
     if (!visible) return;
-    this.playerAvatar.position.set(this.pos.x, this.pos.y, this.pos.z);
-    this.playerAvatar.rotation.set(0, this.yaw, 0);
-    const squat = 1 - this.crouchLerp * 0.16 - this.crawlLerp * 0.42;
-    this.playerAvatar.scale.set(1, Math.max(0.55, squat), 1);
+    this.playerAvatar.position.set(this.pos.x, this.pos.y + this.crawlLerp * 0.44, this.pos.z);
+    this.playerAvatar.rotation.set(-Math.PI * 0.5 * this.crawlLerp, this.yaw, 0);
+    const squat = 1 - this.crouchLerp * 0.16;
+    this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
     const move = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / WALK);
-    const swing = Math.sin(this.bob * 2.35) * 0.55 * move;
-    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.x = swing;
-    if (this.avatarRightLeg) this.avatarRightLeg.rotation.x = -swing;
+    const uprightSwing = Math.sin(this.bob * 2.35) * 0.55 * move * (1 - this.crawlLerp);
+    const crawlSwing = Math.sin(this.bob * 3.8) * 0.48 * move * this.crawlLerp;
+    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.x = uprightSwing - crawlSwing * 0.55;
+    if (this.avatarRightLeg) this.avatarRightLeg.rotation.x = -uprightSwing + crawlSwing * 0.55;
     const miningSwing = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT) * Math.PI) * 0.95 : 0;
-    if (this.avatarLeftArm) this.avatarLeftArm.rotation.x = -swing * 0.7;
-    if (this.avatarRightArm) this.avatarRightArm.rotation.x = swing * 0.7 - miningSwing;
-    if (this.avatarHead) this.avatarHead.rotation.x = Math.max(-0.6, Math.min(0.6, this.pitch * 0.45));
+    if (this.avatarLeftArm) this.avatarLeftArm.rotation.x = -uprightSwing * 0.7 - crawlSwing;
+    if (this.avatarRightArm) this.avatarRightArm.rotation.x = uprightSwing * 0.7 + crawlSwing - miningSwing * (1 - this.crawlLerp * 0.45);
+    if (this.avatarHead) this.avatarHead.rotation.x = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45 - this.crawlLerp * 0.18));
   }
 
   private restoreThirdPersonOccluders() {
@@ -2901,7 +3020,22 @@ if (tpClipActive > 0.5) {
     // Shader-based x-ray tunnel: only pixels inside the camera→player segment
     // are cut out. Nothing in front of the avatar is affected anymore.
     const underground = this.pos.y < this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z)) - 2;
-    const radius = underground ? 1.35 : 1.05;
+    const seg = new THREE.Vector3().subVectors(focus, start);
+    const dist = seg.length();
+    const dir = dist > 0.001 ? seg.clone().multiplyScalar(1 / dist) : new THREE.Vector3(0, 0, -1);
+    let blocked = false;
+    for (let t = 0.45; t < dist - 0.35; t += 0.55) {
+      const bx = Math.floor(start.x + dir.x * t);
+      const by = Math.floor(start.y + dir.y * t);
+      const bz = Math.floor(start.z + dir.z * t);
+      const id = this.world.get(bx, by, bz);
+      if (id !== AIR && id !== WATER && this.world.inBounds(bx, by, bz)) { blocked = true; break; }
+    }
+    if (!blocked) {
+      this.restoreThirdPersonOccluders();
+      return;
+    }
+    const radius = underground ? 0.78 : 0.46;
     for (const u of this.thirdPersonClipUniforms) {
       u.active.value = 1;
       u.start.value.copy(start);
@@ -3228,15 +3362,31 @@ if (tpClipActive > 0.5) {
   private eyeV = new THREE.Vector3();
   private dirV = new THREE.Vector3();
   private updateTarget() {
-    // analytic view vector — immune to screen shake / camera smoothing
+    // First-person mines from the eyes. Third-person uses the screen-centre
+    // camera ray but ignores the transparent camera→avatar corridor, so the
+    // highlighted block is exactly what the crosshair sits on.
     const cp = Math.cos(this.pitch),
       sp = Math.sin(this.pitch);
     this.dirV.set(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp);
     this.eyeV.set(this.pos.x, this.pos.y + EYE, this.pos.z);
+    if (this.thirdPerson && this.phase === 'playing') {
+      const camDir = new THREE.Vector3();
+      this.camera.getWorldDirection(camDir);
+      const focus = new THREE.Vector3(this.pos.x, this.pos.y + EYE - this.crawlLerp * (EYE - 0.52) + 0.05, this.pos.z);
+      const skip = Math.max(0, this.camera.position.distanceTo(focus) - 0.35);
+      const hit = this.raycast(this.camera.position, camDir, skip + REACH + 1.6, skip);
+      if (hit) {
+        const hx = hit.x + 0.5, hy = hit.y + 0.5, hz = hit.z + 0.5;
+        if (Math.hypot(hx - this.pos.x, hy - (this.pos.y + EYE), hz - this.pos.z) <= REACH + 2.2) {
+          this.target = hit;
+          return;
+        }
+      }
+    }
     this.target = this.raycast(this.eyeV, this.dirV, REACH);
   }
 
-  private raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number) {
+  private raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, minDist = 0) {
     let x = Math.floor(origin.x),
       y = Math.floor(origin.y),
       z = Math.floor(origin.z);
@@ -3259,7 +3409,7 @@ if (tpClipActive > 0.5) {
     for (let i = 0; i < 128; i++) {
       const id = this.world.get(x, y, z);
       // the crosshair ray passes straight through water — you can mine underwater
-      if (id !== AIR && id !== WATER && this.world.inBounds(x, y, z)) {
+      if (t >= minDist && id !== AIR && id !== WATER && this.world.inBounds(x, y, z)) {
         return { x, y, z, nx, ny, nz, id };
       }
       if (tMaxX < tMaxY && tMaxX < tMaxZ) {
