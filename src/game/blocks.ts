@@ -85,6 +85,39 @@ export const DESERT_THISTLE = 77;
 export const BIRD_NEST = 78;
 export const CHICKEN_NEST = 79;
 export const MUSHROOM = 80;
+export const SANDSTONE = 81;
+export const CHISELED_SANDSTONE = 82;
+export const TERRACOTTA_ORANGE = 83;
+export const HAY_BALE = 84;
+/** 8 Mineral Ores (Row 1 of reference table) */
+export const COAL_ORE = 85;
+export const IRON_ORE = 86;
+export const REDSTONE_ORE = 87;
+export const GOLD_ORE = 88;
+export const LAPIS_ORE = 89;
+export const DIAMOND_ORE = 90;
+export const EMERALD_ORE = 91;
+export const QUARTZ_ORE = 92;
+/** Missing Crafted Mineral Blocks (Row 3 of reference table; GOLD_BLOCK=16 & DIAMOND_BLOCK=17 already exist) */
+export const COAL_BLOCK = 93;
+export const IRON_BLOCK = 94;
+export const REDSTONE_BLOCK = 95;
+export const LAPIS_BLOCK = 96;
+export const EMERALD_BLOCK = 97;
+export const QUARTZ_BLOCK = 98;
+/** Missing Mineral Items / Materials (Row 2 of reference table; COAL=5, IRON=6, GOLD=7, DIAMOND=8 already exist) */
+export const REDSTONE = 99;
+export const LAPIS = 100;
+export const EMERALD = 101;
+export const QUARTZ = 102;
+
+export const isOreBlock = (id: number) =>
+  (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
+
+export const isMineralItem = (id: number) =>
+  (id >= COAL && id <= DIAMOND) ||
+  (id >= REDSTONE && id <= QUARTZ) ||
+  id === NETHERITE;
 
 export const isFluid = (id: number) => id === WATER || id === LAVA;
 export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === DRY_BLOOM || id === DESERT_THISTLE;
@@ -96,9 +129,9 @@ export const isLeafId = (id: number) =>
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 
 export const isResource = (id: number) =>
+  isMineralItem(id) ||
   (id >= RAW_MEAT && id <= LOOT_BAG) ||
   id === HONEY ||
-  id === NETHERITE ||
   (id >= FEATHER && id <= CAT_CLAW) ||
   id === APPLE || id === COCONUT || id === BANANA;
 
@@ -107,14 +140,32 @@ export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
 export function blockClass(id: number): BlockClass {
   switch (id) {
     case VOLCANIC_STONE:
+    case SANDSTONE:
+    case CHISELED_SANDSTONE:
+    case TERRACOTTA_ORANGE:
     case STONE:
     case COBBLE:
     case COAL:
     case IRON:
     case GOLD:
     case DIAMOND:
+    case COAL_ORE:
+    case IRON_ORE:
+    case REDSTONE_ORE:
+    case GOLD_ORE:
+    case LAPIS_ORE:
+    case DIAMOND_ORE:
+    case EMERALD_ORE:
+    case QUARTZ_ORE:
+    case NETHERITE_ORE:
+    case COAL_BLOCK:
+    case IRON_BLOCK:
+    case REDSTONE_BLOCK:
     case GOLD_BLOCK:
+    case LAPIS_BLOCK:
     case DIAMOND_BLOCK:
+    case EMERALD_BLOCK:
+    case QUARTZ_BLOCK:
     case FENCE_STONE:
     case PEDESTAL:
     case PEDESTAL_GOLD:
@@ -125,6 +176,7 @@ export function blockClass(id: number): BlockClass {
     case GRASS:
     case SAND:
     case SNOW_GRASS:
+    case HAY_BALE:
       return 'earth';
     case ICE:
       return 'stone';
@@ -240,6 +292,33 @@ export const T = {
   birdNest: 86,
   chickenNest: 87,
   mushroom: 88,
+  sandstoneTop: 89,
+  sandstoneSide: 90,
+  sandstoneBottom: 91,
+  chiseledSandstoneSide: 92,
+  terracottaOrange: 93,
+  hayBaleTop: 94,
+  hayBaleSide: 95,
+  doorWoodBottom: 96,
+  doorIronBottom: 97,
+  redstoneOre: 98,
+  lapisOre: 99,
+  emeraldOre: 100,
+  quartzOre: 101,
+  coalBlock: 102,
+  ironBlock: 103,
+  redstoneBlock: 104,
+  lapisBlock: 105,
+  emeraldBlock: 106,
+  quartzBlock: 107,
+  coalItem: 108,
+  ironIngot: 109,
+  redstone: 110,
+  goldIngot: 111,
+  lapis: 112,
+  diamondGem: 113,
+  emerald: 114,
+  quartz: 115,
 };
 
 export type BlockDef = {
@@ -304,38 +383,50 @@ export const BLOCKS: BlockDef[] = [
   d({ id: COBBLE, name: 'Cobblestone', side: T.cobble, hardness: 1.1, score: 5, tint: [122, 122, 126] }),
   d({
     id: COAL,
-    name: 'Coal Ore',
-    side: T.coal,
+    name: 'Coal',
+    side: T.coalItem,
     hardness: 1.5,
     score: 45,
     timeBonus: 1.5,
+    solid: false,
+    breakable: false,
+    drop: 0,
     tint: [70, 68, 72],
   }),
   d({
     id: IRON,
-    name: 'Iron Ore',
-    side: T.iron,
+    name: 'Iron Ingot',
+    side: T.ironIngot,
     hardness: 1.9,
     score: 110,
     timeBonus: 2.5,
-    tint: [206, 168, 130],
+    solid: false,
+    breakable: false,
+    drop: 0,
+    tint: [216, 220, 226],
   }),
   d({
     id: GOLD,
-    name: 'Gold Ore',
-    side: T.gold,
+    name: 'Gold Ingot',
+    side: T.goldIngot,
     hardness: 2.1,
     score: 240,
     timeBonus: 4,
+    solid: false,
+    breakable: false,
+    drop: 0,
     tint: [250, 214, 92],
   }),
   d({
     id: DIAMOND,
-    name: 'Diamond Ore',
-    side: T.diamond,
+    name: 'Diamond',
+    side: T.diamondGem,
     hardness: 2.6,
     score: 620,
     timeBonus: 7,
+    solid: false,
+    breakable: false,
+    drop: 0,
     tint: [96, 232, 224],
   }),
   d({ id: LOG, name: 'Oak Log', top: T.logTop, side: T.logSide, hardness: 0.85, score: 14, tint: [112, 84, 51] }),
@@ -369,6 +460,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.torch,
     hardness: 0.16,
     score: 2,
+    solid: false,
     tint: [255, 208, 110],
     emissive: 1,
   }),
@@ -504,6 +596,224 @@ export const BLOCKS: BlockDef[] = [
   d({ id: BIRD_NEST, name: 'Twig Nest', side: T.birdNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [102, 68, 42] }),
   d({ id: CHICKEN_NEST, name: 'Straw Nest', side: T.chickenNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [208, 173, 83] }),
   d({ id: MUSHROOM, name: 'Forest Mushroom', side: T.mushroom, hardness: 0.08, score: 3, solid: false, drop: 0, tint: [202, 95, 68] }),
+  d({
+    id: SANDSTONE,
+    name: 'Sandstone',
+    top: T.sandstoneTop,
+    side: T.sandstoneSide,
+    bottom: T.sandstoneBottom,
+    hardness: 0.9,
+    score: 6,
+    tint: [222, 206, 156],
+  }),
+  d({
+    id: CHISELED_SANDSTONE,
+    name: 'Chiseled Sandstone',
+    top: T.sandstoneTop,
+    side: T.chiseledSandstoneSide,
+    bottom: T.sandstoneTop,
+    hardness: 0.95,
+    score: 8,
+    tint: [228, 212, 162],
+  }),
+  d({
+    id: TERRACOTTA_ORANGE,
+    name: 'Orange Terracotta',
+    side: T.terracottaOrange,
+    hardness: 1.0,
+    score: 7,
+    tint: [186, 98, 56],
+  }),
+  d({
+    id: HAY_BALE,
+    name: 'Hay Bale',
+    top: T.hayBaleTop,
+    side: T.hayBaleSide,
+    bottom: T.hayBaleTop,
+    hardness: 0.5,
+    score: 6,
+    tint: [216, 182, 74],
+  }),
+  // ---- 8 Mineral Ores (Row 1 of reference table) ----
+  d({
+    id: COAL_ORE,
+    name: 'Coal Ore',
+    side: T.coal,
+    hardness: 1.5,
+    score: 45,
+    timeBonus: 1.5,
+    drop: COAL,
+    tint: [70, 68, 72],
+  }),
+  d({
+    id: IRON_ORE,
+    name: 'Iron Ore',
+    side: T.iron,
+    hardness: 1.9,
+    score: 110,
+    timeBonus: 2.5,
+    drop: IRON,
+    tint: [206, 168, 130],
+  }),
+  d({
+    id: REDSTONE_ORE,
+    name: 'Redstone Ore',
+    side: T.redstoneOre,
+    hardness: 2.0,
+    score: 160,
+    timeBonus: 3.0,
+    drop: REDSTONE,
+    tint: [215, 36, 36],
+  }),
+  d({
+    id: GOLD_ORE,
+    name: 'Gold Ore',
+    side: T.gold,
+    hardness: 2.1,
+    score: 240,
+    timeBonus: 4.0,
+    drop: GOLD,
+    tint: [250, 214, 92],
+  }),
+  d({
+    id: LAPIS_ORE,
+    name: 'Lapis Lazuli Ore',
+    side: T.lapisOre,
+    hardness: 2.0,
+    score: 190,
+    timeBonus: 3.5,
+    drop: LAPIS,
+    tint: [45, 92, 220],
+  }),
+  d({
+    id: DIAMOND_ORE,
+    name: 'Diamond Ore',
+    side: T.diamond,
+    hardness: 2.6,
+    score: 620,
+    timeBonus: 7.0,
+    drop: DIAMOND,
+    tint: [96, 232, 224],
+  }),
+  d({
+    id: EMERALD_ORE,
+    name: 'Emerald Ore',
+    side: T.emeraldOre,
+    hardness: 2.7,
+    score: 700,
+    timeBonus: 8.0,
+    drop: EMERALD,
+    tint: [40, 216, 96],
+  }),
+  d({
+    id: QUARTZ_ORE,
+    name: 'Nether Quartz Ore',
+    side: T.quartzOre,
+    hardness: 1.8,
+    score: 150,
+    timeBonus: 3.0,
+    drop: QUARTZ,
+    tint: [236, 226, 216],
+  }),
+  // ---- Crafted Mineral Blocks (Row 3 of reference table) ----
+  d({
+    id: COAL_BLOCK,
+    name: 'Coal Block',
+    side: T.coalBlock,
+    hardness: 1.8,
+    score: 180,
+    tint: [32, 32, 36],
+  }),
+  d({
+    id: IRON_BLOCK,
+    name: 'Iron Block',
+    side: T.ironBlock,
+    hardness: 2.2,
+    score: 440,
+    tint: [224, 226, 230],
+  }),
+  d({
+    id: REDSTONE_BLOCK,
+    name: 'Redstone Block',
+    side: T.redstoneBlock,
+    hardness: 2.0,
+    score: 600,
+    tint: [196, 24, 20],
+    emissive: 1,
+  }),
+  d({
+    id: LAPIS_BLOCK,
+    name: 'Lapis Lazuli Block',
+    side: T.lapisBlock,
+    hardness: 2.0,
+    score: 720,
+    tint: [38, 76, 198],
+  }),
+  d({
+    id: EMERALD_BLOCK,
+    name: 'Emerald Block',
+    side: T.emeraldBlock,
+    hardness: 2.8,
+    score: 1600,
+    tint: [42, 218, 98],
+  }),
+  d({
+    id: QUARTZ_BLOCK,
+    name: 'Quartz Block',
+    side: T.quartzBlock,
+    hardness: 1.6,
+    score: 520,
+    tint: [240, 235, 228],
+  }),
+  // ---- Missing Mineral Items / Materials (Row 2 of reference table) ----
+  d({
+    id: REDSTONE,
+    name: 'Redstone',
+    side: T.redstone,
+    hardness: 1.0,
+    score: 160,
+    timeBonus: 3.0,
+    solid: false,
+    breakable: false,
+    drop: 0,
+    tint: [215, 28, 28],
+  }),
+  d({
+    id: LAPIS,
+    name: 'Lapis Lazuli',
+    side: T.lapis,
+    hardness: 1.0,
+    score: 190,
+    timeBonus: 3.5,
+    solid: false,
+    breakable: false,
+    drop: 0,
+    tint: [42, 88, 218],
+  }),
+  d({
+    id: EMERALD,
+    name: 'Emerald',
+    side: T.emerald,
+    hardness: 1.0,
+    score: 700,
+    timeBonus: 8.0,
+    solid: false,
+    breakable: false,
+    drop: 0,
+    tint: [38, 214, 92],
+  }),
+  d({
+    id: QUARTZ,
+    name: 'Nether Quartz',
+    side: T.quartz,
+    hardness: 1.0,
+    score: 150,
+    timeBonus: 3.0,
+    solid: false,
+    breakable: false,
+    drop: 0,
+    tint: [238, 230, 220],
+  }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
@@ -522,6 +832,8 @@ export const isInteractive = (id: number) => id === DOOR_WOOD || id === DOOR_IRO
 export const isOpaque = (id: number) =>
   id !== AIR &&
   id !== WATER &&
+  id !== TORCH &&
+  id !== BED &&
   !(
     isCutout(id) ||
     isPlant(id) ||

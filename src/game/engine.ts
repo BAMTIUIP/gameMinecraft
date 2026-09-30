@@ -9,10 +9,27 @@ import {
   COBBLE,
   COOKED_MEAT,
   DIAMOND,
+  DIAMOND_BLOCK,
+  DOOR_IRON,
+  DOOR_WOOD,
   GLASS,
   IRON,
   DIRT,
   GOLD,
+  GOLD_BLOCK,
+  GOLD_ORE,
+  DIAMOND_ORE,
+  EMERALD_ORE,
+  COAL_BLOCK,
+  IRON_BLOCK,
+  REDSTONE_BLOCK,
+  LAPIS_BLOCK,
+  EMERALD_BLOCK,
+  QUARTZ_BLOCK,
+  REDSTONE,
+  LAPIS,
+  EMERALD,
+  QUARTZ,
   GRASS,
   LAVA,
   LEAVES,
@@ -22,6 +39,8 @@ import {
   RAW_MEAT,
   SAND,
   STONE,
+  T,
+  TORCH,
   WATER,
   ARROW_ITEM,
   FLOWER_RED,
@@ -86,6 +105,8 @@ import {
   isSwordTool,
   isAxeTool,
   toolSellPrice,
+  getSalvageForItemId,
+  getSalvageForGear,
   type Recipe,
 } from './recipes';
 import { MobSystem, type Mob, type MobId } from './mobs';
@@ -94,9 +115,13 @@ import {
   computeStats,
   damageReduction,
   EMPTY_STATS,
+  ensureGearHid,
+  isGearHotbarId,
   makeItem,
+  MATERIALS,
   RARITY,
   rollLoot,
+  SLOT_KEY,
   type AffixId,
   type Item,
   type Slot,
@@ -153,12 +178,13 @@ export type HudState = {
   phaseName: 'day' | 'dusk' | 'night' | 'dawn';
   kills: number;
   heldName: string;
-  heldKind: 'pick' | 'sword' | 'block' | 'fist' | 'torch' | 'axe' | 'shovel' | 'bow';
+  heldKind: 'pick' | 'sword' | 'block' | 'fist' | 'torch' | 'axe' | 'shovel' | 'bow' | 'gear';
   offers: TradeOffer[];
   sellPrices: Record<number, number>;
   invTab: string;
   tradeNear: boolean;
   anvilNear: boolean;
+  workbenchNear: boolean;
   sandbox: boolean;
   swordTier: number;
   equipped: Partial<Record<Slot, Item>>;
@@ -221,6 +247,10 @@ type Drop = {
   gear?: Item | null;
   /** volumetric model used instead of the textured cube (animal/monster loot) */
   fancy?: THREE.Group | null;
+  /** minimum age before player can pick up this drop (longer when thrown with G) */
+  pickupDelay?: number;
+  /** true when thrown by the player via G (avoids duplicate mining score on re-pickup) */
+  thrown?: boolean;
 };
 
 export class Engine {
@@ -274,11 +304,15 @@ export class Engine {
   private toolPick!: THREE.Group;
   private toolSword!: THREE.Group;
   private toolBlock!: THREE.Mesh;
+  private toolItem!: THREE.Group;
+  private toolLantern!: THREE.Group;
   private toolTorch!: THREE.Group;
   private toolHand!: THREE.Group;
   private toolAxe!: THREE.Group;
   private toolShovel!: THREE.Group;
   private toolBow!: THREE.Group;
+  private toolGear!: THREE.Group;
+  private gearPlateMat!: THREE.MeshLambertMaterial;
   private torchFlame!: THREE.Mesh;
   private torchFlameMat!: THREE.MeshBasicMaterial;
   private torchLight!: THREE.PointLight;
@@ -287,6 +321,8 @@ export class Engine {
   private axeEdgeMat!: THREE.MeshLambertMaterial;
   private blockUVBase = new Float32Array(48);
   private blockShown = -1;
+  private itemShown = -1;
+  private itemHasFancy = false;
 
   private dom: DomRefs = {};
   private onHud: (s: HudState) => void;
@@ -490,9 +526,38 @@ export class Engine {
     this.setRenderDist(this.renderDist);
     this.mobSys = new MobSystem(this.scene, this.world);
 
-    this.queueWorldGen(Math.floor(Math.random() * 1e9));
+    this.queueWorldGen(this.pickDesertRichSeed());
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  private pickDesertRichSeed(): number {
+    const c0x = Math.floor(ORIGIN_X / CHUNK);
+    const c0z = Math.floor(ORIGIN_Z / CHUNK);
+    let bestSeed = 2674;
+    let bestScore = -1;
+    for (let i = 0; i < 48; i++) {
+      const candidate = Math.floor(Math.random() * 1e9);
+      seedNoise(candidate);
+      this.world.reset(candidate);
+      let desertCount = 0;
+      let coreDesert = 0;
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (this.world.biomeAt((c0x + dx) * CHUNK + 8, (c0z + dz) * CHUNK + 8) === 'desert') {
+            desertCount++;
+            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) coreDesert++;
+          }
+        }
+      }
+      const score = coreDesert * 3 + desertCount;
+      if (score > bestScore) {
+        bestScore = score;
+        bestSeed = candidate;
+      }
+      if (coreDesert >= 8 && desertCount >= 15) return candidate;
+    }
+    return bestSeed;
   }
 
   private isCoarse() {
@@ -861,6 +926,82 @@ export class Engine {
     this.toolBlock.visible = false;
     this.pickGroup.add(this.toolBlock);
 
+    // ---- 3D held Lantern matching logo.png ----
+    this.toolLantern = new THREE.Group();
+    const lIronDark = new THREE.MeshLambertMaterial({ color: 0x262423 });
+    const lIronMid = new THREE.MeshLambertMaterial({ color: 0x363331 });
+    const lIronTop = new THREE.MeshLambertMaterial({ color: 0x4b4846 });
+    const lGlowOrange = new THREE.MeshBasicMaterial({ color: 0xf27d16 });
+    const lGlowGold = new THREE.MeshBasicMaterial({ color: 0xffd836 });
+    const lGlowYellow = new THREE.MeshBasicMaterial({ color: 0xffee58 });
+    const lGlowWhite = new THREE.MeshBasicMaterial({ color: 0xffffe4 });
+    const addLBox = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      m.position.set(x, y, z);
+      this.toolLantern.add(m);
+    };
+    const lby = -0.22;
+    for (const dx of [-0.1, 0.1]) {
+      for (const dz of [-0.1, 0.1]) {
+        addLBox(0.08, 0.03, 0.08, dx, lby + 0.015, dz, lIronDark);
+      }
+    }
+    addLBox(0.3, 0.05, 0.3, 0, lby + 0.055, 0, lIronMid);
+    const lgy = lby + 0.21;
+    addLBox(0.23, 0.26, 0.23, 0, lgy, 0, lGlowOrange);
+    addLBox(0.236, 0.18, 0.236, 0, lgy, 0, lGlowGold);
+    addLBox(0.242, 0.12, 0.14, 0, lgy, 0, lGlowYellow);
+    addLBox(0.14, 0.12, 0.242, 0, lgy, 0, lGlowYellow);
+    addLBox(0.248, 0.052, 0.052, 0, lgy + 0.026, -0.026, lGlowWhite);
+    addLBox(0.248, 0.052, 0.052, 0, lgy - 0.026, 0.026, lGlowWhite);
+    addLBox(0.052, 0.052, 0.248, -0.026, lgy + 0.026, 0, lGlowWhite);
+    addLBox(0.052, 0.052, 0.248, 0.026, lgy - 0.026, 0, lGlowWhite);
+    for (const dx of [-0.112, 0.112]) {
+      for (const dz of [-0.112, 0.112]) {
+        addLBox(0.058, 0.26, 0.058, dx, lgy, dz, lIronDark);
+      }
+    }
+    addLBox(0.32, 0.055, 0.32, 0, lby + 0.365, 0, lIronMid);
+    addLBox(0.17, 0.036, 0.17, 0, lby + 0.41, 0, lGlowYellow);
+    for (const dx of [-0.068, 0.068]) {
+      for (const dz of [-0.068, 0.068]) {
+        addLBox(0.054, 0.036, 0.054, dx, lby + 0.41, dz, lIronTop);
+      }
+    }
+    addLBox(0.195, 0.05, 0.195, 0, lby + 0.45, 0, lIronTop);
+    addLBox(0.036, 0.065, 0.036, -0.05, lby + 0.505, 0, lIronDark);
+    addLBox(0.036, 0.065, 0.036, 0.05, lby + 0.505, 0, lIronDark);
+    addLBox(0.136, 0.036, 0.036, 0, lby + 0.545, 0, lIronDark);
+    this.toolLantern.rotation.set(0.22, 0.65, 0.08);
+    this.toolLantern.position.set(0.02, 0.04, 0);
+    this.toolLantern.visible = false;
+    this.pickGroup.add(this.toolLantern);
+
+    // ---- 3D held Armor / Gear plate ----
+    this.toolGear = new THREE.Group();
+    this.gearPlateMat = new THREE.MeshLambertMaterial({ color: 0xd6d9dd });
+    const gearTrimMat = new THREE.MeshLambertMaterial({ color: 0x3b4046 });
+    const gBody = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.38, 0.12), this.gearPlateMat);
+    const gShoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.14), this.gearPlateMat);
+    gShoulderL.position.set(-0.2, 0.12, 0);
+    const gShoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.14), this.gearPlateMat);
+    gShoulderR.position.set(0.2, 0.12, 0);
+    const gTrim = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.13), gearTrimMat);
+    gTrim.position.set(0, -0.16, 0);
+    this.toolGear.add(gBody, gShoulderL, gShoulderR, gTrim);
+    this.toolGear.rotation.set(0.2, 0.5, 0.05);
+    this.toolGear.position.set(0.02, 0.02, 0);
+    this.toolGear.visible = false;
+    this.pickGroup.add(this.toolGear);
+
+    // ---- 3D held Material / Resource Item (Lapis, Emerald, Diamond, Ingots, Drops, etc.) ----
+    this.toolItem = new THREE.Group();
+    this.toolItem.rotation.set(0.18, 0.55, 0.08);
+    this.toolItem.position.set(0.02, 0.04, 0.02);
+    this.toolItem.scale.setScalar(1.38);
+    this.toolItem.visible = false;
+    this.pickGroup.add(this.toolItem);
+
     this.pickGroup.position.set(0.44, -0.4, -0.72);
     this.pickGroup.rotation.set(0.35, -0.5, 0.22);
     this.hudScene.add(this.pickGroup);
@@ -870,22 +1011,50 @@ export class Engine {
   private syncViewModel() {
     if (!this.toolPick) return;
     const kind = this.heldKind();
+    const heldId = this.hotbar[this.selected];
+    const holdingLanternBlock = kind === 'block' && heldId === TORCH;
+    const isCandidateItem =
+      kind === 'block' && heldId !== undefined && !holdingLanternBlock && !BLOCKS[heldId]?.solid;
+    if (isCandidateItem && heldId !== undefined && heldId !== this.itemShown) {
+      this.itemShown = heldId;
+      this.toolItem.clear();
+      const fancy = this.buildFancyDrop(heldId);
+      if (fancy) {
+        this.toolItem.add(fancy);
+        this.itemHasFancy = true;
+      } else {
+        this.itemHasFancy = false;
+      }
+    }
+    const holdingFancyItem = isCandidateItem && this.itemHasFancy;
+
     this.toolPick.visible = kind === 'pick';
     this.toolHand.visible = kind === 'fist';
     this.toolSword.visible = kind === 'sword';
-    this.toolBlock.visible = kind === 'block';
+    this.toolBlock.visible = kind === 'block' && !holdingLanternBlock && !holdingFancyItem;
+    this.toolItem.visible = holdingFancyItem;
+    this.toolLantern.visible = holdingLanternBlock;
     this.toolTorch.visible = kind === 'torch';
     this.toolAxe.visible = kind === 'axe';
     this.toolShovel.visible = kind === 'shovel';
     this.toolBow.visible = kind === 'bow';
-    if (kind === 'torch') {
+    this.toolGear.visible = kind === 'gear';
+    if (kind === 'gear' && heldId !== undefined) {
+      const g = this.bagItems.find((b) => b.hid === heldId);
+      if (g && this.gearPlateMat) {
+        this.gearPlateMat.color.set(MATERIALS[g.material]?.color ?? '#d6d9dd');
+      }
+    }
+    if (kind === 'torch' || holdingLanternBlock) {
       // flame flicker + world light following the player
       const f = 0.85 + Math.sin(this.time * 11) * 0.12 + Math.sin(this.time * 23) * 0.06;
-      this.torchFlame.scale.set(f, 1.1 + (f - 0.85) * 1.6, f);
-      this.torchFlameMat.opacity = 0.72 + f * 0.2;
+      if (kind === 'torch') {
+        this.torchFlame.scale.set(f, 1.1 + (f - 0.85) * 1.6, f);
+        this.torchFlameMat.opacity = 0.72 + f * 0.2;
+      }
       this.torchLight.intensity = 22 * (0.85 + (1 - this.daylight) * 0.6);
       this.torchLight.position.set(this.pos.x, this.pos.y + 1.7, this.pos.z);
-      if (Math.random() < 0.06) {
+      if (kind === 'torch' && Math.random() < 0.06) {
         this.burst(this.pos.x + (Math.random() - 0.5) * 0.3, this.pos.y + 1.75, this.pos.z + (Math.random() - 0.5) * 0.3, [255, 176, 58], 1, 0.7);
       }
     } else {
@@ -975,8 +1144,9 @@ export class Engine {
     this.loadTasks.push(() => {
       const [x, y, z] = this.world.findSpawn();
       this.pos.set(x, y, z);
-      this.yaw = Math.PI * 0.75;
-      this.pitch = -0.16;
+      this.yaw = this.world.spawnYawFor(x, z);
+      this.pitch = -0.14;
+      this.seedStarterDesertLife(x, z, this.yaw);
       return true;
     });
     this.loadTotal = this.loadTasks.length;
@@ -1245,6 +1415,10 @@ export class Engine {
     }
     if (this.phase !== 'playing') return;
     if (c === 'KeyF') this.tryPlace();
+    if (c === 'KeyG') {
+      this.dropHeldItem();
+      return;
+    }
     if (c.startsWith('Digit')) {
       const n = parseInt(c.slice(5), 10);
       // 1-9 → slots 1-9, 0 → slot 10
@@ -1489,7 +1663,12 @@ export class Engine {
       this.hotbar[target] = id;
     } else {
       // from the inventory list — ownership must exist (the HAND only lives in the bar)
-      const owned = id === HAND ? this.hotbar.includes(HAND) : (this.inventory.get(id) ?? 0) > 0;
+      const owned =
+        id === HAND
+          ? this.hotbar.includes(HAND)
+          : isGearHotbarId(id)
+            ? this.bagItems.some((b) => b.hid === id)
+            : (this.inventory.get(id) ?? 0) > 0;
       if (!owned) return;
       const occupant = this.hotbar[target];
       if (occupant === HAND) {
@@ -1659,7 +1838,7 @@ export class Engine {
     this.tier = data.tier;
     this.swordTier = data.swordTier;
     this.equipped = data.equipped ?? {};
-    this.bagItems = data.bagItems ?? [];
+    this.bagItems = (data.bagItems ?? []).map((it: Item) => ensureGearHid(it));
     this.stats = computeStats(this.equipped);
     this.hiveHoney = new Map(data.hive ?? []);
     this.birdNests = (Array.isArray(data.birdNests) ? data.birdNests : []).slice(0, 6);
@@ -1793,8 +1972,9 @@ export class Engine {
     this.spawnX = x;
     this.spawnZ = z;
     this.fallStart = y;
-    this.yaw = Math.PI * 0.75;
+    this.yaw = this.world.spawnYawFor(x, z);
     this.pitch = -0.1;
+    this.seedStarterDesertLife(x, z, this.yaw);
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
@@ -1806,7 +1986,17 @@ export class Engine {
     this.syncHud(true);
   }
 
-  regenerate(seed: number) {
+  private seedStarterDesertLife(x: number, z: number, yaw: number) {
+    const fwdAngle = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
+    const species: MobId[] = ['tumbleweed', 'tumbleweed', 'tumbleweed', 'camel', 'lizard'];
+    for (const id of species) {
+      const spot = this.mobSys.findSpawnPoint(x, z, 6, 20, fwdAngle, [SAND]);
+      if (spot) this.mobSys.spawn(id, spot[0], spot[1], spot[2]);
+    }
+  }
+
+  regenerate(seed?: number) {
+    const nextSeed = seed ?? this.pickDesertRichSeed();
     this.mobSys?.clear();
     this.clearFallingTrees();
     this.clearDoors();
@@ -1831,7 +2021,7 @@ export class Engine {
     }
     this.decorMeshes.clear();
     this.meshedEmpty.clear();
-    this.queueWorldGen(seed);
+    this.queueWorldGen(nextSeed);
   }
 
   pause(bySystem = false) {
@@ -2737,6 +2927,28 @@ export class Engine {
   private breakBlock(x: number, y: number, z: number, id: number) {
     const def = BLOCKS[id];
     this.world.set(x, y, z, AIR);
+    if (id === BED) {
+      // A bed is 2 blocks long: breaking either half removes the partner half too
+      for (const [dx, dz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        if (this.world.get(x + dx, y, z + dz) === BED) {
+          this.world.set(x + dx, y, z + dz, AIR);
+          this.rebuildAt(x + dx, z + dz);
+        }
+      }
+    }
+    if (id === DOOR_WOOD || id === DOOR_IRON) {
+      // A door is 2 blocks tall: breaking either half removes the other half too
+      for (const dy of [1, -1]) {
+        if (this.world.get(x, y + dy, z) === id) {
+          this.world.set(x, y + dy, z, AIR);
+        }
+      }
+    }
     if (id === VINE) {
       // Sever a single hanging strand: the severed section and everything
       // beneath it falls, while the upper part stays attached to the canopy.
@@ -2791,10 +3003,23 @@ export class Engine {
       }
     }
 
-    if (id === DIAMOND || id === GOLD) {
-      this.burst(x + 0.5, y + 0.5, z + 0.5, id === DIAMOND ? [120, 245, 235] : [255, 220, 90], 22, 4.4);
+    if (id === DIAMOND_ORE || id === GOLD_ORE || id === EMERALD_ORE || id === DIAMOND || id === GOLD) {
+      const isDia = id === DIAMOND_ORE || id === DIAMOND;
+      const isEm = id === EMERALD_ORE;
+      this.burst(
+        x + 0.5,
+        y + 0.5,
+        z + 0.5,
+        isDia ? [120, 245, 235] : isEm ? [60, 235, 110] : [255, 220, 90],
+        22,
+        4.4,
+      );
       this.addShake(0.6);
-      this.pushBanner(id === DIAMOND ? t('diamond') : t('gold'), `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`, id === DIAMOND ? '#5fe8dc' : '#f7d34b');
+      this.pushBanner(
+        isDia || isEm ? t('diamond') : t('gold'),
+        `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`,
+        isDia ? '#5fe8dc' : isEm ? '#2bd45e' : '#f7d34b',
+      );
     }
     this.syncHotbar(false);
     this.syncHud(true);
@@ -2813,8 +3038,9 @@ export class Engine {
   private blockGeoCache = new Map<number, THREE.BoxGeometry>();
 
   /** shared unit-cube geometry with the block's atlas UVs baked in */
-  private getBlockGeometry(id: number): THREE.BoxGeometry {
-    let geo = this.blockGeoCache.get(id);
+  private getBlockGeometry(id: number, sideTileOverride?: number): THREE.BoxGeometry {
+    const cacheKey = sideTileOverride !== undefined ? id * 1000 + sideTileOverride : id;
+    let geo = this.blockGeoCache.get(cacheKey);
     if (geo) return geo;
     geo = new THREE.BoxGeometry(1, 1, 1);
     geo.setAttribute(
@@ -2825,7 +3051,7 @@ export class Engine {
     const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
     const base = this.dropUVBase;
     for (let f = 0; f < 6; f++) {
-      const tile = f === 2 ? def.top : f === 3 ? def.bottom : def.side;
+      const tile = f === 2 ? def.top : f === 3 ? def.bottom : (sideTileOverride ?? def.side);
       const [u0, v0, u1, v1] = tileUV(tile);
       for (let i = 0; i < 4; i++) {
         const idx = f * 4 + i;
@@ -2833,7 +3059,7 @@ export class Engine {
       }
     }
     uv.needsUpdate = true;
-    this.blockGeoCache.set(id, geo);
+    this.blockGeoCache.set(cacheKey, geo);
     return geo;
   }
 
@@ -3055,9 +3281,9 @@ export class Engine {
       return true;
     }
     const tg = this.target;
-    // workbench / crafting table → open the crafting menu
+    // workbench / crafting table → open the workbench dismantle view
     if (tg && tg.id === CRAFTING_TABLE) {
-      this.invTab = 'tools';
+      this.invTab = 'workbench';
       this.openInventory();
       return true;
     }
@@ -3135,8 +3361,11 @@ export class Engine {
     const alongX = horizN[0] !== 0; // door plane was YZ → open panel lies along X wall
 
     for (const [cx, cy, cz] of cells) {
+      const isBottomDoor =
+        (id === DOOR_WOOD || id === DOOR_IRON) && cells.some(([, cy2]) => cy2 === cy + 1);
+      const sideTile = isBottomDoor ? (id === DOOR_WOOD ? T.doorWoodBottom : T.doorIronBottom) : undefined;
       this.world.set(cx, cy, cz, AIR);
-      const mesh = new THREE.Mesh(this.getBlockGeometry(id), this.cutoutMat);
+      const mesh = new THREE.Mesh(this.getBlockGeometry(id, sideTile), this.cutoutMat);
       if (alongX) {
         mesh.scale.set(1, 1, 0.13);
         mesh.position.set(cx + 0.5, cy + 0.5, cz + 0.935);
@@ -3980,7 +4209,7 @@ export class Engine {
     }
   }
 
-  // ================= ANVIL =================
+  // ================= ANVIL & WORKBENCH =================
   anvilNear(): boolean {
     const px = Math.floor(this.pos.x);
     const py = Math.floor(this.pos.y);
@@ -3989,6 +4218,17 @@ export class Engine {
       for (let dz = -3; dz <= 3; dz++)
         for (let dx = -3; dx <= 3; dx++)
           if (this.world.get(px + dx, py + dy, pz + dz) === ANVIL) return true;
+    return false;
+  }
+
+  workbenchNear(): boolean {
+    const px = Math.floor(this.pos.x);
+    const py = Math.floor(this.pos.y);
+    const pz = Math.floor(this.pos.z);
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dz = -4; dz <= 4; dz++)
+        for (let dx = -4; dx <= 4; dx++)
+          if (this.world.get(px + dx, py + dy, pz + dz) === CRAFTING_TABLE) return true;
     return false;
   }
 
@@ -4184,8 +4424,14 @@ export class Engine {
       }
       if (isLeafId(id)) {
         // Palm crowns reach three blocks out; all leaf kinds recognise
-        // their matching living trunk (not only old oak logs).
-        let alive = false;
+        // their matching living trunk or adjacent solid structure block.
+        let alive =
+          isSolid(this.world.get(x, y - 1, z)) ||
+          isSolid(this.world.get(x, y + 1, z)) ||
+          isSolid(this.world.get(x + 1, y, z)) ||
+          isSolid(this.world.get(x - 1, y, z)) ||
+          isSolid(this.world.get(x, y, z + 1)) ||
+          isSolid(this.world.get(x, y, z - 1));
         const reach = id === COCONUT_LEAVES || id === BANANA_LEAVES ? 3 : 2;
         for (let dy = -2; dy <= 2 && !alive; dy++)
           for (let dz2 = -reach; dz2 <= reach && !alive; dz2++)
@@ -4198,8 +4444,9 @@ export class Engine {
               }
         if (alive) continue;
       } else if (
-        // regular blocks: supported if standing on something, or hanging from any side
+        // regular blocks & hanging lanterns: supported from below, above, or any side
         isSolid(this.world.get(x, y - 1, z)) ||
+        isSolid(this.world.get(x, y + 1, z)) ||
         isSolid(this.world.get(x + 1, y, z)) ||
         isSolid(this.world.get(x - 1, y, z)) ||
         isSolid(this.world.get(x, y, z + 1)) ||
@@ -4222,10 +4469,37 @@ export class Engine {
   private tryPlace() {
     if (this.phase !== 'playing') return;
     if (this.placeCooldown > 0) return;
-    const t = this.target;
-    if (!t) return;
     const id = this.hotbar[this.selected];
-    if (!id || id === HAND || id >= TOOL_PICK || isResource(id)) return; // hand/tools/food don't place
+    if (!id || id === HAND) return;
+    // Right-clicking while holding Armor in hand equips it immediately
+    if (isGearHotbarId(id)) {
+      const g = this.bagItems.find((b) => b.hid === id);
+      if (g) {
+        this.equip(g.uid);
+        this.placeCooldown = 0.25;
+      }
+      return;
+    }
+    // Right-clicking while holding Food in hand eats it
+    const foodHeal =
+      id === COOKED_MEAT ? 30 : id === COCONUT ? 22 : id === APPLE ? 20 : id === BANANA ? 16 : id === HONEY ? 15 : 0;
+    if (foodHeal > 0) {
+      const count = this.inventory.get(id) ?? 0;
+      if (count > 0) {
+        this.inventory.set(id, count - 1);
+        this.health = Math.min(100, this.health + foodHeal);
+        this.placeCooldown = 0.32;
+        this.startSwing(0.45);
+        sfx.pickup(4);
+        this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${foodHeal} ${t('hp')}`, '#93c95d', true);
+        this.syncHotbar(true);
+        this.syncHud(true);
+      }
+      return;
+    }
+    const t2 = this.target;
+    if (!t2) return;
+    if (id >= TOOL_PICK || isResource(id)) return; // tools/resources don't place as blocks
     if ((this.inventory.get(id) ?? 0) <= 0) {
       if (this.placeCooldown <= 0) {
         sfx.ui(false);
@@ -4233,9 +4507,9 @@ export class Engine {
       }
       return;
     }
-    const px = t.x + t.nx,
-      py = t.y + t.ny,
-      pz = t.z + t.nz;
+    const px = t2.x + t2.nx,
+      py = t2.y + t2.ny,
+      pz = t2.z + t2.nz;
     if (!this.world.inBounds(px, py, pz)) return;
     const targetCell = this.world.get(px, py, pz);
     if (targetCell !== AIR && targetCell !== WATER) return; // building displaces water
@@ -4251,6 +4525,35 @@ export class Engine {
     // Placing lava into a water cell is itself a contact, not a free swap.
     const placed = id === LAVA && targetCell === WATER ? VOLCANIC_STONE : id;
     this.world.set(px, py, pz, placed);
+    if (placed === BED) {
+      // Place the 2nd block (head) of the 2-block Minecraft bed along player's facing direction
+      const pref: [number, number] =
+        Math.abs(this.dirV.x) >= Math.abs(this.dirV.z)
+          ? [this.dirV.x >= 0 ? 1 : -1, 0]
+          : [0, this.dirV.z >= 0 ? 1 : -1];
+      const candidates: Array<[number, number]> = [
+        pref,
+        [-pref[0], -pref[1]],
+        [-pref[1], pref[0]],
+        [pref[1], -pref[0]],
+      ];
+      for (const [bdx, bdz] of candidates) {
+        const hx = px + bdx;
+        const hz = pz + bdz;
+        if (this.world.inBounds(hx, py, hz) && this.world.get(hx, py, hz) === AIR) {
+          this.world.set(hx, py, hz, BED);
+          this.rebuildAt(hx, hz);
+          break;
+        }
+      }
+    } else if (
+      (placed === DOOR_WOOD || placed === DOOR_IRON) &&
+      this.world.inBounds(px, py + 1, pz) &&
+      this.world.get(px, py + 1, pz) === AIR &&
+      this.world.get(px, py - 1, pz) !== placed
+    ) {
+      this.world.set(px, py + 1, pz, placed);
+    }
     this.inventory.set(id, (this.inventory.get(id) ?? 0) - 1);
     this.enqueueFluid(px, py, pz); // placing next to fluid disturbs it
     this.rebuildAt(px, pz);
@@ -4420,26 +4723,239 @@ export class Engine {
         B(g, 0.07, 0.17, 0, 0.09, 0.04, 0.06, 0x56a832, 0, 0.3); // leaf
         break;
       }
-      default:
+      case COAL: {
+        // 3D Ember-Core Anthracite Shard Cluster: 3 jagged dark carbon spires + glowing orange ember heart
+        B(g, 0, 0.03, 0, 0.14, 0.30, 0.14, 0x222636, 0.08, -0.08);
+        B(g, -0.09, -0.02, 0.03, 0.12, 0.22, 0.12, 0x161924, 0, 0.28);
+        B(g, 0.09, -0.01, -0.02, 0.12, 0.24, 0.12, 0x2c3145, -0.1, -0.26);
+        // Glowing orange-gold ember fissure core
+        B(g, 0, -0.01, 0.05, 0.09, 0.12, 0.08, 0xff771a);
+        B(g, 0, 0.01, 0.07, 0.05, 0.07, 0.05, 0xffe270);
+        break;
+      }
+      case IRON: {
+        // 3D Dwarven Twin-Flanged Steel Bar with Brass Rivets
+        B(g, 0, 0, 0, 0.34, 0.09, 0.14, 0x5c667a); // recessed gunmetal web
+        B(g, 0, 0.055, 0, 0.34, 0.03, 0.17, 0xeef4fc); // top silver-steel rail
+        B(g, 0, -0.055, 0, 0.34, 0.03, 0.17, 0x9aa6ba); // bottom steel rail
+        B(g, -0.11, 0, 0, 0.07, 0.15, 0.19, 0xd6e0ed); // left flange collar
+        B(g, 0.11, 0, 0, 0.07, 0.15, 0.19, 0xd6e0ed); // right flange collar
+        B(g, -0.04, 0.07, 0, 0.035, 0.03, 0.06, 0xf0b442); // brass rivet L
+        B(g, 0.04, 0.07, 0, 0.035, 0.03, 0.06, 0xf0b442); // brass rivet R
+        break;
+      }
+      case REDSTONE: {
+        // 3D Volatile Arcane Crimson Energy Crystal & Orbiting Sparks
+        B(g, 0, 0.02, 0, 0.12, 0.32, 0.12, 0xc91230, 0.12, 0.18);
+        B(g, 0, 0.02, 0, 0.18, 0.18, 0.18, 0xf01e42, 0.12, 0.18);
+        B(g, 0, 0.02, 0, 0.09, 0.22, 0.15, 0xff6680, 0.12, 0.18);
+        // Orbiting scarlet-pink energy motes
+        B(g, -0.15, 0.13, 0.06, 0.06, 0.06, 0.06, 0xff2e4c);
+        B(g, 0.15, 0.11, -0.05, 0.06, 0.06, 0.06, 0xff8598);
+        B(g, -0.13, -0.10, -0.06, 0.05, 0.05, 0.05, 0xff2e4c);
+        B(g, 0.13, -0.09, 0.06, 0.05, 0.05, 0.05, 0xff8598);
+        break;
+      }
+      case GOLD: {
+        // 3D Gleaming Beveled Pure-Gold Bullion Ingot (stepped trapezoidal gold bar with stamped mint ridges)
+        B(g, 0, -0.045, 0, 0.36, 0.055, 0.21, 0xb8760b); // deep amber-gold base bevel
+        B(g, 0, 0.005, 0, 0.32, 0.055, 0.175, 0xe8ad15); // warm gold middle body
+        B(g, 0, 0.048, 0, 0.27, 0.035, 0.14, 0xfcd12a); // radiant sun-gold top table
+        // Two raised stamped gold bullion bands + white-gold specular edge glint
+        B(g, -0.065, 0.07, 0, 0.05, 0.018, 0.11, 0xffe975);
+        B(g, 0.065, 0.07, 0, 0.05, 0.018, 0.11, 0xffe975);
+        B(g, 0, 0.068, -0.045, 0.23, 0.014, 0.025, 0xfffbe0);
+        break;
+      }
+      case LAPIS: {
+        // 3D Faceted Royal Sapphire-Lazuli Gemstone (multi-tiered diamond/marquise-cut azure crystal)
+        B(g, 0, 0, 0, 0.18, 0.28, 0.10, 0x142e8c, 0.08, 0.18); // deep ultramarine outer pavilion
+        B(g, 0, 0, 0, 0.22, 0.20, 0.11, 0x1e46c7, 0.08, 0.18); // royal cobalt girdle
+        B(g, 0, 0.01, 0, 0.15, 0.22, 0.13, 0x3369f5, 0.08, 0.18); // vivid azure crown facets
+        B(g, 0, 0.01, 0, 0.10, 0.15, 0.15, 0x6ba1ff, 0.08, 0.18); // bright sky-blue central table
+        B(g, -0.02, 0.05, 0.065, 0.045, 0.065, 0.03, 0xe0f0ff, 0.08, 0.18); // crisp white-azure gem shine
+        break;
+      }
+      case DIAMOND: {
+        // 3D 4-Pointed Star-Prism Ice Crystal
+        B(g, 0, 0, 0, 0.11, 0.34, 0.11, 0x42e8f5); // vertical star spear
+        B(g, 0, 0, 0, 0.32, 0.11, 0.11, 0x42e8f5); // horizontal star spear
+        B(g, 0, 0, 0, 0.11, 0.11, 0.28, 0x1fa6bd); // depth star spear
+        B(g, 0, 0, 0, 0.18, 0.18, 0.15, 0x8cfaff, 0, Math.PI / 4); // diagonal prism core
+        B(g, 0, 0, 0, 0.10, 0.10, 0.17, 0xffffff); // brilliant white heart
+        break;
+      }
+      case EMERALD: {
+        // 3D Twin-Spire Jade Beryl Cluster on Dark Rock Matrix
+        B(g, 0, -0.12, 0, 0.22, 0.08, 0.18, 0x323642); // dark rock matrix base
+        B(g, 0.03, 0.03, 0, 0.12, 0.30, 0.11, 0x15b856, 0, -0.1); // tall main jade spire
+        B(g, 0.03, 0.05, 0, 0.07, 0.26, 0.13, 0x5ef298, 0, -0.1); // bright mint facet
+        B(g, -0.08, -0.02, 0.02, 0.09, 0.20, 0.09, 0x0f8f42, 0.08, 0.36); // angled side spire
+        B(g, -0.08, 0, 0.02, 0.05, 0.16, 0.10, 0x8affb8, 0.08, 0.36); // side spire highlight
+        break;
+      }
+      case QUARTZ: {
+        // 3D Radiating 3-Pronged Rose-Ivory Geode Crown
+        B(g, 0, -0.11, 0, 0.22, 0.08, 0.16, 0x4a1e2b); // dark volcanic geode base
+        B(g, 0, 0.04, 0, 0.10, 0.28, 0.10, 0xf7f0f2); // central tall quartz needle
+        B(g, 0, 0.07, 0, 0.06, 0.24, 0.11, 0xffffff); // pure white tip
+        B(g, -0.09, 0.01, 0.02, 0.09, 0.22, 0.09, 0xdecbcf, 0.08, 0.42); // left angled needle
+        B(g, 0.09, 0.01, -0.02, 0.09, 0.22, 0.09, 0xe8d8dc, -0.08, -0.42); // right angled needle
+        break;
+      }
+      case NETHERITE: {
+        // 3D Ancient Damascus Ingot with Glowing Lava Runes
+        B(g, 0, -0.02, 0, 0.34, 0.10, 0.19, 0x261c1f);
+        B(g, 0, 0.04, 0, 0.28, 0.06, 0.14, 0x453338);
+        B(g, 0, 0.075, 0, 0.18, 0.02, 0.06, 0xff6a1a);
+        break;
+      }
+      default: {
+        if (isPickTool(id)) {
+          const tierIdx = id - PICK_TOOLS[0];
+          const headCol = [0xb98a4d, 0x9aa0a6, 0xd6d9dd, 0x5fe8dc][tierIdx] ?? 0xb98a4d;
+          B(g, 0, -0.02, 0, 0.05, 0.38, 0.05, 0x8b6234, 0, 0.3);
+          B(g, -0.04, 0.14, 0, 0.32, 0.07, 0.07, headCol, 0, 0.3);
+          break;
+        }
+        if (isSwordTool(id)) {
+          const tierIdx = id - SWORD_TOOLS[0];
+          const bladeCol = [0xb98a4d, 0xd6d9dd, 0x5fe8dc][tierIdx] ?? 0xd6d9dd;
+          B(g, 0.04, -0.13, 0, 0.05, 0.13, 0.05, 0x6e4f2a, 0, 0.3);
+          B(g, 0.01, -0.06, 0, 0.18, 0.04, 0.06, 0x4a351d, 0, 0.3);
+          B(g, -0.05, 0.11, 0, 0.08, 0.3, 0.04, bladeCol, 0, 0.3);
+          break;
+        }
+        if (isAxeTool(id)) {
+          const headCol = id === AXE_TOOLS[0] ? 0xb98a4d : 0x9aa0a6;
+          B(g, 0, -0.02, 0, 0.05, 0.36, 0.05, 0x8b6234, 0, 0.25);
+          B(g, 0.06, 0.1, 0, 0.16, 0.14, 0.06, headCol, 0, 0.25);
+          break;
+        }
+        if (id === TOOL_SHOVEL) {
+          B(g, 0, -0.04, 0, 0.05, 0.34, 0.05, 0x8b6234, 0, 0.25);
+          B(g, -0.04, 0.14, 0, 0.14, 0.15, 0.04, 0xa8aeb4, 0, 0.25);
+          break;
+        }
+        if (id === TOOL_BOW) {
+          B(g, 0, 0, 0, 0.05, 0.38, 0.05, 0x8b6234, 0, 0.2);
+          B(g, 0.06, 0, 0, 0.02, 0.36, 0.02, 0xe8e2d2, 0, 0.2);
+          break;
+        }
+        if (id === TOOL_TORCH) {
+          B(g, 0, -0.03, 0, 0.06, 0.28, 0.06, 0x8b6234);
+          B(g, 0, 0.14, 0, 0.08, 0.09, 0.08, 0xffb03a);
+          break;
+        }
         return null;
+      }
     }
     return g;
   }
 
-  private spawnDrop(x: number, y: number, z: number, id: number, gear: Item | null = null) {
+  /**
+   * Throw the currently held item (block, material, food, weapon/tool, or armor)
+   * forward onto the ground when pressing G.
+   */
+  dropHeldItem() {
+    if (this.phase !== 'playing') return;
+    const id = this.hotbar[this.selected];
+    if (id === undefined || id === HAND) {
+      sfx.ui(false);
+      return;
+    }
+
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const sx = this.pos.x + fx * 0.65;
+    const sy = this.pos.y + 1.15;
+    const sz = this.pos.z + fz * 0.65;
+    const tvx = fx * 5.2;
+    const tvy = 2.5 + Math.max(-0.2, this.dirV.y) * 2.4;
+    const tvz = fz * 5.2;
+
+    if (isGearHotbarId(id)) {
+      const idx = this.bagItems.findIndex((b) => b.hid === id);
+      if (idx < 0) {
+        this.hotbar[this.selected] = undefined;
+        this.syncHotbar(true);
+        this.syncHud(true);
+        return;
+      }
+      const [gear] = this.bagItems.splice(idx, 1);
+      this.hotbar[this.selected] = undefined;
+      this.spawnDrop(sx, sy, sz, LOOT_BAG, gear, { vx: tvx, vy: tvy, vz: tvz, pickupDelay: 1.35, thrown: true });
+      this.startSwing(0.45);
+      sfx.place();
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+
+    const count = this.inventory.get(id) ?? 0;
+    if (count <= 0) {
+      this.hotbar[this.selected] = undefined;
+      sfx.ui(false);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+
+    if (count - 1 <= 0) {
+      this.inventory.delete(id);
+      this.hotbar[this.selected] = undefined;
+    } else {
+      this.inventory.set(id, count - 1);
+    }
+
+    if (id >= 200) {
+      this.recalcOwnedToolTiers();
+    }
+
+    this.spawnDrop(sx, sy, sz, id, null, { vx: tvx, vy: tvy, vz: tvz, pickupDelay: 1.35, thrown: true });
+    this.startSwing(0.45);
+    sfx.place();
+    this.syncHotbar(true);
+    this.syncHud(true);
+  }
+
+  private recalcOwnedToolTiers() {
+    let bestPick = 0;
+    for (let t = 0; t < PICK_TOOLS.length; t++) {
+      if ((this.inventory.get(PICK_TOOLS[t]) ?? 0) > 0) bestPick = t;
+    }
+    this.tier = bestPick;
+    this.updatePickaxe();
+    let bestSword = -1;
+    for (let s = 0; s < SWORD_TOOLS.length; s++) {
+      if ((this.inventory.get(SWORD_TOOLS[s]) ?? 0) > 0) bestSword = s;
+    }
+    this.swordTier = bestSword;
+  }
+
+  private spawnDrop(
+    x: number,
+    y: number,
+    z: number,
+    id: number,
+    gear: Item | null = null,
+    opts?: { vx?: number; vy?: number; vz?: number; pickupDelay?: number; thrown?: boolean },
+  ) {
     const d = this.drops.find((dd) => !dd.active) ?? this.drops[0];
     d.active = true;
     d.id = id;
-    d.gear = gear;
+    d.gear = gear ? ensureGearHid(gear) : null;
     d.age = 0;
+    d.pickupDelay = opts?.pickupDelay ?? 0.22;
+    d.thrown = opts?.thrown ?? false;
     d.x = x;
     d.y = y;
     d.z = z;
     const a = this.rand() * Math.PI * 2;
     const sp = 1.4 + this.rand() * 1.5;
-    d.vx = Math.cos(a) * sp;
-    d.vz = Math.sin(a) * sp;
-    d.vy = 3.4 + this.rand() * 1.8;
+    d.vx = opts?.vx ?? Math.cos(a) * sp;
+    d.vz = opts?.vz ?? Math.sin(a) * sp;
+    d.vy = opts?.vy ?? 3.4 + this.rand() * 1.8;
     // volumetric loot models replace the textured cube where available
     if (d.fancy) {
       this.scene.remove(d.fancy);
@@ -4486,9 +5002,10 @@ export class Engine {
       d.age += dt;
       if (!frozen) {
         const dist = Math.hypot(d.x - eye.x, d.y - eye.y, d.z - eye.z);
+        const delay = d.pickupDelay ?? 0.22;
         // attraction radius: short by default, extended by the MAGNET affix
         const magnetR = 2.1 + this.stats.magnet;
-        if (d.age > 0.26 && dist < magnetR) {
+        if (d.age > delay + 0.04 && dist < magnetR) {
           const sd = Math.max(0.001, dist);
           const pull = (34 / Math.max(1.6, dist * 1.1)) * 6;
           const damp = Math.pow(0.02, dt);
@@ -4522,7 +5039,7 @@ export class Engine {
         if (isSolid(this.world.get(Math.floor(d.x), Math.floor(d.y), Math.floor(nz)))) d.vz *= -0.35;
         else d.z = nz;
 
-        if (d.age > 0.22 && dist < 1.35) {
+        if (d.age > delay && dist < 1.35) {
           this.collect(d);
           continue;
         }
@@ -4561,16 +5078,39 @@ export class Engine {
     }
     // a loot bag holds a rolled piece of gear
     if (d.id === LOOT_BAG && d.gear) {
-      const it = d.gear;
+      const it = ensureGearHid(d.gear);
       d.gear = null;
       this.bagItems.push(it);
-      this.pushBanner(
-        t('looted'),
-        `${t(('slot_' + it.slot) as never)} · ${it.affixes.map((a) => t(AFFIX_KEY[a.id])).join(' + ') || '—'}`,
-        RARITY_COLORS[it.rarity],
-      );
-      this.burst(d.x, d.y, d.z, [217, 140, 255], 14, 3);
-      sfx.upgrade();
+      if (!d.thrown) {
+        this.pushBanner(
+          t('looted'),
+          `${t(('slot_' + it.slot) as never)} · ${it.affixes.map((a) => t(AFFIX_KEY[a.id])).join(' + ') || '—'}`,
+          RARITY_COLORS[it.rarity],
+        );
+        this.burst(d.x, d.y, d.z, [217, 140, 255], 14, 3);
+        sfx.upgrade();
+      } else {
+        sfx.pickup(3);
+      }
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+    // Picking up a dropped weapon or tool
+    if (d.id >= 200) {
+      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+      this.addToHotbar(d.id);
+      this.recalcOwnedToolTiers();
+      sfx.pickup(4);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+    if (d.thrown) {
+      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+      this.addToHotbar(d.id);
+      sfx.pickup(2);
+      this.syncHotbar(true);
       this.syncHud(true);
       return;
     }
@@ -4581,14 +5121,14 @@ export class Engine {
     this.score += gained;
     this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
     this.addToHotbar(d.id);
-    if (d.id >= 5 && d.id <= 8) this.oresFound++;
+    if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound++;
     if (def.timeBonus > 0) {
       this.timeLeft = Math.min(this.runTime + 40, this.timeLeft + def.timeBonus);
       this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}${t('secShort')}`, '#7ee7a0', true);
     }
-    if (d.id === DIAMOND) this.health = Math.min(100, this.health + 16);
-    else if (d.id === GOLD) this.health = Math.min(100, this.health + 8);
-    else if (d.id === IRON) this.health = Math.min(100, this.health + 4);
+    if (d.id === DIAMOND || d.id === EMERALD) this.health = Math.min(100, this.health + 16);
+    else if (d.id === GOLD || d.id === LAPIS || d.id === QUARTZ) this.health = Math.min(100, this.health + 8);
+    else if (d.id === IRON || d.id === REDSTONE) this.health = Math.min(100, this.health + 4);
     else if (d.id === COAL) this.health = Math.min(100, this.health + 2);
 
     this.popup(d.x, d.y + 0.3, d.z, `+${gained}`, gained >= 200 ? '#f7d34b' : gained >= 40 ? '#8fe3ff' : '#ffffff', gained >= 100);
@@ -5101,7 +5641,7 @@ export class Engine {
     // Tumbleweeds are rolling plants, not animals: one hit breaks them cleanly,
     // with no meat, kill count, score, or animal-drop logic.
     if (m.id === 'tumbleweed') {
-      this.burst(m.x,m.y+0.25,m.z,[145,175,88],5,0.65,0.45);
+      this.burst(m.x, m.y + 0.25, m.z, [214, 180, 114], 6, 0.75, 0.42);
       this.mobSys.remove(m);
       return;
     }
@@ -5225,18 +5765,24 @@ export class Engine {
   heldKind(): HudState['heldKind'] {
     const id = this.hotbar[this.selected];
     if (id === HAND || id === undefined) return 'fist';
+    if (isGearHotbarId(id)) return 'gear';
     if (id === TOOL_PICK || isPickTool(id)) return 'pick';
     if (isSwordTool(id)) return 'sword';
     if (id === TOOL_TORCH) return 'torch';
     if (id === TOOL_AXE || isAxeTool(id)) return 'axe';
     if (id === TOOL_SHOVEL) return 'shovel';
     if (id === TOOL_BOW) return 'bow';
-    if (id === undefined) return 'fist';
     return 'block';
   }
 
   heldName(): string {
     const k = this.heldKind();
+    if (k === 'gear') {
+      const id = this.hotbar[this.selected] ?? -1;
+      const g = this.bagItems.find((b) => b.hid === id);
+      if (g) return `${t(SLOT_KEY[g.slot])} · ${matName(MATERIALS[g.material].label)}`;
+      return t('gear');
+    }
     if (k === 'pick') return pickaxeLabel(this.heldPickTier());
     if (k === 'sword') return swordLabel(Math.max(0, this.heldSwordTier()));
     if (k === 'torch') return t('handTorch');
@@ -5278,8 +5824,20 @@ export class Engine {
   private static SELL_PRICES: Array<[number, number]> = [
     [COAL, 40],
     [IRON, 100],
+    [REDSTONE, 140],
     [GOLD, 220],
+    [LAPIS, 170],
     [DIAMOND, 550],
+    [EMERALD, 650],
+    [QUARTZ, 130],
+    [COAL_BLOCK, 160],
+    [IRON_BLOCK, 400],
+    [REDSTONE_BLOCK, 560],
+    [GOLD_BLOCK, 880],
+    [LAPIS_BLOCK, 680],
+    [DIAMOND_BLOCK, 2200],
+    [EMERALD_BLOCK, 2600],
+    [QUARTZ_BLOCK, 520],
     [LOG, 12],
     [RAW_MEAT, 18],
     [COOKED_MEAT, 45],
@@ -5353,41 +5911,91 @@ export class Engine {
   }
 
   /** dismantle unwanted gear at the workbench back into raw materials */
-  salvageGear(uid: string) {
+  salvageGear(uid: string): boolean {
+    if (!this.workbenchNear() && this.invTab !== 'workbench') {
+      sfx.ui(false);
+      return false;
+    }
     const i = this.bagItems.findIndex((x) => x.uid === uid);
-    if (i < 0) return;
-    const it = this.bagItems[i];
-    this.bagItems.splice(i, 1);
+    let it: Item | undefined;
+    if (i >= 0) {
+      it = this.bagItems[i];
+      this.bagItems.splice(i, 1);
+    } else {
+      // Allow dismantling even if dragged directly from an equipped slot
+      for (const s of Object.keys(this.equipped) as Slot[]) {
+        if (this.equipped[s]?.uid === uid) {
+          it = this.equipped[s];
+          delete this.equipped[s];
+          this.stats = computeStats(this.equipped);
+          break;
+        }
+      }
+    }
+    if (!it) return false;
 
-    let label = '';
-    const addInv = (id: number, count: number) => {
+    const outputs = getSalvageForGear(it);
+    const parts: string[] = [];
+    for (const [id, count] of outputs) {
       this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
       this.addToHotbar(id);
-    };
-
-    if (it.material === 'netherite') {
-      addInv(NETHERITE, 1);
-      addInv(DIAMOND, 2);
-      label = `+1 ${blockName(NETHERITE, 'Netherite')}, +2 ${blockName(DIAMOND, 'Diamond')}`;
-    } else if (it.material === 'diamond') {
-      addInv(DIAMOND, 2);
-      label = `+2 ${blockName(DIAMOND, 'Diamond')}`;
-    } else if (it.material === 'gold') {
-      addInv(GOLD, 3);
-      label = `+3 ${blockName(GOLD, 'Gold')}`;
-    } else if (it.material === 'iron') {
-      addInv(IRON, 2);
-      label = `+2 ${blockName(IRON, 'Iron')}`;
-    } else {
-      addInv(WOOL, 2);
-      label = `+2 ${blockName(WOOL, 'Wool')}`;
+      parts.push(`+${count} ${blockName(id, BLOCKS[id]?.name ?? '')}`);
     }
 
     sfx.breakBlock(0.8);
     this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [220, 220, 230], 12, 2.5);
-    this.pushBanner(t('salvaged'), label, '#93c95d');
+    this.pushBanner(t('salvaged'), parts.join(', '), '#93c95d');
     this.syncHotbar(true);
     this.syncHud(true);
+    return true;
+  }
+
+  /** dismantle any craftable item/tool/weapon/block at the workbench back into reduced crafting ingredients */
+  salvageItem(id: number): boolean {
+    if (!this.workbenchNear() && this.invTab !== 'workbench') {
+      sfx.ui(false);
+      return false;
+    }
+    if (isGearHotbarId(id)) {
+      const g = this.bagItems.find((b) => b.hid === id);
+      return g ? this.salvageGear(g.uid) : false;
+    }
+    const info = getSalvageForItemId(id);
+    if (!info) {
+      sfx.ui(false);
+      return false;
+    }
+    const owned = this.inventory.get(id) ?? 0;
+    if (owned <= 0) {
+      sfx.ui(false);
+      return false;
+    }
+    const consume = Math.min(owned, Math.max(1, info.inputsUsed));
+    const remaining = owned - consume;
+    if (remaining <= 0) {
+      this.inventory.delete(id);
+      const hbIdx = this.hotbar.indexOf(id);
+      if (hbIdx >= 0) this.hotbar[hbIdx] = undefined;
+    } else {
+      this.inventory.set(id, remaining);
+    }
+    if (id >= 200) {
+      this.recalcOwnedToolTiers();
+    }
+
+    const parts: string[] = [];
+    for (const [outId, outCount] of info.outputs) {
+      this.inventory.set(outId, (this.inventory.get(outId) ?? 0) + outCount);
+      this.addToHotbar(outId);
+      parts.push(`+${outCount} ${blockName(outId, BLOCKS[outId]?.name ?? '')}`);
+    }
+
+    sfx.breakBlock(0.8);
+    this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [220, 220, 230], 12, 2.5);
+    this.pushBanner(t('salvaged'), parts.join(', '), '#93c95d');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
   }
 
   /** sell the entire stack of a resource to the trader for score */
@@ -5795,11 +6403,14 @@ export class Engine {
   }
 
   private syncHotbar(force: boolean) {
-    // sparse 10-slot bar: blocks & resources vanish when they run out,
-    // tools stay (ownership lives in the inventory), the HAND is permanent
+    // sparse 10-slot bar: blocks, tools & gear vanish when they are no longer owned;
+    // the HAND is permanent
     for (let i = 0; i < this.hotbar.length; i++) {
       const id = this.hotbar[i];
-      if (id !== undefined && id !== HAND && id < 200 && (this.inventory.get(id) ?? 0) <= 0) {
+      if (id === undefined || id === HAND) continue;
+      if (isGearHotbarId(id)) {
+        if (!this.bagItems.some((b) => b.hid === id)) this.hotbar[i] = undefined;
+      } else if ((this.inventory.get(id) ?? 0) <= 0) {
         this.hotbar[i] = undefined;
       }
     }
@@ -5870,7 +6481,9 @@ export class Engine {
       // sparse hotbar: pad to 10 fixed slots, empty holes become null
       hotbar: Array.from({ length: 10 }, (_, i) => {
         const id = this.hotbar[i];
-        return id === undefined ? null : { id, count: this.inventory.get(id) ?? 0 };
+        if (id === undefined) return null;
+        if (isGearHotbarId(id)) return { id, count: 1 };
+        return { id, count: this.inventory.get(id) ?? 0 };
       }),
       selected: this.selected,
       target: t && t.id !== AIR ? { id: t.id, name: blockName(t.id, BLOCKS[t.id].name) } : null,
@@ -5898,6 +6511,7 @@ export class Engine {
       invTab: this.invTab,
       tradeNear: this.phase === 'playing' || this.inventoryOpen ? this.traderNear() !== null : false,
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,
+      workbenchNear: this.phase === 'playing' || this.inventoryOpen ? this.workbenchNear() : false,
       sandbox: this.sandbox,
       inventoryOpen: this.inventoryOpen,
       craftHint: this.craftHint(),

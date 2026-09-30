@@ -43,8 +43,22 @@ import {
   TORCH,
   BIRCH_LOG,
   CRAFTING_TABLE,
+  NETHERITE,
+  MUSHROOM,
+  COAL_BLOCK,
+  IRON_BLOCK,
+  REDSTONE_BLOCK,
+  LAPIS_BLOCK,
+  EMERALD_BLOCK,
+  QUARTZ_BLOCK,
+  REDSTONE,
+  LAPIS,
+  EMERALD,
+  QUARTZ,
+  SANDSTONE,
+  CHISELED_SANDSTONE,
 } from './blocks';
-import type { Material, Slot } from './items';
+import type { Item, Material, Slot } from './items';
 
 export type RecipeKind =
   | 'blocks'
@@ -683,7 +697,40 @@ export const RECIPES: Recipe[] = [
   gear('hands_diamond', 'DIAMOND GAUNTLETS', 'hands', 'diamond', [[DIAMOND, 3]], '#5fe8dc'),
   gear('shield_diamond', 'DIAMOND SHIELD', 'offhand', 'diamond', [[DIAMOND, 3], [IRON, 2]], '#5fe8dc'),
 
-  // ---------------- trophies ----------------
+  // ---------------- mineral blocks (Row 3 of reference table) ----------------
+  {
+    key: 'coal_block',
+    name: 'COAL BLOCK',
+    desc: 'Compacted coal block — fuel & dark building stone',
+    inputs: [[COAL, 4]],
+    out: [COAL_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#4a4c58',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'iron_block',
+    name: 'IRON BLOCK',
+    desc: 'Solid forged iron block — heavy metallic plating',
+    inputs: [[IRON, 4]],
+    out: [IRON_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#dcdedf',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'redstone_block',
+    name: 'REDSTONE BLOCK',
+    desc: 'Glowing block of compacted redstone dust',
+    inputs: [[REDSTONE, 4]],
+    out: [REDSTONE_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#e0241a',
+    hotkey: '',
+    group: 'blocks',
+  },
   {
     key: 'gold_block',
     name: 'GOLD BLOCK',
@@ -696,6 +743,17 @@ export const RECIPES: Recipe[] = [
     group: 'blocks',
   },
   {
+    key: 'lapis_block',
+    name: 'LAPIS BLOCK',
+    desc: 'Deep royal ultramarine stone block crafted from lapis lazuli',
+    inputs: [[LAPIS, 4]],
+    out: [LAPIS_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#3e6df2',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
     key: 'diamond_block',
     name: 'DIAMOND BLOCK',
     desc: 'The trophy block. Mine it back for 1400.',
@@ -703,6 +761,50 @@ export const RECIPES: Recipe[] = [
     out: [DIAMOND_BLOCK, 1],
     kind: 'blocks',
     accent: '#5fe8dc',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'emerald_block',
+    name: 'EMERALD BLOCK',
+    desc: 'Precious faceted emerald block — gleaming treasure',
+    inputs: [[EMERALD, 4]],
+    out: [EMERALD_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#2bd45e',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'quartz_block',
+    name: 'QUARTZ BLOCK',
+    desc: 'Smooth marble-white block crafted from 4 nether quartz',
+    inputs: [[QUARTZ, 4]],
+    out: [QUARTZ_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#f0ebe3',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'sandstone_block',
+    name: 'SANDSTONE',
+    desc: 'Compress 4 sand into solid desert sandstone',
+    inputs: [[SAND, 4]],
+    out: [SANDSTONE, 1],
+    kind: 'blocks',
+    accent: '#ded09c',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'chiseled_sandstone_block',
+    name: 'CHISELED SANDSTONE',
+    desc: 'Carved hieroglyphic sandstone block',
+    inputs: [[SANDSTONE, 2]],
+    out: [CHISELED_SANDSTONE, 2],
+    kind: 'blocks',
+    accent: '#e4d6a2',
     hotkey: '',
     group: 'blocks',
   },
@@ -728,4 +830,151 @@ function gear(
     hotkey: '',
     group: 'gear',
   };
+}
+
+export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks';
+
+/**
+ * Categorize any owned inventory item id into one of the general inventory tabs:
+ * - 'tools': weapons, tools, arrows, workbench, anvil
+ * - 'food': food, fruits, meat, honey, flowers/potions, campfire
+ * - 'armor': gear items (id >= 300)
+ * - 'blocks': building blocks & raw materials
+ */
+export function getItemInvCategory(id: number): Exclude<InvCategory, 'all'> {
+  if (id >= 300) return 'armor';
+  if (id >= 200 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
+  if (
+    id === RAW_MEAT ||
+    id === COOKED_MEAT ||
+    id === APPLE ||
+    id === COCONUT ||
+    id === BANANA ||
+    id === HONEY ||
+    id === MUSHROOM ||
+    id === FLOWER_RED ||
+    id === FLOWER_YELLOW ||
+    id === FLOWER_BLUE ||
+    id === CAMPFIRE
+  ) {
+    return 'food';
+  }
+  return 'blocks';
+}
+
+/**
+ * Compute reduced ingredients returned when dismantling a craftable item at the Workbench.
+ * Returns null if the item is a non-craftable raw material.
+ */
+export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: Array<[number, number]> } | null {
+  // 1. Pickaxes (crafted from 3 head material + 2 planks, or 3 planks for wood)
+  if (isPickTool(id)) {
+    const tier = id - PICK_TOOLS[0];
+    if (tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
+    if (tier === 1) return { inputsUsed: 1, outputs: [[COBBLE, 2], [PLANKS, 1]] };
+    if (tier === 2) return { inputsUsed: 1, outputs: [[IRON, 2], [PLANKS, 1]] };
+    return { inputsUsed: 1, outputs: [[DIAMOND, 2], [PLANKS, 1]] };
+  }
+  // 2. Swords
+  if (isSwordTool(id)) {
+    const tier = id - SWORD_TOOLS[0];
+    if (tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
+    if (tier === 1) return { inputsUsed: 1, outputs: [[IRON, 1], [PLANKS, 1]] };
+    return { inputsUsed: 1, outputs: [[DIAMOND, 1], [PLANKS, 1]] };
+  }
+  // 3. Axes
+  if (isAxeTool(id)) {
+    if (id === AXE_TOOLS[0]) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
+    return { inputsUsed: 1, outputs: [[COBBLE, 2], [PLANKS, 1]] };
+  }
+  // 4. Other tools
+  if (id === TOOL_SHOVEL) return { inputsUsed: 1, outputs: [[PLANKS, 1], [COBBLE, 1]] };
+  if (id === TOOL_BOW) return { inputsUsed: 1, outputs: [[PLANKS, 2], [LEAVES, 2]] };
+  if (id === TOOL_TORCH) return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
+
+  // 5. Crafted blocks & items from RECIPES
+  switch (id) {
+    case CRAFTING_TABLE:
+      return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
+    case ANVIL:
+      return { inputsUsed: 1, outputs: [[IRON, 3], [COBBLE, 1]] };
+    case BED:
+      return { inputsUsed: 1, outputs: [[PLANKS, 2], [WOOL, 2]] };
+    case CAMPFIRE:
+      return { inputsUsed: 1, outputs: [[LOG, 1], [COAL, 1]] };
+    case WOOL:
+      return { inputsUsed: 1, outputs: [[WEB, 2]] };
+    case COAL_BLOCK:
+      return { inputsUsed: 1, outputs: [[COAL, 2]] };
+    case IRON_BLOCK:
+      return { inputsUsed: 1, outputs: [[IRON, 2]] };
+    case REDSTONE_BLOCK:
+      return { inputsUsed: 1, outputs: [[REDSTONE, 2]] };
+    case GOLD_BLOCK:
+      return { inputsUsed: 1, outputs: [[GOLD, 2]] };
+    case LAPIS_BLOCK:
+      return { inputsUsed: 1, outputs: [[LAPIS, 2]] };
+    case DIAMOND_BLOCK:
+      return { inputsUsed: 1, outputs: [[DIAMOND, 2]] };
+    case EMERALD_BLOCK:
+      return { inputsUsed: 1, outputs: [[EMERALD, 2]] };
+    case QUARTZ_BLOCK:
+      return { inputsUsed: 1, outputs: [[QUARTZ, 2]] };
+    case SANDSTONE:
+      return { inputsUsed: 1, outputs: [[SAND, 2]] };
+    case CHISELED_SANDSTONE:
+      return { inputsUsed: 1, outputs: [[SANDSTONE, 1]] };
+    case DOOR_WOOD:
+      return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
+    case DOOR_IRON:
+      return { inputsUsed: 1, outputs: [[IRON, 1]] };
+    case FENCE_WOOD:
+      return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
+    case FENCE_STONE:
+      return { inputsUsed: 1, outputs: [[COBBLE, 1]] };
+    case FENCE_IRON:
+      return { inputsUsed: 1, outputs: [[COBBLE, 1]] };
+    case LAMP_RED:
+      return { inputsUsed: 1, outputs: [[FLOWER_RED, 1], [GLASS, 1]] };
+    case LAMP_BLUE:
+      return { inputsUsed: 1, outputs: [[FLOWER_BLUE, 1], [GLASS, 1]] };
+    case LAMP_YELLOW:
+      return { inputsUsed: 1, outputs: [[FLOWER_YELLOW, 1], [GLASS, 1]] };
+    case PEDESTAL:
+      return { inputsUsed: 1, outputs: [[COBBLE, 1]] };
+    case PEDESTAL_GOLD:
+      return { inputsUsed: 1, outputs: [[COBBLE, 1]] };
+    case GLASS:
+      return { inputsUsed: 1, outputs: [[SAND, 1]] };
+    case TORCH:
+      return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
+    case ARROW_ITEM:
+      return { inputsUsed: 1, outputs: [[FEATHER, 1]] };
+    case PLANKS:
+      return { inputsUsed: 2, outputs: [[LOG, 1]] };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Compute reduced ingredients returned when dismantling an Armor/Gear piece at the Workbench.
+ * Matches the item's crafting recipe in RECIPES (or material fallback) in reduced quantity.
+ */
+export function getSalvageForGear(it: Item): Array<[number, number]> {
+  if (it.material === 'netherite') {
+    return [
+      [NETHERITE, 1],
+      [DIAMOND, 2],
+    ];
+  }
+  // Find matching craft recipe for this slot + material
+  const matched = RECIPES.find((r) => r.kind === 'gear' && r.slot === it.slot && r.material === it.material);
+  if (matched && matched.inputs.length > 0) {
+    return matched.inputs.map(([ingId, count]) => [ingId, Math.max(1, Math.floor(count * 0.6))]);
+  }
+  if (it.material === 'diamond') return [[DIAMOND, 2]];
+  if (it.material === 'gold') return [[GOLD, 2]];
+  if (it.material === 'iron') return [[IRON, 2]];
+  return [[LEAVES, 3]];
 }
