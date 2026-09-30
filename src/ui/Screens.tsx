@@ -278,13 +278,15 @@ export function StartScreen({
 
           <p className="mt-4 max-w-md text-sm leading-relaxed text-white/65 sm:text-base">{t('intro')}</p>
 
-          {/* ---- shift length: dropdown ---- */}
-          <div className="mt-5">
-            <div className="mb-2 flex items-center gap-2 text-[10px] tracking-[0.3em] text-white/40">
-              <ClockIcon size={12} className="text-torch" /> {t('shiftLength')}
+          {/* ---- shift length: dropdown (explorer only; survival is endless) ---- */}
+          {!survival && (
+            <div className="mt-5">
+              <div className="mb-2 flex items-center gap-2 text-[10px] tracking-[0.3em] text-white/40">
+                <ClockIcon size={12} className="text-torch" /> {t('shiftLength')}
+              </div>
+              <SessionDropdown sessions={sessions} sessionId={sessionId} onSession={onSession} />
             </div>
-            <SessionDropdown sessions={sessions} sessionId={sessionId} onSession={onSession} />
-          </div>
+          )}
 
           {/* ---- game mode ---- */}
           <div className="mt-4">
@@ -537,12 +539,12 @@ export function PauseScreen({
       <div className="bevel notch anim-pop w-[min(92vw,440px)] p-5 sm:p-6">
         <div className="mb-1 font-display text-4xl leading-none text-white text-outline sm:text-5xl">{t('paused')}</div>
         <div className="mb-5 text-[11px] tracking-[0.3em] text-torch/70">
-          {t('pausedSub')} · {fmtMinutes(hud.runTime)}
+          {t('pausedSub')} · {hud.endless ? '∞' : fmtMinutes(hud.runTime)}
         </div>
 
         <div className="sunken notch mb-5 grid grid-cols-2 gap-px bg-white/5 p-px sm:grid-cols-4">
           <Stat icon={<TrophyIcon size={13} />} label={t('score')} value={hud.score.toLocaleString()} color="#f4b942" />
-          <Stat icon={<ClockIcon size={13} />} label={t('shift')} value={`${Math.ceil(hud.timeLeft)}${t('secShort')}`} color="#e8efe9" />
+          <Stat icon={<ClockIcon size={13} />} label={t('shift')} value={hud.endless ? '∞' : `${Math.ceil(hud.timeLeft)}${t('secShort')}`} color="#e8efe9" />
           <Stat icon={<CubeIcon size={13} />} label={t('mined')} value={String(hud.blocksMined)} color="#93c95d" />
           <Stat icon={<DepthIcon size={13} />} label={t('depth')} value={String(hud.deepest)} color="#d9844a" />
         </div>
@@ -663,7 +665,7 @@ export function GameOverScreen({
         <div className="anim-rise flex-1">
           <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.4em]" style={{ color: accent }}>
             <span className="h-px w-8" style={{ background: accent }} />
-            {t('runReport')} · {fmtMinutes(hud.runTime)}
+            {t('runReport')} · {hud.endless ? '∞' : fmtMinutes(hud.runTime)}
           </div>
           <h2 className="font-display text-[clamp(2.4rem,8vw,4.6rem)] leading-[0.9] text-white text-outline">{title}</h2>
           <p className="mt-2 max-w-md text-sm text-white/55">{sub}</p>

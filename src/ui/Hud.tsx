@@ -76,8 +76,9 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
     return () => clearTimeout(t);
   }, [hud.phase]);
 
-  const urgent = hud.timeLeft <= 15 && !hud.sandbox;
-  const night = hud.daylight < 0.42;
+  const endless = hud.sandbox || hud.endless;
+  const urgent = hud.timeLeft <= 15 && !endless;
+  const night = hud.phaseName === 'night';
   const tierColor = PICKAXE_TIERS[hud.tier].color;
   const hpColor =
     hud.health > 60
@@ -171,10 +172,10 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         <div className={`bevel-flat notch flex items-center gap-2 px-3 py-1 sm:gap-3 sm:px-4 sm:py-1.5 ${urgent ? 'anim-ring' : ''}`}>
           <ClockIcon size={15} className={urgent ? 'text-blood' : 'text-torch'} />
           <span
-            className={`font-display text-2xl leading-none tabular-nums sm:text-3xl ${urgent && !hud.sandbox ? 'text-blood' : 'text-white'}`}
-            style={{ textShadow: urgent && !hud.sandbox ? '0 0 12px rgba(226,86,74,.8)' : '2px 2px 0 rgba(0,0,0,.8)' }}
+            className={`font-display text-2xl leading-none tabular-nums sm:text-3xl ${urgent ? 'text-blood' : 'text-white'}`}
+            style={{ textShadow: urgent ? '0 0 12px rgba(226,86,74,.8)' : '2px 2px 0 rgba(0,0,0,.8)' }}
           >
-            {hud.sandbox ? '∞' : fmtTime(hud.timeLeft)}
+            {endless ? '∞' : fmtTime(hud.timeLeft)}
           </span>
         </div>
         {/* day / night indicator */}

@@ -67,6 +67,7 @@ const INITIAL_HUD: HudState = {
   anvilNear: false,
   workbenchNear: false,
   sandbox: false,
+  endless: false,
 };
 
 export default function App() {
@@ -297,12 +298,12 @@ export default function App() {
   );
 
   const play = useCallback(() => {
-    engineRef.current?.startRun(sessionSecs);
-  }, [sessionSecs]);
+    engineRef.current?.startRun(survival ? undefined : sessionSecs);
+  }, [sessionSecs, survival]);
   const restart = useCallback(() => {
-    // restarting a sandbox stays a sandbox
-    engineRef.current?.startRun(sessionSecs, engineRef.current?.sandbox ?? false);
-  }, [sessionSecs]);
+    // restarting a sandbox stays a sandbox; survival itself is endless too
+    engineRef.current?.startRun(survival ? undefined : sessionSecs, engineRef.current?.sandbox ?? false);
+  }, [sessionSecs, survival]);
   const createWorld = useCallback(() => {
     engineRef.current?.startRun(undefined, true);
     setHasSave(Engine.hasSavedWorld());
@@ -334,7 +335,7 @@ export default function App() {
       {/* soft colour grade over the world for a cohesive look */}
       <div
         className="pointer-events-none absolute inset-0 z-[6]"
-        style={{ background: 'radial-gradient(ellipse at 50% 42%, rgba(255,214,150,.06) 0%, rgba(0,0,0,0) 55%, rgba(4,10,14,.42) 100%)' }}
+        style={{ background: 'radial-gradient(ellipse at 50% 42%, rgba(255,224,170,.05) 0%, rgba(0,0,0,0) 58%, rgba(4,10,14,.28) 100%)' }}
       />
 
       {playing && (

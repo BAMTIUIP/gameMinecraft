@@ -186,6 +186,7 @@ export type HudState = {
   anvilNear: boolean;
   workbenchNear: boolean;
   sandbox: boolean;
+  endless: boolean;
   swordTier: number;
   equipped: Partial<Record<Slot, Item>>;
   bagItems: Item[];
@@ -232,6 +233,18 @@ const CRAWL_BODY_CENTER = 0.96;
 const EYE = 1.62;
 const BASE_INTERACTION_REACH = 1.5;
 const MAX_INTERACTION_REACH = 4.5;
+const CLOCK_DAWN_START = 0.22;
+const CLOCK_DAY_START = 0.34;
+const CLOCK_DUSK_START = 0.76;
+const CLOCK_NIGHT_START = 0.88;
+const MENU_SURVIVAL_CLOCK = 0.04;
+const MENU_EXPLORER_CLOCK = 0.48;
+const SURVIVAL_START_CLOCK = CLOCK_DAY_START + 0.01;
+const DAWN_SECONDS = 95;
+const DAY_SECONDS = 340;
+const FIRST_SURVIVAL_DAY_SECONDS = 480;
+const DUSK_SECONDS = 95;
+const NIGHT_SECONDS = 95;
 
 type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
 type WeatherKind = 'clear' | 'rain' | 'snow';
@@ -356,7 +369,6 @@ export class Engine {
   private deathCause: HudState['deathCause'] = null;
   // --- world clock / mobs / gear ---
   survival = true;
-  private dayLen = 190;
   private clock = 0.28;
   private daylight = 1;
   private mobSys!: MobSystem;
@@ -366,6 +378,8 @@ export class Engine {
   private kills = 0;
   private killedBy: string | null = null;
   private wasNight = false;
+  private survivalNight = 0;
+  private firstSurvivalDay = false;
   private swordTier = -1;
   private equipped: Partial<Record<Slot, Item>> = {};
   private bagItems: Item[] = [];
@@ -1507,12 +1521,14 @@ if (tpClipActive > 0.5) {
   }
 
   // ================= WORLD GEN QUEUE =================
-  private randomStartClock() {
-    const band = Math.floor(Math.random() * 4);
-    if (band === 0) return 0.23 + Math.random() * 0.1; // dawn / sunrise
-    if (band === 1) return 0.38 + Math.random() * 0.24; // day
-    if (band === 2) return 0.68 + Math.random() * 0.1; // dusk / sunset
-    return Math.random() < 0.5 ? Math.random() * 0.16 : 0.84 + Math.random() * 0.16; // night
+  private menuClockForMode() {
+    return this.survival ? MENU_SURVIVAL_CLOCK : MENU_EXPLORER_CLOCK;
+  }
+
+  private setMenuClockForMode() {
+    this.clock = this.menuClockForMode();
+    this.updateClock(0);
+    this.wasNight = this.isNightClock();
   }
 
   private queueWorldGen(seed: number) {
@@ -1524,11 +1540,10 @@ if (tpClipActive > 0.5) {
     this.weatherTargetIntensity = 0;
     this.weatherTimer = 6;
     this.weatherSpawnAcc = 0;
-    this.clock = this.randomStartClock();
     seedNoise(seed);
     this.world.reset(seed);
     this.rand = mulberry32(seed);
-    this.updateClock(0);
+    this.setMenuClockForMode();
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
     const R = 4; // starter area: 9×9 chunk terrain, 7×7 decorated+meshed
@@ -2154,6 +2169,7 @@ if (tpClipActive > 0.5) {
 
   // ================= SANDBOX: MY WORLD (save / load, no timer) =================
   sandbox = false;
+  private endlessRun = false;
   private static SAVE_KEY = 'orerush.myworld.v1';
 
   static hasSavedWorld(): boolean {
@@ -2215,6 +2231,8 @@ if (tpClipActive > 0.5) {
         vineTips: Array.from(this.vineTips.entries()),
         kills: this.kills,
         blocksMined: this.blocksMined,
+        survivalNight: this.survivalNight,
+        firstSurvivalDay: this.firstSurvivalDay,
         chunks,
       };
       localStorage.setItem(Engine.SAVE_KEY, JSON.stringify(data));
@@ -2279,8 +2297,11 @@ if (tpClipActive > 0.5) {
     this.vineTips = new Map((Array.isArray(data.vineTips) ? data.vineTips : []).slice(0, 128));
     this.kills = data.kills ?? 0;
     this.blocksMined = data.blocksMined ?? 0;
+    this.survivalNight = data.survivalNight ?? 0;
+    this.firstSurvivalDay = data.firstSurvivalDay ?? false;
     this.clock = data.clock ?? 0.3;
     this.updateClock(0);
+    this.wasNight = this.isNightClock();
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -2304,10 +2325,13 @@ if (tpClipActive > 0.5) {
 
   // ================= PHASE CONTROL =================
   startRun(seconds?: number, sandbox = false) {
+    const survivalRun = this.survival;
     this.sandbox = sandbox;
+    this.endlessRun = sandbox || survivalRun;
     initAudio();
     stopMusic(0.4);
-    if (seconds && seconds > 0) this.runTime = seconds;
+    if (survivalRun) this.runTime = 0;
+    else if (seconds && seconds > 0) this.runTime = seconds;
     this.score = 0;
     this.timeLeft = this.runTime;
     this.health = 100;
@@ -2361,8 +2385,12 @@ if (tpClipActive > 0.5) {
     this.kills = 0;
     this.killedBy = null;
     this.attackCd = 0;
+    this.survivalNight = 0;
+    this.firstSurvivalDay = survivalRun;
+    if (survivalRun) this.clock = SURVIVAL_START_CLOCK;
+    else if (sandbox) this.clock = MENU_EXPLORER_CLOCK;
     this.updateClock(0);
-    this.wasNight = this.daylight < 0.35;
+    this.wasNight = this.isNightClock();
     this.sleeping = false;
     this.sleepDark = 0;
     this.crouching = false;
@@ -2513,14 +2541,18 @@ if (tpClipActive > 0.5) {
   toMenu() {
     this.phase = 'menu';
     this.inventoryOpen = false;
+    this.sandbox = false;
+    this.endlessRun = false;
     if (document.pointerLockElement) document.exitPointerLock();
     this.mining = false;
+    this.setMenuClockForMode();
     requestMusic();
     this.syncHud(true);
   }
 
   setSurvival(v: boolean) {
     this.survival = v;
+    if (this.phase === 'menu' || this.phase === 'loading') this.setMenuClockForMode();
     if (!v) {
       // explorer mode clears anything hostile already walking around
       for (let i = this.mobSys.mobs.length - 1; i >= 0; i--) {
@@ -2679,8 +2711,8 @@ if (tpClipActive > 0.5) {
     // ---- sleeping: cinematic time-lapse to dawn ----
     if (this.sleeping) {
       this.sleepDark = Math.min(1, this.sleepDark + dt * 2.2);
-      // the shift clock keeps ticking — sleep isn't free time (sandbox: no clock)
-      if (!this.sandbox) {
+      // the shift clock keeps ticking — sleep isn't free time (endless modes have no shift clock)
+      if (!this.endlessRun) {
         this.timeLeft -= dt;
         if (this.timeLeft <= 0) {
           this.timeLeft = 0;
@@ -2727,12 +2759,17 @@ if (tpClipActive > 0.5) {
     this.updateMining(dt);
 
     // night / dawn announcements
-    const isNight = this.daylight < 0.35;
+    const isNight = this.isNightClock();
     if (isNight !== this.wasNight) {
       this.wasNight = isNight;
       if (this.survival) {
-        if (isNight) this.pushBanner(t('nightFalls'), t('nightFallsSub'), '#6f8bd8');
-        else this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
+        if (isNight) {
+          this.survivalNight += 1;
+          this.firstSurvivalDay = false;
+          this.pushBanner(t('nightFalls'), t('nightFallsSub'), '#6f8bd8');
+        } else {
+          this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
+        }
       }
     }
     this.updateDrops(dt, false);
@@ -2741,8 +2778,8 @@ if (tpClipActive > 0.5) {
     this.updateShake(dt);
     this.updateCamera(dt);
 
-    // sandbox worlds have no shift clock — stay as long as you like
-    if (!this.sandbox) {
+    // endless modes have no shift clock — stay as long as you like
+    if (!this.endlessRun) {
       this.timeLeft -= dt;
       if (this.timeLeft <= 10.5) {
         this.warnTick -= dt;
@@ -6180,16 +6217,57 @@ if (tpClipActive > 0.5) {
 
   // ================= DAY / NIGHT =================
   /** 0 = midnight, 0.5 = noon */
+  private clockPhase(clock = this.clock): HudState['phaseName'] {
+    if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return 'dawn';
+    if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return 'day';
+    if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return 'dusk';
+    return 'night';
+  }
+
+  private clockPhaseProgress(clock = this.clock) {
+    if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return (clock - CLOCK_DAWN_START) / (CLOCK_DAY_START - CLOCK_DAWN_START);
+    if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return (clock - CLOCK_DAY_START) / (CLOCK_DUSK_START - CLOCK_DAY_START);
+    if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return (clock - CLOCK_DUSK_START) / (CLOCK_NIGHT_START - CLOCK_DUSK_START);
+    if (clock >= CLOCK_NIGHT_START) return (clock - CLOCK_NIGHT_START) / (1 - CLOCK_NIGHT_START + CLOCK_DAWN_START);
+    return (clock + 1 - CLOCK_NIGHT_START) / (1 - CLOCK_NIGHT_START + CLOCK_DAWN_START);
+  }
+
+  private phaseSeconds(phase: HudState['phaseName']) {
+    if (phase === 'dawn') return DAWN_SECONDS;
+    if (phase === 'day') return this.firstSurvivalDay ? FIRST_SURVIVAL_DAY_SECONDS : DAY_SECONDS;
+    if (phase === 'dusk') return DUSK_SECONDS;
+    return NIGHT_SECONDS;
+  }
+
+  private phaseSpan(phase: HudState['phaseName']) {
+    if (phase === 'dawn') return CLOCK_DAY_START - CLOCK_DAWN_START;
+    if (phase === 'day') return CLOCK_DUSK_START - CLOCK_DAY_START;
+    if (phase === 'dusk') return CLOCK_NIGHT_START - CLOCK_DUSK_START;
+    return 1 - CLOCK_NIGHT_START + CLOCK_DAWN_START;
+  }
+
+  private isNightClock(clock = this.clock) {
+    return this.clockPhase(clock) === 'night';
+  }
+
   private updateClock(dt: number) {
-    this.clock = (this.clock + dt / this.dayLen) % 1;
+    if (dt > 0) {
+      const phase = this.clockPhase();
+      this.clock = (this.clock + (dt * this.phaseSpan(phase)) / this.phaseSeconds(phase)) % 1;
+    }
     const smooth01 = (v: number) => {
       const t2 = Math.max(0, Math.min(1, v));
       return t2 * t2 * (3 - 2 * t2);
     };
 
+    const phase = this.clockPhase();
+    const prog = this.clockPhaseProgress();
     const sunAngle = this.clock * Math.PI * 2 - Math.PI / 2;
     const sunHeight = Math.sin(sunAngle);
-    this.daylight = smooth01((sunHeight + 0.22) / 0.92);
+    if (phase === 'dawn') this.daylight = 0.06 + 0.94 * smooth01(prog);
+    else if (phase === 'day') this.daylight = 1;
+    else if (phase === 'dusk') this.daylight = 1 - 0.94 * smooth01(prog);
+    else this.daylight = 0.06;
 
     const d = this.daylight;
     if (this.skyMesh) this.skyMesh.position.copy(this.camera.position);
@@ -6199,22 +6277,24 @@ if (tpClipActive > 0.5) {
     const weather = dry ? 0 : this.weatherIntensity;
 
     const night = new THREE.Color(0x050914);
-    const dawn = new THREE.Color(dry ? 0xffad63 : 0xe8895d);
-    const day = new THREE.Color(dry ? 0xcfe8ff : biome === 'winter' ? 0xc7def3 : 0xb8d8f0);
-    const storm = new THREE.Color(biome === 'winter' ? 0xaebccc : 0x788897);
+    const dawn = new THREE.Color(dry ? 0xffba72 : 0xff9866);
+    const day = new THREE.Color(dry ? 0xf0fbff : biome === 'winter' ? 0xe5f5ff : 0xdaf2ff);
+    const storm = new THREE.Color(biome === 'winter' ? 0xbcc9d8 : 0x8799a8);
     const c = new THREE.Color();
-    if (d < 0.22) c.copy(night).lerp(dawn, d / 0.22);
-    else c.copy(dawn).lerp(day, (d - 0.22) / 0.78);
-    if (weather > 0) c.lerp(storm, Math.min(0.78, weather * 0.72));
+    if (phase === 'night') c.copy(night);
+    else if (phase === 'dawn') c.copy(night).lerp(dawn, smooth01(prog)).lerp(day, smooth01(Math.max(0, prog - 0.45) / 0.55) * 0.55);
+    else if (phase === 'dusk') c.copy(day).lerp(dawn, smooth01(prog) * 0.72).lerp(night, smooth01(Math.max(0, prog - 0.38) / 0.62));
+    else c.copy(day);
+    if (weather > 0) c.lerp(storm, Math.min(0.72, weather * 0.62));
 
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(c);
-    const nightHaze = 0.58 + d * 0.42;
-    const weatherHaze = 1 - weather * 0.18;
+    const nightHaze = 0.66 + d * 0.54;
+    const weatherHaze = 1 - weather * 0.16;
     fog.far = this.renderDist * nightHaze * weatherHaze;
-    fog.near = fog.far * (0.36 + weather * 0.08);
+    fog.near = fog.far * (0.34 + weather * 0.07);
     this.scene.background = c;
-    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar((dry ? 0.72 : 0.62) + d * (dry ? 0.62 : 0.54));
+    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar((dry ? 0.92 : 0.82) + d * (dry ? 0.56 : 0.52));
 
     const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();
     this.sunDir.copy(sunDir);
@@ -6225,9 +6305,9 @@ if (tpClipActive > 0.5) {
       this.sunMesh.lookAt(this.camera.position);
       this.sunMesh.visible = sunDir.y > 0.02 && d > 0.18;
       const mat = this.sunMesh.material as THREE.MeshBasicMaterial;
-      const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.36)) * (dry ? 1 : 1 - weather * 0.55);
+      const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.32)) * (dry ? 1 : 1 - weather * 0.5);
       mat.opacity = sunOpacity;
-      mat.color.set(dry ? 0xffc933 : d < 0.35 ? 0xff9f3f : 0xffd24a);
+      mat.color.set(dry ? 0xffc933 : d < 0.45 ? 0xffa347 : 0xffd24a);
       if (this.sunHaloMat) {
         const dayHalo = d > 0.84 && sunDir.y > 0.52 ? Math.min(1, (d - 0.84) / 0.16) : 0;
         this.sunHaloMat.opacity = sunOpacity * dayHalo * (dry ? 0.3 : 0.18) * (1 - weather * 0.45);
@@ -6241,53 +6321,63 @@ if (tpClipActive > 0.5) {
       this.moonMesh.visible = moonDir.y > -0.03 && d < 0.72;
     }
     if (this.starMat) {
-      this.starMat.opacity = smooth01((0.42 - d) / 0.42) * (1 - Math.min(0.85, weather * 0.85));
+      this.starMat.opacity = smooth01((0.48 - d) / 0.48) * (1 - Math.min(0.85, weather * 0.85));
     }
 
     const lightDir = sunDir.y > -0.04 ? sunDir : moonDir;
     if (this.sunLight) {
       this.sunLight.position.copy(lightDir);
-      this.sunLight.color.set(sunDir.y > -0.04 ? (dry ? 0xffe0a8 : 0xfff0d0) : 0x88a6d8);
-      const sunPower = sunDir.y > -0.04 ? 0.08 + d * (dry ? 0.92 : 0.74) : 0.035 + (1 - d) * 0.06;
-      this.sunLight.intensity = sunPower * (1 - weather * 0.35);
+      this.sunLight.color.set(sunDir.y > -0.04 ? (dry ? 0xffdfa0 : 0xfff2cf) : 0x88a6d8);
+      const sunPower = sunDir.y > -0.04 ? 0.2 + d * (dry ? 1.2 : 1.05) : 0.04 + (1 - d) * 0.065;
+      this.sunLight.intensity = sunPower * (1 - weather * 0.32);
     }
     if (this.ambLight) {
-      const ambient = (0.045 + d * (dry ? 0.42 : 0.34)) * (1 - weather * 0.26) + (dry && d > 0.5 ? 0.07 : 0);
+      const ambient = (0.08 + d * (dry ? 0.58 : 0.52)) * (1 - weather * 0.22) + (dry && d > 0.5 ? 0.09 : 0);
       this.ambLight.intensity = ambient;
-      this.ambLight.color.set(d < 0.25 ? 0x9fb8ff : dry ? 0xffe8be : 0xdfe8ff);
+      this.ambLight.color.set(d < 0.25 ? 0x9fb8ff : dry ? 0xffedc8 : 0xf0f6ff);
     }
 
     const tint = new THREE.Color();
-    if (d < 0.22) tint.setRGB(0.58 + d * 1.2, 0.64 + d * 1.0, 0.86 + d * 0.55);
-    else tint.setRGB(1, 1, dry ? 0.9 : 0.98);
-    if (weather > 0) tint.lerp(new THREE.Color(0xaeb8c1), weather * 0.28);
+    if (d < 0.22) tint.setRGB(0.58 + d * 1.35, 0.64 + d * 1.12, 0.86 + d * 0.62);
+    else tint.setRGB(dry ? 1.06 : 1.04, dry ? 1.03 : 1.04, dry ? 0.92 : 1.02);
+    if (weather > 0) tint.lerp(new THREE.Color(0xb7c1ca), weather * 0.24);
     this.material.color.copy(tint);
     if (this.cutoutMat) this.cutoutMat.color.copy(tint);
     if (this.decorMat) this.decorMat.color.copy(tint);
-    if (this.waterMat) this.waterMat.color.copy(new THREE.Color(d < 0.22 ? 0x8aa7d8 : 0xffffff).lerp(storm, weather * 0.22));
+    if (this.waterMat) this.waterMat.color.copy(new THREE.Color(d < 0.22 ? 0x8aa7d8 : 0xffffff).lerp(storm, weather * 0.18));
   }
 
   phaseName(): HudState['phaseName'] {
-    const d = this.daylight;
-    if (d > 0.82) return 'day';
-    if (d < 0.2) return 'night';
-    return this.clock < 0.5 ? 'dawn' : 'dusk';
+    return this.clockPhase();
   }
 
   // ================= MOBS =================
+  private survivalThreatLevel() {
+    return Math.max(0, this.survivalNight - 1);
+  }
+
+  private hostileHpScale() {
+    return 1 + this.survivalThreatLevel() * 0.22;
+  }
+
+  private hostileDamageScale() {
+    return 1 + this.survivalThreatLevel() * 0.16;
+  }
+
   private updateMobs(dt: number) {
-    const night = this.daylight < 0.42;
+    const night = this.isNightClock();
+    const threat = this.survivalThreatLevel();
 
     // hostile spawning
     if (this.survival) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = night ? 1.4 : 6;
+        this.spawnTimer = night ? Math.max(0.55, 1.4 - threat * 0.1) : 6;
         // caves are dark at any hour: when the player is underground, monsters
         // keep coming even at noon (and never burn down there — no open sky)
         const surfaceH = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
         const underground = this.pos.y < surfaceH - 4;
-        const cap = night ? 12 : underground ? 7 : 3;
+        const cap = night ? Math.min(34, 12 + this.survivalNight * 3) : underground ? Math.min(15, 7 + threat) : 3;
         if (this.mobSys.count(true) < cap) {
           const p = underground
             ? this.findCaveSpawn()
@@ -6298,7 +6388,14 @@ if (tpClipActive > 0.5) {
             const id: MobId =
               roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
             const m = this.mobSys.spawn(id, p[0], p[1], p[2]);
-            if (m && !night) m.burn = 0.4;
+            if (m) {
+              if (threat > 0) {
+                const hpMul = this.hostileHpScale();
+                m.maxHp = Math.ceil(m.maxHp * hpMul);
+                m.hp = m.maxHp;
+              }
+              if (!night) m.burn = 0.4;
+            }
           }
         }
       }
@@ -6485,6 +6582,7 @@ if (tpClipActive > 0.5) {
 
   private mobHit(m: Mob, dmg: number) {
     if (this.phase !== 'playing') return;
+    if (this.survival && m.def.hostile) dmg *= this.hostileDamageScale();
     const red = damageReduction(this.stats.armor);
     let taken = dmg * (1 - red);
     if (m.def.explodes) {
@@ -7630,6 +7728,7 @@ if (tpClipActive > 0.5) {
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,
       workbenchNear: this.phase === 'playing' || this.inventoryOpen ? this.workbenchNear() : false,
       sandbox: this.sandbox,
+      endless: this.endlessRun,
       inventoryOpen: this.inventoryOpen,
       craftHint: this.craftHint(),
       inventory: this.inventoryList(),
