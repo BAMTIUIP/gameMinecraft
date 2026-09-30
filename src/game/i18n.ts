@@ -1326,6 +1326,7 @@ const BLOCKS_RU: Record<number, string> = {
   59: 'Высокая трава', 60: 'Папоротник', 61: 'Мёртвый куст', 62: 'Кактус', 63: 'Бледный кактус',
   64: 'Берёзовое бревно', 65: 'Берёзовая листва', 66: 'Яблоневая листва', 67: 'Яблоко',
   69: 'Вулканический камень', 70: 'Ствол пальмы', 71: 'Кокосовая листва', 72: 'Банановые листья', 73: 'Лиана', 74: 'Кокос', 75: 'Банан', 76: 'Сухой пустынный цветок', 77: 'Пустынный чертополох', 78: 'Гнездо из веток', 79: 'Соломенное гнездо',
+  80: 'Лесной гриб', 81: 'Песчаник', 82: 'Резной песчаник', 83: 'Оранжевая терракота', 84: 'Сноп сена',
   68: 'Верстак',
 };
 
@@ -1346,6 +1347,7 @@ const BLOCKS_FR: Record<number, string> = {
   59: 'Hautes herbes', 60: 'Fougère', 61: 'Arbrisseau mort', 62: 'Cactus', 63: 'Cactus pâle',
   64: 'Bûche de bouleau', 65: 'Feuillage de bouleau', 66: 'Feuillage de pommier', 67: 'Pomme',
   69: 'Roche volcanique', 70: 'Tronc de palmier', 71: 'Feuilles de cocotier', 72: 'Feuilles de bananier', 73: 'Liane', 74: 'Noix de coco', 75: 'Banane', 76: 'Fleur désertique séchée', 77: 'Chardon du désert', 78: 'Nid de brindilles', 79: 'Nid de paille',
+  80: 'Champignon des bois', 81: 'Grès', 82: 'Grès sculpté', 83: 'Terre cuite orange', 84: 'Botte de foin',
   68: 'Établi',
 };
 
@@ -1366,6 +1368,7 @@ const BLOCKS_DE: Record<number, string> = {
   59: 'Hohes Gras', 60: 'Farne', 61: 'Toter Strauch', 62: 'Kaktus', 63: 'Blasser Kaktus',
   64: 'Birkenstamm', 65: 'Birkenlaub', 66: 'Apfelbaumlaub', 67: 'Apfel',
   69: 'Vulkangestein', 70: 'Palmstamm', 71: 'Kokosblätter', 72: 'Bananenblätter', 73: 'Liane', 74: 'Kokosnuss', 75: 'Banane', 76: 'Trockene Wüstenblume', 77: 'Wüstendistel', 78: 'Zweignest', 79: 'Strohnest',
+  80: 'Waldpilz', 81: 'Sandstein', 82: 'Gemeißelter Sandstein', 83: 'Orangefarbene Keramik', 84: 'Strohballen',
   68: 'Werkbank',
 };
 

@@ -85,6 +85,10 @@ export const DESERT_THISTLE = 77;
 export const BIRD_NEST = 78;
 export const CHICKEN_NEST = 79;
 export const MUSHROOM = 80;
+export const SANDSTONE = 81;
+export const CHISELED_SANDSTONE = 82;
+export const TERRACOTTA_ORANGE = 83;
+export const HAY_BALE = 84;
 
 export const isFluid = (id: number) => id === WATER || id === LAVA;
 export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === DRY_BLOOM || id === DESERT_THISTLE;
@@ -107,6 +111,9 @@ export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
 export function blockClass(id: number): BlockClass {
   switch (id) {
     case VOLCANIC_STONE:
+    case SANDSTONE:
+    case CHISELED_SANDSTONE:
+    case TERRACOTTA_ORANGE:
     case STONE:
     case COBBLE:
     case COAL:
@@ -125,6 +132,7 @@ export function blockClass(id: number): BlockClass {
     case GRASS:
     case SAND:
     case SNOW_GRASS:
+    case HAY_BALE:
       return 'earth';
     case ICE:
       return 'stone';
@@ -240,6 +248,15 @@ export const T = {
   birdNest: 86,
   chickenNest: 87,
   mushroom: 88,
+  sandstoneTop: 89,
+  sandstoneSide: 90,
+  sandstoneBottom: 91,
+  chiseledSandstoneSide: 92,
+  terracottaOrange: 93,
+  hayBaleTop: 94,
+  hayBaleSide: 95,
+  doorWoodBottom: 96,
+  doorIronBottom: 97,
 };
 
 export type BlockDef = {
@@ -369,6 +386,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.torch,
     hardness: 0.16,
     score: 2,
+    solid: false,
     tint: [255, 208, 110],
     emissive: 1,
   }),
@@ -504,6 +522,44 @@ export const BLOCKS: BlockDef[] = [
   d({ id: BIRD_NEST, name: 'Twig Nest', side: T.birdNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [102, 68, 42] }),
   d({ id: CHICKEN_NEST, name: 'Straw Nest', side: T.chickenNest, hardness: 0.08, score: 4, solid: false, drop: 0, tint: [208, 173, 83] }),
   d({ id: MUSHROOM, name: 'Forest Mushroom', side: T.mushroom, hardness: 0.08, score: 3, solid: false, drop: 0, tint: [202, 95, 68] }),
+  d({
+    id: SANDSTONE,
+    name: 'Sandstone',
+    top: T.sandstoneTop,
+    side: T.sandstoneSide,
+    bottom: T.sandstoneBottom,
+    hardness: 0.9,
+    score: 6,
+    tint: [222, 206, 156],
+  }),
+  d({
+    id: CHISELED_SANDSTONE,
+    name: 'Chiseled Sandstone',
+    top: T.sandstoneTop,
+    side: T.chiseledSandstoneSide,
+    bottom: T.sandstoneTop,
+    hardness: 0.95,
+    score: 8,
+    tint: [228, 212, 162],
+  }),
+  d({
+    id: TERRACOTTA_ORANGE,
+    name: 'Orange Terracotta',
+    side: T.terracottaOrange,
+    hardness: 1.0,
+    score: 7,
+    tint: [186, 98, 56],
+  }),
+  d({
+    id: HAY_BALE,
+    name: 'Hay Bale',
+    top: T.hayBaleTop,
+    side: T.hayBaleSide,
+    bottom: T.hayBaleTop,
+    hardness: 0.5,
+    score: 6,
+    tint: [216, 182, 74],
+  }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
@@ -522,6 +578,8 @@ export const isInteractive = (id: number) => id === DOOR_WOOD || id === DOOR_IRO
 export const isOpaque = (id: number) =>
   id !== AIR &&
   id !== WATER &&
+  id !== TORCH &&
+  id !== BED &&
   !(
     isCutout(id) ||
     isPlant(id) ||

@@ -82,7 +82,7 @@ export const MOBS: Record<MobId, MobDef> = {
   deer: { id: 'deer', nameKey: 'mob_deer', hostile: false, hp: 14, speed: 2.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 30, level: 0, body: '#a8794f', accent: '#d7bd91', legs: '#594332' },
   roe_deer: { id: 'roe_deer', nameKey: 'mob_roe_deer', hostile: false, hp: 10, speed: 3.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.8, score: 24, level: 0, body: '#b78355', accent: '#e2c897', legs: '#594332' },
   moose: { id: 'moose', nameKey: 'mob_moose', hostile: false, hp: 26, speed: 2.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.6, score: 46, level: 0, body: '#70513d', accent: '#ad8968', legs: '#49392e' },
-  tumbleweed: { id: 'tumbleweed', nameKey: 'mob_tumbleweed', hostile: false, hp: 1, speed: 1.35, damage: 0, cooldown: 1, reach: 0.5, burns: false, scale: 0.62, score: 0, level: 0, body: '#7da54b', accent: '#b4ca71', legs: '#647d3d' },
+  tumbleweed: { id: 'tumbleweed', nameKey: 'mob_tumbleweed', hostile: false, hp: 1, speed: 2.35, damage: 0, cooldown: 1, reach: 0.5, burns: false, scale: 0.68, score: 0, level: 0, body: '#cfa866', accent: '#e6c98a', legs: '#a47e46' },
   hedgehog: { id: 'hedgehog', nameKey: 'mob_hedgehog', hostile: false, hp: 7, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.48, score: 18, level: 0, body: '#8d6747', accent: '#e4c9a3', legs: '#574234' },
   jellyfish: { id: 'jellyfish', nameKey: 'mob_jellyfish', hostile: false, hp: 4, speed: 1.1, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.7, score: 13, level: 0, body: '#d38cdd', accent: '#f5b9f0', legs: '#b674cb', aquatic: true },
   fish: { id: 'fish', nameKey: 'mob_fish', hostile: false, hp: 4, speed: 1.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.5, score: 14, level: 0, body: '#5e9cd8', accent: '#f4c842', legs: '#3f6ea8', aquatic: true },
@@ -620,15 +620,51 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
 
   if (def.id === 'tumbleweed') {
     const roll = new THREE.Group();
-    const coreMat = new THREE.MeshLambertMaterial({color:def.body, transparent:true, opacity:0.62, depthWrite:false});
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34,1), coreMat);
-    roll.add(core);
-    for(let i=0;i<9;i++) {
-      const twig=box(0.045,0.06,0.72,i%3===0?def.accent:def.legs,mats);
-      twig.rotation.set(i*0.71,i*1.17,i*0.43); roll.add(twig);
+    const hayShades = [def.accent, def.body, '#b89155', def.legs];
+    // Airy, translucent dry-straw inner lattice so it reads as a hollow, weightless tumbleweed
+    const wireMat = new THREE.MeshLambertMaterial({
+      color: def.accent,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.48,
+    });
+    roll.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.33, 1), wireMat));
+    const wispMat = new THREE.MeshLambertMaterial({
+      color: def.body,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+    });
+    roll.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), wispMat));
+
+    // Three woven outer hoops of dry hay stems at intersecting angles
+    for (let ring = 0; ring < 3; ring++) {
+      const hoop = new THREE.Group();
+      hoop.rotation.set(ring * 1.05 + 0.3, ring * 0.82, ring * 0.64);
+      const segs = 8;
+      const rad = 0.31;
+      for (let s = 0; s < segs; s++) {
+        const a = (s / segs) * Math.PI * 2;
+        const stem = box(0.028, 0.028, 0.26, hayShades[(ring + s) % hayShades.length], mats);
+        stem.position.set(Math.cos(a) * rad, Math.sin(a) * rad, 0);
+        stem.rotation.z = a + Math.PI * 0.5;
+        hoop.add(stem);
+      }
+      roll.add(hoop);
     }
-    roll.position.y=0.34; g.add(roll); g.userData.roller=roll;
-    return {group:g,head:null,legs,mats};
+
+    // Criss-crossing dry straw twigs and forked tips
+    for (let i = 0; i < 14; i++) {
+      const col = hayShades[i % hayShades.length];
+      const len = i % 2 === 0 ? 0.68 : 0.54;
+      const twig = box(0.028, 0.032, len, col, mats);
+      twig.rotation.set(i * 0.67 + 0.2, i * 1.13, i * 0.49);
+      roll.add(twig);
+    }
+    roll.position.y = 0.35;
+    g.add(roll);
+    g.userData.roller = roll;
+    return { group: g, head: null, legs, mats };
   }
 
   if (['deer', 'roe_deer', 'moose', 'hedgehog'].includes(def.id)) {
@@ -1384,6 +1420,10 @@ export class MobSystem {
       else if (m.onGround && this.canStep(m, m.x + mx, m.z) && !this.collidesBox(m.x + mx, m.y + 1.02, m.z, half, height)) {
         m.x += mx;
         m.y += 1.02;
+        if (m.id === 'tumbleweed') m.vy = Math.max(m.vy, 2.8);
+      } else if (m.id === 'tumbleweed') {
+        m.vx = -m.vx * 0.72;
+        m.yaw += Math.PI * 0.65;
       } else m.vx = 0;
     }
     if (mz !== 0) {
@@ -1392,13 +1432,20 @@ export class MobSystem {
       else if (m.onGround && this.canStep(m, m.x, m.z + mz) && !this.collidesBox(m.x, m.y + 1.02, m.z + mz, half, height)) {
         m.z += mz;
         m.y += 1.02;
+        if (m.id === 'tumbleweed') m.vy = Math.max(m.vy, 2.8);
+      } else if (m.id === 'tumbleweed') {
+        m.vz = -m.vz * 0.72;
+        m.yaw += Math.PI * 0.65;
       } else m.vz = 0;
     }
 
     // A flying bird steers its own altitude; gravity would turn every
-    // wingbeat into another hop. Outside flight it glides down to land.
-    if ((m.id !== 'bird' || (m.task !== 9 && m.task !== 12)) && !(m.id === 'monkey' && m.task === 13)) m.vy -= GRAV * dt;
-    m.vy = Math.max(m.id === 'bird' ? -2.5 : -28, m.vy);
+    // wingbeat into another hop. Tumbleweeds experience feather-light gravity
+    // and air drag so they float and bounce softly over the desert dunes.
+    if ((m.id !== 'bird' || (m.task !== 9 && m.task !== 12)) && !(m.id === 'monkey' && m.task === 13)) {
+      m.vy -= (m.id === 'tumbleweed' ? GRAV * 0.32 : GRAV) * dt;
+    }
+    m.vy = Math.max(m.id === 'bird' ? -2.5 : m.id === 'tumbleweed' ? -6.2 : -28, m.vy);
     if (m.id === 'bird' && (m.task === 9 || m.task === 12)) m.onGround = false;
     const my = Math.max(-0.9, Math.min(0.9, m.vy * dt));
     const ny = m.y + my;
@@ -1407,11 +1454,17 @@ export class MobSystem {
       m.onGround = false;
     } else if (my < 0) {
       // land: snap the feet onto the highest solid corner under the box
+      const impactVy = m.vy;
       m.y = Math.floor(ny) + 1.001;
       let guard = 0;
       while (this.collidesBox(m.x, m.y, m.z, half, height) && guard++ < 4) m.y += 1;
-      m.vy = 0;
-      m.onGround = true;
+      if (m.id === 'tumbleweed' && impactVy < -1.35) {
+        m.vy = Math.min(3.2, -impactVy * 0.5);
+        m.onGround = false;
+      } else {
+        m.vy = 0;
+        m.onGround = true;
+      }
     } else {
       m.vy = 0; // bonked a ceiling
     }
@@ -1986,22 +2039,60 @@ export class MobSystem {
           }
         }
         // flee from the player when hit recently
-        const wx = m.tx - m.x;
-        const wz = m.tz - m.z;
-        const wd = Math.hypot(wx, wz);
-        if (wd > 1.0) {
-          // dead-zone widened: a target under the feet no longer whips the yaw around
-          m.yaw = Math.atan2(-wx, -wz);
-          const pace = m.id === 'bird' && (m.task === 9 || m.task === 12) ? 1.5 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
-          mx = (wx / wd) * def.speed * pace * speedMul;
-          mz = (wz / wd) * def.speed * pace * speedMul;
-          // Birds fly rather than repeatedly hopping across the ground.
-          const hopChance = m.id === 'rabbit' ? 6 : m.id === 'bee' ? 8 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' ? 0 : 0.8;
-          if (m.onGround && m.jumpCd <= 0 && Math.random() < mdt * hopChance) {
-            m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
-            m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'bee' ? 0.3 : 1.2;
+        if (m.id === 'tumbleweed') {
+          // Feather-light desert tumbleweed: driven by shifting desert wind gusts,
+          // bouncing softly over the sand and skittering away from player drafts.
+          const windAngle = 0.62 + Math.sin(this.tick * 0.004) * 0.55 + Math.sin(m.walkPhase * 0.45 + i * 1.7) * 0.35;
+          const gust =
+            0.62 +
+            0.38 * Math.sin(this.tick * 0.028 + i * 1.3) +
+            0.28 * Math.max(0, Math.sin(this.tick * 0.065 + i * 2.1));
+          let windX = Math.cos(windAngle) * def.speed * gust;
+          let windZ = Math.sin(windAngle) * def.speed * gust;
+          // Player air draft nudges nearby tumbleweeds lightly
+          if (dist < 2.4 && dist > 0.05) {
+            const push = ((2.4 - dist) / 2.4) * 2.6;
+            windX -= (dx / dist) * push;
+            windZ -= (dz / dist) * push;
+            if (m.onGround && m.jumpCd <= 0) {
+              m.vy = 2.4 + Math.random() * 1.2;
+              m.jumpCd = 0.22;
+            }
           }
-          if (m.id === 'bee' && m.vy < -1.2) m.vy = -1.2;
+          // Avoid drifting into open water
+          const aheadX = Math.floor(m.x + windX * 0.8);
+          const aheadZ = Math.floor(m.z + windZ * 0.8);
+          const aheadTop = this.world.topSolidY(aheadX, aheadZ);
+          if (this.world.get(aheadX, aheadTop, aheadZ) === WATER) {
+            windX = -windX;
+            windZ = -windZ;
+          }
+          mx = windX;
+          mz = windZ;
+          m.yaw = Math.atan2(-mx, -mz);
+          // Frequent, buoyant little skips across the desert floor
+          if (m.onGround && m.jumpCd <= 0 && Math.hypot(mx, mz) > 0.4) {
+            m.vy = 1.85 + gust * 1.55 + Math.random() * 0.95;
+            m.jumpCd = 0.26 + Math.random() * 0.42;
+          }
+        } else {
+          const wx = m.tx - m.x;
+          const wz = m.tz - m.z;
+          const wd = Math.hypot(wx, wz);
+          if (wd > 1.0) {
+            // dead-zone widened: a target under the feet no longer whips the yaw around
+            m.yaw = Math.atan2(-wx, -wz);
+            const pace = m.id === 'bird' && (m.task === 9 || m.task === 12) ? 1.5 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
+            mx = (wx / wd) * def.speed * pace * speedMul;
+            mz = (wz / wd) * def.speed * pace * speedMul;
+            // Birds fly rather than repeatedly hopping across the ground.
+            const hopChance = m.id === 'rabbit' ? 6 : m.id === 'bee' ? 8 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' ? 0 : 0.8;
+            if (m.onGround && m.jumpCd <= 0 && Math.random() < mdt * hopChance) {
+              m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
+              m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'bee' ? 0.3 : 1.2;
+            }
+            if (m.id === 'bee' && m.vy < -1.2) m.vy = -1.2;
+          }
         }
       }
 
@@ -2040,8 +2131,8 @@ export class MobSystem {
         m.drown = 0;
       }
 
-      m.vx += (mx - m.vx) * Math.min(1, mdt * 9);
-      m.vz += (mz - m.vz) * Math.min(1, mdt * 9);
+      m.vx += (mx - m.vx) * Math.min(1, mdt * (m.id === 'tumbleweed' ? 4.5 : 9));
+      m.vz += (mz - m.vz) * Math.min(1, mdt * (m.id === 'tumbleweed' ? 4.5 : 9));
       this.move(m, mdt);
 
       if (m.hp <= 0) {
@@ -2061,9 +2152,13 @@ export class MobSystem {
       m.group.position.set(m.x, m.y, m.z);
       m.group.rotation.y = m.yaw;
       if (m.id === 'tumbleweed' && m.group.userData.roller) {
-        const roller=m.group.userData.roller as THREE.Group;
-        roller.rotation.x += Math.hypot(m.vx,m.vz)*mdt*1.6;
-        roller.rotation.z += Math.hypot(m.vx,m.vz)*mdt*0.8;
+        const roller = m.group.userData.roller as THREE.Group;
+        const spd = Math.hypot(m.vx, m.vz);
+        roller.rotation.x += (spd * 3.4 + (m.onGround ? 0.2 : 1.3)) * mdt;
+        roller.rotation.z += (spd * 1.4 + Math.sin(m.walkPhase * 1.9) * 0.55) * mdt;
+        const squash = m.onGround ? 0.94 + Math.abs(Math.sin(m.walkPhase * 3.4)) * 0.08 : 1.04;
+        roller.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
+        roller.position.y = 0.35 * squash;
       }
       if (!m.group.visible) continue;
       const moving = Math.hypot(m.vx, m.vz);

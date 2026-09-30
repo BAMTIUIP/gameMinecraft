@@ -1,13 +1,21 @@
 import * as THREE from 'three';
 import {
   AIR,
+  BED,
   BLOCKS,
   DEAD_BUSH,
+  DOOR_IRON,
+  DOOR_WOOD,
+  FENCE_IRON,
+  FENCE_STONE,
+  FENCE_WOOD,
   FERN,
   MUSHROOM,
   FLOWER_BLUE, DRY_BLOOM, DESERT_THISTLE, BIRD_NEST, CHICKEN_NEST,
   COCONUT_LEAVES,
   BANANA_LEAVES,
+  T,
+  TORCH,
   VINE,
   FLOWER_RED,
   FLOWER_YELLOW,
@@ -142,6 +150,48 @@ function addBox(
   }
 }
 
+const EMISSIVE_SHADE = [0.96, 0.96, 0.9, 1.0, 0.98, 0.98];
+
+/** append an unshaded / self-illuminated box for glowing lantern cores */
+function addEmissiveBox(
+  P: number[],
+  C: number[],
+  I: number[],
+  cx: number,
+  cy: number,
+  cz: number,
+  w: number,
+  h: number,
+  d: number,
+  r: number,
+  g: number,
+  b: number,
+) {
+  const x0 = cx - w / 2;
+  const x1 = cx + w / 2;
+  const y0 = cy - h / 2;
+  const y1 = cy + h / 2;
+  const z0 = cz - d / 2;
+  const z1 = cz + d / 2;
+  const faces: number[][][] = [
+    [[x0, y1, z0], [x0, y0, z0], [x0, y1, z1], [x0, y0, z1]],
+    [[x1, y1, z1], [x1, y0, z1], [x1, y1, z0], [x1, y0, z0]],
+    [[x1, y0, z1], [x0, y0, z1], [x1, y0, z0], [x0, y0, z0]],
+    [[x0, y1, z1], [x1, y1, z1], [x0, y1, z0], [x1, y1, z0]],
+    [[x1, y0, z0], [x0, y0, z0], [x1, y1, z0], [x0, y1, z0]],
+    [[x0, y0, z1], [x1, y0, z1], [x0, y1, z1], [x1, y1, z1]],
+  ];
+  for (let f = 0; f < 6; f++) {
+    const base = P.length / 3;
+    const sh = EMISSIVE_SHADE[f];
+    for (const v of faces[f]) {
+      P.push(v[0], v[1], v[2]);
+      C.push(r * sh, g * sh, b * sh);
+    }
+    I.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+  }
+}
+
 const srgb = (hex: number): [number, number, number] => {
   const c = new THREE.Color(hex).convertSRGBToLinear();
   return [c.r, c.g, c.b];
@@ -199,12 +249,15 @@ function addMushroom(P: number[], C: number[], I: number[], x: number, y: number
 }
 
 function addDeadBush(P: number[], C: number[], I: number[], x: number, y: number, z: number, seed: number) {
-  const cx = x + 0.5;
-  const cz = z + 0.5;
-  const h = 0.42 + ((seed % 3) - 1) * 0.04;
-  addBox(P, C, I, cx, y + h * 0.4, cz, 0.06, h * 0.8, 0.06, ...COL.bushA);
-  addBox(P, C, I, cx + 0.08, y + h * 0.6, cz - 0.06, 0.12, 0.05, 0.12, ...COL.bushB);
-  addBox(P, C, I, cx - 0.09, y + h * 0.5, cz + 0.07, 0.14, 0.05, 0.1, ...COL.bushB);
+  const cx = x + 0.5 + (((seed * 5) % 3) - 1) * 0.03;
+  const cz = z + 0.5 + (((seed * 9) % 3) - 1) * 0.03;
+  const h = 0.44 + ((seed % 3) - 1) * 0.04;
+  addBox(P, C, I, cx, y + h * 0.38, cz, 0.06, h * 0.76, 0.06, ...COL.bushA);
+  addBox(P, C, I, cx + 0.09, y + h * 0.58, cz - 0.06, 0.14, 0.05, 0.12, ...COL.bushB);
+  addBox(P, C, I, cx - 0.1, y + h * 0.5, cz + 0.07, 0.14, 0.05, 0.1, ...COL.bushB);
+  addBox(P, C, I, cx + 0.14, y + h * 0.78, cz - 0.1, 0.05, 0.18, 0.05, ...COL.bushA);
+  addBox(P, C, I, cx - 0.14, y + h * 0.72, cz + 0.11, 0.05, 0.16, 0.05, ...COL.bushA);
+  addBox(P, C, I, cx - 0.05, y + h * 0.74, cz - 0.12, 0.05, 0.15, 0.05, ...COL.bushB);
 }
 
 /** Low, sun-baked flowers: branched stalks and muted seed heads. */
@@ -285,6 +338,335 @@ function addEggClutch(P: number[], C: number[], I: number[], x: number, y: numbe
   egg(cx + 0.0, cz + 0.19, 0.8);
 }
 
+const LANTERN_IRON_DARK = srgb(0x252322);
+const LANTERN_IRON_MID = srgb(0x353230);
+const LANTERN_IRON_TOP = srgb(0x4a4745);
+const LANTERN_ORANGE = srgb(0xf27d16);
+const LANTERN_GOLD = srgb(0xffd62e);
+const LANTERN_YELLOW = srgb(0xffee58);
+const LANTERN_WHITE = srgb(0xffffe2);
+
+/**
+ * 3D Voxel Lantern matching logo.png:
+ * - Dark iron base with 4 corner feet,
+ * - 4 vertical dark iron corner bars framing a glowing warm orange/gold/yellow/white core,
+ * - Wide overhanging dark iron roof eaves,
+ * - Stepped upper chimney cap with 4 glowing yellow side vent slits,
+ * - Top U-shaped iron hanging handle (plus upper chain link when suspended under a block).
+ */
+function addLantern(P: number[], C: number[], I: number[], x: number, y: number, z: number, world: World) {
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  const above = world.get(x, y + 1, z);
+  const below = world.get(x, y - 1, z);
+  const hanging = below === AIR && above !== AIR && above !== WATER;
+  const by = hanging ? y + 0.08 : y;
+
+  // 1. 4 Corner Feet at bottom
+  for (const dx of [-0.15, 0.15]) {
+    for (const dz of [-0.15, 0.15]) {
+      addBox(P, C, I, cx + dx, by + 0.02, cz + dz, 0.12, 0.04, 0.12, ...LANTERN_IRON_DARK);
+    }
+  }
+
+  // 2. Bottom Dark Iron Frame Rim
+  addBox(P, C, I, cx, by + 0.075, cz, 0.43, 0.07, 0.43, ...LANTERN_IRON_MID);
+
+  // 3. Glowing Multi-Tone Glass & Flame Core (matching logo.png pixel gradient)
+  const gy = by + 0.29;
+  addEmissiveBox(P, C, I, cx, gy, cz, 0.33, 0.36, 0.33, ...LANTERN_ORANGE);
+  addEmissiveBox(P, C, I, cx, gy, cz, 0.338, 0.25, 0.338, ...LANTERN_GOLD);
+  addEmissiveBox(P, C, I, cx, gy, cz, 0.344, 0.17, 0.21, ...LANTERN_YELLOW);
+  addEmissiveBox(P, C, I, cx, gy, cz, 0.21, 0.17, 0.344, ...LANTERN_YELLOW);
+  // Diagonal 2x2 hot cream-white center squares on all 4 panes (exact match to logo.png!)
+  addEmissiveBox(P, C, I, cx, gy + 0.036, cz - 0.036, 0.352, 0.072, 0.072, ...LANTERN_WHITE);
+  addEmissiveBox(P, C, I, cx, gy - 0.036, cz + 0.036, 0.352, 0.072, 0.072, ...LANTERN_WHITE);
+  addEmissiveBox(P, C, I, cx - 0.036, gy + 0.036, cz, 0.072, 0.072, 0.352, ...LANTERN_WHITE);
+  addEmissiveBox(P, C, I, cx + 0.036, gy - 0.036, cz, 0.072, 0.072, 0.352, ...LANTERN_WHITE);
+
+  // 4. 4 Vertical Dark Iron Corner Bars
+  for (const dx of [-0.162, 0.162]) {
+    for (const dz of [-0.162, 0.162]) {
+      addBox(P, C, I, cx + dx, gy, cz + dz, 0.082, 0.36, 0.082, ...LANTERN_IRON_DARK);
+    }
+  }
+
+  // 5. Overhanging Main Iron Roof Eaves
+  addBox(P, C, I, cx, by + 0.51, cz, 0.45, 0.08, 0.45, ...LANTERN_IRON_MID);
+
+  // 6. Upper Stepped Chimney Cap with Glowing Yellow Side Vent Slits
+  addEmissiveBox(P, C, I, cx, by + 0.575, cz, 0.24, 0.05, 0.24, ...LANTERN_YELLOW);
+  for (const dx of [-0.098, 0.098]) {
+    for (const dz of [-0.098, 0.098]) {
+      addBox(P, C, I, cx + dx, by + 0.575, cz + dz, 0.076, 0.05, 0.076, ...LANTERN_IRON_TOP);
+    }
+  }
+  addBox(P, C, I, cx, by + 0.635, cz, 0.275, 0.07, 0.275, ...LANTERN_IRON_TOP);
+
+  // 7. Top U-Shaped Iron Handle (∏)
+  addBox(P, C, I, cx - 0.072, by + 0.715, cz, 0.05, 0.09, 0.05, ...LANTERN_IRON_DARK);
+  addBox(P, C, I, cx + 0.072, by + 0.715, cz, 0.05, 0.09, 0.05, ...LANTERN_IRON_DARK);
+  addBox(P, C, I, cx, by + 0.77, cz, 0.195, 0.048, 0.05, ...LANTERN_IRON_DARK);
+
+  // 8. Upper Chain Link if suspended under a ceiling/beam/fence
+  if (hanging) {
+    addBox(P, C, I, cx, y + 0.93, cz, 0.048, 0.15, 0.09, ...LANTERN_IRON_DARK);
+  }
+}
+
+const FENCE_WOOD_MAIN = srgb(0xa37e49);
+const FENCE_WOOD_DARK = srgb(0x866436);
+const FENCE_STONE_MAIN = srgb(0x969490);
+const FENCE_STONE_DARK = srgb(0x787672);
+const FENCE_IRON_MAIN = srgb(0x3b3e44);
+const FENCE_IRON_LIGHT = srgb(0x555962);
+
+/**
+ * 3D Volumetric Fences, Stone Walls & Hanging Iron Chains (matching maxresdefault.jpg):
+ * - FENCE_WOOD: Slender 3D wooden post + connecting horizontal rails & lamp-arm brackets.
+ * - FENCE_STONE: Chunky stone wall pillar + connecting stone wall segments.
+ * - FENCE_IRON: Interlocking 3D dark-iron chain when vertical, or 3D iron bars when connected horizontally.
+ */
+function addFence(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, world: World) {
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  const canConnect = (nid: number) =>
+    nid === id ||
+    nid === FENCE_WOOD ||
+    nid === FENCE_STONE ||
+    nid === DOOR_WOOD ||
+    nid === DOOR_IRON ||
+    isOpaque(nid);
+
+  const dirs: Array<[number, number]> = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ];
+
+  if (id === FENCE_IRON) {
+    const hasHoriz = dirs.some(([dx, dz]) => {
+      const nid = world.get(x + dx, y, z + dz);
+      return nid === FENCE_IRON || isOpaque(nid);
+    });
+    if (!hasHoriz) {
+      // Render as an interlocking 3D hanging iron chain (exact match to maxresdefault.jpg!)
+      addBox(P, C, I, cx, y + 0.14, cz, 0.11, 0.28, 0.048, ...FENCE_IRON_MAIN);
+      addBox(P, C, I, cx, y + 0.39, cz, 0.048, 0.28, 0.11, ...FENCE_IRON_LIGHT);
+      addBox(P, C, I, cx, y + 0.64, cz, 0.11, 0.28, 0.048, ...FENCE_IRON_MAIN);
+      addBox(P, C, I, cx, y + 0.88, cz, 0.048, 0.26, 0.11, ...FENCE_IRON_LIGHT);
+      return;
+    }
+    // Connected iron bars / fence
+    addBox(P, C, I, cx, y + 0.5, cz, 0.16, 1.0, 0.16, ...FENCE_IRON_MAIN);
+    for (const [dx, dz] of dirs) {
+      const nid = world.get(x + dx, y, z + dz);
+      if (nid === FENCE_IRON || isOpaque(nid)) {
+        const rx = cx + dx * 0.25;
+        const rz = cz + dz * 0.25;
+        const rw = dx !== 0 ? 0.5 : 0.08;
+        const rd = dz !== 0 ? 0.5 : 0.08;
+        addBox(P, C, I, rx, y + 0.28, rz, rw, 0.08, rd, ...FENCE_IRON_LIGHT);
+        addBox(P, C, I, rx, y + 0.76, rz, rw, 0.08, rd, ...FENCE_IRON_LIGHT);
+        addBox(P, C, I, cx + dx * 0.3, y + 0.5, cz + dz * 0.3, 0.06, 0.9, 0.06, ...FENCE_IRON_MAIN);
+      }
+    }
+    return;
+  }
+
+  if (id === FENCE_STONE) {
+    // Stone Wall Pillar (0.46x1.0x0.46) + cap
+    addBox(P, C, I, cx, y + 0.5, cz, 0.46, 1.0, 0.46, ...FENCE_STONE_MAIN);
+    addBox(P, C, I, cx, y + 0.94, cz, 0.5, 0.12, 0.5, ...FENCE_STONE_DARK);
+    for (const [dx, dz] of dirs) {
+      if (canConnect(world.get(x + dx, y, z + dz))) {
+        const rx = cx + dx * 0.26;
+        const rz = cz + dz * 0.26;
+        const rw = dx !== 0 ? 0.48 : 0.32;
+        const rd = dz !== 0 ? 0.48 : 0.32;
+        addBox(P, C, I, rx, y + 0.44, rz, rw, 0.86, rd, ...FENCE_STONE_DARK);
+      }
+    }
+    return;
+  }
+
+  // FENCE_WOOD: Slender 3D Wooden Post (0.25x1.0x0.25) + horizontal rails / lamp-post brackets
+  addBox(P, C, I, cx, y + 0.5, cz, 0.25, 1.0, 0.25, ...FENCE_WOOD_MAIN);
+  addBox(P, C, I, cx, y + 0.95, cz, 0.27, 0.1, 0.27, ...FENCE_WOOD_DARK);
+  const belowId = world.get(x, y - 1, z);
+  const holdsLantern = belowId === TORCH || belowId === FENCE_IRON;
+
+  for (const [dx, dz] of dirs) {
+    if (canConnect(world.get(x + dx, y, z + dz))) {
+      const rx = cx + dx * 0.25;
+      const rz = cz + dz * 0.25;
+      const rw = dx !== 0 ? 0.5 : 0.13;
+      const rd = dz !== 0 ? 0.5 : 0.13;
+      addBox(P, C, I, rx, y + 0.34, rz, rw, 0.13, rd, ...FENCE_WOOD_DARK);
+      addBox(P, C, I, rx, y + 0.78, rz, rw, 0.13, rd, ...FENCE_WOOD_MAIN);
+      if (holdsLantern) {
+        addBox(P, C, I, rx, y + 0.88, rz, dx !== 0 ? 0.5 : 0.2, 0.16, dz !== 0 ? 0.5 : 0.2, ...FENCE_WOOD_DARK);
+      }
+    }
+  }
+}
+
+const BED_WOOD_DARK = srgb(0x6e5028);
+const BED_WOOD_FRAME = srgb(0xa37e49);
+const BED_BLANKET_RED = srgb(0xc83630);
+const BED_BLANKET_HIGHLIGHT = srgb(0xde4640);
+const BED_SHEET_WHITE = srgb(0xe8eaf2);
+const BED_PILLOW_WHITE = srgb(0xf8f9fc);
+
+/**
+ * Render one half (head or foot) of a 2-block-long Minecraft bed at cell (bx, y, bz).
+ * `dirX, dirZ` points from Foot -> Head along the 2-block bed axis.
+ */
+function addBedHalf(
+  P: number[],
+  C: number[],
+  I: number[],
+  bx: number,
+  y: number,
+  bz: number,
+  dirX: number,
+  dirZ: number,
+  isHead: boolean,
+) {
+  const cx = bx + 0.5;
+  const cz = bz + 0.5;
+  const alongX = dirX !== 0;
+  // sign toward the outer end of this half (+1 for Head in +dir, -1 for Foot in -dir)
+  const outSign = isHead ? 1 : -1;
+  const endDx = dirX * outSign;
+  const endDz = dirZ * outSign;
+
+  // 1. Two outer corner wooden legs (y .. y + 0.18)
+  for (const side of [-0.4, 0.4]) {
+    const lx = cx + endDx * 0.4 + (alongX ? 0 : side);
+    const lz = cz + endDz * 0.4 + (alongX ? side : 0);
+    addBox(P, C, I, lx, y + 0.09, lz, 0.16, 0.18, 0.16, ...BED_WOOD_DARK);
+  }
+
+  // 2. Oak wood bed frame baseboard (y + 0.18 .. y + 0.30), flush across the center seam
+  const frameCx = cx - endDx * 0.01;
+  const frameCz = cz - endDz * 0.01;
+  const fw = alongX ? 0.98 : 0.96;
+  const fd = alongX ? 0.96 : 0.98;
+  addBox(P, C, I, frameCx, y + 0.24, frameCz, fw, 0.12, fd, ...BED_WOOD_FRAME);
+
+  if (!isHead) {
+    // 3a. FOOT HALF: Full crimson-red blanket (y + 0.30 .. y + 0.56) flush to the center seam
+    const matCx = cx - endDx * 0.015;
+    const matCz = cz - endDz * 0.015;
+    const mw = alongX ? 0.97 : 0.94;
+    const md = alongX ? 0.94 : 0.97;
+    addBox(P, C, I, matCx, y + 0.43, matCz, mw, 0.26, md, ...BED_BLANKET_RED);
+    addBox(
+      P,
+      C,
+      I,
+      matCx - endDx * 0.04,
+      y + 0.565,
+      matCz - endDz * 0.04,
+      alongX ? 0.86 : 0.84,
+      0.02,
+      alongX ? 0.84 : 0.86,
+      ...BED_BLANKET_HIGHLIGHT,
+    );
+  } else {
+    // 3b. HEAD HALF: Red blanket continuation near seam + white sheet fold + 3D White Pillow
+    // Red blanket strip covering the inner 38% of the head half (meeting the foot half seamlessly)
+    const redCx = cx - endDx * 0.31;
+    const redCz = cz - endDz * 0.31;
+    addBox(
+      P,
+      C,
+      I,
+      redCx,
+      y + 0.43,
+      redCz,
+      alongX ? 0.38 : 0.94,
+      0.26,
+      alongX ? 0.94 : 0.38,
+      ...BED_BLANKET_RED,
+    );
+    // White folded sheet band + head mattress (outer 60% of the head half)
+    const sheetCx = cx + endDx * 0.18;
+    const sheetCz = cz + endDz * 0.18;
+    addBox(
+      P,
+      C,
+      I,
+      sheetCx,
+      y + 0.425,
+      sheetCz,
+      alongX ? 0.6 : 0.94,
+      0.25,
+      alongX ? 0.94 : 0.6,
+      ...BED_SHEET_WHITE,
+    );
+    // Plump 3D White Pillow resting on top of the head mattress (y + 0.55 .. y + 0.64)
+    const pilCx = cx + endDx * 0.23;
+    const pilCz = cz + endDz * 0.23;
+    addBox(
+      P,
+      C,
+      I,
+      pilCx,
+      y + 0.58,
+      pilCz,
+      alongX ? 0.42 : 0.78,
+      0.09,
+      alongX ? 0.78 : 0.42,
+      ...BED_PILLOW_WHITE,
+    );
+  }
+}
+
+/**
+ * 2-block-long 3D Minecraft Bed (`BED`).
+ * Supports both paired 2-block beds (`BED` next to `BED`) and single `BED` blocks
+ * (automatically extending into an adjacent open cell so every bed is 2 blocks long).
+ */
+function addBed(P: number[], C: number[], I: number[], x: number, y: number, z: number, world: World) {
+  if (world.get(x + 1, y, z) === BED) {
+    addBedHalf(P, C, I, x, y, z, 1, 0, false);
+    return;
+  }
+  if (world.get(x - 1, y, z) === BED) {
+    addBedHalf(P, C, I, x, y, z, 1, 0, true);
+    return;
+  }
+  if (world.get(x, y, z + 1) === BED) {
+    addBedHalf(P, C, I, x, y, z, 0, 1, false);
+    return;
+  }
+  if (world.get(x, y, z - 1) === BED) {
+    addBedHalf(P, C, I, x, y, z, 0, 1, true);
+    return;
+  }
+  // Fallback for an unpaired single BED voxel: render full 2-block bed extending into an adjacent open cell
+  const dirs: Array<[number, number]> = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ];
+  let extDx = -1;
+  let extDz = 0;
+  for (const [dx, dz] of dirs) {
+    if (world.get(x + dx, y, z + dz) === AIR) {
+      extDx = dx;
+      extDz = dz;
+      break;
+    }
+  }
+  addBedHalf(P, C, I, x, y, z, -extDx, -extDz, true);
+  addBedHalf(P, C, I, x + extDx, y, z + extDz, -extDx, -extDz, false);
+}
+
 export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkGeometry {
   const positions: number[] = [];
   const colors: number[] = [];
@@ -359,6 +741,18 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           addPenguinEgg(dPositions, dColors, dIndices, x, y, z);
           continue;
         }
+        if (id === TORCH) {
+          addLantern(dPositions, dColors, dIndices, x, y, z, world);
+          continue;
+        }
+        if (id === FENCE_WOOD || id === FENCE_STONE || id === FENCE_IRON) {
+          addFence(dPositions, dColors, dIndices, x, y, z, id, world);
+          continue;
+        }
+        if (id === BED) {
+          addBed(dPositions, dColors, dIndices, x, y, z, world);
+          continue;
+        }
         // A few hanging fruit clusters make the two palm varieties readable
         // from below. The edible drops still come from harvesting the leaves.
         if ((id === COCONUT_LEAVES || id === BANANA_LEAVES) && world.get(x, y - 1, z) === AIR &&
@@ -375,6 +769,14 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         const glow = def.emissive === 1;
         const cut = isCutout(id);
         const wat = id === WATER;
+        const isDoor = id === DOOR_WOOD || id === DOOR_IRON;
+        const isDoorBottom = isDoor && world.get(x, y + 1, z) === id;
+        // Determine doorway orientation so doors render as a 0.20-thick slab with 1 unified door face on front/back
+        const doorAlongX =
+          isDoor &&
+          (isOpaque(world.get(x - 1, y, z)) ||
+            isOpaque(world.get(x + 1, y, z)) ||
+            (!isOpaque(world.get(x, y, z - 1)) && !isOpaque(world.get(x, y, z + 1))));
 
         for (let f = 0; f < 6; f++) {
           const face = FACES[f];
@@ -385,12 +787,25 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           if (wat) {
             // water renders only against air/cutouts, never between water cells
             if (neighbor === WATER || isOpaque(neighbor)) continue;
+          } else if (isDoor) {
+            // Hide internal horizontal seam between bottom and top halves of a 2-block door
+            if ((f === 2 || f === 3) && neighbor === id) continue;
+            // Only show the thin edge if not against a wall
+            if (isOpaque(neighbor)) continue;
           } else if (cut) {
             // hide only internal faces between two identical cutout blocks
             if (neighbor === id || isOpaque(neighbor)) continue;
           } else if (isOpaque(neighbor)) continue;
 
-          const tile = f === 3 ? def.top : f === 2 ? def.bottom : def.side;
+          let tile = f === 3 ? def.top : f === 2 ? def.bottom : def.side;
+          if (isDoor) {
+            const isEdgeFace = doorAlongX ? f === 0 || f === 1 || f === 2 || f === 3 : f === 4 || f === 5 || f === 2 || f === 3;
+            if (isEdgeFace) {
+              tile = id === DOOR_WOOD ? T.planks : T.iron;
+            } else if (isDoorBottom) {
+              tile = id === DOOR_WOOD ? T.doorWoodBottom : T.doorIronBottom;
+            }
+          }
           const [u0, v0, u1, v1] = tileUV(tile);
           const P = wat ? wPositions : cut ? cPositions : positions;
           const C = wat ? wColors : cut ? cColors : colors;
@@ -421,7 +836,18 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
             }
             aoVals.push(ao);
 
-            P.push(x + p[0], y + p[1], z + p[2]);
+            let vx = p[0];
+            const vy = p[1];
+            let vz = p[2];
+            if (isDoor) {
+              if (doorAlongX) {
+                vz = vz === 0 ? 0.4 : 0.6;
+              } else {
+                vx = vx === 0 ? 0.4 : 0.6;
+              }
+            }
+
+            P.push(x + vx, y + vy, z + vz);
             U.push(u0 + (u1 - u0) * corner.uv[0], v0 + (v1 - v0) * corner.uv[1]);
             // authored in sRGB, stored in three's linear working space
             const light = glow || cut || wat ? Math.pow(face.shade, 1.4) : Math.pow(AO_LEVELS[ao] * face.shade, 2.2);

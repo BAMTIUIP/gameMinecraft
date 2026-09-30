@@ -9,6 +9,8 @@ import {
   COBBLE,
   COOKED_MEAT,
   DIAMOND,
+  DOOR_IRON,
+  DOOR_WOOD,
   GLASS,
   IRON,
   DIRT,
@@ -22,6 +24,8 @@ import {
   RAW_MEAT,
   SAND,
   STONE,
+  T,
+  TORCH,
   WATER,
   ARROW_ITEM,
   FLOWER_RED,
@@ -274,6 +278,7 @@ export class Engine {
   private toolPick!: THREE.Group;
   private toolSword!: THREE.Group;
   private toolBlock!: THREE.Mesh;
+  private toolLantern!: THREE.Group;
   private toolTorch!: THREE.Group;
   private toolHand!: THREE.Group;
   private toolAxe!: THREE.Group;
@@ -490,9 +495,38 @@ export class Engine {
     this.setRenderDist(this.renderDist);
     this.mobSys = new MobSystem(this.scene, this.world);
 
-    this.queueWorldGen(Math.floor(Math.random() * 1e9));
+    this.queueWorldGen(this.pickDesertRichSeed());
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  private pickDesertRichSeed(): number {
+    const c0x = Math.floor(ORIGIN_X / CHUNK);
+    const c0z = Math.floor(ORIGIN_Z / CHUNK);
+    let bestSeed = 2674;
+    let bestScore = -1;
+    for (let i = 0; i < 48; i++) {
+      const candidate = Math.floor(Math.random() * 1e9);
+      seedNoise(candidate);
+      this.world.reset(candidate);
+      let desertCount = 0;
+      let coreDesert = 0;
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (this.world.biomeAt((c0x + dx) * CHUNK + 8, (c0z + dz) * CHUNK + 8) === 'desert') {
+            desertCount++;
+            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) coreDesert++;
+          }
+        }
+      }
+      const score = coreDesert * 3 + desertCount;
+      if (score > bestScore) {
+        bestScore = score;
+        bestSeed = candidate;
+      }
+      if (coreDesert >= 8 && desertCount >= 15) return candidate;
+    }
+    return bestSeed;
   }
 
   private isCoarse() {
@@ -861,6 +895,57 @@ export class Engine {
     this.toolBlock.visible = false;
     this.pickGroup.add(this.toolBlock);
 
+    // ---- 3D held Lantern matching logo.png ----
+    this.toolLantern = new THREE.Group();
+    const lIronDark = new THREE.MeshLambertMaterial({ color: 0x262423 });
+    const lIronMid = new THREE.MeshLambertMaterial({ color: 0x363331 });
+    const lIronTop = new THREE.MeshLambertMaterial({ color: 0x4b4846 });
+    const lGlowOrange = new THREE.MeshBasicMaterial({ color: 0xf27d16 });
+    const lGlowGold = new THREE.MeshBasicMaterial({ color: 0xffd836 });
+    const lGlowYellow = new THREE.MeshBasicMaterial({ color: 0xffee58 });
+    const lGlowWhite = new THREE.MeshBasicMaterial({ color: 0xffffe4 });
+    const addLBox = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      m.position.set(x, y, z);
+      this.toolLantern.add(m);
+    };
+    const lby = -0.22;
+    for (const dx of [-0.1, 0.1]) {
+      for (const dz of [-0.1, 0.1]) {
+        addLBox(0.08, 0.03, 0.08, dx, lby + 0.015, dz, lIronDark);
+      }
+    }
+    addLBox(0.3, 0.05, 0.3, 0, lby + 0.055, 0, lIronMid);
+    const lgy = lby + 0.21;
+    addLBox(0.23, 0.26, 0.23, 0, lgy, 0, lGlowOrange);
+    addLBox(0.236, 0.18, 0.236, 0, lgy, 0, lGlowGold);
+    addLBox(0.242, 0.12, 0.14, 0, lgy, 0, lGlowYellow);
+    addLBox(0.14, 0.12, 0.242, 0, lgy, 0, lGlowYellow);
+    addLBox(0.248, 0.052, 0.052, 0, lgy + 0.026, -0.026, lGlowWhite);
+    addLBox(0.248, 0.052, 0.052, 0, lgy - 0.026, 0.026, lGlowWhite);
+    addLBox(0.052, 0.052, 0.248, -0.026, lgy + 0.026, 0, lGlowWhite);
+    addLBox(0.052, 0.052, 0.248, 0.026, lgy - 0.026, 0, lGlowWhite);
+    for (const dx of [-0.112, 0.112]) {
+      for (const dz of [-0.112, 0.112]) {
+        addLBox(0.058, 0.26, 0.058, dx, lgy, dz, lIronDark);
+      }
+    }
+    addLBox(0.32, 0.055, 0.32, 0, lby + 0.365, 0, lIronMid);
+    addLBox(0.17, 0.036, 0.17, 0, lby + 0.41, 0, lGlowYellow);
+    for (const dx of [-0.068, 0.068]) {
+      for (const dz of [-0.068, 0.068]) {
+        addLBox(0.054, 0.036, 0.054, dx, lby + 0.41, dz, lIronTop);
+      }
+    }
+    addLBox(0.195, 0.05, 0.195, 0, lby + 0.45, 0, lIronTop);
+    addLBox(0.036, 0.065, 0.036, -0.05, lby + 0.505, 0, lIronDark);
+    addLBox(0.036, 0.065, 0.036, 0.05, lby + 0.505, 0, lIronDark);
+    addLBox(0.136, 0.036, 0.036, 0, lby + 0.545, 0, lIronDark);
+    this.toolLantern.rotation.set(0.22, 0.65, 0.08);
+    this.toolLantern.position.set(0.02, 0.04, 0);
+    this.toolLantern.visible = false;
+    this.pickGroup.add(this.toolLantern);
+
     this.pickGroup.position.set(0.44, -0.4, -0.72);
     this.pickGroup.rotation.set(0.35, -0.5, 0.22);
     this.hudScene.add(this.pickGroup);
@@ -870,22 +955,27 @@ export class Engine {
   private syncViewModel() {
     if (!this.toolPick) return;
     const kind = this.heldKind();
+    const heldId = this.hotbar[this.selected];
+    const holdingLanternBlock = kind === 'block' && heldId === TORCH;
     this.toolPick.visible = kind === 'pick';
     this.toolHand.visible = kind === 'fist';
     this.toolSword.visible = kind === 'sword';
-    this.toolBlock.visible = kind === 'block';
+    this.toolBlock.visible = kind === 'block' && !holdingLanternBlock;
+    this.toolLantern.visible = holdingLanternBlock;
     this.toolTorch.visible = kind === 'torch';
     this.toolAxe.visible = kind === 'axe';
     this.toolShovel.visible = kind === 'shovel';
     this.toolBow.visible = kind === 'bow';
-    if (kind === 'torch') {
+    if (kind === 'torch' || holdingLanternBlock) {
       // flame flicker + world light following the player
       const f = 0.85 + Math.sin(this.time * 11) * 0.12 + Math.sin(this.time * 23) * 0.06;
-      this.torchFlame.scale.set(f, 1.1 + (f - 0.85) * 1.6, f);
-      this.torchFlameMat.opacity = 0.72 + f * 0.2;
+      if (kind === 'torch') {
+        this.torchFlame.scale.set(f, 1.1 + (f - 0.85) * 1.6, f);
+        this.torchFlameMat.opacity = 0.72 + f * 0.2;
+      }
       this.torchLight.intensity = 22 * (0.85 + (1 - this.daylight) * 0.6);
       this.torchLight.position.set(this.pos.x, this.pos.y + 1.7, this.pos.z);
-      if (Math.random() < 0.06) {
+      if (kind === 'torch' && Math.random() < 0.06) {
         this.burst(this.pos.x + (Math.random() - 0.5) * 0.3, this.pos.y + 1.75, this.pos.z + (Math.random() - 0.5) * 0.3, [255, 176, 58], 1, 0.7);
       }
     } else {
@@ -975,8 +1065,9 @@ export class Engine {
     this.loadTasks.push(() => {
       const [x, y, z] = this.world.findSpawn();
       this.pos.set(x, y, z);
-      this.yaw = Math.PI * 0.75;
-      this.pitch = -0.16;
+      this.yaw = this.world.spawnYawFor(x, z);
+      this.pitch = -0.14;
+      this.seedStarterDesertLife(x, z, this.yaw);
       return true;
     });
     this.loadTotal = this.loadTasks.length;
@@ -1793,8 +1884,9 @@ export class Engine {
     this.spawnX = x;
     this.spawnZ = z;
     this.fallStart = y;
-    this.yaw = Math.PI * 0.75;
+    this.yaw = this.world.spawnYawFor(x, z);
     this.pitch = -0.1;
+    this.seedStarterDesertLife(x, z, this.yaw);
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
@@ -1806,7 +1898,17 @@ export class Engine {
     this.syncHud(true);
   }
 
-  regenerate(seed: number) {
+  private seedStarterDesertLife(x: number, z: number, yaw: number) {
+    const fwdAngle = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
+    const species: MobId[] = ['tumbleweed', 'tumbleweed', 'tumbleweed', 'camel', 'lizard'];
+    for (const id of species) {
+      const spot = this.mobSys.findSpawnPoint(x, z, 6, 20, fwdAngle, [SAND]);
+      if (spot) this.mobSys.spawn(id, spot[0], spot[1], spot[2]);
+    }
+  }
+
+  regenerate(seed?: number) {
+    const nextSeed = seed ?? this.pickDesertRichSeed();
     this.mobSys?.clear();
     this.clearFallingTrees();
     this.clearDoors();
@@ -1831,7 +1933,7 @@ export class Engine {
     }
     this.decorMeshes.clear();
     this.meshedEmpty.clear();
-    this.queueWorldGen(seed);
+    this.queueWorldGen(nextSeed);
   }
 
   pause(bySystem = false) {
@@ -2737,6 +2839,28 @@ export class Engine {
   private breakBlock(x: number, y: number, z: number, id: number) {
     const def = BLOCKS[id];
     this.world.set(x, y, z, AIR);
+    if (id === BED) {
+      // A bed is 2 blocks long: breaking either half removes the partner half too
+      for (const [dx, dz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        if (this.world.get(x + dx, y, z + dz) === BED) {
+          this.world.set(x + dx, y, z + dz, AIR);
+          this.rebuildAt(x + dx, z + dz);
+        }
+      }
+    }
+    if (id === DOOR_WOOD || id === DOOR_IRON) {
+      // A door is 2 blocks tall: breaking either half removes the other half too
+      for (const dy of [1, -1]) {
+        if (this.world.get(x, y + dy, z) === id) {
+          this.world.set(x, y + dy, z, AIR);
+        }
+      }
+    }
     if (id === VINE) {
       // Sever a single hanging strand: the severed section and everything
       // beneath it falls, while the upper part stays attached to the canopy.
@@ -2813,8 +2937,9 @@ export class Engine {
   private blockGeoCache = new Map<number, THREE.BoxGeometry>();
 
   /** shared unit-cube geometry with the block's atlas UVs baked in */
-  private getBlockGeometry(id: number): THREE.BoxGeometry {
-    let geo = this.blockGeoCache.get(id);
+  private getBlockGeometry(id: number, sideTileOverride?: number): THREE.BoxGeometry {
+    const cacheKey = sideTileOverride !== undefined ? id * 1000 + sideTileOverride : id;
+    let geo = this.blockGeoCache.get(cacheKey);
     if (geo) return geo;
     geo = new THREE.BoxGeometry(1, 1, 1);
     geo.setAttribute(
@@ -2825,7 +2950,7 @@ export class Engine {
     const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
     const base = this.dropUVBase;
     for (let f = 0; f < 6; f++) {
-      const tile = f === 2 ? def.top : f === 3 ? def.bottom : def.side;
+      const tile = f === 2 ? def.top : f === 3 ? def.bottom : (sideTileOverride ?? def.side);
       const [u0, v0, u1, v1] = tileUV(tile);
       for (let i = 0; i < 4; i++) {
         const idx = f * 4 + i;
@@ -2833,7 +2958,7 @@ export class Engine {
       }
     }
     uv.needsUpdate = true;
-    this.blockGeoCache.set(id, geo);
+    this.blockGeoCache.set(cacheKey, geo);
     return geo;
   }
 
@@ -3135,8 +3260,11 @@ export class Engine {
     const alongX = horizN[0] !== 0; // door plane was YZ → open panel lies along X wall
 
     for (const [cx, cy, cz] of cells) {
+      const isBottomDoor =
+        (id === DOOR_WOOD || id === DOOR_IRON) && cells.some(([, cy2]) => cy2 === cy + 1);
+      const sideTile = isBottomDoor ? (id === DOOR_WOOD ? T.doorWoodBottom : T.doorIronBottom) : undefined;
       this.world.set(cx, cy, cz, AIR);
-      const mesh = new THREE.Mesh(this.getBlockGeometry(id), this.cutoutMat);
+      const mesh = new THREE.Mesh(this.getBlockGeometry(id, sideTile), this.cutoutMat);
       if (alongX) {
         mesh.scale.set(1, 1, 0.13);
         mesh.position.set(cx + 0.5, cy + 0.5, cz + 0.935);
@@ -4184,8 +4312,14 @@ export class Engine {
       }
       if (isLeafId(id)) {
         // Palm crowns reach three blocks out; all leaf kinds recognise
-        // their matching living trunk (not only old oak logs).
-        let alive = false;
+        // their matching living trunk or adjacent solid structure block.
+        let alive =
+          isSolid(this.world.get(x, y - 1, z)) ||
+          isSolid(this.world.get(x, y + 1, z)) ||
+          isSolid(this.world.get(x + 1, y, z)) ||
+          isSolid(this.world.get(x - 1, y, z)) ||
+          isSolid(this.world.get(x, y, z + 1)) ||
+          isSolid(this.world.get(x, y, z - 1));
         const reach = id === COCONUT_LEAVES || id === BANANA_LEAVES ? 3 : 2;
         for (let dy = -2; dy <= 2 && !alive; dy++)
           for (let dz2 = -reach; dz2 <= reach && !alive; dz2++)
@@ -4198,8 +4332,9 @@ export class Engine {
               }
         if (alive) continue;
       } else if (
-        // regular blocks: supported if standing on something, or hanging from any side
+        // regular blocks & hanging lanterns: supported from below, above, or any side
         isSolid(this.world.get(x, y - 1, z)) ||
+        isSolid(this.world.get(x, y + 1, z)) ||
         isSolid(this.world.get(x + 1, y, z)) ||
         isSolid(this.world.get(x - 1, y, z)) ||
         isSolid(this.world.get(x, y, z + 1)) ||
@@ -4251,6 +4386,35 @@ export class Engine {
     // Placing lava into a water cell is itself a contact, not a free swap.
     const placed = id === LAVA && targetCell === WATER ? VOLCANIC_STONE : id;
     this.world.set(px, py, pz, placed);
+    if (placed === BED) {
+      // Place the 2nd block (head) of the 2-block Minecraft bed along player's facing direction
+      const pref: [number, number] =
+        Math.abs(this.dirV.x) >= Math.abs(this.dirV.z)
+          ? [this.dirV.x >= 0 ? 1 : -1, 0]
+          : [0, this.dirV.z >= 0 ? 1 : -1];
+      const candidates: Array<[number, number]> = [
+        pref,
+        [-pref[0], -pref[1]],
+        [-pref[1], pref[0]],
+        [pref[1], -pref[0]],
+      ];
+      for (const [bdx, bdz] of candidates) {
+        const hx = px + bdx;
+        const hz = pz + bdz;
+        if (this.world.inBounds(hx, py, hz) && this.world.get(hx, py, hz) === AIR) {
+          this.world.set(hx, py, hz, BED);
+          this.rebuildAt(hx, hz);
+          break;
+        }
+      }
+    } else if (
+      (placed === DOOR_WOOD || placed === DOOR_IRON) &&
+      this.world.inBounds(px, py + 1, pz) &&
+      this.world.get(px, py + 1, pz) === AIR &&
+      this.world.get(px, py - 1, pz) !== placed
+    ) {
+      this.world.set(px, py + 1, pz, placed);
+    }
     this.inventory.set(id, (this.inventory.get(id) ?? 0) - 1);
     this.enqueueFluid(px, py, pz); // placing next to fluid disturbs it
     this.rebuildAt(px, pz);
@@ -5101,7 +5265,7 @@ export class Engine {
     // Tumbleweeds are rolling plants, not animals: one hit breaks them cleanly,
     // with no meat, kill count, score, or animal-drop logic.
     if (m.id === 'tumbleweed') {
-      this.burst(m.x,m.y+0.25,m.z,[145,175,88],5,0.65,0.45);
+      this.burst(m.x, m.y + 0.25, m.z, [214, 180, 114], 6, 0.75, 0.42);
       this.mobSys.remove(m);
       return;
     }

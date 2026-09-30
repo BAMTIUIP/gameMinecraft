@@ -37,8 +37,9 @@ import {
   BIRCH_LOG,
   BIRCH_LEAVES,
   APPLE_LEAVES,
-  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, isFlower,
+  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, SANDSTONE, isFlower,
 } from './blocks';
+import { spawnDesertBiomeStructures } from './desertAssets';
 import { fbm2, fbm3, mulberry32, noise3, seedNoise } from './noise';
 
 /**
@@ -228,8 +229,8 @@ export class World {
     if (this.isWinter(x, z, height)) return 'winter';
     const humidity = this.humidityAt(x, z);
     const heat = this.temperatureAt(x, z, SEA + 6);
-    if (heat > 0.03 && humidity < -0.26) return 'canyon';
-    if (heat > -0.02 && humidity < -0.1) return 'desert';
+    if (heat > 0.07 && humidity < -0.35) return 'canyon';
+    if (heat > -0.03 && humidity < -0.08) return 'desert';
     if (heat > 0.02 && humidity > 0.12) return 'jungle';
     return 'plains';
   }
@@ -254,12 +255,25 @@ export class World {
     const lake = fbm2(x * 0.008 - 52, z * 0.008 + 97, 3);
     h -= smooth((lake - 0.18) / 0.22) * 15 * smooth((humidity + 0.15) * 4);
 
-    // Warm dry plateaus are carved by narrow ravines; desert dunes are low
-    // and rolling. Blend the relief gradually across biome boundaries.
+    // Warm dry plateaus in canyons are carved by narrow ravines, while desert
+    // biomes flatten out into broad, gently terraced sandy plains with soft
+    // long-wavelength dunes and occasional meandering river/oasis channels.
     const heat = this.temperatureAt(x, z, SEA + 6);
-    const dry = smooth((-humidity - 0.06) * 5) * smooth((heat + 0.04) * 5);
-    const ravine = Math.abs(fbm2(x * 0.017 + 31, z * 0.017 - 83, 3));
-    h += dry * (1.2 + fbm2(x * 0.04, z * 0.04, 2) * 0.8 - smooth((0.16 - ravine) / 0.12) * 5); // broad, mostly level desert plains
+    const warmFactor = smooth((heat + 0.04) * 9);
+    const desertPlain = warmFactor * smooth((-humidity - 0.06) * 10) * (1 - smooth((-humidity - 0.34) * 9));
+    if (desertPlain > 0) {
+      const duneBroad = fbm2(x * 0.01 + 19.3, z * 0.01 - 27.1, 2) * 2.0;
+      const duneRipple = fbm2(x * 0.024 - 14.2, z * 0.024 + 33.7, 2) * 0.6;
+      const farDuneMound = Math.max(0, fbm2(x * 0.006 - 41, z * 0.006 + 13, 2) - 0.24) * 5.5;
+      const oasisChannel = valley < 0.075 ? (0.075 - valley) * 50 : 0;
+      const desertH = SEA + 3.2 + duneBroad + duneRipple + farDuneMound - oasisChannel;
+      h = h * (1 - desertPlain * 0.9) + desertH * (desertPlain * 0.9);
+    }
+    const canyonFactor = warmFactor * smooth((-humidity - 0.33) * 10);
+    if (canyonFactor > 0) {
+      const ravine = Math.abs(fbm2(x * 0.017 + 31, z * 0.017 - 83, 3));
+      h += canyonFactor * (2.2 - smooth((0.16 - ravine) / 0.12) * 5.5);
+    }
 
     const volcano = this.volcanoAt(x, z);
     if (volcano && volcano.distance < volcano.radius) {
@@ -309,7 +323,9 @@ export class World {
             else id = winter ? SNOW_GRASS : GRASS;
           } else if (biome === 'volcanic' && y > h - 6) id = VOLCANIC_STONE;
           else if (biome === 'canyon' && y > SEA + 2) id = Math.floor(y / 3) % 2 ? STONE : SAND;
-          else if (y > h - 4) id = biome === 'desert' || h <= SEA + 1 ? SAND : h > 30 ? STONE : DIRT;
+          else if (biome === 'desert' && y > h - 3) id = SAND;
+          else if (biome === 'desert' && y > h - 7) id = SANDSTONE;
+          else if (y > h - 4) id = h <= SEA + 1 ? SAND : h > 30 ? STONE : DIRT;
           else id = STONE;
           chunk.blocks[cidx(lx, y, lz)] = id;
         }
@@ -329,7 +345,8 @@ export class World {
           else if (nA > 0.46 && y < 34) chunk.blocks[cidx(lx, y, lz)] = COAL;
         }
 
-        for (let y = 2; y < h - 1; y++) {
+        const caveTop = biome === 'desert' ? h - 4 : h - 1;
+        for (let y = 2; y < caveTop; y++) {
           const cur = chunk.blocks[cidx(lx, y, lz)];
           if (cur === AIR || cur === BEDROCK) continue;
           const c1 = fbm3(x * 0.055, y * 0.085, z * 0.055, 3);
@@ -368,7 +385,7 @@ export class World {
         }
         if (rand() < 0.004) {
           const hy = Math.max(1, h - 1);
-          chunk.blocks[cidx(lx, hy, lz)] = COBBLE;
+          chunk.blocks[cidx(lx, hy, lz)] = biome === 'desert' ? SANDSTONE : COBBLE;
         }
       }
     }
@@ -481,13 +498,14 @@ export class World {
       }
     }
 
-    // ---- dead bushes on sand ----
-    for (let i = 0; i < 3; i++) {
-      if (rand() > 0.75) continue;
-      const bx = cx * CHUNK + 2 + Math.floor(rand() * 12);
-      const bz = cz * CHUNK + 2 + Math.floor(rand() * 12);
+    // ---- dead bushes on sand (characteristic scattered dry shrubs across desert plains) ----
+    const isDesertChunk = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8) === 'desert';
+    for (let i = 0; i < (isDesertChunk ? 6 : 3); i++) {
+      if (rand() > 0.8) continue;
+      const bx = cx * CHUNK + 1 + Math.floor(rand() * 14);
+      const bz = cz * CHUNK + 1 + Math.floor(rand() * 14);
       const h = this.getHeight(bx, bz);
-      if (this.get(bx, h, bz) === SAND && this.get(bx, h + 1, bz) === AIR) {
+      if (this.get(bx, h, bz) === SAND && this.get(bx, h + 1, bz) === AIR && h > SEA) {
         this.set(bx, h + 1, bz, DEAD_BUSH);
       }
     }
@@ -559,13 +577,14 @@ export class World {
       }
     }
 
-    // ---- surface ore pokes ----
+    // ---- surface ore pokes (keep open desert sand plains clean) ----
     for (let i = 0; i < 4; i++) {
       if (rand() > 0.7) continue;
       const x = cx * CHUNK + 1 + Math.floor(rand() * 14);
       const z = cz * CHUNK + 1 + Math.floor(rand() * 14);
       const h = this.getHeight(x, z);
       const top = this.get(x, h, z);
+      if (this.biomeAt(x, z, h) === 'desert') continue;
       if (top !== GRASS && top !== STONE && top !== SAND) continue;
       const roll = rand();
       const kind = roll < 0.6 ? COAL : roll < 0.9 ? IRON : GOLD;
@@ -580,62 +599,26 @@ export class World {
       for (let i = 0; i < 3; i++) {
         const x = cx * CHUNK + 2 + Math.floor(rand() * 12);
         const z = cz * CHUNK + 2 + Math.floor(rand() * 12);
+        if (this.biomeAt(x, z) === 'desert') continue;
         this.placeOreColumn(x, z, i < 2 ? COAL : IRON, 1 + (i % 2));
       }
     }
 
-    // ---- structures (deterministic per chunk, rare) ----
+    // ---- structures (deterministic per chunk) ----
     const sRand = mulberry32(this.seed * 101 + 41 + chunkKey(cx, cz) * 7919);
-    const roll = sRand();
-    // keep the spawn basin itself clear
-    const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
-    if (!nearSpawn) {
-      const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-      if (biome === 'desert' && roll < 0.12) {
-        if (sRand() < 0.76) this.buildDesertPyramid(cx, cz, sRand);
-        else this.buildSphinx(cx, cz, sRand);
-      } else if (roll < 0.055) this.buildCottage(cx, cz, sRand);
-      else if (roll < 0.085) this.buildTower(cx, cz, sRand);
-      else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
-    }
-  }
-
-  private buildDesertPyramid(cx: number, cz: number, rand: () => number) {
-    const x0 = cx * CHUNK + 8, z0 = cz * CHUNK + 8;
-    const ground = this.getHeight(x0,z0);
-    if (this.biomeAt(x0,z0,ground) !== 'desert' || ground <= SEA) return;
-    const radius = 3 + Math.floor(rand()*3), height = radius + 2;
-    const ruined = rand() < 0.38;
-    for (let layer=0;layer<height;layer++) {
-      const r = Math.max(0,radius-layer);
-      for(let dx=-r;dx<=r;dx++) for(let dz=-r;dz<=r;dz++) {
-        const edge=Math.abs(dx)===r || Math.abs(dz)===r;
-        if (!edge && layer > 1) continue; // hollow, walk-in center
-        if (ruined && rand() < 0.045 + layer*0.012) continue;
-        const block = (layer===0 || (Math.abs(dx)+Math.abs(dz)+layer)%7===0) ? STONE : SAND;
-        this.set(x0+dx,ground+1+layer,z0+dz,block);
+    const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
+    if (biome === 'desert') {
+      spawnDesertBiomeStructures(this, cx, cz, sRand);
+    } else {
+      const roll = sRand();
+      // keep the spawn basin itself clear
+      const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
+      if (!nearSpawn) {
+        if (roll < 0.055) this.buildCottage(cx, cz, sRand);
+        else if (roll < 0.085) this.buildTower(cx, cz, sRand);
+        else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
       }
     }
-    // small dark doorway and a recognizable capstone
-    this.set(x0,ground+1,z0-radius,SAND);
-    this.set(x0,ground+height,z0,STONE);
-  }
-
-  private buildSphinx(cx: number, cz: number, rand: () => number) {
-    const x0=cx*CHUNK+8,z0=cz*CHUNK+8,ground=this.getHeight(x0,z0);
-    if (this.biomeAt(x0,z0,ground)!=='desert' || ground<=SEA) return;
-    const ruined=rand()<0.55;
-    // recumbent stone body, paws extending toward the front (-Z), raised head
-    for(let x=-2;x<=2;x++) for(let z=-3;z<=2;z++) {
-      if(ruined && rand()<0.12) continue;
-      this.set(x0+x,ground+1,z0+z,STONE);
-      if(Math.abs(x)<=1 && z>=-2 && z<=1) this.set(x0+x,ground+2,z0+z,SAND);
-    }
-    for(let y=2;y<=4;y++) for(let x=-1;x<=1;x++)
-      if(!ruined || rand()>0.2) this.set(x0+x,ground+y,z0-2,STONE);
-    // nose and ear-like crown make the silhouette read as a sphinx
-    this.set(x0,ground+3,z0-3,STONE);
-    this.set(x0-1,ground+5,z0-2,SAND); this.set(x0+1,ground+5,z0-2,SAND);
   }
 
   private placeOreColumn(x: number, z: number, kind: number, depth: number) {
@@ -976,8 +959,15 @@ export class World {
     if (!ruined) {
       for (let z = z0; z < z0 + d; z++)
         for (let x = x0; x < x0 + w; x++) this.set(x, y0 + wallH + 1, z, PLANKS);
+      // Hanging ceiling lantern inside + wall-bracket lantern outside front door (maxresdefault.jpg style)
+      this.set(dx, y0 + wallH, z0 + (d >> 1), TORCH);
+      if (z0 - 1 >= cx * CHUNK) {
+        this.set(dx - 1, y0 + 3, z0 - 1, FENCE_WOOD);
+        this.set(dx - 1, y0 + 2, z0 - 1, TORCH);
+      }
+    } else {
+      this.set(x0 + 1, y0 + 1, z0 + 1, TORCH);
     }
-    this.set(x0 + 1, y0 + 1, z0 + 1, TORCH);
     if (rand() < 0.5) {
       const tx = x0 + w - 2;
       const tz = z0 + d - 2;
@@ -1009,6 +999,12 @@ export class World {
     }
     this.set(x0 + 2, y0 + 1, z0, AIR);
     this.set(x0 + 2, y0 + 2, z0, AIR);
+    if (z0 - 1 >= cx * CHUNK) {
+      this.set(x0 + 1, y0 + 3, z0 - 1, FENCE_STONE);
+      this.set(x0 + 1, y0 + 2, z0 - 1, TORCH);
+      this.set(x0 + 3, y0 + 3, z0 - 1, FENCE_STONE);
+      this.set(x0 + 3, y0 + 2, z0 - 1, TORCH);
+    }
     if (!ruined) {
       this.set(x0 + 2, y0 + Math.min(h - 1, 4), z0 + 4, GLASS);
       for (let x = x0; x < x0 + 5; x++)
@@ -1017,7 +1013,8 @@ export class World {
         for (const x of [x0, x0 + 4]) if ((x + z) % 2 === 0) this.set(x, y0 + h + 1, z, FENCE_STONE);
       for (let z = z0 + 1; z < z0 + 4; z++)
         for (let x = x0 + 1; x < x0 + 4; x++) this.set(x, y0 + h, z, PLANKS);
-      this.set(x0 + 2, y0 + h + 1, z0 + 2, TORCH);
+      this.set(x0 + 2, y0 + h + 1, z0 + 2, FENCE_STONE);
+      this.set(x0 + 2, y0 + h + 2, z0 + 2, TORCH);
     }
     this.set(x0 + 1, y0 + 1, z0 + 1, TORCH);
     // towers always hoard something worth guarding
@@ -1045,20 +1042,49 @@ export class World {
       this.set(x, y0 + 1, z, rand() < 0.6 ? COBBLE : STONE);
       if (rand() < 0.3) this.set(x, y0 + 2, z, COBBLE);
     }
-    this.set(x0 + 3, y0 + 1, z0 + 3, rand() < 0.5 ? GOLD_BLOCK : TORCH);
+    // Central weathered stone & wood street lamp post in the ruin yard (maxresdefault.jpg style)
+    this.set(x0 + 3, y0 + 1, z0 + 3, COBBLE);
+    this.set(x0 + 3, y0 + 2, z0 + 3, FENCE_STONE);
+    this.set(x0 + 3, y0 + 3, z0 + 3, FENCE_WOOD);
+    this.set(x0 + 3, y0 + 4, z0 + 3, PLANKS);
+    this.set(x0 + 4, y0 + 4, z0 + 3, FENCE_WOOD);
+    this.set(x0 + 4, y0 + 3, z0 + 3, TORCH);
+    if (rand() < 0.5) this.set(x0 + 2, y0 + 1, z0 + 3, GOLD_BLOCK);
   }
 
   findSpawn(): [number, number, number] {
+    const desertSite = this.structureSites.find((s) => this.biomeAt(s.x, s.z) === 'desert');
+    const anchorX = desertSite ? desertSite.x : ORIGIN_X;
+    const anchorZ = desertSite ? desertSite.z : ORIGIN_Z;
+
     for (let tries = 0; tries < 600; tries++) {
-      const r = 10 + (tries / 600) * 26;
-      const x = Math.round(ORIGIN_X + (Math.random() * 2 - 1) * r);
-      const z = Math.round(ORIGIN_Z + (Math.random() * 2 - 1) * r);
+      const rMin = desertSite && tries < 360 ? 14 : 10;
+      const rMax = desertSite && tries < 360 ? 26 : 34;
+      const angle = (tries * 2.399963229728653) % (Math.PI * 2);
+      const r = rMin + ((tries % 17) / 16) * (rMax - rMin);
+      const cx = tries < 360 ? anchorX : ORIGIN_X;
+      const cz = tries < 360 ? anchorZ : ORIGIN_Z;
+      const x = Math.round(cx + Math.cos(angle) * r);
+      const z = Math.round(cz + Math.sin(angle) * r);
       if (!this.hasColumn(x, z)) continue;
-      const h = this.getHeight(x, z);
-      if (h < SEA + 2 || h > 30) continue;
+      const h = this.topSolidY(x, z);
+      if (h < SEA + 2 || h > 28) continue;
       const top = this.get(x, h, z);
-      if (top !== GRASS && top !== SNOW_GRASS) continue;
-      if (this.get(x, h + 1, z) !== AIR || this.get(x, h + 2, z) !== AIR) continue;
+      if (tries < 360) {
+        if (top !== SAND || this.biomeAt(x, z, h) !== 'desert') continue;
+      } else if (top !== SAND && top !== GRASS && top !== SNOW_GRASS) {
+        continue;
+      }
+      if (this.get(x, h + 1, z) !== AIR || this.get(x, h + 2, z) !== AIR || this.get(x, h + 3, z) !== AIR) continue;
+      let clear = true;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (this.get(x + dx, h + 1, z + dz) !== AIR || this.get(x + dx, h + 2, z + dz) !== AIR) {
+            clear = false;
+          }
+        }
+      }
+      if (!clear) continue;
       let lava = false;
       for (let dz = -2; dz <= 2; dz++)
         for (let dx = -2; dx <= 2; dx++)
@@ -1068,5 +1094,27 @@ export class World {
     }
     const h = this.topSolidY(ORIGIN_X, ORIGIN_Z);
     return [ORIGIN_X + 0.5, h + 1.02, ORIGIN_Z + 0.5];
+  }
+
+  /** Camera yaw (radians) from (x,z) facing the desert village center */
+  spawnYawFor(x: number, z: number): number {
+    const desertSites = this.structureSites.filter((s) => this.biomeAt(s.x, s.z) === 'desert');
+    if (desertSites.length > 0) {
+      // Aim toward the centroid of nearby desert village buildings
+      const near = desertSites.filter((s) => Math.hypot(s.x - x, s.z - z) < 48);
+      const pool = near.length > 0 ? near : desertSites;
+      let sumX = 0;
+      let sumZ = 0;
+      for (const s of pool) {
+        sumX += s.x;
+        sumZ += s.z;
+      }
+      const targetX = sumX / pool.length;
+      const targetZ = sumZ / pool.length;
+      if (Math.hypot(targetX - x, targetZ - z) > 2) {
+        return Math.atan2(-(targetX - x), -(targetZ - z));
+      }
+    }
+    return Math.PI * 0.75;
   }
 }

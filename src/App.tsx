@@ -314,7 +314,7 @@ export default function App() {
   const resume = useCallback(() => engineRef.current?.resume(), []);
   const quit = useCallback(() => engineRef.current?.toMenu(), []);
   const newWorld = useCallback(() => {
-    engineRef.current?.regenerate(Math.floor(Math.random() * 1e9));
+    engineRef.current?.regenerate();
   }, []);
   const selectSlot = useCallback((i: number) => engineRef.current?.selectSlot(i), []);
   const captureMouse = useCallback(() => engineRef.current?.requestLock(), []);
