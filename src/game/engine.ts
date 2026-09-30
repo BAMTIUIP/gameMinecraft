@@ -402,6 +402,8 @@ export class Engine {
   private avatarHeldAxeHeadMat!: THREE.MeshLambertMaterial;
   private avatarHeldAxeEdgeMat!: THREE.MeshLambertMaterial;
   private avatarHeldBlockMat!: THREE.MeshLambertMaterial;
+  private thirdPersonFogCap!: THREE.Mesh;
+  private thirdPersonFogMat!: THREE.MeshBasicMaterial;
   private thirdPersonClipUniforms: Array<{
     active: { value: number };
     start: { value: THREE.Vector3 };
@@ -438,6 +440,7 @@ export class Engine {
   private crawling = false;
   private crawlLerp = 0;
   private crawlYaw = 0;
+  private swimLerp = 0;
 
   /** collision height depends on posture: crawling fits through 1-block gaps */
   private playerHeight(crawling = this.crawling) {
@@ -573,6 +576,7 @@ export class Engine {
     this.buildHighlight();
     this.buildPickaxe();
     this.buildPlayerAvatar();
+    this.buildThirdPersonFogCap();
     this.buildFxLayer();
     this.bindInput();
     this.layoutViewModel(w / h);
@@ -1175,6 +1179,35 @@ if (tpClipActive > 0.5) {
     this.pickGroup.position.set(0.44, -0.4, -0.72);
     this.pickGroup.rotation.set(0.35, -0.5, 0.22);
     this.hudScene.add(this.pickGroup);
+  }
+
+  private buildThirdPersonFogCap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    const grad = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(13,11,8,0.96)');
+    grad.addColorStop(0.62, 'rgba(17,14,9,0.88)');
+    grad.addColorStop(0.86, 'rgba(22,18,12,0.62)');
+    grad.addColorStop(1, 'rgba(22,18,12,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.thirdPersonFogMat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0.92,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
+    this.thirdPersonFogCap = new THREE.Mesh(new THREE.CircleGeometry(1, 64), this.thirdPersonFogMat);
+    this.thirdPersonFogCap.visible = false;
+    this.thirdPersonFogCap.frustumCulled = false;
+    this.thirdPersonFogCap.renderOrder = 60;
+    this.scene.add(this.thirdPersonFogCap);
   }
 
   private buildPlayerAvatar() {
@@ -2309,6 +2342,7 @@ if (tpClipActive > 0.5) {
     this.crawling = false;
     this.crawlLerp = 0;
     this.crawlYaw = this.yaw;
+    this.swimLerp = 0;
     this.spawnTimer = 3;
     this.animalTimer = 1;
     this.ambientTimer = 1.5;
@@ -2792,8 +2826,32 @@ if (tpClipActive > 0.5) {
     return { blocked, top };
   }
 
+  private nearWaterExitLedge(dirX: number, dirZ: number) {
+    const len = Math.hypot(dirX, dirZ);
+    if (len < 0.05) return false;
+    dirX /= len;
+    dirZ /= len;
+    const sideX = dirZ;
+    const sideZ = -dirX;
+    const front = PLAYER_HALF + 0.52;
+    const baseY = Math.floor(this.pos.y + 0.08);
+    for (const side of [-0.24, 0, 0.24]) {
+      const x = Math.floor(this.pos.x + dirX * front + sideX * side);
+      const z = Math.floor(this.pos.z + dirZ * front + sideZ * side);
+      // A shore block at the swimmer's chest/feet with free cells above: give
+      // a small mantle boost so holding forward + jump climbs out of water.
+      for (let y = baseY - 1; y <= baseY + 1; y++) {
+        const solid = isSolid(this.world.get(x, y, z));
+        if (!solid) continue;
+        if (!isSolid(this.world.get(x, y + 1, z)) && !isSolid(this.world.get(x, y + 2, z))) return true;
+      }
+    }
+    return false;
+  }
+
   private updatePlayer(dt: number) {
     const k = this.keys;
+    const wasInWater = this.inWater;
     let fx = 0,
       fz = 0;
     if (k['KeyW'] || k['ArrowUp']) fz += 1;
@@ -2849,8 +2907,9 @@ if (tpClipActive > 0.5) {
     const wx = fx * cos - fz * sin;
     const wz = -fx * sin - fz * cos;
 
-    const speed = this.crawling ? WALK * 0.3 : this.crouching ? WALK * 0.45 : sprint ? SPRINT : WALK;
-    const accel = this.onGround ? 58 : 16;
+    const swimmingMove = wasInWater && !this.crawling;
+    const speed = this.crawling ? WALK * 0.3 : this.crouching ? WALK * 0.45 : swimmingMove ? WALK * 0.78 : sprint ? SPRINT : WALK;
+    const accel = swimmingMove ? 28 : this.onGround ? 58 : 16;
     const targetVX = wx * speed;
     const targetVZ = wz * speed;
     const maxD = accel * dt;
@@ -2866,7 +2925,7 @@ if (tpClipActive > 0.5) {
 
     // jump — with coyote time so edge-of-a-ledge jumps still feel fair
     const jumpHeld = (k['Space'] || this.touchJump) && !this.crouching && !this.crawling;
-    if (jumpHeld && (this.onGround || this.coyote > 0)) {
+    if (jumpHeld && !wasInWater && (this.onGround || this.coyote > 0)) {
       this.vel.y = JUMP_V;
       this.onGround = false;
       this.coyote = 0;
@@ -2952,14 +3011,32 @@ if (tpClipActive > 0.5) {
     this.inWater = false;
     {
       const bx = Math.floor(this.pos.x);
-      const by = Math.floor(this.pos.y + 0.6);
       const bz = Math.floor(this.pos.z);
-      if (this.world.get(bx, by, bz) === WATER) this.inWater = true;
+      for (const probe of [0.25, 0.62, 1.02]) {
+        if (this.world.get(bx, Math.floor(this.pos.y + probe), bz) === WATER) {
+          this.inWater = true;
+          break;
+        }
+      }
     }
     if (this.inWater) {
-      this.vel.y = jumpHeld ? Math.max(this.vel.y, 3.4) : Math.max(this.vel.y * Math.pow(0.2, dt), -2.6);
-      this.vel.x *= Math.pow(0.25, dt);
-      this.vel.z *= Math.pow(0.25, dt);
+      const forwardIntent = fz > 0.12;
+      let targetVy = -0.55;
+      if (forwardIntent && Math.abs(this.pitch) > 0.16) {
+        // Looking down while swimming dives head-first; looking up rises without
+        // turning the body into a standing/walking pose.
+        targetVy = Math.max(-2.9, Math.min(2.55, Math.sin(this.pitch) * 3.9));
+      }
+      if (jumpHeld) targetVy = Math.max(targetVy, 3.7);
+      const vyBlend = Math.min(1, dt * (jumpHeld ? 10 : 4.6));
+      this.vel.y += (targetVy - this.vel.y) * vyBlend;
+      this.vel.x *= Math.pow(0.38, dt);
+      this.vel.z *= Math.pow(0.38, dt);
+      if (jumpHeld && forwardIntent && this.nearWaterExitLedge(wx, wz)) {
+        this.vel.y = Math.max(this.vel.y, 5.15);
+        this.vel.x += wx * 1.15;
+        this.vel.z += wz * 1.15;
+      }
       this.fallStart = this.pos.y; // water breaks any fall
     }
 
@@ -3014,7 +3091,8 @@ if (tpClipActive > 0.5) {
 
     this.deepest = Math.max(this.deepest, Math.round(this.spawnY - this.pos.y));
     this.coyote = this.onGround ? 0.11 : Math.max(0, this.coyote - dt);
-    this.bob += dt * (this.onGround ? Math.hypot(this.vel.x, this.vel.z) * 1.55 : 3.2);
+    const planar = Math.hypot(this.vel.x, this.vel.z);
+    this.bob += dt * (this.inWater ? 1.9 + planar * 1.75 + (jumpHeld ? 1.25 : 0) : this.onGround ? planar * 1.55 : 3.2);
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
     this.fovTarget = sprint && len > 0.2 ? 82 : 72;
   }
@@ -3042,24 +3120,31 @@ if (tpClipActive > 0.5) {
     this.playerAvatar.visible = visible;
     if (!visible) return;
 
-    const crawl = Math.max(0, Math.min(1, this.crawlLerp));
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+    const crawl = clamp01(this.crawlLerp);
+    const swim = clamp01(this.swimLerp) * (1 - crawl * 0.85);
+    const prone = Math.max(crawl, swim);
     const yawBlend = this.yaw + this.angleDelta(this.crawlYaw, this.yaw) * crawl;
     const forwardX = -Math.sin(yawBlend);
     const forwardZ = -Math.cos(yawBlend);
-    const crawlShift = CRAWL_BODY_CENTER * crawl;
-    this.playerAvatar.position.set(this.pos.x - forwardX * crawlShift, this.pos.y + crawl * 0.44, this.pos.z - forwardZ * crawlShift);
+    const crawlShift = CRAWL_BODY_CENTER * prone;
+    const lift = mix(crawl * 0.44, 0.68, swim);
+    this.playerAvatar.position.set(this.pos.x - forwardX * crawlShift, this.pos.y + lift, this.pos.z - forwardZ * crawlShift);
 
     const crawlSpeed = WALK * 0.3;
+    const swimSpeed = WALK * 0.78;
     const planarSpeed = Math.hypot(this.vel.x, this.vel.z);
     const uprightMove = Math.min(1, planarSpeed / WALK);
     const crawlMove = Math.min(1, planarSpeed / Math.max(0.01, crawlSpeed));
-    const sideRoll = crawl * Math.min(0.12, crawlMove * 0.08) * Math.sin(this.bob * 4.2);
-    this.playerAvatar.rotation.set(-Math.PI * 0.5 * crawl, yawBlend, sideRoll);
+    const swimMove = Math.min(1, (planarSpeed + Math.abs(this.vel.y) * 0.45) / Math.max(0.01, swimSpeed));
+    const swimRise = swim * (this.keys['Space'] || this.touchJump ? 0.42 : Math.max(-0.62, Math.min(0.5, this.pitch * 0.62)));
+    const sideRoll = prone * Math.min(0.14, (crawlMove + swimMove) * 0.07) * Math.sin(this.bob * 4.2);
+    this.playerAvatar.rotation.set(-Math.PI * 0.5 * prone + swimRise, yawBlend, sideRoll);
 
     const squat = 1 - this.crouchLerp * 0.16;
     this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
 
-    const mix = (a: number, b: number, t: number) => a + (b - a) * t;
     const uprightSwing = Math.sin(this.bob * 2.35) * 0.55 * uprightMove;
     const miningSwing = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT) * Math.PI) * 0.95 : 0;
 
@@ -3084,25 +3169,52 @@ if (tpClipActive > 0.5) {
     const crawlLeftLegZ = sSign * (-0.18 + wave * 0.16) * sideAmt;
     const crawlRightLegZ = sSign * (0.18 + wave * 0.16) * sideAmt;
 
-    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.set(mix(uprightSwing, crawlLeftLegX, crawl), 0, crawlLeftLegZ * crawl);
-    if (this.avatarRightLeg) this.avatarRightLeg.rotation.set(mix(-uprightSwing, crawlRightLegX, crawl), 0, crawlRightLegZ * crawl);
-    if (this.avatarLeftArm) this.avatarLeftArm.rotation.set(mix(-uprightSwing * 0.7, crawlLeftArmX, crawl), 0, crawlLeftArmZ * crawl);
-    if (this.avatarRightArm) {
-      this.avatarRightArm.rotation.set(
-        mix(uprightSwing * 0.7 - miningSwing * (1 - crawl * 0.45), crawlRightArmX, crawl),
-        0,
-        crawlRightArmZ * crawl,
-      );
-    }
+    const swimStroke = Math.sin(this.bob * 3.35);
+    const swimKick = Math.sin(this.bob * 6.25);
+    const swimSide = Math.min(1, Math.abs(localSide) / Math.max(0.01, swimSpeed));
+    const swimForward = Math.min(1, Math.abs(localForward) / Math.max(0.01, swimSpeed));
+    const swimActive = Math.min(1, swimMove + (this.keys['Space'] || this.touchJump ? 0.45 : 0));
+    const swimLeftArmX = -1.02 + swimStroke * 0.62 * swimForward - 0.18 * swimSide;
+    const swimRightArmX = -1.02 - swimStroke * 0.62 * swimForward - 0.18 * swimSide - miningSwing * 0.1;
+    const swimLeftLegX = 0.3 + swimKick * 0.28 * swimActive;
+    const swimRightLegX = 0.3 - swimKick * 0.28 * swimActive;
+    const swimLeftArmZ = sSign * (0.22 + Math.cos(this.bob * 3.35) * 0.28) * swimSide + 0.12 * swimForward;
+    const swimRightArmZ = sSign * (-0.22 + Math.cos(this.bob * 3.35) * 0.28) * swimSide - 0.12 * swimForward;
+    const swimLeftLegZ = sSign * -0.12 * swimSide;
+    const swimRightLegZ = sSign * 0.12 * swimSide;
+
+    let leftLegX = mix(uprightSwing, crawlLeftLegX, crawl);
+    let rightLegX = mix(-uprightSwing, crawlRightLegX, crawl);
+    let leftArmX = mix(-uprightSwing * 0.7, crawlLeftArmX, crawl);
+    let rightArmX = mix(uprightSwing * 0.7 - miningSwing * (1 - crawl * 0.45), crawlRightArmX, crawl);
+    let leftLegZ = crawlLeftLegZ * crawl;
+    let rightLegZ = crawlRightLegZ * crawl;
+    let leftArmZ = crawlLeftArmZ * crawl;
+    let rightArmZ = crawlRightArmZ * crawl;
+    leftLegX = mix(leftLegX, swimLeftLegX, swim);
+    rightLegX = mix(rightLegX, swimRightLegX, swim);
+    leftArmX = mix(leftArmX, swimLeftArmX, swim);
+    rightArmX = mix(rightArmX, swimRightArmX, swim);
+    leftLegZ = mix(leftLegZ, swimLeftLegZ, swim);
+    rightLegZ = mix(rightLegZ, swimRightLegZ, swim);
+    leftArmZ = mix(leftArmZ, swimLeftArmZ, swim);
+    rightArmZ = mix(rightArmZ, swimRightArmZ, swim);
+
+    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.set(leftLegX, 0, leftLegZ);
+    if (this.avatarRightLeg) this.avatarRightLeg.rotation.set(rightLegX, 0, rightLegZ);
+    if (this.avatarLeftArm) this.avatarLeftArm.rotation.set(leftArmX, 0, leftArmZ);
+    if (this.avatarRightArm) this.avatarRightArm.rotation.set(rightArmX, 0, rightArmZ);
     if (this.avatarHead) {
       const uprightHead = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45));
       const crawlHead = Math.max(-0.25, Math.min(0.58, this.pitch * 0.22 + 0.26));
-      this.avatarHead.rotation.set(mix(uprightHead, crawlHead, crawl), 0, 0);
+      const swimHead = Math.max(-0.36, Math.min(0.48, this.pitch * 0.18 + (this.keys['Space'] || this.touchJump ? 0.18 : 0)));
+      this.avatarHead.rotation.set(mix(mix(uprightHead, crawlHead, crawl), swimHead, swim), 0, 0);
     }
   }
 
   private restoreThirdPersonOccluders() {
     for (const u of this.thirdPersonClipUniforms) u.active.value = 0;
+    if (this.thirdPersonFogCap) this.thirdPersonFogCap.visible = false;
   }
 
   private updateThirdPersonOccluders(focus: THREE.Vector3) {
@@ -3129,12 +3241,22 @@ if (tpClipActive > 0.5) {
       this.restoreThirdPersonOccluders();
       return;
     }
-    const radius = underground ? 0.78 : 0.46;
+    const radius = underground ? 0.62 : 0.38;
     for (const u of this.thirdPersonClipUniforms) {
       u.active.value = 1;
       u.start.value.copy(start);
       u.end.value.copy(focus);
       u.radius.value = radius;
+    }
+    if (this.thirdPersonFogCap) {
+      // Fill the far end of the x-ray tunnel with a dark fog cap.  The cap sits
+      // just behind the avatar, so the player stays visible while rooms, upper
+      // floors and caves behind them are hidden instead of becoming a free wallhack.
+      this.thirdPersonFogCap.visible = true;
+      this.thirdPersonFogCap.position.copy(focus).addScaledVector(dir, 0.64);
+      this.thirdPersonFogCap.quaternion.copy(this.camera.quaternion);
+      const capRadius = radius * (underground ? 1.62 : 1.78);
+      this.thirdPersonFogCap.scale.set(capRadius, capRadius, capRadius);
     }
   }
 
@@ -3145,7 +3267,8 @@ if (tpClipActive > 0.5) {
     // smooth crouch dip + crawl drop (eye down to ~0.55 over the feet)
     this.crouchLerp += ((this.crouching ? 1 : 0) - this.crouchLerp) * Math.min(1, dt * 11);
     this.crawlLerp += ((this.crawling ? 1 : 0) - this.crawlLerp) * Math.min(1, dt * 9);
-    const eyeDrop = this.crouchLerp * 0.42 + this.crawlLerp * (EYE - 0.52);
+    this.swimLerp += ((this.inWater && !this.crawling ? 1 : 0) - this.swimLerp) * Math.min(1, dt * 7.5);
+    const eyeDrop = this.crouchLerp * 0.42 + this.crawlLerp * (EYE - 0.52) + this.swimLerp * 0.5;
     const targetY = this.pos.y + EYE - eyeDrop - this.landDip + this.stepSmooth * 0.35 + bobY;
     this.landDip = Math.max(0, this.landDip - dt * 1.6);
     this.updatePlayerAvatar();
