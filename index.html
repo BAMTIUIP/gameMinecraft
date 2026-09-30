@@ -14,8 +14,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <title>ORE RUSH · Voxel Mining Sprint</title>
-    <!-- Yandex Games SDK (no-op outside the Yandex environment) -->
-    <script src="/sdk.js" onerror="this.remove()"></script>
+    <!-- Yandex Games SDK: https://yandex.ru/dev/games/doc/ru/sdk/sdk-about#connect
+         Relative path: the build is uploaded to Yandex as an archive. Keep it a plain synchronous
+         script tag ahead of the game code — window.YaGames must exist before YaGames.init() runs.
+         Outside Yandex the file is simply absent and the game runs without the SDK.
+         (vite-ignore only tells Vite not to try bundling it; the attribute is stripped from the build.) -->
+    <script src="/sdk.js" vite-ignore></script>
   </head>
   <body>
     <div id="root"></div>

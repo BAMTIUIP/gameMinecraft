@@ -293,6 +293,8 @@ export class Engine {
 
   // ---- run state ----
   phase: Phase = 'loading';
+  /** the current pause was imposed by the system (hidden tab, focus loss, Yandex) — not chosen by the player */
+  private pausedBySystem = false;
   private score = 0;
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
@@ -1260,8 +1262,9 @@ export class Engine {
     if (!this.locked && this.phase === 'playing') {
       this.mining = false;
       this.placing = false;
-      // in drag-look fallback there is no lock to lose, so never pause on it
-      if (!this.isCoarse() && !this.lockFailed) this.pause();
+      // in drag-look fallback there is no lock to lose, so never pause on it.
+      // Esc = the player paused; the lock also drops when the window loses focus — a system pause
+      if (!this.isCoarse() && !this.lockFailed) this.pause(!document.hasFocus() || document.hidden);
     }
     this.syncHud(true);
   };
@@ -1368,12 +1371,8 @@ export class Engine {
 
   /** Yandex Games requirement: hidden tab ⇒ game paused + audio silenced */
   private onVisibility = () => {
-    if (document.hidden) {
-      if (this.phase === 'playing') this.pause();
-      suspendAudio();
-    } else {
-      resumeAudio();
-    }
+    if (document.hidden) this.systemPause();
+    else resumeAudio(); // the run itself waits for the player (or for the platform's resume event)
   };
 
   private bindInput() {
@@ -1835,9 +1834,10 @@ export class Engine {
     this.queueWorldGen(seed);
   }
 
-  pause() {
+  pause(bySystem = false) {
     if (this.phase !== 'playing') return;
     this.phase = 'paused';
+    this.pausedBySystem = bySystem;
     this.mining = false;
     this.placing = false;
     if (document.pointerLockElement) document.exitPointerLock();
@@ -1845,12 +1845,34 @@ export class Engine {
     this.syncHud(true);
   }
 
-  resume() {
+  resume(bySystem = false) {
     if (this.phase !== 'paused') return;
     this.phase = 'playing';
-    sfx.ui(true);
-    this.requestLock();
+    this.pausedBySystem = false;
+    if (!bySystem) sfx.ui(true);
+    // a pointer-lock request needs a user gesture; after a platform resume there usually was none, and a
+    // refused request would only flag lockFailed — the HUD's "click to capture the mouse" covers that case
+    if (!bySystem || navigator.userActivation?.isActive) this.requestLock();
     this.syncHud(true);
+  }
+
+  /**
+   * Yandex Games asks the game to pause (ad or purchase window, tab switch, minimised window, focus moved
+   * to another window) — or the tab was hidden: freeze the run and silence the audio. The platform calls
+   * GameplayAPI.stop() for these on its own, so the game has to actually stop.
+   */
+  systemPause() {
+    this.pause(true);
+    suspendAudio();
+  }
+
+  /**
+   * …and the counterpart: the platform calls GameplayAPI.start() on its own, so a run that *the system*
+   * froze continues. A pause the player chose (Esc, menu, inventory) is never undone behind their back.
+   */
+  systemResume() {
+    resumeAudio();
+    if (this.phase === 'paused' && this.pausedBySystem) this.resume(true);
   }
 
   toMenu() {
@@ -5578,6 +5600,7 @@ export class Engine {
     if (!this.traderNear() && this.invTab === 'trade') this.invTab = 'tools';
     this.inventoryOpen = true;
     this.phase = 'paused';
+    this.pausedBySystem = false;
     this.mining = false;
     this.placing = false;
     this.lastCraft = null;
