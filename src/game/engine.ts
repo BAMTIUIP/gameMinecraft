@@ -376,6 +376,16 @@ export class Engine {
   private moonMesh!: THREE.Object3D;
   private starMat!: THREE.PointsMaterial;
   private stars!: THREE.Points;
+  private thirdPerson = false;
+  private thirdPersonCam = new THREE.Vector3();
+  private thirdPersonCamReady = false;
+  private playerAvatar!: THREE.Group;
+  private avatarHead: THREE.Object3D | null = null;
+  private avatarLeftArm: THREE.Object3D | null = null;
+  private avatarRightArm: THREE.Object3D | null = null;
+  private avatarLeftLeg: THREE.Object3D | null = null;
+  private avatarRightLeg: THREE.Object3D | null = null;
+  private thirdPersonFaded = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   private placedTorchLights: THREE.PointLight[] = [];
   private placedTorchScanTimer = 0;
   private weatherKind: WeatherKind = 'clear';
@@ -536,6 +546,7 @@ export class Engine {
     this.buildMotes();
     this.buildHighlight();
     this.buildPickaxe();
+    this.buildPlayerAvatar();
     this.buildFxLayer();
     this.bindInput();
     this.layoutViewModel(w / h);
@@ -1100,6 +1111,68 @@ export class Engine {
     this.hudScene.add(this.pickGroup);
   }
 
+  private buildPlayerAvatar() {
+    const g = new THREE.Group();
+    const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
+    const shirt = new THREE.MeshLambertMaterial({ color: 0x4a7a52 });
+    const shirtDark = new THREE.MeshLambertMaterial({ color: 0x335c3d });
+    const pants = new THREE.MeshLambertMaterial({ color: 0x2f4f7a });
+    const boots = new THREE.MeshLambertMaterial({ color: 0x2a221c });
+    const hair = new THREE.MeshLambertMaterial({ color: 0x4a2d1b });
+    const eye = new THREE.MeshBasicMaterial({ color: 0x182018 });
+
+    const addBox = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, parent = g) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, y, z);
+      parent.add(mesh);
+      return mesh;
+    };
+
+    addBox(0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
+    addBox(0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.62, -0.02);
+    addBox(0.46, 0.46, 0.46, skin, 0, 0, 0, headGroup);
+    addBox(0.48, 0.14, 0.48, hair, 0, 0.23, 0, headGroup);
+    addBox(0.48, 0.2, 0.08, hair, 0, 0.1, -0.25, headGroup);
+    addBox(0.055, 0.055, 0.03, eye, -0.11, 0.04, -0.245, headGroup);
+    addBox(0.055, 0.055, 0.03, eye, 0.11, 0.04, -0.245, headGroup);
+    g.add(headGroup);
+    this.avatarHead = headGroup;
+
+    const leftArm = new THREE.Group();
+    leftArm.position.set(-0.43, 1.34, 0);
+    addBox(0.18, 0.62, 0.2, shirt, 0, -0.28, 0, leftArm);
+    addBox(0.18, 0.18, 0.2, skin, 0, -0.68, 0, leftArm);
+    g.add(leftArm);
+    this.avatarLeftArm = leftArm;
+
+    const rightArm = new THREE.Group();
+    rightArm.position.set(0.43, 1.34, 0);
+    addBox(0.18, 0.62, 0.2, shirt, 0, -0.28, 0, rightArm);
+    addBox(0.18, 0.18, 0.2, skin, 0, -0.68, 0, rightArm);
+    g.add(rightArm);
+    this.avatarRightArm = rightArm;
+
+    const leftLeg = new THREE.Group();
+    leftLeg.position.set(-0.15, 0.7, 0);
+    addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, leftLeg);
+    addBox(0.24, 0.12, 0.25, boots, 0, -0.62, -0.02, leftLeg);
+    g.add(leftLeg);
+    this.avatarLeftLeg = leftLeg;
+
+    const rightLeg = new THREE.Group();
+    rightLeg.position.set(0.15, 0.7, 0);
+    addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, rightLeg);
+    addBox(0.24, 0.12, 0.25, boots, 0, -0.62, -0.02, rightLeg);
+    g.add(rightLeg);
+    this.avatarRightLeg = rightLeg;
+
+    g.visible = false;
+    this.scene.add(g);
+    this.playerAvatar = g;
+  }
+
   /** swap the first-person model to match the selected hotbar slot */
   private syncViewModel() {
     if (!this.toolPick) return;
@@ -1535,6 +1608,13 @@ export class Engine {
       return;
     }
     if (this.phase !== 'playing') return;
+    if (c === 'KeyV') {
+      this.thirdPerson = !this.thirdPerson;
+      this.thirdPersonCamReady = false;
+      if (!this.thirdPerson) this.restoreThirdPersonOccluders();
+      sfx.ui(true);
+      return;
+    }
     if (c === 'KeyF') this.tryPlace();
     if (c === 'KeyG') {
       this.dropHeldItem();
@@ -2741,6 +2821,110 @@ export class Engine {
     }
   }
 
+  private updatePlayerAvatar() {
+    if (!this.playerAvatar) return;
+    const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
+    this.playerAvatar.visible = visible;
+    if (!visible) return;
+    this.playerAvatar.position.set(this.pos.x, this.pos.y, this.pos.z);
+    this.playerAvatar.rotation.set(0, this.yaw, 0);
+    const squat = 1 - this.crouchLerp * 0.16 - this.crawlLerp * 0.42;
+    this.playerAvatar.scale.set(1, Math.max(0.55, squat), 1);
+    const move = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / WALK);
+    const swing = Math.sin(this.bob * 2.35) * 0.55 * move;
+    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.x = swing;
+    if (this.avatarRightLeg) this.avatarRightLeg.rotation.x = -swing;
+    const miningSwing = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT) * Math.PI) * 0.95 : 0;
+    if (this.avatarLeftArm) this.avatarLeftArm.rotation.x = -swing * 0.7;
+    if (this.avatarRightArm) this.avatarRightArm.rotation.x = swing * 0.7 - miningSwing;
+    if (this.avatarHead) this.avatarHead.rotation.x = Math.max(-0.6, Math.min(0.6, this.pitch * 0.45));
+  }
+
+  private fadeMaterial(mat: THREE.Material, source: THREE.Material, opacity: number) {
+    mat.transparent = true;
+    mat.opacity = opacity;
+    mat.depthWrite = false;
+    mat.depthTest = true;
+    mat.side = source.side;
+    if ('color' in mat && 'color' in source) {
+      (mat as THREE.Material & { color: THREE.Color }).color.copy((source as THREE.Material & { color: THREE.Color }).color);
+    }
+    if ('emissive' in mat && 'emissive' in source) {
+      (mat as THREE.MeshLambertMaterial).emissive.copy((source as THREE.MeshLambertMaterial).emissive);
+    }
+    if ('alphaTest' in mat && 'alphaTest' in source) {
+      (mat as THREE.MeshBasicMaterial).alphaTest = (source as THREE.MeshBasicMaterial).alphaTest;
+    }
+    mat.needsUpdate = true;
+  }
+
+  private fadeThirdPersonMesh(mesh: THREE.Mesh, opacity: number) {
+    let original = this.thirdPersonFaded.get(mesh);
+    if (!original) {
+      original = mesh.material;
+      this.thirdPersonFaded.set(mesh, original);
+      mesh.material = Array.isArray(original) ? original.map((m) => m.clone()) : original.clone();
+    }
+    const faded = mesh.material;
+    if (Array.isArray(faded) && Array.isArray(original)) {
+      for (let i = 0; i < faded.length; i++) this.fadeMaterial(faded[i], original[i] ?? original[0], opacity);
+    } else if (!Array.isArray(faded) && !Array.isArray(original)) this.fadeMaterial(faded, original, opacity);
+  }
+
+  private restoreThirdPersonOccluders(keep?: Set<THREE.Mesh>) {
+    for (const [mesh, original] of [...this.thirdPersonFaded]) {
+      if (keep?.has(mesh)) continue;
+      const faded = mesh.material;
+      if (Array.isArray(faded)) faded.forEach((m) => m.dispose());
+      else if (faded !== original) faded.dispose();
+      mesh.material = original;
+      this.thirdPersonFaded.delete(mesh);
+    }
+  }
+
+  private updateThirdPersonOccluders(focus: THREE.Vector3) {
+    if (!this.thirdPerson) {
+      this.restoreThirdPersonOccluders();
+      return;
+    }
+    const desired = new Map<THREE.Mesh, number>();
+    const start = this.camera.position;
+    const dx = focus.x - start.x;
+    const dy = focus.y - start.y;
+    const dz = focus.z - start.z;
+    const dist = Math.hypot(dx, dy, dz);
+    const steps = Math.max(2, Math.ceil(dist / 0.62));
+    const path = new THREE.Vector3(dx, dy, dz).normalize();
+    const right = new THREE.Vector3().crossVectors(path, new THREE.Vector3(0, 1, 0));
+    if (right.lengthSq() < 0.001) right.set(1, 0, 0);
+    else right.normalize();
+    const up = new THREE.Vector3().crossVectors(right, path).normalize();
+    const offsets: Array<[number, number]> = [[0, 0], [0.55, 0], [-0.55, 0], [0, 0.5], [0, -0.5]];
+    for (let i = 0; i <= steps; i++) {
+      const k = i / steps;
+      const cx = start.x + dx * k;
+      const cy = start.y + dy * k;
+      const cz = start.z + dz * k;
+      for (const [rx, uy] of offsets) {
+        const x = cx + right.x * rx + up.x * uy;
+        const y = cy + right.y * rx + up.y * uy;
+        const z = cz + right.z * rx + up.z * uy;
+        const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+        const id = this.world.get(bx, by, bz);
+        if (id === AIR || id === WATER || !this.world.inBounds(bx, by, bz)) continue;
+        const key = chunkKey(Math.floor(bx / CHUNK), Math.floor(bz / CHUNK));
+        const solid = this.chunkMeshes.get(key);
+        const cutout = this.cutoutMeshes.get(key);
+        const decor = this.decorMeshes.get(key);
+        if (solid) desired.set(solid, 0.28);
+        if (cutout) desired.set(cutout, 0.38);
+        if (decor) desired.set(decor, 0.42);
+      }
+    }
+    this.restoreThirdPersonOccluders(new Set(desired.keys()));
+    for (const [mesh, opacity] of desired) this.fadeThirdPersonMesh(mesh, opacity);
+  }
+
   private updateCamera(dt: number) {
     const bobAmt = this.onGround ? Math.min(1, Math.hypot(this.vel.x, this.vel.z) / WALK) : 0;
     const bobY = Math.sin(this.bob * 2.2) * 0.055 * bobAmt;
@@ -2751,10 +2935,35 @@ export class Engine {
     const eyeDrop = this.crouchLerp * 0.42 + this.crawlLerp * (EYE - 0.52);
     const targetY = this.pos.y + EYE - eyeDrop - this.landDip + this.stepSmooth * 0.35 + bobY;
     this.landDip = Math.max(0, this.landDip - dt * 1.6);
-    this.camera.position.set(this.pos.x + bobX * 0.35, targetY, this.pos.z);
-    this.camera.rotation.set(this.pitch, this.yaw, Math.sin(this.bob * 1.1) * 0.012 * bobAmt);
-    this.camera.fov += (this.fovTarget - this.camera.fov) * Math.min(1, dt * 8);
-    this.camera.updateProjectionMatrix();
+    this.updatePlayerAvatar();
+
+    if (this.thirdPerson && this.phase === 'playing') {
+      const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+      const forward = new THREE.Vector3(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp).normalize();
+      const focus = new THREE.Vector3(this.pos.x, targetY + 0.05, this.pos.z);
+      const dist = this.crawling ? 3.6 : this.crouching ? 4.3 : 5.3;
+      const desired = focus.clone().addScaledVector(forward, -dist);
+      desired.y += 0.48;
+      desired.y = Math.max(desired.y, this.pos.y + 0.58);
+      if (!this.thirdPersonCamReady) {
+        this.thirdPersonCam.copy(desired);
+        this.thirdPersonCamReady = true;
+      } else {
+        this.thirdPersonCam.lerp(desired, 1 - Math.pow(0.002, dt));
+      }
+      this.camera.position.copy(this.thirdPersonCam);
+      this.camera.lookAt(focus.clone().addScaledVector(forward, 9));
+      this.camera.fov += ((this.fovTarget + 4) - this.camera.fov) * Math.min(1, dt * 8);
+      this.camera.updateProjectionMatrix();
+      this.updateThirdPersonOccluders(focus);
+    } else {
+      this.thirdPersonCamReady = false;
+      this.restoreThirdPersonOccluders();
+      this.camera.position.set(this.pos.x + bobX * 0.35, targetY, this.pos.z);
+      this.camera.rotation.set(this.pitch, this.yaw, Math.sin(this.bob * 1.1) * 0.012 * bobAmt);
+      this.camera.fov += (this.fovTarget - this.camera.fov) * Math.min(1, dt * 8);
+      this.camera.updateProjectionMatrix();
+    }
 
     const sh = this.shakeMag * this.shake;
     if (sh > 0.0001) {
@@ -6954,7 +7163,7 @@ export class Engine {
     const cur = this.phase === 'playing' ? (this.locked ? 'none' : 'crosshair') : 'default';
     if (this.renderer.domElement.style.cursor !== cur) this.renderer.domElement.style.cursor = cur;
     const mining = this.mining || this.touchMine;
-    this.pickGroup.visible = this.phase === 'playing' || this.phase === 'paused';
+    this.pickGroup.visible = (this.phase === 'playing' || this.phase === 'paused') && !this.thirdPerson;
     this.highlight.visible = this.highlight.visible && this.phase === 'playing';
     this.crackMesh.visible = this.crackMesh.visible && this.phase === 'playing' && mining;
     if (this.phase !== 'playing') {
@@ -6980,6 +7189,7 @@ export class Engine {
     window.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('mousemove', this.onMouseMove);
     const el = this.renderer?.domElement;
+    this.restoreThirdPersonOccluders();
     if (el) {
       el.removeEventListener('mousedown', this.onMouseDown);
       el.removeEventListener('wheel', this.onWheel);
