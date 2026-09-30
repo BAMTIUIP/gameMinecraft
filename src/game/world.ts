@@ -229,8 +229,10 @@ export class World {
     if (this.isWinter(x, z, height)) return 'winter';
     const humidity = this.humidityAt(x, z);
     const heat = this.temperatureAt(x, z, SEA + 6);
-    if (heat > 0.07 && humidity < -0.35) return 'canyon';
-    if (heat > -0.03 && humidity < -0.08) return 'desert';
+    // Keep dry biomes special instead of the default: deserts need both heat and low humidity.
+    // This makes “New world” seeds feel varied instead of desert-dominated.
+    if (heat > 0.15 && humidity < -0.42) return 'canyon';
+    if (heat > 0.08 && humidity < -0.18) return 'desert';
     if (heat > 0.02 && humidity > 0.12) return 'jungle';
     return 'plains';
   }
@@ -624,8 +626,7 @@ export class World {
     // ---- structures (deterministic per chunk) ----
     const sRand = mulberry32(this.seed * 101 + 41 + chunkKey(cx, cz) * 7919);
     const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-    const inStarterDesertRing = Math.max(Math.abs(cx - scx), Math.abs(cz - scz)) <= 2;
-    if (biome === 'desert' || inStarterDesertRing) {
+    if (biome === 'desert' || biome === 'canyon') {
       spawnDesertBiomeStructures(this, cx, cz, sRand);
     } else if (isDesertMountainTransition(this, cx, cz) && sRand() < 0.45) {
       buildCliffsideCarvedTemple(this, cx, cz, sRand);
@@ -1230,28 +1231,18 @@ export class World {
   }
 
   findSpawn(): [number, number, number] {
-    const desertSite = this.structureSites.find((s) => this.biomeAt(s.x, s.z) === 'desert');
-    const anchorX = desertSite ? desertSite.x : ORIGIN_X;
-    const anchorZ = desertSite ? desertSite.z : ORIGIN_Z;
-
-    for (let tries = 0; tries < 600; tries++) {
-      const rMin = desertSite && tries < 360 ? 14 : 10;
-      const rMax = desertSite && tries < 360 ? 26 : 34;
+    for (let tries = 0; tries < 720; tries++) {
       const angle = (tries * 2.399963229728653) % (Math.PI * 2);
-      const r = rMin + ((tries % 17) / 16) * (rMax - rMin);
-      const cx = tries < 360 ? anchorX : ORIGIN_X;
-      const cz = tries < 360 ? anchorZ : ORIGIN_Z;
-      const x = Math.round(cx + Math.cos(angle) * r);
-      const z = Math.round(cz + Math.sin(angle) * r);
+      const r = 6 + ((tries % 31) / 30) * 42;
+      const x = Math.round(ORIGIN_X + Math.cos(angle) * r);
+      const z = Math.round(ORIGIN_Z + Math.sin(angle) * r);
       if (!this.hasColumn(x, z)) continue;
       const h = this.topSolidY(x, z);
-      if (h < SEA + 2 || h > 28) continue;
+      if (h < SEA + 2 || h > 30) continue;
       const top = this.get(x, h, z);
-      if (tries < 360) {
-        if (top !== SAND || this.biomeAt(x, z, h) !== 'desert') continue;
-      } else if (top !== SAND && top !== GRASS && top !== SNOW_GRASS) {
-        continue;
-      }
+      if (top !== GRASS && top !== SNOW_GRASS && top !== SAND) continue;
+      const biome = this.biomeAt(x, z, h);
+      if (tries < 420 && (biome === 'desert' || biome === 'canyon')) continue;
       if (this.get(x, h + 1, z) !== AIR || this.get(x, h + 2, z) !== AIR || this.get(x, h + 3, z) !== AIR) continue;
       let clear = true;
       for (let dz = -1; dz <= 1; dz++) {

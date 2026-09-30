@@ -88,7 +88,7 @@ import {
   isResource,
   isSolid,
 } from './blocks';
-import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk } from './world';
+import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
   HAND,
   RECIPES,
@@ -229,7 +229,8 @@ const EYE = 1.62;
 const REACH = 5.6;
 
 type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
-type Particle = { smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
+type WeatherKind = 'clear' | 'rain' | 'snow';
+type Particle = { weather?: Exclude<WeatherKind, 'clear'>; smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
 type Drop = {
   active: boolean;
   id: number;
@@ -263,8 +264,8 @@ export class Engine {
   private world = new World(1);
   private chunkMeshes = new Map<number, THREE.Mesh>();
   private cutoutMeshes = new Map<number, THREE.Mesh>();
-  private material!: THREE.MeshBasicMaterial;
-  private cutoutMat!: THREE.MeshBasicMaterial;
+  private material!: THREE.MeshLambertMaterial;
+  private cutoutMat!: THREE.MeshLambertMaterial;
   private waterMat!: THREE.MeshBasicMaterial;
   private waterMeshes = new Map<number, THREE.Mesh>();
   private decorMat!: THREE.MeshBasicMaterial;
@@ -283,6 +284,7 @@ export class Engine {
   }
 
   private fx!: HTMLDivElement;
+  private sunGlare!: HTMLDivElement;
   private popups: Popup[] = [];
   private particles: Particle[] = [];
   private pMesh!: THREE.InstancedMesh;
@@ -366,9 +368,22 @@ export class Engine {
   private attackCd = 0;
   private sunLight!: THREE.DirectionalLight;
   private ambLight!: THREE.AmbientLight;
+  private skyMesh!: THREE.Mesh;
   private skyMat!: THREE.MeshBasicMaterial;
+  private sunDir = new THREE.Vector3(0, 1, 0);
   private sunMesh!: THREE.Mesh;
-  private moonMesh!: THREE.Mesh;
+  private sunHaloMat!: THREE.MeshBasicMaterial;
+  private moonMesh!: THREE.Object3D;
+  private starMat!: THREE.PointsMaterial;
+  private stars!: THREE.Points;
+  private placedTorchLights: THREE.PointLight[] = [];
+  private placedTorchScanTimer = 0;
+  private weatherKind: WeatherKind = 'clear';
+  private weatherTargetKind: WeatherKind = 'clear';
+  private weatherIntensity = 0;
+  private weatherTargetIntensity = 0;
+  private weatherTimer = 0;
+  private weatherSpawnAcc = 0;
   private banner: HudState['banner'] = null;
   private bannerTimer = 0;
   private loadTasks: (() => boolean)[] = [];
@@ -495,9 +510,10 @@ export class Engine {
     dl2.position.set(-1, -0.3, -0.6);
     this.hudScene.add(dl2);
 
-    // alphaTest lets item drops (meat etc.) use transparent pixels for free
-    this.material = new THREE.MeshBasicMaterial({ map: getAtlasTexture(), vertexColors: true, fog: true, alphaTest: 0.08 });
-    this.cutoutMat = new THREE.MeshBasicMaterial({
+    // Lambert terrain keeps baked voxel AO via vertex colours, while real PointLights
+    // from hand/placed torches can now illuminate the world locally at night.
+    this.material = new THREE.MeshLambertMaterial({ map: getAtlasTexture(), vertexColors: true, fog: true, alphaTest: 0.08 });
+    this.cutoutMat = new THREE.MeshLambertMaterial({
       map: getAtlasTexture(),
       vertexColors: true,
       fog: true,
@@ -526,36 +542,54 @@ export class Engine {
     this.setRenderDist(this.renderDist);
     this.mobSys = new MobSystem(this.scene, this.world);
 
-    this.queueWorldGen(this.pickDesertRichSeed());
+    this.queueWorldGen(this.pickBalancedSeed());
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  private pickDesertRichSeed(): number {
+  private pickBalancedSeed(): number {
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
-    let bestSeed = 2674;
-    let bestScore = -1;
-    for (let i = 0; i < 48; i++) {
+    let bestSeed = Math.floor(Math.random() * 1e9);
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < 56; i++) {
       const candidate = Math.floor(Math.random() * 1e9);
       seedNoise(candidate);
       this.world.reset(candidate);
-      let desertCount = 0;
-      let coreDesert = 0;
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          if (this.world.biomeAt((c0x + dx) * CHUNK + 8, (c0z + dz) * CHUNK + 8) === 'desert') {
-            desertCount++;
-            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) coreDesert++;
-          }
+
+      const counts: Record<'plains' | 'winter' | 'jungle' | 'dry' | 'volcanic', number> = {
+        plains: 0,
+        winter: 0,
+        jungle: 0,
+        dry: 0,
+        volcanic: 0,
+      };
+      let coreDry = 0;
+      for (let dz = -3; dz <= 3; dz++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const biome = this.world.biomeAt((c0x + dx) * CHUNK + 8, (c0z + dz) * CHUNK + 8);
+          const key = biome === 'desert' || biome === 'canyon' ? 'dry' : biome;
+          counts[key]++;
+          if (key === 'dry' && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) coreDry++;
         }
       }
-      const score = coreDesert * 3 + desertCount;
+
+      const values = Object.values(counts);
+      const dominant = Math.max(...values);
+      const diversity = values.filter((v) => v > 0).length;
+      const hasGreenSpawn = counts.plains + counts.jungle + counts.winter;
+      const target = 49 / 4;
+      const balancePenalty = values.reduce((sum, v) => sum + Math.abs(v - target), 0);
+      const dryPenalty = Math.max(0, counts.dry - 15) * 4 + coreDry * 3;
+      const score = diversity * 26 + hasGreenSpawn * 0.35 - balancePenalty - dryPenalty - Math.max(0, dominant - 19) * 6;
+
       if (score > bestScore) {
         bestScore = score;
         bestSeed = candidate;
       }
-      if (coreDesert >= 8 && desertCount >= 15) return candidate;
+      // Good enough: no biome dominates the starting area and dry biomes are not the core default.
+      if (diversity >= 3 && dominant <= 18 && counts.dry <= 15 && coreDry <= 3 && hasGreenSpawn >= 18) return candidate;
     }
     return bestSeed;
   }
@@ -566,32 +600,47 @@ export class Engine {
 
   private buildSky() {
     const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(300, 20, 14),
+      new THREE.SphereGeometry(360, 28, 18),
       new THREE.MeshBasicMaterial({ map: getSkyTexture(), side: THREE.BackSide, fog: false, depthWrite: false }),
     );
     sky.frustumCulled = false;
+    sky.renderOrder = -100;
     this.scene.add(sky);
-
+    this.skyMesh = sky;
     this.skyMat = sky.material as THREE.MeshBasicMaterial;
 
     const sun = new THREE.Mesh(
-      new THREE.CircleGeometry(16, 20),
-      new THREE.MeshBasicMaterial({ color: 0xfff4d0, fog: false, transparent: true, opacity: 0.95, depthWrite: false }),
+      new THREE.CircleGeometry(18, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffd24a, fog: false, transparent: true, opacity: 0.98, depthWrite: false, side: THREE.DoubleSide }),
     );
-    sun.position.set(-140, 130, -190);
-    sun.lookAt(0, 40, 0);
+    const sunHalo = new THREE.Mesh(
+      new THREE.CircleGeometry(52, 40),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd36a,
+        fog: false,
+        transparent: true,
+        opacity: 0.24,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    sunHalo.position.z = -0.6;
+    sun.add(sunHalo);
+    this.sunHaloMat = sunHalo.material as THREE.MeshBasicMaterial;
+    sun.frustumCulled = false;
     this.scene.add(sun);
     this.sunMesh = sun;
 
     // a proper round moon: soft halo + bright disc + a few dark craters
-    const moon = new THREE.Group() as unknown as THREE.Mesh;
+    const moon = new THREE.Group();
     const halo = new THREE.Mesh(
       new THREE.CircleGeometry(16, 32),
-      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.22, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }),
     );
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(10, 32),
-      new THREE.MeshBasicMaterial({ color: 0xe8eeff, fog: false, transparent: true, opacity: 0.96, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0xe8eeff, fog: false, transparent: true, opacity: 0.96, depthWrite: false, side: THREE.DoubleSide }),
     );
     disc.position.z = 0.5;
     moon.add(halo);
@@ -602,38 +651,82 @@ export class Engine {
       transparent: true,
       opacity: 0.85,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
     for (const [cx2, cy2, r2] of [
       [-3.2, 2.4, 1.9],
       [2.8, -1.6, 1.4],
       [0.6, 3.6, 1.0],
       [-1.8, -3.0, 1.2],
-    ]) {
+    ] as const) {
       const crater = new THREE.Mesh(new THREE.CircleGeometry(r2, 20), craterMat);
       crater.position.set(cx2, cy2, 1);
       moon.add(crater);
     }
-    moon.position.set(150, 120, 180);
-    moon.lookAt(0, 40, 0);
+    moon.frustumCulled = false;
     this.scene.add(moon);
     this.moonMesh = moon;
 
-    // lights only touch the mobs (terrain is MeshBasic with baked AO)
-    this.ambLight = new THREE.AmbientLight(0xffffff, 0.8);
+    const starCount = this.isCoarse() ? 160 : 260;
+    const starPos = new Float32Array(starCount * 3);
+    const rand = mulberry32(7301);
+    for (let i = 0; i < starCount; i++) {
+      const a = rand() * Math.PI * 2;
+      const y = 0.08 + rand() * 0.9;
+      const r = Math.sqrt(Math.max(0, 1 - y * y)) * 330;
+      starPos[i * 3] = Math.cos(a) * r;
+      starPos[i * 3 + 1] = y * 330;
+      starPos[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starCanvas = document.createElement('canvas');
+    starCanvas.width = starCanvas.height = 16;
+    const starCtx = starCanvas.getContext('2d')!;
+    const sg = starCtx.createRadialGradient(8, 8, 0, 8, 8, 8);
+    sg.addColorStop(0, 'rgba(255,255,255,1)');
+    sg.addColorStop(0.35, 'rgba(210,230,255,.85)');
+    sg.addColorStop(1, 'rgba(210,230,255,0)');
+    starCtx.fillStyle = sg;
+    starCtx.fillRect(0, 0, 16, 16);
+    const starTex = new THREE.CanvasTexture(starCanvas);
+    this.starMat = new THREE.PointsMaterial({
+      size: 1.7,
+      map: starTex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0,
+      fog: false,
+      sizeAttenuation: true,
+    });
+    this.stars = new THREE.Points(starGeo, this.starMat);
+    this.stars.frustumCulled = false;
+    this.scene.add(this.stars);
+
+    this.ambLight = new THREE.AmbientLight(0xdfe8ff, 0.55);
     this.scene.add(this.ambLight);
     this.sunLight = new THREE.DirectionalLight(0xfff0d0, 1);
     this.sunLight.position.set(-0.5, 1, 0.35);
     this.scene.add(this.sunLight);
 
     const cloudTex = getCloudTexture();
-    cloudTex.repeat.set(5, 5);
+    cloudTex.repeat.set(3, 3);
     this.clouds = new THREE.Mesh(
-      new THREE.PlaneGeometry(700, 700),
-      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0.82, depthWrite: false, fog: false }),
+      new THREE.PlaneGeometry(760, 760),
+      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0.58, depthWrite: false, fog: false, side: THREE.DoubleSide }),
     );
     this.clouds.rotation.x = -Math.PI / 2;
-    this.clouds.position.y = 74;
+    this.clouds.position.y = 118;
+    this.clouds.frustumCulled = false;
     this.scene.add(this.clouds);
+
+    for (let i = 0; i < 4; i++) {
+      const light = new THREE.PointLight(0xffb15a, 0, 15, 1.55);
+      light.visible = false;
+      this.placedTorchLights.push(light);
+      this.scene.add(light);
+    }
   }
 
   private buildParticles() {
@@ -1052,12 +1145,15 @@ export class Engine {
         this.torchFlame.scale.set(f, 1.1 + (f - 0.85) * 1.6, f);
         this.torchFlameMat.opacity = 0.72 + f * 0.2;
       }
-      this.torchLight.intensity = 22 * (0.85 + (1 - this.daylight) * 0.6);
-      this.torchLight.position.set(this.pos.x, this.pos.y + 1.7, this.pos.z);
+      this.torchLight.visible = true;
+      this.torchLight.intensity = 3.1 + (1 - this.daylight) * 2.3;
+      this.torchLight.distance = 15 + (1 - this.daylight) * 3;
+      this.torchLight.position.set(this.pos.x, this.pos.y + 1.55, this.pos.z);
       if (kind === 'torch' && Math.random() < 0.06) {
         this.burst(this.pos.x + (Math.random() - 0.5) * 0.3, this.pos.y + 1.75, this.pos.z + (Math.random() - 0.5) * 0.3, [255, 176, 58], 1, 0.7);
       }
     } else {
+      this.torchLight.visible = false;
       this.torchLight.intensity = 0;
     }
     if (kind === 'sword' && this.swordMat) {
@@ -1100,6 +1196,10 @@ export class Engine {
   private buildFxLayer() {
     this.fx = document.createElement('div');
     this.fx.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;';
+    this.sunGlare = document.createElement('div');
+    this.sunGlare.style.cssText =
+      'position:absolute;inset:-18%;pointer-events:none;opacity:0;transition:opacity 80ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,224,92,.48) 0%, rgba(255,190,45,.24) 12%, rgba(255,170,30,.08) 28%, rgba(255,190,30,0) 52%);';
+    this.fx.appendChild(this.sunGlare);
     this.container.appendChild(this.fx);
     for (let i = 0; i < 16; i++) {
       const el = document.createElement('div');
@@ -1114,6 +1214,12 @@ export class Engine {
   private queueWorldGen(seed: number) {
     this.loadTasks = [];
     this.loadProgress = 0;
+    this.weatherKind = 'clear';
+    this.weatherTargetKind = 'clear';
+    this.weatherIntensity = 0;
+    this.weatherTargetIntensity = 0;
+    this.weatherTimer = 6;
+    this.weatherSpawnAcc = 0;
     seedNoise(seed);
     this.world.reset(seed);
     this.rand = mulberry32(seed);
@@ -1146,7 +1252,7 @@ export class Engine {
       this.pos.set(x, y, z);
       this.yaw = this.world.spawnYawFor(x, z);
       this.pitch = -0.14;
-      this.seedStarterDesertLife(x, z, this.yaw);
+      this.seedStarterWildlife(x, z, this.yaw);
       return true;
     });
     this.loadTotal = this.loadTasks.length;
@@ -1158,7 +1264,22 @@ export class Engine {
   private ensureDecorated(cx: number, cz: number) {
     for (let dz = -1; dz <= 1; dz++)
       for (let dx = -1; dx <= 1; dx++) this.world.genTerrain(cx + dx, cz + dz);
+    const wasDecorated = this.world.isDecorated(cx, cz);
     this.world.decorate(cx, cz);
+    // Decoration can spill structures, trees and lamps into neighbouring chunks.
+    // If those neighbours were already meshed, rebuild them lazily to avoid
+    // persistent see-through holes around large desert/jungle structures.
+    if (!wasDecorated) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dz === 0) continue;
+          const key = chunkKey(cx + dx, cz + dz);
+          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key)) {
+            this.dirtyChunks.add(key);
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1183,7 +1304,7 @@ export class Engine {
           const cx = pcx + dx;
           const cz = pcz + dz;
           const key = chunkKey(cx, cz);
-          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key)) continue;
+          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key)) continue;
           if (this.meshedEmpty.has(key)) continue;
           this.ensureDecorated(cx, cz);
           this.buildChunk(cx, cz);
@@ -1974,7 +2095,7 @@ export class Engine {
     this.fallStart = y;
     this.yaw = this.world.spawnYawFor(x, z);
     this.pitch = -0.1;
-    this.seedStarterDesertLife(x, z, this.yaw);
+    this.seedStarterWildlife(x, z, this.yaw);
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
@@ -1986,17 +2107,27 @@ export class Engine {
     this.syncHud(true);
   }
 
-  private seedStarterDesertLife(x: number, z: number, yaw: number) {
+  private seedStarterWildlife(x: number, z: number, yaw: number) {
     const fwdAngle = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
-    const species: MobId[] = ['tumbleweed', 'tumbleweed', 'tumbleweed', 'camel', 'lizard'];
+    const biome = this.world.biomeAt(Math.floor(x), Math.floor(z));
+    const isDry = biome === 'desert' || biome === 'canyon';
+    const species: MobId[] =
+      biome === 'winter'
+        ? ['penguin', 'seal', 'rabbit']
+        : isDry
+          ? ['tumbleweed', 'tumbleweed', 'camel', 'lizard']
+          : biome === 'jungle'
+            ? ['bird', 'monkey', 'bee', 'rabbit']
+            : ['cow', 'sheep', 'chicken', 'rabbit'];
+    const preferredGround = isDry ? [SAND] : biome === 'winter' ? [SNOW_GRASS] : [GRASS];
     for (const id of species) {
-      const spot = this.mobSys.findSpawnPoint(x, z, 6, 20, fwdAngle, [SAND]);
+      const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround);
       if (spot) this.mobSys.spawn(id, spot[0], spot[1], spot[2]);
     }
   }
 
   regenerate(seed?: number) {
-    const nextSeed = seed ?? this.pickDesertRichSeed();
+    const nextSeed = seed ?? this.pickBalancedSeed();
     this.mobSys?.clear();
     this.clearFallingTrees();
     this.clearDoors();
@@ -2648,7 +2779,145 @@ export class Engine {
     this.shake = 1;
   }
 
+  private chooseWeather(biome: Biome) {
+    const dry = biome === 'desert' || biome === 'canyon' || biome === 'volcanic';
+    if (dry) {
+      this.weatherTargetKind = 'clear';
+      this.weatherTargetIntensity = 0;
+      this.weatherTimer = 8 + this.rand() * 14;
+      return;
+    }
+    const roll = this.rand();
+    if (biome === 'winter') {
+      this.weatherTargetKind = roll < 0.34 ? 'snow' : 'clear';
+      this.weatherTargetIntensity = this.weatherTargetKind === 'snow' ? 0.45 + this.rand() * 0.45 : 0;
+    } else {
+      const rainChance = biome === 'jungle' ? 0.34 : 0.2;
+      this.weatherTargetKind = roll < rainChance ? 'rain' : 'clear';
+      this.weatherTargetIntensity = this.weatherTargetKind === 'rain' ? 0.35 + this.rand() * (biome === 'jungle' ? 0.55 : 0.42) : 0;
+    }
+    this.weatherTimer = this.weatherTargetKind === 'clear' ? 18 + this.rand() * 34 : 28 + this.rand() * 58;
+  }
+
+  private updateWeather(dt: number, biome: Biome) {
+    const dry = biome === 'desert' || biome === 'canyon' || biome === 'volcanic';
+    this.weatherTimer -= dt;
+    if (dry || this.weatherTimer <= 0 || (biome === 'winter' && this.weatherKind === 'rain') || (biome !== 'winter' && this.weatherKind === 'snow')) {
+      this.chooseWeather(biome);
+    }
+    if (this.weatherTargetKind !== 'clear') this.weatherKind = this.weatherTargetKind;
+    const k = 1 - Math.pow(0.001, dt / (this.weatherTargetKind === 'clear' ? 4.5 : 6.5));
+    this.weatherIntensity += (this.weatherTargetIntensity - this.weatherIntensity) * k;
+    if (this.weatherIntensity < 0.035 && this.weatherTargetKind === 'clear') this.weatherKind = 'clear';
+    this.spawnWeatherParticles(dt, biome);
+  }
+
+  private spawnWeatherParticles(dt: number, biome: Biome) {
+    if (this.weatherKind === 'clear' || this.weatherIntensity <= 0.05) return;
+    const dry = biome === 'desert' || biome === 'canyon' || biome === 'volcanic';
+    if (dry) return;
+    const surface = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    if (this.pos.y < surface - 1) return;
+    const rain = this.weatherKind === 'rain';
+    const rate = (rain ? 46 : 22) * this.weatherIntensity * (this.isCoarse() ? 0.55 : 1);
+    this.weatherSpawnAcc += dt * rate;
+    while (this.weatherSpawnAcc >= 1 && this.particles.length < MAX_PARTICLES - 32) {
+      this.weatherSpawnAcc -= 1;
+      const a = this.rand() * Math.PI * 2;
+      const r = 4 + this.rand() * 25;
+      const x = this.camera.position.x + Math.cos(a) * r;
+      const z = this.camera.position.z + Math.sin(a) * r;
+      const y = this.camera.position.y + 12 + this.rand() * 16;
+      if (rain) {
+        this.particles.push({
+          weather: 'rain',
+          x,
+          y,
+          z,
+          vx: -2.3 - this.rand() * 1.6,
+          vy: -18 - this.rand() * 8,
+          vz: 0.6 + (this.rand() - 0.5) * 1.2,
+          life: 1.2,
+          max: 1.2,
+          size: 0.045 + this.rand() * 0.02,
+          r: 0.55,
+          g: 0.72,
+          b: 1,
+        });
+      } else {
+        this.particles.push({
+          weather: 'snow',
+          x,
+          y,
+          z,
+          vx: -0.35 + (this.rand() - 0.5) * 0.45,
+          vy: -0.8 - this.rand() * 0.9,
+          vz: (this.rand() - 0.5) * 0.55,
+          life: 8.5,
+          max: 8.5,
+          size: 0.055 + this.rand() * 0.045,
+          r: 0.9,
+          g: 0.96,
+          b: 1,
+        });
+      }
+    }
+  }
+
+  private updatePlacedTorchLights(dt: number) {
+    this.placedTorchScanTimer -= dt;
+    if (this.placedTorchScanTimer > 0) return;
+    this.placedTorchScanTimer = 0.85;
+    if (!this.placedTorchLights.length) return;
+
+    const px = Math.floor(this.pos.x);
+    const py = Math.floor(this.pos.y + 1);
+    const pz = Math.floor(this.pos.z);
+    const underground = this.pos.y < this.world.getHeight(px, pz) - 2;
+    if (this.daylight > 0.78 && !underground) {
+      for (const light of this.placedTorchLights) {
+        light.visible = false;
+        light.intensity = 0;
+      }
+      return;
+    }
+    const radius = 16;
+    const y0 = Math.max(1, py - 8);
+    const y1 = Math.min(WY - 1, py + 8);
+    const found: Array<{ x: number; y: number; z: number; d2: number }> = [];
+    for (let z = pz - radius; z <= pz + radius; z++) {
+      for (let x = px - radius; x <= px + radius; x++) {
+        const dx = x + 0.5 - this.pos.x;
+        const dz = z + 0.5 - this.pos.z;
+        const flat = dx * dx + dz * dz;
+        if (flat > radius * radius) continue;
+        for (let y = y0; y <= y1; y++) {
+          if (this.world.get(x, y, z) !== TORCH) continue;
+          const dy = y + 0.5 - (this.pos.y + 1.1);
+          found.push({ x, y, z, d2: flat + dy * dy });
+        }
+      }
+    }
+    found.sort((a, b) => a.d2 - b.d2);
+    for (let i = 0; i < this.placedTorchLights.length; i++) {
+      const light = this.placedTorchLights[i];
+      const f = found[i];
+      if (!f) {
+        light.visible = false;
+        light.intensity = 0;
+        continue;
+      }
+      light.visible = true;
+      light.position.set(f.x + 0.5, f.y + 0.55, f.z + 0.5);
+      light.distance = 15 + (1 - this.daylight) * 3;
+      light.intensity = 2.2 + (1 - this.daylight) * 1.5;
+    }
+  }
+
   private updateAmbient(dt: number) {
+    const biomeHere = this.world.biomeAt(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    this.updateWeather(dt, biomeHere);
+    this.updatePlacedTorchLights(dt);
     // Grey smoke rises only from active volcanic craters within sight.
     this.volcanoSmokeTimer -= dt;
     if (this.volcanoSmokeTimer <= 0) {
@@ -2676,12 +2945,17 @@ export class Engine {
           life:1.1+Math.random()*0.8,max:1.8,size:0.025+Math.random()*0.025,r:0.72,g:0.62,b:0.43});
       }
     }
-    // clouds drift
+    // clouds drift: deserts stay cloudless and harsh; rain/snow thickens the ceiling.
     const mat = this.clouds.material as THREE.MeshBasicMaterial;
     (mat.map as THREE.Texture).offset.x = (this.time * 0.0035) % 1;
     (mat.map as THREE.Texture).offset.y = (this.time * 0.0012) % 1;
     this.clouds.position.x = this.camera.position.x;
     this.clouds.position.z = this.camera.position.z;
+    this.clouds.position.y = this.camera.position.y + 112;
+    const drySky = biomeHere === 'desert' || biomeHere === 'canyon' || biomeHere === 'volcanic';
+    const cloudTarget = drySky ? 0 : Math.min(0.46, 0.04 + this.daylight * 0.24 + this.weatherIntensity * 0.28);
+    mat.opacity += (cloudTarget - mat.opacity) * Math.min(1, dt * 1.7);
+    this.clouds.visible = mat.opacity > 0.025;
 
     // motes wrap around the camera (updated at half rate — they drift slowly)
     if ((this.frameNo & 1) === 0) {
@@ -5153,44 +5427,86 @@ export class Engine {
   /** 0 = midnight, 0.5 = noon */
   private updateClock(dt: number) {
     this.clock = (this.clock + dt / this.dayLen) % 1;
-    // smooth sun curve with long day, shorter night
-    const s = Math.sin(this.clock * Math.PI * 2 - Math.PI / 2);
-    this.daylight = Math.max(0, Math.min(1, s * 1.35 + 0.42));
+    const smooth01 = (v: number) => {
+      const t2 = Math.max(0, Math.min(1, v));
+      return t2 * t2 * (3 - 2 * t2);
+    };
+
+    const sunAngle = this.clock * Math.PI * 2 - Math.PI / 2;
+    const sunHeight = Math.sin(sunAngle);
+    this.daylight = smooth01((sunHeight + 0.22) / 0.92);
 
     const d = this.daylight;
-    // sky + fog shift from night blue to day blue
-    const night = new THREE.Color(0x0a1424);
-    const dawn = new THREE.Color(0xd98a5a);
-    const day = new THREE.Color(0xbcd7e8);
-    const c = new THREE.Color();
-    if (d < 0.45) c.copy(night).lerp(dawn, d / 0.45);
-    else c.copy(dawn).lerp(day, (d - 0.45) / 0.55);
-    (this.scene.fog as THREE.Fog).color.copy(c);
-    this.scene.background = c;
-    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.55 + d * 0.75);
+    if (this.skyMesh) this.skyMesh.position.copy(this.camera.position);
+    if (this.stars) this.stars.position.copy(this.camera.position);
+    const biome = this.world.biomeAt(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    const dry = biome === 'desert' || biome === 'canyon';
+    const weather = dry ? 0 : this.weatherIntensity;
 
-    // terrain brightness follows the sun (baked AO stays intact);
-    // a hand torch lifts the floor brightness so caves & night stay readable
-    let lit = 0.3 + d * 0.7;
-    if (this.heldKind() === 'torch') {
-      const warm = 0.62 + Math.sin(this.time * 9) * 0.03;
-      lit = Math.max(lit, warm);
-      this.material.color.setRGB(lit, lit * 0.96, lit * 0.82);
-      if (this.cutoutMat) this.cutoutMat.color.copy(this.material.color);
-      if (this.decorMat) this.decorMat.color.copy(this.material.color);
-      if (this.sunLight) this.sunLight.intensity = 0.25 + d * 0.85;
-      if (this.ambLight) this.ambLight.intensity = Math.max(0.32 + d * 0.5, 0.55);
-      if (this.moonMesh) this.moonMesh.visible = d < 0.5;
-      if (this.sunMesh) this.sunMesh.visible = d > 0.25;
-      return;
+    const night = new THREE.Color(0x050914);
+    const dawn = new THREE.Color(dry ? 0xffad63 : 0xe8895d);
+    const day = new THREE.Color(dry ? 0xcfe8ff : biome === 'winter' ? 0xc7def3 : 0xb8d8f0);
+    const storm = new THREE.Color(biome === 'winter' ? 0xaebccc : 0x788897);
+    const c = new THREE.Color();
+    if (d < 0.22) c.copy(night).lerp(dawn, d / 0.22);
+    else c.copy(dawn).lerp(day, (d - 0.22) / 0.78);
+    if (weather > 0) c.lerp(storm, Math.min(0.78, weather * 0.72));
+
+    const fog = this.scene.fog as THREE.Fog;
+    fog.color.copy(c);
+    const nightHaze = 0.58 + d * 0.42;
+    const weatherHaze = 1 - weather * 0.18;
+    fog.far = this.renderDist * nightHaze * weatherHaze;
+    fog.near = fog.far * (0.36 + weather * 0.08);
+    this.scene.background = c;
+    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar((dry ? 0.72 : 0.62) + d * (dry ? 0.62 : 0.54));
+
+    const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();
+    this.sunDir.copy(sunDir);
+    const moonDir = sunDir.clone().multiplyScalar(-1);
+    const celestialR = 255;
+    if (this.sunMesh) {
+      this.sunMesh.position.copy(this.camera.position).addScaledVector(sunDir, celestialR);
+      this.sunMesh.lookAt(this.camera.position);
+      this.sunMesh.visible = sunDir.y > -0.05 && d > 0.035;
+      const mat = this.sunMesh.material as THREE.MeshBasicMaterial;
+      const sunOpacity = Math.max(0, Math.min(1, (d - 0.03) / 0.35)) * (dry ? 1 : 1 - weather * 0.55);
+      mat.opacity = sunOpacity;
+      mat.color.set(dry ? 0xffc933 : d < 0.35 ? 0xff9f3f : 0xffd24a);
+      if (this.sunHaloMat) this.sunHaloMat.opacity = sunOpacity * (dry ? 0.36 : 0.24) * (1 - weather * 0.45);
+      const sc = dry && d > 0.65 ? 1.18 : 1;
+      this.sunMesh.scale.setScalar(sc);
     }
-    if (this.cutoutMat) this.cutoutMat.color.setRGB(lit, lit, lit * (0.94 + d * 0.06));
-    if (this.decorMat) this.decorMat.color.setRGB(lit, lit, lit * (0.94 + d * 0.06));
-    this.material.color.setRGB(lit, lit, lit * (0.94 + d * 0.06));
-    if (this.sunLight) this.sunLight.intensity = 0.25 + d * 0.85;
-    if (this.ambLight) this.ambLight.intensity = 0.32 + d * 0.5;
-    if (this.moonMesh) this.moonMesh.visible = d < 0.5;
-    if (this.sunMesh) this.sunMesh.visible = d > 0.25;
+    if (this.moonMesh) {
+      this.moonMesh.position.copy(this.camera.position).addScaledVector(moonDir, celestialR);
+      this.moonMesh.lookAt(this.camera.position);
+      this.moonMesh.visible = moonDir.y > -0.03 && d < 0.72;
+    }
+    if (this.starMat) {
+      this.starMat.opacity = smooth01((0.42 - d) / 0.42) * (1 - Math.min(0.85, weather * 0.85));
+    }
+
+    const lightDir = sunDir.y > -0.04 ? sunDir : moonDir;
+    if (this.sunLight) {
+      this.sunLight.position.copy(lightDir);
+      this.sunLight.color.set(sunDir.y > -0.04 ? (dry ? 0xffe0a8 : 0xfff0d0) : 0x88a6d8);
+      const sunPower = sunDir.y > -0.04 ? 0.08 + d * (dry ? 0.92 : 0.74) : 0.035 + (1 - d) * 0.06;
+      this.sunLight.intensity = sunPower * (1 - weather * 0.35);
+    }
+    if (this.ambLight) {
+      const ambient = (0.045 + d * (dry ? 0.42 : 0.34)) * (1 - weather * 0.26) + (dry && d > 0.5 ? 0.07 : 0);
+      this.ambLight.intensity = ambient;
+      this.ambLight.color.set(d < 0.25 ? 0x9fb8ff : dry ? 0xffe8be : 0xdfe8ff);
+    }
+
+    const tint = new THREE.Color();
+    if (d < 0.22) tint.setRGB(0.58 + d * 1.2, 0.64 + d * 1.0, 0.86 + d * 0.55);
+    else tint.setRGB(1, 1, dry ? 0.9 : 0.98);
+    if (weather > 0) tint.lerp(new THREE.Color(0xaeb8c1), weather * 0.28);
+    this.material.color.copy(tint);
+    if (this.cutoutMat) this.cutoutMat.color.copy(tint);
+    if (this.decorMat) this.decorMat.color.copy(tint);
+    if (this.waterMat) this.waterMat.color.copy(new THREE.Color(d < 0.22 ? 0x8aa7d8 : 0xffffff).lerp(storm, weather * 0.22));
   }
 
   phaseName(): HudState['phaseName'] {
@@ -6267,6 +6583,23 @@ export class Engine {
         arr.pop();
         continue;
       }
+      if (p.weather) {
+        if (p.weather === 'snow') {
+          p.vx += Math.sin(this.time * 1.7 + p.x * 0.31) * dt * 0.08;
+          p.vz += Math.cos(this.time * 1.3 + p.z * 0.27) * dt * 0.08;
+        } else {
+          p.vy -= 3.2 * dt;
+        }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        const ground = this.world.getHeight(Math.floor(p.x), Math.floor(p.z)) + 0.08;
+        if (p.y <= ground || Math.abs(p.x - this.pos.x) > 34 || Math.abs(p.z - this.pos.z) > 34) {
+          arr[i] = arr[arr.length - 1];
+          arr.pop();
+        }
+        continue;
+      }
       if (!p.smoke) p.vy -= GRAVITY * 0.72 * dt;
       else { p.vx += (Math.random() - 0.5) * dt; p.vz += (Math.random() - 0.5) * dt; }
       const nx = p.x + p.vx * dt,
@@ -6291,11 +6624,19 @@ export class Engine {
     this.pMesh.count = n;
     for (let i = 0; i < n; i++) {
       const p = arr[i];
-      const k = Math.min(1, p.life / 0.42);
+      const k = Math.min(1, p.life / (p.weather ? p.max : 0.42));
       const s = p.size * (0.45 + k * 0.75);
       this.pDummy.position.set(p.x, p.y, p.z);
-      this.pDummy.rotation.set(p.x * 3 + this.time, p.y * 3, p.z * 3);
-      this.pDummy.scale.setScalar(s);
+      if (p.weather === 'rain') {
+        this.pDummy.rotation.set(0.2, 0, -0.16);
+        this.pDummy.scale.set(s * 0.34, s * 5.8, s * 0.34);
+      } else if (p.weather === 'snow') {
+        this.pDummy.rotation.set(p.x * 1.7 + this.time, p.y * 1.3, p.z * 1.7);
+        this.pDummy.scale.set(s * 1.15, s * 0.32, s * 1.15);
+      } else {
+        this.pDummy.rotation.set(p.x * 3 + this.time, p.y * 3, p.z * 3);
+        this.pDummy.scale.setScalar(s);
+      }
       this.pDummy.updateMatrix();
       this.pMesh.setMatrixAt(i, this.pDummy.matrix);
       this.pColor.setRGB(p.r, p.g, p.b, THREE.SRGBColorSpace);
@@ -6522,9 +6863,24 @@ export class Engine {
     this.writeDom();
   }
 
+  private updateSunGlare() {
+    if (!this.sunGlare || this.daylight < 0.18 || this.weatherIntensity > 0.75) {
+      if (this.sunGlare) this.sunGlare.style.opacity = '0';
+      return;
+    }
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    const dot = forward.dot(this.sunDir);
+    const t2 = Math.max(0, Math.min(1, (dot - 0.955) / 0.045));
+    const glare = t2 * t2 * (3 - 2 * t2) * Math.min(1, this.daylight * 1.25) * (1 - this.weatherIntensity * 0.65);
+    this.sunGlare.style.opacity = glare.toFixed(3);
+  }
+
   // ================= RENDER =================
   private render() {
     this.updateChunkVisibility();
+    this.updateClock(0);
+    this.updateSunGlare();
     const cur = this.phase === 'playing' ? (this.locked ? 'none' : 'crosshair') : 'default';
     if (this.renderer.domElement.style.cursor !== cur) this.renderer.domElement.style.cursor = cur;
     const mining = this.mining || this.touchMine;
