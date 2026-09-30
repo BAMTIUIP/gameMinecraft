@@ -385,7 +385,12 @@ export class Engine {
   private avatarRightArm: THREE.Object3D | null = null;
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
-  private thirdPersonFaded = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  private thirdPersonClipUniforms: Array<{
+    active: { value: number };
+    start: { value: THREE.Vector3 };
+    end: { value: THREE.Vector3 };
+    radius: { value: number };
+  }> = [];
   private placedTorchLights: THREE.PointLight[] = [];
   private placedTorchScanTimer = 0;
   private weatherKind: WeatherKind = 'clear';
@@ -539,6 +544,9 @@ export class Engine {
       depthWrite: false,
     });
     this.decorMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
+    this.installThirdPersonClip(this.material);
+    this.installThirdPersonClip(this.cutoutMat);
+    this.installThirdPersonClip(this.decorMat);
 
     this.buildSky();
     this.buildParticles();
@@ -556,6 +564,46 @@ export class Engine {
     this.queueWorldGen(this.pickBalancedSeed());
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  private installThirdPersonClip(mat: THREE.Material) {
+    const uniforms = {
+      active: { value: 0 },
+      start: { value: new THREE.Vector3() },
+      end: { value: new THREE.Vector3() },
+      radius: { value: 1.05 },
+    };
+    this.thirdPersonClipUniforms.push(uniforms);
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.tpClipActive = uniforms.active;
+      shader.uniforms.tpClipStart = uniforms.start;
+      shader.uniforms.tpClipEnd = uniforms.end;
+      shader.uniforms.tpClipRadius = uniforms.radius;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vTpWorldPos;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvTpWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      const header =
+        '#include <common>\nuniform float tpClipActive;\nuniform vec3 tpClipStart;\nuniform vec3 tpClipEnd;\nuniform float tpClipRadius;\nvarying vec3 vTpWorldPos;';
+      const clip = `
+if (tpClipActive > 0.5) {
+  vec3 seg = tpClipEnd - tpClipStart;
+  float len2 = max(dot(seg, seg), 0.0001);
+  float tRaw = dot(vTpWorldPos - tpClipStart, seg) / len2;
+  if (tRaw > 0.025 && tRaw < 0.985) {
+    vec3 closest = tpClipStart + seg * tRaw;
+    float taper = smoothstep(0.025, 0.16, tRaw) * (1.0 - smoothstep(0.88, 0.985, tRaw));
+    if (length(vTpWorldPos - closest) < tpClipRadius * taper) discard;
+  }
+}
+`;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', header);
+      if (shader.fragmentShader.includes('#include <clipping_planes_fragment>')) {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + clip);
+      } else {
+        shader.fragmentShader = shader.fragmentShader.replace('void main() {', 'void main() {\n' + clip);
+      }
+    };
+    mat.needsUpdate = true;
   }
 
   private pickBalancedSeed(): number {
@@ -2840,46 +2888,8 @@ export class Engine {
     if (this.avatarHead) this.avatarHead.rotation.x = Math.max(-0.6, Math.min(0.6, this.pitch * 0.45));
   }
 
-  private fadeMaterial(mat: THREE.Material, source: THREE.Material, opacity: number) {
-    mat.transparent = true;
-    mat.opacity = opacity;
-    mat.depthWrite = false;
-    mat.depthTest = true;
-    mat.side = source.side;
-    if ('color' in mat && 'color' in source) {
-      (mat as THREE.Material & { color: THREE.Color }).color.copy((source as THREE.Material & { color: THREE.Color }).color);
-    }
-    if ('emissive' in mat && 'emissive' in source) {
-      (mat as THREE.MeshLambertMaterial).emissive.copy((source as THREE.MeshLambertMaterial).emissive);
-    }
-    if ('alphaTest' in mat && 'alphaTest' in source) {
-      (mat as THREE.MeshBasicMaterial).alphaTest = (source as THREE.MeshBasicMaterial).alphaTest;
-    }
-    mat.needsUpdate = true;
-  }
-
-  private fadeThirdPersonMesh(mesh: THREE.Mesh, opacity: number) {
-    let original = this.thirdPersonFaded.get(mesh);
-    if (!original) {
-      original = mesh.material;
-      this.thirdPersonFaded.set(mesh, original);
-      mesh.material = Array.isArray(original) ? original.map((m) => m.clone()) : original.clone();
-    }
-    const faded = mesh.material;
-    if (Array.isArray(faded) && Array.isArray(original)) {
-      for (let i = 0; i < faded.length; i++) this.fadeMaterial(faded[i], original[i] ?? original[0], opacity);
-    } else if (!Array.isArray(faded) && !Array.isArray(original)) this.fadeMaterial(faded, original, opacity);
-  }
-
-  private restoreThirdPersonOccluders(keep?: Set<THREE.Mesh>) {
-    for (const [mesh, original] of [...this.thirdPersonFaded]) {
-      if (keep?.has(mesh)) continue;
-      const faded = mesh.material;
-      if (Array.isArray(faded)) faded.forEach((m) => m.dispose());
-      else if (faded !== original) faded.dispose();
-      mesh.material = original;
-      this.thirdPersonFaded.delete(mesh);
-    }
+  private restoreThirdPersonOccluders() {
+    for (const u of this.thirdPersonClipUniforms) u.active.value = 0;
   }
 
   private updateThirdPersonOccluders(focus: THREE.Vector3) {
@@ -2887,42 +2897,17 @@ export class Engine {
       this.restoreThirdPersonOccluders();
       return;
     }
-    const desired = new Map<THREE.Mesh, number>();
     const start = this.camera.position;
-    const dx = focus.x - start.x;
-    const dy = focus.y - start.y;
-    const dz = focus.z - start.z;
-    const dist = Math.hypot(dx, dy, dz);
-    const steps = Math.max(2, Math.ceil(dist / 0.62));
-    const path = new THREE.Vector3(dx, dy, dz).normalize();
-    const right = new THREE.Vector3().crossVectors(path, new THREE.Vector3(0, 1, 0));
-    if (right.lengthSq() < 0.001) right.set(1, 0, 0);
-    else right.normalize();
-    const up = new THREE.Vector3().crossVectors(right, path).normalize();
-    const offsets: Array<[number, number]> = [[0, 0], [0.55, 0], [-0.55, 0], [0, 0.5], [0, -0.5]];
-    for (let i = 0; i <= steps; i++) {
-      const k = i / steps;
-      const cx = start.x + dx * k;
-      const cy = start.y + dy * k;
-      const cz = start.z + dz * k;
-      for (const [rx, uy] of offsets) {
-        const x = cx + right.x * rx + up.x * uy;
-        const y = cy + right.y * rx + up.y * uy;
-        const z = cz + right.z * rx + up.z * uy;
-        const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
-        const id = this.world.get(bx, by, bz);
-        if (id === AIR || id === WATER || !this.world.inBounds(bx, by, bz)) continue;
-        const key = chunkKey(Math.floor(bx / CHUNK), Math.floor(bz / CHUNK));
-        const solid = this.chunkMeshes.get(key);
-        const cutout = this.cutoutMeshes.get(key);
-        const decor = this.decorMeshes.get(key);
-        if (solid) desired.set(solid, 0.28);
-        if (cutout) desired.set(cutout, 0.38);
-        if (decor) desired.set(decor, 0.42);
-      }
+    // Shader-based x-ray tunnel: only pixels inside the camera→player segment
+    // are cut out. Nothing in front of the avatar is affected anymore.
+    const underground = this.pos.y < this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z)) - 2;
+    const radius = underground ? 1.35 : 1.05;
+    for (const u of this.thirdPersonClipUniforms) {
+      u.active.value = 1;
+      u.start.value.copy(start);
+      u.end.value.copy(focus);
+      u.radius.value = radius;
     }
-    this.restoreThirdPersonOccluders(new Set(desired.keys()));
-    for (const [mesh, opacity] of desired) this.fadeThirdPersonMesh(mesh, opacity);
   }
 
   private updateCamera(dt: number) {
