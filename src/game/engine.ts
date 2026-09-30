@@ -1502,6 +1502,14 @@ if (tpClipActive > 0.5) {
   }
 
   // ================= WORLD GEN QUEUE =================
+  private randomStartClock() {
+    const band = Math.floor(Math.random() * 4);
+    if (band === 0) return 0.23 + Math.random() * 0.1; // dawn / sunrise
+    if (band === 1) return 0.38 + Math.random() * 0.24; // day
+    if (band === 2) return 0.68 + Math.random() * 0.1; // dusk / sunset
+    return Math.random() < 0.5 ? Math.random() * 0.16 : 0.84 + Math.random() * 0.16; // night
+  }
+
   private queueWorldGen(seed: number) {
     this.loadTasks = [];
     this.loadProgress = 0;
@@ -1511,9 +1519,11 @@ if (tpClipActive > 0.5) {
     this.weatherTargetIntensity = 0;
     this.weatherTimer = 6;
     this.weatherSpawnAcc = 0;
+    this.clock = this.randomStartClock();
     seedNoise(seed);
     this.world.reset(seed);
     this.rand = mulberry32(seed);
+    this.updateClock(0);
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
     const R = 4; // starter area: 9×9 chunk terrain, 7×7 decorated+meshed
@@ -2346,9 +2356,8 @@ if (tpClipActive > 0.5) {
     this.kills = 0;
     this.killedBy = null;
     this.attackCd = 0;
-    this.clock = 0.3;
-    this.daylight = 1;
-    this.wasNight = false;
+    this.updateClock(0);
+    this.wasNight = this.daylight < 0.35;
     this.sleeping = false;
     this.sleepDark = 0;
     this.crouching = false;
@@ -3177,7 +3186,6 @@ if (tpClipActive > 0.5) {
     const mix = (a: number, b: number, t: number) => a + (b - a) * t;
     const crawl = clamp01(this.crawlLerp);
     const swim = clamp01(this.swimLerp) * (1 - crawl * 0.85);
-    const prone = Math.max(crawl, swim);
     const yawBlend = this.yaw + this.angleDelta(this.crawlYaw, this.yaw) * crawl;
     const forwardX = -Math.sin(yawBlend);
     const forwardZ = -Math.cos(yawBlend);
@@ -3212,8 +3220,9 @@ if (tpClipActive > 0.5) {
     // with the crosshair.
     const swimPitch = underWater ? underwaterSwimPitch : surfaceSwimPitch;
     const bodyPitch = mix(-Math.PI * 0.5 * crawl, swimPitch, swim);
-    const sideRoll = prone * Math.min(0.14, (crawlMove + swimMove) * 0.07) * Math.sin(this.bob * 4.2);
-    this.playerAvatar.rotation.set(bodyPitch, yawBlend, sideRoll);
+    const crawlRoll = crawl * Math.min(0.14, crawlMove * 0.07) * Math.sin(this.bob * 4.2);
+    const swimRoll = swim * Math.sin(this.bob * 2.8) * 0.025;
+    this.playerAvatar.rotation.set(bodyPitch, yawBlend, mix(crawlRoll, swimRoll, swim));
 
     const squat = 1 - this.crouchLerp * 0.16;
     this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
@@ -3245,16 +3254,18 @@ if (tpClipActive > 0.5) {
     const swimStroke = Math.sin(this.bob * 3.35);
     const swimKick = Math.sin(this.bob * 6.25);
     const swimSide = Math.min(1, Math.abs(localSide) / Math.max(0.01, swimSpeed));
-    const swimForward = Math.min(1, Math.abs(localForward) / Math.max(0.01, swimSpeed));
+    const swimForward = Math.min(1, Math.max(Math.abs(localForward), planarSpeed * 0.55) / Math.max(0.01, swimSpeed));
     const swimActive = Math.min(1, swimMove + (this.keys['Space'] || this.touchJump ? 0.45 : 0));
-    const swimLeftArmX = -1.02 + swimStroke * 0.62 * swimForward - 0.18 * swimSide;
-    const swimRightArmX = -1.02 - swimStroke * 0.62 * swimForward - 0.18 * swimSide - miningSwing * 0.1;
-    const swimLeftLegX = 0.3 + swimKick * 0.28 * swimActive;
-    const swimRightLegX = 0.3 - swimKick * 0.28 * swimActive;
-    const swimLeftArmZ = sSign * (0.22 + Math.cos(this.bob * 3.35) * 0.28) * swimSide + 0.12 * swimForward;
-    const swimRightArmZ = sSign * (-0.22 + Math.cos(this.bob * 3.35) * 0.28) * swimSide - 0.12 * swimForward;
-    const swimLeftLegZ = sSign * -0.12 * swimSide;
-    const swimRightLegZ = sSign * 0.12 * swimSide;
+    // In swim pose the spine (+Y) points toward the crosshair.  Arms rotate
+    // toward +Y too, so the silhouette reads as head + hands first and legs behind.
+    const swimLeftArmX = 2.46 + swimStroke * 0.34 * swimForward - 0.08 * swimSide;
+    const swimRightArmX = 2.46 - swimStroke * 0.34 * swimForward - 0.08 * swimSide - miningSwing * 0.08;
+    const swimLeftLegX = 0.22 + swimKick * 0.24 * swimActive;
+    const swimRightLegX = 0.22 - swimKick * 0.24 * swimActive;
+    const swimLeftArmZ = sSign * (0.1 + Math.cos(this.bob * 3.35) * 0.18) * swimSide - 0.08 * swimForward;
+    const swimRightArmZ = sSign * (-0.1 + Math.cos(this.bob * 3.35) * 0.18) * swimSide + 0.08 * swimForward;
+    const swimLeftLegZ = sSign * -0.08 * swimSide;
+    const swimRightLegZ = sSign * 0.08 * swimSide;
 
     let leftLegX = mix(uprightSwing, crawlLeftLegX, crawl);
     let rightLegX = mix(-uprightSwing, crawlRightLegX, crawl);
