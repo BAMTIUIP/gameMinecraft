@@ -37,6 +37,24 @@ import {
 import { mulberry32 } from './noise';
 import type { World } from './world';
 import { CHUNK, ORIGIN_X, ORIGIN_Z, SEA } from './world';
+import {
+  buildAladdinBlueDomePalace,
+  buildAladdinRedFortress,
+  buildCliffsideCarvedTemple,
+  buildDesertGablePergolaHouse,
+  buildDesertOasisLagoon,
+  buildDesertOasisSanctuary,
+  buildDesertTieredLanternVilla,
+  buildGiantDesertSkull,
+  buildGreatSphinxMonument,
+  buildObeliskAvenueCourt,
+  buildPyramidBabylonColonnade,
+  buildPyramidLavaHorus,
+  buildPyramidPharaohRed,
+  buildPyramidSkullGate,
+  buildPyramidSteppedMaya,
+  buildRuinedDesertCastle,
+} from './desertLandmarks';
 
 export type DesertAssetId =
   | 'desert_minaret_tower'
@@ -48,7 +66,22 @@ export type DesertAssetId =
   | 'desert_pergola_farm'
   | 'desert_well_pavilion'
   | 'desert_bazaar_row'
-  | 'desert_temple';
+  | 'desert_temple'
+  | 'desert_gable_pergola_house'
+  | 'desert_tiered_lantern_villa'
+  | 'desert_oasis_lagoon'
+  | 'pyramid_stepped_maya'
+  | 'pyramid_lava_horus'
+  | 'pyramid_skull_gate'
+  | 'pyramid_pharaoh_red'
+  | 'pyramid_babylon_colonnade'
+  | 'sphinx_monument'
+  | 'obelisk_avenue'
+  | 'aladdin_red_fortress'
+  | 'aladdin_blue_dome_palace'
+  | 'desert_oasis_sanctuary'
+  | 'giant_desert_skull'
+  | 'ruined_desert_castle';
 
 export interface DesertAssetDef {
   id: DesertAssetId;
@@ -73,14 +106,14 @@ function findDesertSpotInChunk(
   rand: () => number,
   villageMode = false,
 ): [number, number, number] | null {
-  const maxX = Math.max(1, CHUNK - w - 1);
-  const maxZ = Math.max(1, CHUNK - d - 1);
-  const maxSlope = villageMode ? 7 : 4;
+  const maxX = Math.max(0, CHUNK - w);
+  const maxZ = Math.max(0, CHUNK - d);
+  const maxSlope = villageMode ? 8 : 5;
   for (let tries = 0; tries < 12; tries++) {
-    const lx = tries === 0 ? Math.floor((CHUNK - w) / 2) : 1 + Math.floor(rand() * maxX);
-    const lz = tries === 0 ? Math.floor((CHUNK - d) / 2) : 1 + Math.floor(rand() * maxZ);
-    const x0 = cx * CHUNK + Math.min(lx, CHUNK - w - 1);
-    const z0 = cz * CHUNK + Math.min(lz, CHUNK - d - 1);
+    const lx = tries === 0 ? Math.floor((CHUNK - w) / 2) : Math.floor(rand() * (maxX + 1));
+    const lz = tries === 0 ? Math.floor((CHUNK - d) / 2) : Math.floor(rand() * (maxZ + 1));
+    const x0 = cx * CHUNK + Math.max(0, Math.min(lx, CHUNK - w));
+    const z0 = cz * CHUNK + Math.max(0, Math.min(lz, CHUNK - d));
     const xm = x0 + (w >> 1);
     const zm = z0 + (d >> 1);
     if (!villageMode && world.biomeAt(xm, zm) !== 'desert') continue;
@@ -106,8 +139,8 @@ function findDesertSpotInChunk(
       hMin = Math.min(hMin, h);
       hMax = Math.max(hMax, h);
     }
-    if (flooded || hMax - hMin > maxSlope || hMin <= SEA || hMax > 34) continue;
-    const baseH = Math.max(SEA + 2, Math.round(hMin * 0.65 + hMax * 0.35));
+    if (!villageMode && (flooded || hMax - hMin > maxSlope || hMin <= SEA || hMax > 36)) continue;
+    const baseH = Math.max(SEA + 2, Math.min(32, Math.round(hMin * 0.65 + hMax * 0.35)));
     return [x0, baseH, z0];
   }
   return null;
@@ -1328,16 +1361,31 @@ function buildDesertTemple(world: World, x0: number, y0: number, z0: number, ran
 }
 
 export const DESERT_BUILDING_ASSETS: readonly DesertAssetDef[] = [
-  { id: 'desert_minaret_tower', name: 'Desert Minaret Watchtower', width: 9, depth: 9, weight: 14, build: buildDesertMinaretTower },
-  { id: 'desert_stepped_balcony_house', name: 'Desert Stepped Balcony House', width: 10, depth: 9, weight: 16, build: buildDesertSteppedBalconyHouse },
-  { id: 'desert_beam_garden_house', name: 'Desert Timber-Beam Garden House', width: 10, depth: 10, weight: 16, build: buildDesertBeamGardenHouse },
-  { id: 'desert_pergola_house', name: 'Desert Lattice Pergola House', width: 9, depth: 9, weight: 14, build: buildDesertPergolaHouse },
-  { id: 'desert_courtyard_villa', name: 'Desert Courtyard Villa', width: 11, depth: 10, weight: 14, build: buildDesertCourtyardVilla },
-  { id: 'desert_adobe_cottage', name: 'Desert Adobe Cottage & Stall', width: 10, depth: 8, weight: 14, build: buildDesertAdobeCottage },
-  { id: 'desert_pergola_farm', name: 'Desert Oasis Pergola Farm', width: 9, depth: 8, weight: 12, build: buildDesertPergolaFarm },
-  { id: 'desert_well_pavilion', name: 'Desert Village Well Pavilion', width: 8, depth: 8, weight: 10, build: buildDesertWellPavilion },
-  { id: 'desert_bazaar_row', name: 'Desert Street Bazaar Row', width: 8, depth: 7, weight: 10, build: buildDesertBazaarRow },
-  { id: 'desert_temple', name: 'Desert Temple', width: 13, depth: 13, weight: 8, build: buildDesertTemple },
+  { id: 'desert_minaret_tower', name: 'Desert Minaret Watchtower', width: 9, depth: 9, weight: 10, build: buildDesertMinaretTower },
+  { id: 'desert_stepped_balcony_house', name: 'Desert Stepped Balcony House', width: 10, depth: 9, weight: 12, build: buildDesertSteppedBalconyHouse },
+  { id: 'desert_beam_garden_house', name: 'Desert Timber-Beam Garden House', width: 10, depth: 10, weight: 12, build: buildDesertBeamGardenHouse },
+  { id: 'desert_pergola_house', name: 'Desert Lattice Pergola House', width: 9, depth: 9, weight: 10, build: buildDesertPergolaHouse },
+  { id: 'desert_courtyard_villa', name: 'Desert Courtyard Villa', width: 11, depth: 10, weight: 10, build: buildDesertCourtyardVilla },
+  { id: 'desert_adobe_cottage', name: 'Desert Adobe Cottage & Stall', width: 10, depth: 8, weight: 10, build: buildDesertAdobeCottage },
+  { id: 'desert_pergola_farm', name: 'Desert Oasis Pergola Farm', width: 9, depth: 8, weight: 8, build: buildDesertPergolaFarm },
+  { id: 'desert_well_pavilion', name: 'Desert Village Well Pavilion', width: 8, depth: 8, weight: 8, build: buildDesertWellPavilion },
+  { id: 'desert_bazaar_row', name: 'Desert Street Bazaar Row', width: 8, depth: 7, weight: 8, build: buildDesertBazaarRow },
+  { id: 'desert_temple', name: 'Desert Temple', width: 13, depth: 13, weight: 7, build: buildDesertTemple },
+  { id: 'desert_gable_pergola_house', name: 'Desert Two-Story Gable & Pergola House', width: 11, depth: 10, weight: 12, build: buildDesertGablePergolaHouse },
+  { id: 'desert_tiered_lantern_villa', name: 'Desert Tiered Rooftop-Planter Villa', width: 11, depth: 10, weight: 12, build: buildDesertTieredLanternVilla },
+  { id: 'desert_oasis_lagoon', name: 'Lush Desert Oasis Lagoon', width: 15, depth: 15, weight: 14, build: buildDesertOasisLagoon },
+  { id: 'pyramid_stepped_maya', name: 'Stepped Mayan Terracotta Pyramid', width: 15, depth: 15, weight: 9, build: buildPyramidSteppedMaya },
+  { id: 'pyramid_lava_horus', name: 'Lava-Channel & Eye of Horus Pyramid', width: 15, depth: 15, weight: 9, build: buildPyramidLavaHorus },
+  { id: 'pyramid_skull_gate', name: 'Skull-Gate Pyramid & Twin Brazier Towers', width: 15, depth: 15, weight: 9, build: buildPyramidSkullGate },
+  { id: 'pyramid_pharaoh_red', name: 'Red-Striped Pharaoh Pyramid & Statues', width: 15, depth: 15, weight: 9, build: buildPyramidPharaohRed },
+  { id: 'pyramid_babylon_colonnade', name: 'Colonnaded Ziggurat Temple-Pyramid', width: 15, depth: 15, weight: 8, build: buildPyramidBabylonColonnade },
+  { id: 'sphinx_monument', name: 'Great Pharaoh Sphinx Monument', width: 13, depth: 15, weight: 9, build: buildGreatSphinxMonument },
+  { id: 'obelisk_avenue', name: 'Grand Obelisk & Anubis Avenue Court', width: 15, depth: 15, weight: 8, build: buildObeliskAvenueCourt },
+  { id: 'aladdin_red_fortress', name: 'Aladdin Red & Sandstone Fortress Palace', width: 15, depth: 15, weight: 9, build: buildAladdinRedFortress },
+  { id: 'aladdin_blue_dome_palace', name: 'Aladdin Blue-Dome Agrabah Palace', width: 15, depth: 15, weight: 9, build: buildAladdinBlueDomePalace },
+  { id: 'desert_oasis_sanctuary', name: 'Four-Minaret Oasis Tree Sanctuary', width: 15, depth: 15, weight: 8, build: buildDesertOasisSanctuary },
+  { id: 'giant_desert_skull', name: 'Colossal Half-Buried Desert Skull', width: 13, depth: 13, weight: 8, build: buildGiantDesertSkull },
+  { id: 'ruined_desert_castle', name: 'Half-Ruined Castle & Creeper Watchtower', width: 15, depth: 15, weight: 8, build: buildRuinedDesertCastle },
 ];
 
 function getAsset(id: DesertAssetId): DesertAssetDef {
@@ -1355,39 +1403,105 @@ function pickWeightedDesertAsset(rand: () => number): DesertAssetDef {
 }
 
 /**
- * 3x3 Desert Village layout matching the reference screenshot
- * (2018-09-18-13-42-01-1537707980_lrg.png):
- * Every 3x3 village cluster contains two slender minaret towers, stepped balcony
- * houses, timber-beam rooftop garden houses, a lattice pergola house, an adobe
- * cottage with side stall, an oasis pergola farm, a courtyard villa, and a shaded
- * village well plaza, surrounded by custom desert oasis trees and sandy streets.
+ * 3x3 Desert Village layout combining classic and new multi-story desert houses:
  */
 const VILLAGE_3X3_LAYOUT: Record<string, DesertAssetId> = {
   '0,0': 'desert_minaret_tower',
-  '-1,0': 'desert_stepped_balcony_house',
+  '-1,0': 'desert_gable_pergola_house',
   '1,0': 'desert_beam_garden_house',
   '0,-1': 'desert_well_pavilion',
-  '0,1': 'desert_courtyard_villa',
+  '0,1': 'desert_tiered_lantern_villa',
   '-1,-1': 'desert_pergola_farm',
-  '1,-1': 'desert_pergola_house',
+  '1,-1': 'desert_stepped_balcony_house',
   '-1,1': 'desert_adobe_cottage',
-  '1,1': 'desert_minaret_tower',
+  '1,1': 'desert_courtyard_villa',
 };
 
 /**
- * Determine if chunk (cx, cz) belongs to a multi-chunk Desert Village settlement
- * cluster (matching the reference screenshot), or a standalone desert structure.
+ * Outer ring (|sdx| === 2 || |sdz| === 2) around the starter village so players
+ * can explore Oases, Sphinx & Pyramid Complexes, Aladdin Palaces, Giant Skulls,
+ * Ruined Castles, and Cliff-Carved Mountain Cave Temples within walking distance!
+ */
+const STARTER_OUTER_RING_LAYOUT: Record<string, DesertAssetId> = {
+  // East: Full Sphinx + Obelisk Avenue + Stepped Pyramid Complex
+  '2,-1': 'sphinx_monument',
+  '2,0': 'obelisk_avenue',
+  '2,1': 'pyramid_stepped_maya',
+  // West: Flat Desert Oasis Lagoon + Giant Skull + Ruined Castle
+  '-2,0': 'desert_oasis_lagoon',
+  '-2,1': 'giant_desert_skull',
+  '-2,-1': 'ruined_desert_castle',
+  // South: Valley of the Pyramids (Skull-Gate, Lava Eye of Horus, Red Pharaoh)
+  '-1,2': 'pyramid_skull_gate',
+  '0,2': 'pyramid_lava_horus',
+  '1,2': 'pyramid_pharaoh_red',
+  '-2,2': 'pyramid_babylon_colonnade',
+  // North: Aladdin Castles & Oasis Sanctuary
+  '-1,-2': 'aladdin_red_fortress',
+  '0,-2': 'aladdin_blue_dome_palace',
+  '1,-2': 'desert_oasis_sanctuary',
+};
+
+const PYRAMID_VARIETIES: readonly DesertAssetId[] = [
+  'pyramid_stepped_maya',
+  'pyramid_lava_horus',
+  'pyramid_skull_gate',
+  'pyramid_pharaoh_red',
+  'pyramid_babylon_colonnade',
+];
+
+/**
+ * Detect whether chunk (cx, cz) sits on a transition between desert and
+ * mountains / canyon / elevated highlands so we can carve a cliffside temple
+ * with a deep cave entrance into the mountain face.
+ */
+export function isDesertMountainTransition(world: World, cx: number, cz: number): boolean {
+  const x = cx * CHUNK + 8;
+  const z = cz * CHUNK + 8;
+  const centerBiome = world.biomeAt(x, z);
+  let hasDesert = centerBiome === 'desert';
+  let hasHighlandOrBorder = centerBiome !== 'desert';
+  let minH = Infinity;
+  let maxH = -Infinity;
+
+  for (const [ox, oz] of [
+    [0, 0],
+    [-14, 0],
+    [14, 0],
+    [0, -14],
+    [0, 14],
+  ]) {
+    const h = world.heightAt(x + ox, z + oz);
+    const b = world.biomeAt(x + ox, z + oz, h);
+    if (b === 'desert') hasDesert = true;
+    if (b === 'canyon' || b === 'volcanic' || b === 'plains' || h >= SEA + 8) {
+      hasHighlandOrBorder = true;
+    }
+    minH = Math.min(minH, h);
+    maxH = Math.max(maxH, h);
+  }
+  return hasDesert && (hasHighlandOrBorder || maxH - minH >= 4);
+}
+
+/**
+ * Regional Desert Generator:
+ * Divides the desert into distinct sub-regions:
+ * 1. Starter Village + Outer Ring of Monuments (Sphinx Complex, Pyramids, Oasis, Aladdin Palaces, Cliff Temples),
+ * 2. Mountain-Border Cliff-Carved Cave Temples (Petra Treasury, Twin-Tower Gatehouse, Hanging Vine Monastery),
+ * 3. Desert Villages (3x3 settlements),
+ * 4. Flat Desert Plains with Lush Oases, Half-Ruined Castles & Giant Skulls,
+ * 5. Full Sphinx + Obelisk Avenue + Pyramid Monumental Complexes,
+ * 6. Aladdin Castles & Four-Minaret Oasis Sanctuaries.
  */
 export function spawnDesertBiomeStructures(world: World, cx: number, cz: number, rand: () => number): boolean {
   const centerX = cx * CHUNK + 8;
   const centerZ = cz * CHUNK + 8;
-  if (world.biomeAt(centerX, centerZ) !== 'desert') return false;
-
-  // --- 1. Starter Desert Village Cluster right near the world origin ---
   const scx = Math.floor(ORIGIN_X / CHUNK);
   const scz = Math.floor(ORIGIN_Z / CHUNK);
   const sdx = cx - scx;
   const sdz = cz - scz;
+
+  // --- 1. Starter Desert Village (|sdx| <= 1 && |sdz| <= 1) ---
   if (Math.abs(sdx) <= 1 && Math.abs(sdz) <= 1) {
     const starterId = VILLAGE_3X3_LAYOUT[`${sdx},${sdz}`];
     if (starterId) {
@@ -1401,15 +1515,45 @@ export function spawnDesertBiomeStructures(world: World, cx: number, cz: number,
     }
   }
 
-  // --- 2. Regional 3x3 Desert Village Clusters across the world ---
+  // --- 2. Starter Outer Ring of Landmarks, Oases, Pyramids, Sphinxes & Cliff Temples ---
+  if (Math.max(Math.abs(sdx), Math.abs(sdz)) === 2) {
+    // Corner cliff-carved cave temples at (2, -2), (-2, -2), (2, 2)
+    if ((sdx === 2 && sdz === -2) || (sdx === -2 && sdz === -2) || (sdx === 2 && sdz === 2)) {
+      return buildCliffsideCarvedTemple(world, cx, cz, rand);
+    }
+    const ringId = STARTER_OUTER_RING_LAYOUT[`${sdx},${sdz}`];
+    if (ringId) {
+      const asset = getAsset(ringId);
+      const spot = findDesertSpotInChunk(world, cx, cz, asset.width, asset.depth, rand, true);
+      if (spot) {
+        asset.build(world, spot[0], spot[1], spot[2], rand);
+        if (ringId !== 'desert_oasis_lagoon') {
+          decorateVillageStreet(world, cx, cz, spot[0], spot[1], spot[2], asset.width, asset.depth, rand);
+        }
+        return true;
+      }
+    }
+  }
+
+  if (world.biomeAt(centerX, centerZ) !== 'desert') return false;
+
+  // --- 3. Cliff-Carved Mountain Cave Temples where Desert transitions into Mountains/Highlands ---
+  if (isDesertMountainTransition(world, cx, cz) && rand() < 0.48) {
+    if (buildCliffsideCarvedTemple(world, cx, cz, rand)) return true;
+  }
+
+  // --- 4. Regional Sub-Biome Zoning (4x4 chunk regions) ---
   const regX = Math.floor(cx / 4);
   const regZ = Math.floor(cz / 4);
   const regRng = mulberry32(world.seed ^ Math.imul(regX, 73856093) ^ Math.imul(regZ, 19349663) ^ 0x5d39a1);
-  if (regRng() < 0.78) {
-    const vcx = regX * 4 + 1 + Math.floor(regRng() * 2);
-    const vcz = regZ * 4 + 1 + Math.floor(regRng() * 2);
-    const dx = cx - vcx;
-    const dz = cz - vcz;
+  const zoneRoll = regRng();
+  const vcx = regX * 4 + 1 + Math.floor(regRng() * 2);
+  const vcz = regZ * 4 + 1 + Math.floor(regRng() * 2);
+  const dx = cx - vcx;
+  const dz = cz - vcz;
+
+  if (zoneRoll < 0.24) {
+    // ZONE A: Desert Village Settlement (3x3 cluster)
     if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) {
       let chosenId = VILLAGE_3X3_LAYOUT[`${dx},${dz}`] ?? 'desert_beam_garden_house';
       if (dx === 1 && dz === 1 && rand() < 0.45) chosenId = 'desert_bazaar_row';
@@ -1421,15 +1565,69 @@ export function spawnDesertBiomeStructures(world: World, cx: number, cz: number,
         return true;
       }
     }
+  } else if (zoneRoll < 0.52) {
+    // ZONE B: Flat Desert Plains with Lush Oases, Ruined Castles & Giant Skulls
+    let plainId: DesertAssetId | null = null;
+    if (dx === 0 && dz === 0) plainId = 'desert_oasis_lagoon';
+    else if (dx === 1 && dz === 0 && regRng() < 0.65) plainId = 'desert_oasis_lagoon';
+    else if (dx === -1 && dz === 1) plainId = 'giant_desert_skull';
+    else if (dx === 1 && dz === -1) plainId = 'ruined_desert_castle';
+
+    if (plainId) {
+      const asset = getAsset(plainId);
+      const spot = findDesertSpotInChunk(world, cx, cz, asset.width, asset.depth, rand, true);
+      if (spot) {
+        asset.build(world, spot[0], spot[1], spot[2], rand);
+        return true;
+      }
+    }
+  } else if (zoneRoll < 0.78) {
+    // ZONE C: Monumental Sphinx + Obelisk Avenue + Pyramid Complex
+    const mainPyr = PYRAMID_VARIETIES[Math.floor(regRng() * PYRAMID_VARIETIES.length)];
+    const secondPyr = PYRAMID_VARIETIES[Math.floor(regRng() * PYRAMID_VARIETIES.length)];
+    let complexId: DesertAssetId | null = null;
+    if (dx === 0 && dz === -1) complexId = 'sphinx_monument';
+    else if (dx === 0 && dz === 0) complexId = 'obelisk_avenue';
+    else if (dx === 0 && dz === 1) complexId = mainPyr;
+    else if (dx === 1 && dz === 1) complexId = secondPyr;
+    else if (dx === -1 && dz === 0 && regRng() < 0.7) complexId = 'sphinx_monument';
+
+    if (complexId) {
+      const asset = getAsset(complexId);
+      const spot = findDesertSpotInChunk(world, cx, cz, asset.width, asset.depth, rand, true);
+      if (spot) {
+        asset.build(world, spot[0], spot[1], spot[2], rand);
+        decorateVillageStreet(world, cx, cz, spot[0], spot[1], spot[2], asset.width, asset.depth, rand);
+        return true;
+      }
+    }
+  } else {
+    // ZONE D: Aladdin Castles, Blue-Dome Palaces & Four-Minaret Oasis Sanctuaries
+    let palaceId: DesertAssetId | null = null;
+    if (dx === 0 && dz === 0) palaceId = 'aladdin_blue_dome_palace';
+    else if (dx === 1 && dz === 0) palaceId = 'aladdin_red_fortress';
+    else if (dx === 0 && dz === 1) palaceId = 'desert_oasis_sanctuary';
+    else if (dx === -1 && dz === -1) palaceId = 'desert_oasis_lagoon';
+
+    if (palaceId) {
+      const asset = getAsset(palaceId);
+      const spot = findDesertSpotInChunk(world, cx, cz, asset.width, asset.depth, rand, true);
+      if (spot) {
+        asset.build(world, spot[0], spot[1], spot[2], rand);
+        if (palaceId !== 'desert_oasis_lagoon') {
+          decorateVillageStreet(world, cx, cz, spot[0], spot[1], spot[2], asset.width, asset.depth, rand);
+        }
+        return true;
+      }
+    }
   }
 
-  // --- 3. Standalone Desert Buildings & Temples across open desert plains ---
-  if (rand() < 0.22) {
+  // --- 5. Rare Standalone Desert Landmarks across Remaining Open Chunks ---
+  if (rand() < 0.14) {
     const asset = pickWeightedDesertAsset(rand);
     const spot = findDesertSpotInChunk(world, cx, cz, asset.width, asset.depth, rand, false);
     if (spot) {
       asset.build(world, spot[0], spot[1], spot[2], rand);
-      decorateVillageStreet(world, cx, cz, spot[0], spot[1], spot[2], asset.width, asset.depth, rand);
       return true;
     }
   }

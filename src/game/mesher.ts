@@ -3,6 +3,8 @@ import {
   AIR,
   BED,
   BLOCKS,
+  CACTUS,
+  CACTUS_PALE,
   DEAD_BUSH,
   DOOR_IRON,
   DOOR_WOOD,
@@ -260,17 +262,117 @@ function addDeadBush(P: number[], C: number[], I: number[], x: number, y: number
   addBox(P, C, I, cx - 0.05, y + h * 0.74, cz - 0.12, 0.05, 0.15, 0.05, ...COL.bushB);
 }
 
-/** Low, sun-baked flowers: branched stalks and muted seed heads. */
+/** Low, sun-baked flowers, mini barrel cacti, and prickly-pear paddle succulents. */
 function addDryFlower(P: number[], C: number[], I: number[], x: number, y: number, z: number, thistle: boolean) {
-  const stalk = srgb(thistle ? 0x82764d : 0x987354);
-  const head = srgb(thistle ? 0xa69b61 : 0xba7d61);
-  const cx = x + 0.5, cz = z + 0.5;
-  addBox(P, C, I, cx, y + 0.22, cz, 0.06, 0.44, 0.06, ...stalk);
-  for (const [dx,dz] of [[-0.16,0.06],[0.14,-0.07],[0,0.15]]) {
-    addBox(P, C, I, cx + dx * 0.5, y + 0.21, cz + dz * 0.5, 0.05, 0.18, 0.05, ...stalk);
+  const seed = ((x * 73856093) ^ (z * 19349663) ^ (y * 83492791)) >>> 0;
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+
+  if (!thistle && seed % 3 === 0) {
+    // Variant A: Mini Flowering Barrel Cactus (matching 1387467106_4dsruut.png)
+    const body = srgb(0x2f8538);
+    const rib = srgb(0x49a44b);
+    const spine = srgb(0xe7dfb8);
+    const petal = seed % 2 === 0 ? srgb(0xe85298) : srgb(0xf4c842);
+    const center = srgb(0xfff078);
+    // Stout ribbed barrel body
+    addBox(P, C, I, cx, y + 0.24, cz, 0.46, 0.48, 0.46, ...body);
+    addBox(P, C, I, cx, y + 0.24, cz, 0.50, 0.42, 0.34, ...rib);
+    addBox(P, C, I, cx, y + 0.24, cz, 0.34, 0.42, 0.50, ...rib);
+    // Tiny spines
+    for (const sy of [0.14, 0.34]) {
+      addBox(P, C, I, cx, y + sy, cz, 0.56, 0.03, 0.03, ...spine);
+      addBox(P, C, I, cx, y + sy, cz, 0.03, 0.03, 0.56, ...spine);
+    }
+    // Blossom on top
+    addBox(P, C, I, cx, y + 0.51, cz, 0.24, 0.08, 0.14, ...petal);
+    addBox(P, C, I, cx, y + 0.51, cz, 0.14, 0.08, 0.24, ...petal);
+    addBox(P, C, I, cx, y + 0.55, cz, 0.10, 0.06, 0.10, ...center);
+    return;
+  }
+
+  if (!thistle && seed % 3 === 1) {
+    // Variant B: Prickly-Pear / Opuntia Paddle Cactus with Crimson Blossoms (080e0564240f071e0e6b7a82e928101b.jpg)
+    const padDark = srgb(0x368837);
+    const padLight = srgb(0x52a849);
+    const bloom = srgb(0xe23d46);
+    const bloomTip = srgb(0xffb347);
+    // Base paddle
+    addBox(P, C, I, cx, y + 0.20, cz, 0.34, 0.38, 0.14, ...padDark);
+    // Left & right angled upper paddles
+    addBox(P, C, I, cx - 0.18, y + 0.46, cz + 0.04, 0.28, 0.30, 0.12, ...padLight);
+    addBox(P, C, I, cx + 0.17, y + 0.42, cz - 0.04, 0.26, 0.28, 0.12, ...padLight);
+    // Red/orange cactus flowers on top of the paddles
+    addBox(P, C, I, cx - 0.20, y + 0.66, cz + 0.04, 0.13, 0.12, 0.13, ...bloom);
+    addBox(P, C, I, cx - 0.20, y + 0.73, cz + 0.04, 0.07, 0.05, 0.07, ...bloomTip);
+    addBox(P, C, I, cx + 0.18, y + 0.61, cz - 0.04, 0.12, 0.11, 0.12, ...bloom);
+    addBox(P, C, I, cx + 0.18, y + 0.67, cz - 0.04, 0.06, 0.05, 0.06, ...bloomTip);
+    return;
+  }
+
+  const stalk = srgb(thistle ? 0x6c8c42 : 0x987354);
+  const head = srgb(thistle ? 0xd9689a : 0xba7d61);
+  addBox(P, C, I, cx, y + 0.22, cz, 0.08, 0.44, 0.08, ...stalk);
+  for (const [dx, dz] of [[-0.16, 0.06], [0.14, -0.07], [0, 0.15]]) {
+    addBox(P, C, I, cx + dx * 0.5, y + 0.21, cz + dz * 0.5, 0.06, 0.20, 0.06, ...stalk);
     addBox(P, C, I, cx + dx, y + 0.34, cz + dz, 0.15, 0.12, 0.15, ...head);
   }
   addBox(P, C, I, cx, y + 0.49, cz, 0.18, 0.13, 0.18, ...head);
+}
+
+/** 3D Cactus spines on exposed sides and colorful desert cactus blossoms on top */
+function addCactusDecor(
+  P: number[],
+  C: number[],
+  I: number[],
+  x: number,
+  y: number,
+  z: number,
+  id: number,
+  world: World,
+) {
+  const seed = ((x * 73856093) ^ (z * 19349663) ^ (y * 83492791)) >>> 0;
+  const spineCol = id === CACTUS_PALE ? srgb(0xede3bd) : srgb(0x2a381b);
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+
+  // Protruding 3D spines on exposed horizontal faces
+  if (world.get(x - 1, y, z) === AIR) {
+    for (const [sy, sz] of [[0.22, -0.22], [0.52, 0.20], [0.80, -0.16]]) {
+      addBox(P, C, I, x - 0.04, y + sy, cz + sz, 0.09, 0.03, 0.03, ...spineCol);
+    }
+  }
+  if (world.get(x + 1, y, z) === AIR) {
+    for (const [sy, sz] of [[0.26, 0.22], [0.54, -0.20], [0.82, 0.16]]) {
+      addBox(P, C, I, x + 1.04, y + sy, cz + sz, 0.09, 0.03, 0.03, ...spineCol);
+    }
+  }
+  if (world.get(x, y, z - 1) === AIR) {
+    for (const [sy, sx] of [[0.24, 0.20], [0.50, -0.22], [0.78, 0.18]]) {
+      addBox(P, C, I, cx + sx, y + sy, z - 0.04, 0.03, 0.03, 0.09, ...spineCol);
+    }
+  }
+  if (world.get(x, y, z + 1) === AIR) {
+    for (const [sy, sx] of [[0.20, -0.20], [0.56, 0.22], [0.84, -0.18]]) {
+      addBox(P, C, I, cx + sx, y + sy, z + 1.04, 0.03, 0.03, 0.09, ...spineCol);
+    }
+  }
+
+  // Top cactus crown blossom on ~50% of exposed cactus tips
+  if (world.get(x, y + 1, z) === AIR && seed % 2 === 0) {
+    const flowerKind = seed % 3;
+    const petal =
+      flowerKind === 0
+        ? srgb(0xe84a90) // vibrant pink/magenta cactus flower
+        : flowerKind === 1
+          ? srgb(0xe63e38) // crimson red saguaro/opuntia blossom
+          : srgb(0xf4c636); // golden desert cactus flower
+    const core = srgb(0xfff176);
+    addBox(P, C, I, cx, y + 1.05, cz, 0.34, 0.10, 0.18, ...petal);
+    addBox(P, C, I, cx, y + 1.05, cz, 0.18, 0.10, 0.34, ...petal);
+    addBox(P, C, I, cx, y + 1.11, cz, 0.22, 0.08, 0.22, ...petal);
+    addBox(P, C, I, cx, y + 1.16, cz, 0.10, 0.06, 0.10, ...core);
+  }
 }
 
 /** Woven cup with two small eggs: straw for hens, dark twigs for songbirds. */
@@ -752,6 +854,9 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         if (id === BED) {
           addBed(dPositions, dColors, dIndices, x, y, z, world);
           continue;
+        }
+        if (id === CACTUS || id === CACTUS_PALE) {
+          addCactusDecor(dPositions, dColors, dIndices, x, y, z, id, world);
         }
         // A few hanging fruit clusters make the two palm varieties readable
         // from below. The edible drops still come from harvesting the leaves.

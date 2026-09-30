@@ -37,9 +37,10 @@ import {
   BIRCH_LOG,
   BIRCH_LEAVES,
   APPLE_LEAVES,
-  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, SANDSTONE, isFlower,
+  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, SANDSTONE, isCutout, isFlower,
 } from './blocks';
-import { spawnDesertBiomeStructures } from './desertAssets';
+import { isDesertMountainTransition, spawnDesertBiomeStructures } from './desertAssets';
+import { buildCliffsideCarvedTemple } from './desertLandmarks';
 import { fbm2, fbm3, mulberry32, noise3, seedNoise } from './noise';
 
 /**
@@ -87,7 +88,7 @@ export class World {
   seed: number;
   private volcanoes = new Map<string, { x: number; z: number; radius: number; active: boolean } | null>();
   /** castles & towers register here so the engine can post guards + traps */
-  structureSites: Array<{ x: number; y: number; z: number; kind: 'tower' | 'cottage' }> = [];
+  structureSites: Array<{ x: number; y: number; z: number; kind: 'tower' | 'cottage' | 'ruin' }> = [];
 
   constructor(seed = 1337) {
     this.seed = seed;
@@ -458,9 +459,9 @@ export class World {
         this.growPalm(x,h+1,z,rand);
     }
 
-    // ---- cacti of various sizes and colors on sand ----
-    for (let i = 0; i < 4; i++) {
-      if (rand() > 0.6) continue;
+    // ---- cacti of various sizes, branching saguaros, barrel cacti, and opuntia on sand ----
+    for (let i = 0; i < 6; i++) {
+      if (rand() > 0.68) continue;
       const x = cx * CHUNK + 1 + Math.floor(rand() * 14);
       const z = cz * CHUNK + 1 + Math.floor(rand() * 14);
       const h = this.getHeight(x, z);
@@ -607,8 +608,11 @@ export class World {
     // ---- structures (deterministic per chunk) ----
     const sRand = mulberry32(this.seed * 101 + 41 + chunkKey(cx, cz) * 7919);
     const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-    if (biome === 'desert') {
+    const inStarterDesertRing = Math.max(Math.abs(cx - scx), Math.abs(cz - scz)) <= 2;
+    if (biome === 'desert' || inStarterDesertRing) {
       spawnDesertBiomeStructures(this, cx, cz, sRand);
+    } else if (isDesertMountainTransition(this, cx, cz) && sRand() < 0.45) {
+      buildCliffsideCarvedTemple(this, cx, cz, sRand);
     } else {
       const roll = sRand();
       // keep the spawn basin itself clear
@@ -633,15 +637,155 @@ export class World {
     }
   }
 
-  private growCactus(x: number, y: number, z: number, rand: () => number) {
-    const block = rand() < 0.5 ? CACTUS : CACTUS_PALE;
-    const h = 1 + Math.floor(rand() * 4); // 1 to 4 blocks tall
-    for (let dy = 0; dy < h; dy++) {
-      if (y + dy >= WY) break;
+  growCactus(x: number, y: number, z: number, rand: () => number) {
+    const block = rand() < 0.62 ? CACTUS : CACTUS_PALE;
+    const altBlock = block === CACTUS ? CACTUS_PALE : CACTUS;
+    const variant = Math.floor(rand() * 7);
+
+    // Variant 0: Tall Multi-Arm Grand Saguaro (2 to 3 upward arms at staggered heights)
+    if (variant === 0) {
+      const h = 5 + Math.floor(rand() * 2); // 5-6 blocks tall
+      for (let dy = 0; dy < h && y + dy < WY; dy++) {
+        this.set(x, y + dy, z, block);
+      }
+      const dirs: Array<[number, number]> = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+      const armCount = 2 + (rand() < 0.45 ? 1 : 0);
+      const startIdx = Math.floor(rand() * 4);
+      for (let a = 0; a < armCount; a++) {
+        const [dx, dz] = dirs[(startIdx + a) % 4];
+        const armBaseY = y + 1 + ((a * 2) % Math.max(2, h - 2));
+        const armHeight = 2 + Math.floor(rand() * 2);
+        if (armBaseY < WY && this.get(x + dx, armBaseY, z + dz) === AIR) {
+          this.set(x + dx, armBaseY, z + dz, block);
+          for (let ay = 1; ay <= armHeight && armBaseY + ay < WY; ay++) {
+            if (this.get(x + dx, armBaseY + ay, z + dz) === AIR) {
+              this.set(x + dx, armBaseY + ay, z + dz, block);
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // Variant 1: Classic Western Twin-Arm Saguaro (symmetric or stepped L-arms)
+    if (variant === 1) {
+      const h = 4 + Math.floor(rand() * 2); // 4-5 blocks tall
+      for (let dy = 0; dy < h && y + dy < WY; dy++) {
+        this.set(x, y + dy, z, block);
+      }
+      const alongX = rand() < 0.5;
+      const d1: [number, number] = alongX ? [1, 0] : [0, 1];
+      const d2: [number, number] = alongX ? [-1, 0] : [0, -1];
+      const y1 = y + 1;
+      const y2 = y + 2;
+      for (const [dx, dz, ay, ah] of [
+        [d1[0], d1[1], y1, 2],
+        [d2[0], d2[1], y2, 2],
+      ] as const) {
+        if (ay < WY && this.get(x + dx, ay, z + dz) === AIR) {
+          this.set(x + dx, ay, z + dz, block);
+          for (let k = 1; k <= ah && ay + k < WY; k++) {
+            if (this.get(x + dx, ay + k, z + dz) === AIR) this.set(x + dx, ay + k, z + dz, block);
+          }
+        }
+      }
+      return;
+    }
+
+    // Variant 2: Prickly-Pear / Opuntia Paddle Bush Cactus with Red/Yellow Blossoms
+    if (variant === 2) {
+      this.set(x, y, z, block);
+      if (y + 1 < WY) this.set(x, y + 1, z, block);
+      const pads: Array<[number, number, number]> = [
+        [1, 1, 0],
+        [-1, 1, 0],
+        [0, 1, 1],
+        [1, 2, 0],
+        [-1, 2, 0],
+      ];
+      for (const [dx, dy, dz] of pads) {
+        if (rand() < 0.75 && y + dy < WY && this.get(x + dx, y + dy, z + dz) === AIR) {
+          this.set(x + dx, y + dy, z + dz, dy === 2 ? altBlock : block);
+          if (dy === 2 && y + dy + 1 < WY && this.get(x + dx, y + dy + 1, z + dz) === AIR) {
+            this.set(x + dx, y + dy + 1, z + dz, rand() < 0.75 ? FLOWER_RED : FLOWER_YELLOW);
+          }
+        }
+      }
+      if (y + 2 < WY && this.get(x, y + 2, z) === AIR) {
+        this.set(x, y + 2, z, FLOWER_RED);
+      }
+      return;
+    }
+
+    // Variant 3: Organ-Pipe Multi-Stem Cactus Cluster
+    if (variant === 3) {
+      const stems: Array<[number, number, number, number]> = [
+        [0, 0, 4, block],
+        [1, 0, 3, altBlock],
+        [0, 1, 2, block],
+        [-1, 1, 3, altBlock],
+      ];
+      for (const [dx, dz, sh, sb] of stems) {
+        const baseH = this.getHeight(x + dx, z + dz);
+        if (this.get(x + dx, baseH, z + dz) !== SAND) continue;
+        for (let dy = 1; dy <= sh && baseH + dy < WY; dy++) {
+          if (this.get(x + dx, baseH + dy, z + dz) === AIR) {
+            this.set(x + dx, baseH + dy, z + dz, sb);
+          }
+        }
+      }
+      return;
+    }
+
+    // Variant 4: Stout Flowering Barrel Cactus + surrounding mini succulents
+    if (variant === 4) {
+      const h = rand() < 0.65 ? 1 : 2;
+      for (let dy = 0; dy < h && y + dy < WY; dy++) {
+        this.set(x, y + dy, z, block);
+      }
+      if (y + h < WY && this.get(x, y + h, z) === AIR) {
+        this.set(x, y + h, z, rand() < 0.6 ? FLOWER_RED : FLOWER_YELLOW);
+      }
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (rand() < 0.45) {
+          const nh = this.getHeight(x + dx, z + dz);
+          if (this.get(x + dx, nh, z + dz) === SAND && this.get(x + dx, nh + 1, z + dz) === AIR) {
+            this.set(x + dx, nh + 1, z + dz, DRY_BLOOM);
+          }
+        }
+      }
+      return;
+    }
+
+    // Variant 5: Candelabra 3-Pronged Fork Cactus
+    if (variant === 5) {
+      this.set(x, y, z, block);
+      if (y + 1 < WY) this.set(x, y + 1, z, block);
+      const alongX = rand() < 0.5;
+      for (const s of [-1, 0, 1]) {
+        const dx = alongX ? s : 0;
+        const dz = alongX ? 0 : s;
+        const branchH = s === 0 ? 3 : 2;
+        for (let dy = 1; dy <= branchH && y + 1 + dy < WY; dy++) {
+          if (this.get(x + dx, y + 1 + dy, z + dz) === AIR) {
+            this.set(x + dx, y + 1 + dy, z + dz, s === 0 ? block : altBlock);
+          }
+        }
+      }
+      return;
+    }
+
+    // Variant 6: Classic Column / Single-Arm Desert Cactus
+    const h = 2 + Math.floor(rand() * 3); // 2 to 4 blocks tall
+    for (let dy = 0; dy < h && y + dy < WY; dy++) {
       this.set(x, y + dy, z, block);
     }
-    // taller cacti can grow side arms
-    if (h >= 3 && rand() < 0.45) {
+    if (h >= 3 && rand() < 0.65) {
       const armDirs = [
         [1, 0],
         [-1, 0],
@@ -655,34 +799,51 @@ export class World {
         if (armY + 1 < WY) this.set(x + armDir[0], armY + 1, z + armDir[1], block);
       }
     }
-    // 25% chance of flower blossom on top
-    if (rand() < 0.25 && y + h < WY && this.get(x, y + h, z) === AIR) {
+    if (rand() < 0.35 && y + h < WY && this.get(x, y + h, z) === AIR) {
       this.set(x, y + h, z, rand() < 0.5 ? FLOWER_RED : FLOWER_YELLOW);
     }
   }
 
-  private growPalm(x: number, y: number, z: number, rand: () => number) {
+  growPalm(x: number, y: number, z: number, rand: () => number) {
     const height = 6 + Math.floor(rand() * 4);
     if (y + height + 3 >= WY) return;
     const leaf = rand() < 0.5 ? COCONUT_LEAVES : BANANA_LEAVES;
-    for (let i = 0; i < height; i++) if (this.get(x, y + i, z) === AIR) this.set(x, y + i, z, PALM_LOG);
+    // Slight natural lean for oasis palms
+    const leanDir: [number, number] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ][Math.floor(rand() * 4)] as [number, number];
+    const leanAt = Math.floor(height * 0.55);
+    let cx = x;
+    let cz = z;
+    for (let i = 0; i < height; i++) {
+      if (i === leanAt && rand() < 0.7) {
+        cx += leanDir[0];
+        cz += leanDir[1];
+      }
+      if (this.get(cx, y + i, cz) === AIR || isCutout(this.get(cx, y + i, cz))) {
+        this.set(cx, y + i, cz, PALM_LOG);
+      }
+    }
     const crown = y + height;
     let vines = 0;
     for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
       const r = Math.abs(dx) + Math.abs(dz);
       if (r > 3 || (r === 3 && rand() < 0.3)) continue;
       const py = crown - (r >= 3 ? 1 : 0);
-      if (this.get(x + dx, py, z + dz) === AIR) this.set(x + dx, py, z + dz, leaf);
+      if (this.get(cx + dx, py, cz + dz) === AIR) this.set(cx + dx, py, cz + dz, leaf);
       // hanging climbable vines on the outer leaves
       if (r === 3 && vines < 3 && rand() < 0.5) {
         vines++;
         for (let v = 1; v < height; v++) {
-          if (this.get(x + dx, py - v, z + dz) !== AIR) break;
-          this.set(x + dx, py - v, z + dz, VINE);
+          if (this.get(cx + dx, py - v, cz + dz) !== AIR) break;
+          this.set(cx + dx, py - v, cz + dz, VINE);
         }
       }
     }
-    if (this.get(x, crown + 1, z) === AIR) this.set(x, crown + 1, z, leaf);
+    if (this.get(cx, crown + 1, cz) === AIR) this.set(cx, crown + 1, cz, leaf);
   }
 
   private growDiverseTree(x: number, y: number, z: number, rand: () => number, winter = false, jungle = false) {
