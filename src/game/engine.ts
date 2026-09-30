@@ -382,6 +382,7 @@ export class Engine {
   private stars!: THREE.Points;
   private thirdPerson = false;
   private thirdPersonCam = new THREE.Vector3();
+  private thirdPersonFocus = new THREE.Vector3();
   private thirdPersonCamReady = false;
   private playerAvatar!: THREE.Group;
   private avatarHead: THREE.Object3D | null = null;
@@ -3270,13 +3271,19 @@ if (tpClipActive > 0.5) {
     this.swimLerp += ((this.inWater && !this.crawling ? 1 : 0) - this.swimLerp) * Math.min(1, dt * 7.5);
     const eyeDrop = this.crouchLerp * 0.42 + this.crawlLerp * (EYE - 0.52) + this.swimLerp * 0.5;
     const targetY = this.pos.y + EYE - eyeDrop - this.landDip + this.stepSmooth * 0.35 + bobY;
+    // Third-person should not inherit the first-person head-bob/step bounce:
+    // it made normal walking and sprinting feel like the camera was shaking.
+    const thirdPersonTargetY = this.pos.y + EYE - eyeDrop - this.landDip * 0.16 + this.stepSmooth * 0.08;
     this.landDip = Math.max(0, this.landDip - dt * 1.6);
     this.updatePlayerAvatar();
 
     if (this.thirdPerson && this.phase === 'playing') {
       const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
       const forward = new THREE.Vector3(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp).normalize();
-      const focus = new THREE.Vector3(this.pos.x, targetY + 0.05, this.pos.z);
+      const rawFocus = new THREE.Vector3(this.pos.x, thirdPersonTargetY + 0.05, this.pos.z);
+      if (!this.thirdPersonCamReady) this.thirdPersonFocus.copy(rawFocus);
+      else this.thirdPersonFocus.lerp(rawFocus, 1 - Math.pow(0.0004, dt));
+      const focus = this.thirdPersonFocus;
       const dist = this.crawling ? 3.6 : this.crouching ? 4.3 : 5.3;
       const desired = focus.clone().addScaledVector(forward, -dist);
       desired.y += 0.48;
@@ -3288,12 +3295,13 @@ if (tpClipActive > 0.5) {
       } else {
         const currentDist = this.thirdPersonCam.distanceTo(focus);
         const correctedDist = corrected.distanceTo(focus);
-        // Snap inward immediately when a wall appears behind the player; glide
-        // back outward smoothly when the view clears.
+        // Move inward fast, but no longer instantly.  If the camera itself ends
+        // up inside a block, only then snap to the safe correction point.
         const inward = correctedDist < currentDist - 0.12;
-        this.thirdPersonCam.lerp(corrected, inward ? 1 : 1 - Math.pow(0.002, dt));
-        const finalCorrected = this.resolveThirdPersonCamera(focus, this.thirdPersonCam);
-        if (finalCorrected.distanceTo(focus) < this.thirdPersonCam.distanceTo(focus) - 0.02) this.thirdPersonCam.copy(finalCorrected);
+        const alpha = inward ? 1 - Math.pow(0.00002, dt) : 1 - Math.pow(0.003, dt);
+        const candidate = this.thirdPersonCam.clone().lerp(corrected, alpha);
+        if (this.isCameraObstacle(Math.floor(candidate.x), Math.floor(candidate.y), Math.floor(candidate.z))) this.thirdPersonCam.copy(corrected);
+        else this.thirdPersonCam.copy(candidate);
       }
       this.camera.position.copy(this.thirdPersonCam);
       this.camera.lookAt(focus.clone().addScaledVector(forward, 9));
@@ -3309,7 +3317,7 @@ if (tpClipActive > 0.5) {
       this.camera.updateProjectionMatrix();
     }
 
-    const sh = this.shakeMag * this.shake;
+    const sh = this.shakeMag * this.shake * (this.thirdPerson ? 0.32 : 1);
     if (sh > 0.0001) {
       this.camera.position.x += (Math.random() - 0.5) * sh * 0.55;
       this.camera.position.y += (Math.random() - 0.5) * sh * 0.55;
