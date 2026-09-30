@@ -717,7 +717,7 @@ if (tpClipActive > 0.5) {
     const moon = new THREE.Group();
     const halo = new THREE.Mesh(
       new THREE.CircleGeometry(11, 32),
-      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.018, depthWrite: false, side: THREE.DoubleSide }),
     );
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(8, 32),
@@ -3217,47 +3217,47 @@ if (tpClipActive > 0.5) {
     if (this.thirdPersonFogCap) this.thirdPersonFogCap.visible = false;
   }
 
-  private updateThirdPersonOccluders(focus: THREE.Vector3) {
-    if (!this.thirdPerson) {
-      this.restoreThirdPersonOccluders();
-      return;
-    }
-    const start = this.camera.position;
-    // Shader-based x-ray tunnel: only pixels inside the camera→player segment
-    // are cut out. Nothing in front of the avatar is affected anymore.
-    const underground = this.pos.y < this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z)) - 2;
-    const seg = new THREE.Vector3().subVectors(focus, start);
+  private isCameraObstacle(x: number, y: number, z: number) {
+    return this.world.inBounds(x, y, z) && isSolid(this.world.get(x, y, z));
+  }
+
+  private resolveThirdPersonCamera(focus: THREE.Vector3, desired: THREE.Vector3) {
+    const seg = new THREE.Vector3().subVectors(desired, focus);
     const dist = seg.length();
-    const dir = dist > 0.001 ? seg.clone().multiplyScalar(1 / dist) : new THREE.Vector3(0, 0, -1);
-    let blocked = false;
-    for (let t = 0.45; t < dist - 0.35; t += 0.55) {
-      const bx = Math.floor(start.x + dir.x * t);
-      const by = Math.floor(start.y + dir.y * t);
-      const bz = Math.floor(start.z + dir.z * t);
-      const id = this.world.get(bx, by, bz);
-      if (id !== AIR && id !== WATER && this.world.inBounds(bx, by, bz)) { blocked = true; break; }
+    if (dist < 0.35) return desired.clone();
+    const dir = seg.multiplyScalar(1 / dist);
+    const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+    if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+    else right.normalize();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    const offsets: Array<[number, number]> = [
+      [0, 0],
+      [0.24, 0],
+      [-0.24, 0],
+      [0, 0.24],
+      [0, -0.18],
+      [0.17, 0.17],
+      [-0.17, 0.17],
+    ];
+    const p = new THREE.Vector3();
+    const step = 0.14;
+    let hitT = Infinity;
+    scan: for (let t = 0.42; t <= dist; t += step) {
+      for (const [ox, oy] of offsets) {
+        p.copy(focus).addScaledVector(dir, t).addScaledVector(right, ox).addScaledVector(up, oy);
+        if (this.isCameraObstacle(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))) {
+          hitT = t;
+          break scan;
+        }
+      }
     }
-    if (!blocked) {
-      this.restoreThirdPersonOccluders();
-      return;
+    if (hitT !== Infinity) {
+      // Same idea as the referenced CameraCorrection: shorten the camera arm to
+      // just before the hit point instead of carving a see-through hole in walls.
+      const safeDist = Math.max(0.58, hitT - 0.34);
+      return focus.clone().addScaledVector(dir, safeDist);
     }
-    const radius = underground ? 0.62 : 0.38;
-    for (const u of this.thirdPersonClipUniforms) {
-      u.active.value = 1;
-      u.start.value.copy(start);
-      u.end.value.copy(focus);
-      u.radius.value = radius;
-    }
-    if (this.thirdPersonFogCap) {
-      // Fill the far end of the x-ray tunnel with a dark fog cap.  The cap sits
-      // just behind the avatar, so the player stays visible while rooms, upper
-      // floors and caves behind them are hidden instead of becoming a free wallhack.
-      this.thirdPersonFogCap.visible = true;
-      this.thirdPersonFogCap.position.copy(focus).addScaledVector(dir, 0.64);
-      this.thirdPersonFogCap.quaternion.copy(this.camera.quaternion);
-      const capRadius = radius * (underground ? 1.62 : 1.78);
-      this.thirdPersonFogCap.scale.set(capRadius, capRadius, capRadius);
-    }
+    return desired.clone();
   }
 
   private updateCamera(dt: number) {
@@ -3281,17 +3281,25 @@ if (tpClipActive > 0.5) {
       const desired = focus.clone().addScaledVector(forward, -dist);
       desired.y += 0.48;
       desired.y = Math.max(desired.y, this.pos.y + 0.58);
+      const corrected = this.resolveThirdPersonCamera(focus, desired);
       if (!this.thirdPersonCamReady) {
-        this.thirdPersonCam.copy(desired);
+        this.thirdPersonCam.copy(corrected);
         this.thirdPersonCamReady = true;
       } else {
-        this.thirdPersonCam.lerp(desired, 1 - Math.pow(0.002, dt));
+        const currentDist = this.thirdPersonCam.distanceTo(focus);
+        const correctedDist = corrected.distanceTo(focus);
+        // Snap inward immediately when a wall appears behind the player; glide
+        // back outward smoothly when the view clears.
+        const inward = correctedDist < currentDist - 0.12;
+        this.thirdPersonCam.lerp(corrected, inward ? 1 : 1 - Math.pow(0.002, dt));
+        const finalCorrected = this.resolveThirdPersonCamera(focus, this.thirdPersonCam);
+        if (finalCorrected.distanceTo(focus) < this.thirdPersonCam.distanceTo(focus) - 0.02) this.thirdPersonCam.copy(finalCorrected);
       }
       this.camera.position.copy(this.thirdPersonCam);
       this.camera.lookAt(focus.clone().addScaledVector(forward, 9));
       this.camera.fov += ((this.fovTarget + 4) - this.camera.fov) * Math.min(1, dt * 8);
       this.camera.updateProjectionMatrix();
-      this.updateThirdPersonOccluders(focus);
+      this.restoreThirdPersonOccluders();
     } else {
       this.thirdPersonCamReady = false;
       this.restoreThirdPersonOccluders();
@@ -6079,12 +6087,15 @@ if (tpClipActive > 0.5) {
     if (this.sunMesh) {
       this.sunMesh.position.copy(this.camera.position).addScaledVector(sunDir, celestialR);
       this.sunMesh.lookAt(this.camera.position);
-      this.sunMesh.visible = sunDir.y > -0.05 && d > 0.035;
+      this.sunMesh.visible = sunDir.y > 0.02 && d > 0.18;
       const mat = this.sunMesh.material as THREE.MeshBasicMaterial;
-      const sunOpacity = Math.max(0, Math.min(1, (d - 0.03) / 0.35)) * (dry ? 1 : 1 - weather * 0.55);
+      const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.36)) * (dry ? 1 : 1 - weather * 0.55);
       mat.opacity = sunOpacity;
       mat.color.set(dry ? 0xffc933 : d < 0.35 ? 0xff9f3f : 0xffd24a);
-      if (this.sunHaloMat) this.sunHaloMat.opacity = sunOpacity * (dry ? 0.36 : 0.24) * (1 - weather * 0.45);
+      if (this.sunHaloMat) {
+        const dayHalo = d > 0.84 && sunDir.y > 0.52 ? Math.min(1, (d - 0.84) / 0.16) : 0;
+        this.sunHaloMat.opacity = sunOpacity * dayHalo * (dry ? 0.3 : 0.18) * (1 - weather * 0.45);
+      }
       const sc = dry && d > 0.65 ? 1.18 : 1;
       this.sunMesh.scale.setScalar(sc);
     }
@@ -7493,17 +7504,21 @@ if (tpClipActive > 0.5) {
   }
 
   private updateSunGlare() {
-    // No white screen blob from the moon/dawn/dusk. The flare appears only in
-    // bright daytime and only when the crosshair is almost exactly on the sun.
-    if (!this.sunGlare || this.daylight < 0.72 || this.sunDir.y < 0.38 || this.weatherIntensity > 0.45) {
-      if (this.sunGlare) this.sunGlare.style.opacity = '0';
+    // Completely off at night/dawn/dusk: no moon or evening halo. The flare is
+    // allowed only in bright daytime and only when looking almost exactly at the sun.
+    if (!this.sunGlare || this.daylight < 0.88 || this.sunDir.y < 0.58 || this.weatherIntensity > 0.45) {
+      if (this.sunGlare) {
+        this.sunGlare.style.opacity = '0';
+        this.sunGlare.style.display = 'none';
+      }
       return;
     }
     const forward = new THREE.Vector3();
     this.camera.getWorldDirection(forward);
     const dot = forward.dot(this.sunDir);
-    const t2 = Math.max(0, Math.min(1, (dot - 0.991) / 0.009));
-    const glare = 0.72 * t2 * t2 * (3 - 2 * t2) * Math.min(1, (this.daylight - 0.68) / 0.32) * (1 - this.weatherIntensity);
+    const t2 = Math.max(0, Math.min(1, (dot - 0.993) / 0.007));
+    const glare = 0.62 * t2 * t2 * (3 - 2 * t2) * Math.min(1, (this.daylight - 0.88) / 0.12) * (1 - this.weatherIntensity);
+    this.sunGlare.style.display = glare > 0.002 ? 'block' : 'none';
     this.sunGlare.style.opacity = glare.toFixed(3);
   }
 
