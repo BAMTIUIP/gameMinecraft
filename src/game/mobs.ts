@@ -807,37 +807,97 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     neck.userData.deerBody = true;
     g.add(neck);
 
-    const hd = box(fawn ? 0.3 : moose ? 0.44 : 0.34, fawn ? 0.26 : moose ? 0.36 : 0.31, fawn ? 0.36 : moose ? 0.5 : 0.4, fawn ? def.body : def.accent, mats);
-    hd.position.set(0, fawn ? 1.06 : moose ? 1.57 : 1.35, fawn ? -0.74 : moose ? -0.92 : -0.82);
+    const headW = moose ? 0.44 : fawn ? 0.27 : roe ? 0.3 : 0.32;
+    const headH = moose ? 0.36 : fawn ? 0.32 : roe ? 0.38 : 0.4;
+    const headD = moose ? 0.5 : fawn ? 0.29 : roe ? 0.31 : 0.33;
+    const headY = moose ? 1.57 : fawn ? 1.08 : roe ? 1.31 : 1.37;
+    const headZ = moose ? -0.92 : fawn ? -0.72 : -0.78;
+    const hd = box(headW, headH, headD, moose ? def.accent : def.body, mats);
+    hd.position.set(0, headY, headZ);
     hd.userData.deerHead = true;
     g.add(hd); head = hd;
 
-    const muzzle = box(fawn ? 0.2 : moose ? 0.33 : 0.24, fawn ? 0.14 : moose ? 0.24 : 0.18, fawn ? 0.24 : moose ? 0.5 : 0.34, def.accent, mats);
-    muzzle.position.set(0, fawn ? 0.98 : moose ? 1.43 : 1.25, fawn ? -0.98 : moose ? -1.23 : -1.08);
-    g.add(muzzle);
-    const nose = box(fawn ? 0.12 : moose ? 0.24 : 0.16, fawn ? 0.07 : 0.1, 0.08, '#49372c', mats);
-    nose.position.set(0, fawn ? 0.99 : moose ? 1.43 : 1.25, fawn ? -1.12 : moose ? -1.52 : -1.29);
-    g.add(nose);
-    const throat = box(fawn ? 0.18 : moose ? 0.3 : 0.2, fawn ? 0.22 : moose ? 0.34 : 0.26, 0.04, '#f0ddbd', mats);
-    throat.position.set(0, fawn ? 0.78 : moose ? 1.03 : 0.88, fawn ? -0.71 : moose ? -0.86 : -0.72);
-    g.add(throat);
+    if (moose) {
+      // Moose face intentionally stays heavy and broad — user liked this one.
+      const muzzle = box(0.33, 0.24, 0.5, def.accent, mats);
+      muzzle.position.set(0, 1.43, -1.23);
+      g.add(muzzle);
+      const nose = box(0.24, 0.1, 0.08, '#49372c', mats);
+      nose.position.set(0, 1.43, -1.52);
+      g.add(nose);
+      const throat = box(0.3, 0.34, 0.04, '#f0ddbd', mats);
+      throat.position.set(0, 1.03, -0.86);
+      g.add(throat);
+      for (const side of [-1, 1]) {
+        const eye = box(0.075, 0.075, 0.045, '#27231f', mats);
+        eye.position.set(side * 0.19, 1.62, -1.13);
+        g.add(eye);
+        const ear = box(0.16, 0.18, 0.18, def.body, mats);
+        ear.position.set(side * 0.33, 1.68, -0.75);
+        ear.rotation.z = side * 0.34;
+        ear.rotation.y = side * 0.1;
+        g.add(ear);
+      }
+    } else {
+      // Deer faces: narrow skull, short tapering muzzle, side-set eyes and tall leaf ears.
+      // This removes the square, dog-like snout while staying blocky/Minecraft-like.
+      const faceFront = headZ - headD / 2;
+      const bridge = box(fawn ? 0.13 : 0.15, fawn ? 0.22 : 0.27, 0.032, def.accent, mats);
+      bridge.position.set(0, headY - (fawn ? 0.02 : 0.03), faceFront - 0.018);
+      bridge.userData.deerHead = true;
+      g.add(bridge);
 
-    for (const side of [-1, 1]) {
-      const eye = box(fawn ? 0.062 : 0.075, fawn ? 0.062 : 0.075, 0.045, '#27231f', mats);
-      eye.position.set(side * (fawn ? 0.12 : moose ? 0.19 : 0.15), fawn ? 1.1 : moose ? 1.62 : 1.39, fawn ? -0.95 : moose ? -1.13 : -1.02);
-      g.add(eye);
-      const ear = box(fawn ? 0.1 : moose ? 0.16 : 0.13, fawn ? 0.19 : moose ? 0.18 : 0.2, fawn ? 0.08 : moose ? 0.18 : 0.12, def.body, mats);
-      ear.position.set(side * (fawn ? 0.2 : moose ? 0.33 : 0.25), fawn ? 1.2 : moose ? 1.68 : 1.48, fawn ? -0.66 : moose ? -0.75 : -0.64);
-      ear.rotation.z = side * 0.34;
-      ear.rotation.y = side * (fawn ? 0.18 : 0.1);
-      g.add(ear);
+      const snoutW = fawn ? 0.14 : roe ? 0.16 : 0.17;
+      const snoutH = fawn ? 0.095 : roe ? 0.115 : 0.12;
+      const snoutD = fawn ? 0.16 : roe ? 0.19 : 0.2;
+      const muzzle = box(snoutW, snoutH, snoutD, def.accent, mats);
+      muzzle.position.set(0, headY - (fawn ? 0.13 : 0.17), faceFront - snoutD * 0.5 + 0.01);
+      muzzle.userData.deerHead = true;
+      g.add(muzzle);
+
+      const chin = box(snoutW * 0.82, snoutH * 0.45, snoutD * 0.62, '#f0ddbd', mats);
+      chin.position.set(0, muzzle.position.y - snoutH * 0.55, muzzle.position.z + snoutD * 0.05);
+      chin.userData.deerHead = true;
+      g.add(chin);
+
+      const nose = box(snoutW * 0.7, fawn ? 0.045 : 0.055, 0.042, '#33231b', mats);
+      nose.position.set(0, muzzle.position.y + snoutH * 0.05, muzzle.position.z - snoutD * 0.5 - 0.022);
+      nose.userData.deerHead = true;
+      g.add(nose);
+
+      const throat = box(fawn ? 0.14 : 0.18, fawn ? 0.2 : 0.25, 0.035, '#f0ddbd', mats);
+      throat.position.set(0, fawn ? 0.79 : roe ? 0.93 : 0.98, headZ - 0.02);
+      g.add(throat);
+
+      for (const side of [-1, 1]) {
+        const face: PatchFace = side < 0 ? 'left' : 'right';
+        coatPatch(g, mats, face, side * (headW / 2 + 0.004), headY + (fawn ? 0.025 : 0.04), headZ - 0.055, fawn ? 0.055 : 0.065, fawn ? 0.07 : 0.078, '#231b16', 'deerEye');
+        const tear = box(0.018, fawn ? 0.055 : 0.065, 0.028, '#e7d4b5', mats);
+        tear.position.set(side * (headW / 2 + 0.02), headY - (fawn ? 0.03 : 0.02), headZ - 0.1);
+        tear.userData.deerHead = true;
+        g.add(tear);
+
+        const earH = fawn ? 0.31 : roe ? 0.34 : 0.36;
+        const ear = box(fawn ? 0.07 : 0.08, earH, fawn ? 0.075 : 0.085, def.body, mats);
+        ear.position.set(side * (headW * 0.62 + 0.1), headY + earH * 0.58, headZ + (fawn ? 0.02 : 0.01));
+        ear.rotation.z = side * 0.28;
+        ear.rotation.y = side * 0.18;
+        ear.userData.deerHead = true;
+        g.add(ear);
+        const inner = box(fawn ? 0.034 : 0.04, earH * 0.58, 0.018, def.accent, mats);
+        inner.position.set(side * (headW * 0.62 + 0.1), headY + earH * 0.58, headZ - 0.04);
+        inner.rotation.z = side * 0.28;
+        inner.rotation.y = side * 0.18;
+        inner.userData.deerHead = true;
+        g.add(inner);
+      }
     }
 
     if (!fawn && !roe) {
       // Males get blocky Minecraft-like antlers: slim deer forks, broad moose paddles.
       // Roe deer are used as antlerless does to add the requested deer-family variety.
-      const baseY = moose ? 1.76 : 1.54;
-      const spread = moose ? 0.45 : 0.24;
+      const baseY = moose ? 1.76 : 1.62;
+      const spread = moose ? 0.45 : 0.22;
       for (const side of [-1, 1]) {
         const beam = box(moose ? 0.12 : 0.065, moose ? 0.58 : 0.44, 0.075, '#d5c5a1', mats);
         beam.position.set(side * spread, baseY, moose ? -0.9 : -0.78);
@@ -1183,6 +1243,7 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
 function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId) {
   const camel = id === 'camel' || id === 'camel_calf';
   const camelCalf = id === 'camel_calf';
+  const deerLike = id === 'deer' || id === 'roe_deer' || id === 'fawn';
   const pivot = new THREE.Group();
   const hingeY = camel ? (camelCalf ? 0.78 : 1.04) : head.position.y + 0.08;
   const hingeZ = camel ? (camelCalf ? -0.18 : -0.22) : head.position.z + 0.22;
@@ -1199,9 +1260,15 @@ function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.M
     }
   }
   group.add(pivot);
-  const mouth = box(camelCalf ? 0.17 : camel ? 0.22 : 0.2, 0.07, camelCalf ? 0.1 : 0.14, camel ? '#9c764b' : '#675543', mats);
-  const muzzleY = camel ? (camelCalf ? 1.49 : 2.01) : headY - 0.13;
-  const muzzleZ = camel ? (camelCalf ? -0.81 : -1.02) : headZ - 0.33;
+  const mouth = box(
+    camelCalf ? 0.17 : camel ? 0.22 : deerLike ? (id === 'fawn' ? 0.11 : 0.14) : 0.2,
+    deerLike ? 0.045 : 0.07,
+    camelCalf ? 0.1 : camel ? 0.14 : deerLike ? 0.075 : 0.14,
+    camel ? '#9c764b' : deerLike ? '#4a3527' : '#675543',
+    mats,
+  );
+  const muzzleY = camel ? (camelCalf ? 1.49 : 2.01) : deerLike ? headY - (id === 'fawn' ? 0.16 : 0.2) : headY - 0.13;
+  const muzzleZ = camel ? (camelCalf ? -0.81 : -1.02) : deerLike ? headZ - (id === 'fawn' ? 0.3 : 0.32) : headZ - 0.33;
   mouth.position.set(0, muzzleY - hingeY - 0.1, muzzleZ - hingeZ);
   mouth.userData.restY = mouth.position.y;
   pivot.add(mouth);
