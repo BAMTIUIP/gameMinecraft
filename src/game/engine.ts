@@ -3689,6 +3689,36 @@ if (tpClipActive > 0.5) {
     return Math.min(MAX_INTERACTION_REACH, BASE_INTERACTION_REACH + this.stats.reach);
   }
 
+  private playerAabb() {
+    const { halfX, halfZ } = this.playerHalfExtents();
+    return {
+      minX: this.pos.x - halfX,
+      maxX: this.pos.x + halfX,
+      minY: this.pos.y,
+      maxY: this.pos.y + this.playerHeight(),
+      minZ: this.pos.z - halfZ,
+      maxZ: this.pos.z + halfZ,
+    };
+  }
+
+  private distanceFromPlayerAabb(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number) {
+    const p = this.playerAabb();
+    const dx = minX > p.maxX ? minX - p.maxX : p.minX > maxX ? p.minX - maxX : 0;
+    const dy = minY > p.maxY ? minY - p.maxY : p.minY > maxY ? p.minY - maxY : 0;
+    const dz = minZ > p.maxZ ? minZ - p.maxZ : p.minZ > maxZ ? p.minZ - maxZ : 0;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  private blockReachDistance(x: number, y: number, z: number) {
+    return this.distanceFromPlayerAabb(x, y, z, x + 1, y + 1, z + 1);
+  }
+
+  private mobReachDistance(m: Mob) {
+    const half = (m.id === 'spider' || m.id === 'spiderling' ? 0.55 : 0.45) * m.def.scale;
+    const h = (m.def.hostile ? (m.id === 'spider' || m.id === 'spiderling' ? 0.95 : 1.95) : 1.35) * m.def.scale;
+    return this.distanceFromPlayerAabb(m.x - half, m.y, m.z - half, m.x + half, m.y + h, m.z + half);
+  }
+
   private updateTarget() {
     // First-person mines from the eyes. Third-person uses the screen-centre
     // camera ray but ignores the transparent camera→avatar corridor, so the
@@ -3703,16 +3733,14 @@ if (tpClipActive > 0.5) {
       this.camera.getWorldDirection(camDir);
       const focus = new THREE.Vector3(this.pos.x, this.pos.y + EYE - this.crawlLerp * (EYE - 0.52) + 0.05, this.pos.z);
       const skip = Math.max(0, this.camera.position.distanceTo(focus) - 0.35);
-      const hit = this.raycast(this.camera.position, camDir, skip + reach + 0.75, skip);
-      if (hit) {
-        const hx = hit.x + 0.5, hy = hit.y + 0.5, hz = hit.z + 0.5;
-        if (Math.hypot(hx - this.pos.x, hy - (this.pos.y + EYE), hz - this.pos.z) <= reach) {
-          this.target = hit;
-          return;
-        }
+      const hit = this.raycast(this.camera.position, camDir, skip + reach + EYE + 0.25, skip);
+      if (hit && this.blockReachDistance(hit.x, hit.y, hit.z) <= reach + 0.02) {
+        this.target = hit;
+        return;
       }
     }
-    this.target = this.raycast(this.eyeV, this.dirV, reach);
+    const hit = this.raycast(this.eyeV, this.dirV, reach + EYE);
+    this.target = hit && this.blockReachDistance(hit.x, hit.y, hit.z) <= reach + 0.02 ? hit : null;
   }
 
   private raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, minDist = 0) {
@@ -6483,8 +6511,8 @@ if (tpClipActive > 0.5) {
   private tryAttack() {
     if (this.attackCd > 0) return false;
     const reach = this.interactionReach();
-    const m = this.mobSys.raycast(this.eyeV.x, this.eyeV.y, this.eyeV.z, this.dirV.x, this.dirV.y, this.dirV.z, reach);
-    if (!m) return false;
+    const m = this.mobSys.raycast(this.eyeV.x, this.eyeV.y, this.eyeV.z, this.dirV.x, this.dirV.y, this.dirV.z, reach + EYE);
+    if (!m || this.mobReachDistance(m) > reach + 0.02) return false;
     if (m.id === 'trader') return true; // he's a merchant, not target practice
 
     const swift = 1 - Math.min(0.4, this.stats.swift / 100);
