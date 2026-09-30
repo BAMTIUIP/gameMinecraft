@@ -403,6 +403,7 @@ export class Engine {
   private avatarHeldAxeHeadMat!: THREE.MeshLambertMaterial;
   private avatarHeldAxeEdgeMat!: THREE.MeshLambertMaterial;
   private avatarHeldBlockMat!: THREE.MeshLambertMaterial;
+  private avatarFadeMats: Array<{ material: THREE.Material; opacity: number; transparent: boolean; depthWrite: boolean }> = [];
   private thirdPersonFogCap!: THREE.Mesh;
   private thirdPersonFogMat!: THREE.MeshBasicMaterial;
   private thirdPersonClipUniforms: Array<{
@@ -1332,6 +1333,18 @@ if (tpClipActive > 0.5) {
     this.avatarRightLeg = rightLeg;
 
     g.visible = false;
+    this.avatarFadeMats = [];
+    const avatarMats = new Set<THREE.Material>();
+    g.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      const mat = mesh.material;
+      if (!mat) return;
+      if (Array.isArray(mat)) mat.forEach((m) => avatarMats.add(m));
+      else avatarMats.add(mat);
+    });
+    avatarMats.forEach((material) => {
+      this.avatarFadeMats.push({ material, opacity: material.opacity, transparent: material.transparent, depthWrite: material.depthWrite });
+    });
     this.scene.add(g);
     this.playerAvatar = g;
   }
@@ -3115,6 +3128,34 @@ if (tpClipActive > 0.5) {
     }
   }
 
+  private setPlayerAvatarOpacity(opacity: number) {
+    const o = Math.max(0.05, Math.min(1, opacity));
+    const fading = o < 0.985;
+    for (const rec of this.avatarFadeMats) {
+      const m = rec.material;
+      m.opacity = rec.opacity * o;
+      const targetTransparent = rec.transparent || fading;
+      const targetDepthWrite = fading ? false : rec.depthWrite;
+      if (m.transparent !== targetTransparent || m.depthWrite !== targetDepthWrite) {
+        m.transparent = targetTransparent;
+        m.depthWrite = targetDepthWrite;
+        m.needsUpdate = true;
+      }
+    }
+  }
+
+  private updatePlayerAvatarOpacity(cameraDist: number) {
+    if (!this.thirdPerson || !this.playerAvatar?.visible) {
+      this.setPlayerAvatarOpacity(1);
+      return;
+    }
+    const near = 0.85;
+    const far = 2.35;
+    const t2 = Math.max(0, Math.min(1, (cameraDist - near) / (far - near)));
+    const smooth = t2 * t2 * (3 - 2 * t2);
+    this.setPlayerAvatarOpacity(0.18 + 0.82 * smooth);
+  }
+
   private updatePlayerAvatar() {
     if (!this.playerAvatar) return;
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
@@ -3304,6 +3345,7 @@ if (tpClipActive > 0.5) {
         else this.thirdPersonCam.copy(candidate);
       }
       this.camera.position.copy(this.thirdPersonCam);
+      this.updatePlayerAvatarOpacity(this.camera.position.distanceTo(focus));
       this.camera.lookAt(focus.clone().addScaledVector(forward, 9));
       this.camera.fov += ((this.fovTarget + 4) - this.camera.fov) * Math.min(1, dt * 8);
       this.camera.updateProjectionMatrix();
@@ -3311,6 +3353,7 @@ if (tpClipActive > 0.5) {
     } else {
       this.thirdPersonCamReady = false;
       this.restoreThirdPersonOccluders();
+      this.updatePlayerAvatarOpacity(Infinity);
       this.camera.position.set(this.pos.x + bobX * 0.35, targetY, this.pos.z);
       this.camera.rotation.set(this.pitch, this.yaw, Math.sin(this.bob * 1.1) * 0.012 * bobAmt);
       this.camera.fov += (this.fovTarget - this.camera.fov) * Math.min(1, dt * 8);
