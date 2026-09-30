@@ -4042,14 +4042,14 @@ if (tpClipActive > 0.5) {
   private fellTree(x: number, y: number, z: number) {
     // 1. collect the trunk going up (allowing 1-block lean / branches for giant trees)
     const logs: Array<{ pos: [number, number, number]; id: number }> = [];
-    const seen = new Set<string>();
+    const logSeen = new Set<string>();
     const key = (px: number, py: number, pz: number) => `${px},${py},${pz}`;
     const stack: Array<[number, number, number]> = [[x, y + 1, z]];
-    while (stack.length && logs.length < 48) {
+    while (stack.length && logs.length < 96) {
       const [cx, cy, cz] = stack.pop()!;
       const k = key(cx, cy, cz);
-      if (seen.has(k)) continue;
-      seen.add(k);
+      if (logSeen.has(k)) continue;
+      logSeen.add(k);
       const bid = this.world.get(cx, cy, cz);
       if (!isLogId(bid)) continue;
       logs.push({ pos: [cx, cy, cz], id: bid });
@@ -4063,44 +4063,48 @@ if (tpClipActive > 0.5) {
     if (!logs.length) return;
 
     // 2. gather the whole leaf canopy — wide first ring around the logs, then
-    //    flood through connected leaves so nothing is left hovering
+    //    flood through connected leaves so nothing is left hovering.  Keep a
+    //    separate leaf-seen set: the trunk search probes neighbouring leaves,
+    //    and reusing that set made some canopy blocks get skipped and float.
     const leaves: Array<{ pos: [number, number, number]; id: number }> = [];
+    const seen = new Set<string>(logs.map((l) => key(l.pos[0], l.pos[1], l.pos[2])));
+    const xs = logs.map((l) => l.pos[0]);
+    const ys = logs.map((l) => l.pos[1]);
+    const zs = logs.map((l) => l.pos[2]);
+    const minLeafX = Math.min(...xs) - 6;
+    const maxLeafX = Math.max(...xs) + 6;
+    const minLeafY = Math.min(...ys) - 2;
+    const maxLeafY = Math.min(WY - 1, Math.max(...ys) + 8);
+    const minLeafZ = Math.min(...zs) - 6;
+    const maxLeafZ = Math.max(...zs) + 6;
+    const leafLimit = 900;
+    const addLeaf = (px: number, py: number, pz: number, out: Array<[number, number, number]>) => {
+      if (leaves.length >= leafLimit) return;
+      if (px < minLeafX || px > maxLeafX || py < minLeafY || py > maxLeafY || pz < minLeafZ || pz > maxLeafZ) return;
+      const k = key(px, py, pz);
+      if (seen.has(k)) return;
+      seen.add(k);
+      const bid = this.world.get(px, py, pz);
+      if (isLeafId(bid)) {
+        leaves.push({ pos: [px, py, pz], id: bid });
+        out.push([px, py, pz]);
+      }
+    };
     let frontier: Array<[number, number, number]> = [];
     for (const l of logs) {
       const [cx, cy, cz] = l.pos;
-      for (let dy = -1; dy <= 2; dy++)
-        for (let dz2 = -2; dz2 <= 2; dz2++)
-          for (let dx2 = -2; dx2 <= 2; dx2++) {
-            const px = cx + dx2,
-              py = cy + dy,
-              pz = cz + dz2;
-            const k = key(px, py, pz);
-            if (seen.has(k)) continue;
-            seen.add(k);
-            const bid = this.world.get(px, py, pz);
-            if (isLeafId(bid)) {
-              leaves.push({ pos: [px, py, pz], id: bid });
-              frontier.push([px, py, pz]);
-            }
-          }
+      for (let dy = -2; dy <= 3; dy++)
+        for (let dz2 = -3; dz2 <= 3; dz2++)
+          for (let dx2 = -3; dx2 <= 3; dx2++) addLeaf(cx + dx2, cy + dy, cz + dz2, frontier);
     }
-    for (let pass = 0; pass < 5 && leaves.length < 220; pass++) {
+    for (let pass = 0; pass < 12 && frontier.length && leaves.length < leafLimit; pass++) {
       const next: Array<[number, number, number]> = [];
       for (const [cx, cy, cz] of frontier) {
         for (let dy = -1; dy <= 1; dy++)
           for (let dz2 = -1; dz2 <= 1; dz2++)
             for (let dx2 = -1; dx2 <= 1; dx2++) {
-              const px = cx + dx2,
-                py = cy + dy,
-                pz = cz + dz2;
-              const k = key(px, py, pz);
-              if (seen.has(k)) continue;
-              seen.add(k);
-              const bid = this.world.get(px, py, pz);
-              if (isLeafId(bid)) {
-                leaves.push({ pos: [px, py, pz], id: bid });
-                next.push([px, py, pz]);
-              }
+              if (leaves.length >= leafLimit) break;
+              addLeaf(cx + dx2, cy + dy, cz + dz2, next);
             }
       }
       frontier = next;
