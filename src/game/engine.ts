@@ -1198,7 +1198,7 @@ export class Engine {
     this.fx.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;';
     this.sunGlare = document.createElement('div');
     this.sunGlare.style.cssText =
-      'position:absolute;inset:-18%;pointer-events:none;opacity:0;transition:opacity 80ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,224,92,.48) 0%, rgba(255,190,45,.24) 12%, rgba(255,170,30,.08) 28%, rgba(255,190,30,0) 52%);';
+      'position:absolute;inset:-12%;pointer-events:none;opacity:0;transition:opacity 80ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,218,92,.22) 0%, rgba(255,188,55,.11) 10%, rgba(255,160,28,.035) 24%, rgba(255,190,30,0) 42%);';
     this.fx.appendChild(this.sunGlare);
     this.container.appendChild(this.fx);
     for (let i = 0; i < 16; i++) {
@@ -6881,15 +6881,17 @@ export class Engine {
   }
 
   private updateSunGlare() {
-    if (!this.sunGlare || this.daylight < 0.18 || this.weatherIntensity > 0.75) {
+    // No white screen blob at night, dawn or dusk: glare is only a small daytime
+    // sun effect when the real sun is high enough and the player looks at it.
+    if (!this.sunGlare || this.daylight < 0.46 || this.sunDir.y < 0.22 || this.weatherIntensity > 0.55) {
       if (this.sunGlare) this.sunGlare.style.opacity = '0';
       return;
     }
     const forward = new THREE.Vector3();
     this.camera.getWorldDirection(forward);
     const dot = forward.dot(this.sunDir);
-    const t2 = Math.max(0, Math.min(1, (dot - 0.955) / 0.045));
-    const glare = t2 * t2 * (3 - 2 * t2) * Math.min(1, this.daylight * 1.25) * (1 - this.weatherIntensity * 0.65);
+    const t2 = Math.max(0, Math.min(1, (dot - 0.972) / 0.028));
+    const glare = 0.38 * t2 * t2 * (3 - 2 * t2) * Math.min(1, (this.daylight - 0.42) / 0.58) * (1 - this.weatherIntensity);
     this.sunGlare.style.opacity = glare.toFixed(3);
   }
 

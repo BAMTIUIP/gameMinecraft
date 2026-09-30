@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { World } from './world';
 import { WY } from './world';
-import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
+import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
 import type { TKey } from './i18n';
 
 export type MobId =
@@ -2242,54 +2242,117 @@ export class MobSystem {
           m.think = 0.6;
         }
 
-        // Birds take off from the ground and cruise above the terrain, rather
-        // than getting a new upward impulse every time they flap their wings.
+        // Birds can perch, hop on ground/canopy, then use explicit takeoff
+        // and landing phases. Chickens are separate mobs and never enter this path.
         if (m.id === 'bird') {
-          if (m.task !== 9 && m.task !== 12 && m.grow <= 0 && m.onGround && m.jumpCd <= 0 && Math.random() < mdt * 0.35) {
-            const ground = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
-            const ceiling = WY - 2 - this.mobHeight(m);
-            if (ground + 4 < ceiling) {
+          const takingOff = m.task === 15;
+          const flying = m.task === 9;
+          const landing = m.task === 12;
+          const touchdown = m.task === 16;
+          const perched = m.onGround && !takingOff && !flying && !landing && !touchdown;
+
+          if (touchdown) {
+            m.taskT -= mdt;
+            m.tx = m.x;
+            m.tz = m.z;
+            m.vx *= 0.72;
+            m.vz *= 0.72;
+            if (m.taskT <= 0) {
+              m.task = 0;
+              m.think = 0.8 + Math.random() * 1.8;
+              m.jumpCd = 0.45;
+            }
+          }
+
+          if (perched && m.grow <= 0 && m.jumpCd <= 0) {
+            const scared = dist < 5.2;
+            const wantsFlight = scared || Math.random() < mdt * 0.055;
+            if (wantsFlight) {
+              const ground = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
+              const ceiling = WY - 2 - this.mobHeight(m);
+              if (ground + 4 < ceiling) {
+                m.task = 15; // crouch + wingbeat wind-up
+                m.taskT = 0.48;
+                m.taskY = Math.min(ceiling, ground + 4 + Math.random() * 3);
+                const a = scared ? Math.atan2(m.z - pz, m.x - px) + (Math.random() - 0.5) * 0.6 : Math.random() * Math.PI * 2;
+                const flyDist = scared ? 20 : 14 + Math.random() * 8;
+                m.tx = m.x + Math.cos(a) * flyDist;
+                m.tz = m.z + Math.sin(a) * flyDist;
+                m.think = 1;
+              }
+            }
+          }
+
+          if (m.task === 15) {
+            m.taskT -= mdt;
+            m.think = 1;
+            m.vx *= Math.max(0, 1 - mdt * 5);
+            m.vz *= Math.max(0, 1 - mdt * 5);
+            if (m.taskT < 0.25) m.vy = Math.max(m.vy, 1.6 + (0.25 - m.taskT) * 4.5);
+            if (m.taskT <= 0) {
               m.task = 9;
-              m.taskT = 7 + Math.random() * 5;
-              m.taskY = Math.min(ceiling, ground + 4 + Math.random() * 3);
-              m.vy = 2.5;
-              const a = Math.random() * Math.PI * 2;
-              m.tx = m.x + Math.cos(a) * 18;
-              m.tz = m.z + Math.sin(a) * 18;
+              m.taskT = 6 + Math.random() * 5;
+              m.vy = Math.max(m.vy, 2.8);
+              m.onGround = false;
+              m.jumpCd = 0.8;
               m.think = m.taskT;
             }
           }
-          if (m.task === 9 && m.grow <= 0 && ((this.tick + i) % 40 === 0)) {
-            // Look for an exposed leaf top to land on, never in mid-air.
-            for (let attempt = 0; attempt < 10; attempt++) {
-              const bx = Math.floor(m.x + (Math.random() - 0.5) * 14);
-              const bz = Math.floor(m.z + (Math.random() - 0.5) * 14);
-              if (!this.world.hasColumn(bx, bz)) continue;
-              const canopy = this.world.topSolidY(bx, bz);
-              if (canopy >= WY - 3 || !isLeafId(this.world.get(bx, canopy, bz)) ||
-                this.world.get(bx, canopy + 1, bz) !== 0) continue;
-              m.task = 12; m.taskT = 7;
-              m.taskY = canopy + 1.05;
-              m.tx = bx + 0.5; m.tz = bz + 0.5; m.think = 8;
-              break;
+
+          if (m.task === 9 && m.grow <= 0 && (((this.tick + i) % 34 === 0) || m.taskT < 2.2)) {
+            // Prefer exposed leaf tops, but allow landing on open ground too.
+            let landed = false;
+            for (const pass of [0, 1]) {
+              const needLeaf = pass === 0;
+              const tries = needLeaf ? 12 : 10;
+              for (let attempt = 0; attempt < tries; attempt++) {
+                const radius = needLeaf ? 15 : 12;
+                const bx = Math.floor(m.x + (Math.random() - 0.5) * radius);
+                const bz = Math.floor(m.z + (Math.random() - 0.5) * radius);
+                if (!this.world.hasColumn(bx, bz)) continue;
+                const h = this.world.topSolidY(bx, bz);
+                if (h >= WY - 3 || this.world.get(bx, h + 1, bz) !== 0) continue;
+                const ground = this.world.get(bx, h, bz);
+                const leaf = isLeafId(ground);
+                const openGround = ground === GRASS || ground === SAND || ground === SNOW_GRASS || ground === STONE || ground === VOLCANIC_STONE;
+                if (needLeaf ? !leaf : (!leaf && !openGround)) continue;
+                m.task = 12;
+                m.taskT = 5.5;
+                m.taskY = h + 1.05;
+                m.tx = bx + 0.5;
+                m.tz = bz + 0.5;
+                m.think = 6;
+                landed = true;
+                break;
+              }
+              if (landed) break;
             }
           }
           if (m.task === 12) {
             m.taskT -= mdt;
-            if (m.taskT <= 0 || (Math.hypot(m.tx - m.x, m.tz - m.z) < 0.55 && Math.abs(m.y - m.taskY) < 0.65)) {
-              m.task = 0;
-              m.vy = -0.5; m.think = 3.5; m.jumpCd = 3;
+            const horizontal = Math.hypot(m.tx - m.x, m.tz - m.z);
+            if (m.taskT <= 0 || (horizontal < 0.52 && Math.abs(m.y - m.taskY) < 0.55)) {
+              m.task = 16; // touchdown: wings fold before hopping again
+              m.taskT = 0.58;
+              m.vy = Math.min(m.vy, -0.25);
+              m.tx = m.x;
+              m.tz = m.z;
+              m.think = 1;
             } else {
-              const desired = Math.max(-2.5, Math.min(3, (m.taskY + 0.3 - m.y) * 2));
+              const desired = Math.max(-2.2, Math.min(2.6, (m.taskY + 0.25 - m.y) * 1.9));
               m.vy += (desired - m.vy) * Math.min(1, mdt * 4);
             }
           }
           if (m.task === 9) {
             m.taskT -= mdt;
             if (m.taskT <= 0) {
-              m.task = 0; // glide down with gravity, flapping until touchdown
-              m.vy = Math.min(m.vy, 0);
-              m.jumpCd = 2.5;
+              m.task = 12; // tired: settle near the current spot
+              m.taskT = 4.5;
+              m.taskY = Math.max(1, this.world.topSolidY(Math.floor(m.x), Math.floor(m.z)) + 1.05);
+              m.tx = m.x;
+              m.tz = m.z;
+              m.vy = Math.min(m.vy, -0.35);
+              m.jumpCd = 2.0;
             } else {
               if (Math.hypot(m.tx - m.x, m.tz - m.z) < 2) {
                 const a = Math.random() * Math.PI * 2;
@@ -2340,7 +2403,7 @@ export class MobSystem {
 
         // --- wander ---
         m.think -= mdt;
-        if (m.think <= 0 && m.task !== 10 && m.task !== 11 && m.task !== 12 && m.task !== 14) {
+        if (m.think <= 0 && m.task !== 9 && m.task !== 10 && m.task !== 11 && m.task !== 12 && m.task !== 14 && m.task !== 15 && m.task !== 16) {
           m.think = 2 + Math.random() * 4;
           if (Math.random() < 0.62) {
             const a = Math.random() * Math.PI * 2;
@@ -2363,6 +2426,32 @@ export class MobSystem {
                 const ds = ox * ox + oz * oz;
                 if (ds < nearest) { nearest = ds; nx = bx + 0.5; nz = bz + 0.5; }
               }
+            }
+            if (m.id === 'bird') {
+              // Short hops only: on the ground they peck around, on trees they
+              // hop between nearby leaf tops instead of instantly flying away.
+              m.think = 0.55 + Math.random() * 1.35;
+              const currentH = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
+              const currentGround = this.world.get(Math.floor(m.x), currentH, Math.floor(m.z));
+              const preferLeaves = isLeafId(currentGround);
+              let foundHop = false;
+              for (let attempt = 0; attempt < 18; attempt++) {
+                const bx = Math.floor(m.x + (Math.random() - 0.5) * 5.5);
+                const bz = Math.floor(m.z + (Math.random() - 0.5) * 5.5);
+                if (!this.world.hasColumn(bx, bz)) continue;
+                const h = this.world.topSolidY(bx, bz);
+                if (Math.abs(h + 1.05 - m.y) > 1.25 || this.world.get(bx, h + 1, bz) !== 0) continue;
+                const ground = this.world.get(bx, h, bz);
+                const leaf = isLeafId(ground);
+                const walkable = leaf || ground === GRASS || ground === SAND || ground === SNOW_GRASS || ground === STONE || ground === VOLCANIC_STONE;
+                if (!walkable) continue;
+                if (preferLeaves && !leaf && Math.random() < 0.75) continue;
+                nx = bx + 0.5;
+                nz = bz + 0.5;
+                foundHop = true;
+                break;
+              }
+              if (!foundHop) { nx = m.x; nz = m.z; }
             }
             if (m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'pig') {
               // The upper ground block must actually be grass, not ice, water or leaves.
@@ -2444,14 +2533,15 @@ export class MobSystem {
           if (wd > 1.0) {
             // dead-zone widened: a target under the feet no longer whips the yaw around
             m.yaw = Math.atan2(-wx, -wz);
-            const pace = m.id === 'bird' && (m.task === 9 || m.task === 12) ? 1.5 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
+            const birdAir = m.id === 'bird' && (m.task === 9 || m.task === 12);
+            const pace = birdAir ? 1.5 : m.id === 'bird' ? 0.48 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
             mx = (wx / wd) * def.speed * pace * speedMul;
             mz = (wz / wd) * def.speed * pace * speedMul;
-            // Birds fly rather than repeatedly hopping across the ground.
-            const hopChance = m.id === 'rabbit' ? 6 : m.id === 'frog' ? 5.2 : m.id === 'bee' ? 8 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' || m.id === 'camel_calf' ? 0 : m.id === 'fawn' ? 1.4 : 0.8;
+            const birdCanHop = m.id === 'bird' && !birdAir && m.task !== 15 && m.task !== 16;
+            const hopChance = m.id === 'rabbit' ? 6 : m.id === 'frog' ? 5.2 : m.id === 'bee' ? 8 : birdCanHop ? 3.4 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' || m.id === 'camel_calf' ? 0 : m.id === 'fawn' ? 1.4 : 0.8;
             if (m.onGround && m.jumpCd <= 0 && Math.random() < mdt * hopChance) {
-              m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'frog' ? 4.8 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
-              m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'frog' ? 0.35 : m.id === 'bee' ? 0.3 : 1.2;
+              m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'frog' ? 4.8 : m.id === 'bird' ? 3.0 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
+              m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'frog' ? 0.35 : m.id === 'bird' ? 0.32 : m.id === 'bee' ? 0.3 : 1.2;
             }
             if (m.id === 'bee' && m.vy < -1.2) m.vy = -1.2;
           }
@@ -2543,12 +2633,19 @@ export class MobSystem {
         else if (m.id === 'jellyfish') leg.rotation.x = Math.sin(m.walkPhase * 3 + li) * 0.28;
         else if (m.id === 'bird') {
           const side = li % 2 === 0 ? -1 : 1;
-          if (m.task === 9 || m.task === 12 || !m.onGround) {
-            // Both shoulder joints beat together; the feather tips travel up
-            // and down even while cruising at a steady altitude.
-            leg.rotation.z = side * (0.05 + Math.sin(m.walkPhase * 2.6) * 1.05);
+          const folded = -side * 1.15;
+          if (m.task === 9 || m.task === 12 || m.task === 15) {
+            // Full wingbeats only during real takeoff/flight/landing.
+            const takeoffWarmup = m.task === 15 ? Math.max(0, Math.min(1, (0.48 - m.taskT) / 0.48)) : 1;
+            const landingEase = m.task === 12 ? 0.55 : 1;
+            const amp = (m.task === 15 ? 0.28 + takeoffWarmup * 0.72 : 1.05) * landingEase;
+            leg.rotation.z = side * (0.05 + Math.sin(m.walkPhase * 2.6) * amp);
+          } else if (!m.onGround) {
+            // Ground/tree hops get only a small balancing wing flick, not full flight.
+            const target = folded + side * Math.sin(m.walkPhase * 2.4) * 0.18;
+            leg.rotation.z += (target - leg.rotation.z) * Math.min(1, mdt * 12);
           } else {
-            leg.rotation.z += (-side * 1.15 - leg.rotation.z) * Math.min(1, mdt * 10);
+            leg.rotation.z += (folded - leg.rotation.z) * Math.min(1, mdt * 10);
           }
         } else leg.rotation.x = swing * (li % 2 === 0 ? 1 : -1);
       }
