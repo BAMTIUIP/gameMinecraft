@@ -304,6 +304,7 @@ export class Engine {
   private toolPick!: THREE.Group;
   private toolSword!: THREE.Group;
   private toolBlock!: THREE.Mesh;
+  private toolItem!: THREE.Group;
   private toolLantern!: THREE.Group;
   private toolTorch!: THREE.Group;
   private toolHand!: THREE.Group;
@@ -320,6 +321,8 @@ export class Engine {
   private axeEdgeMat!: THREE.MeshLambertMaterial;
   private blockUVBase = new Float32Array(48);
   private blockShown = -1;
+  private itemShown = -1;
+  private itemHasFancy = false;
 
   private dom: DomRefs = {};
   private onHud: (s: HudState) => void;
@@ -991,6 +994,14 @@ export class Engine {
     this.toolGear.visible = false;
     this.pickGroup.add(this.toolGear);
 
+    // ---- 3D held Material / Resource Item (Lapis, Emerald, Diamond, Ingots, Drops, etc.) ----
+    this.toolItem = new THREE.Group();
+    this.toolItem.rotation.set(0.18, 0.55, 0.08);
+    this.toolItem.position.set(0.02, 0.04, 0.02);
+    this.toolItem.scale.setScalar(1.38);
+    this.toolItem.visible = false;
+    this.pickGroup.add(this.toolItem);
+
     this.pickGroup.position.set(0.44, -0.4, -0.72);
     this.pickGroup.rotation.set(0.35, -0.5, 0.22);
     this.hudScene.add(this.pickGroup);
@@ -1002,10 +1013,26 @@ export class Engine {
     const kind = this.heldKind();
     const heldId = this.hotbar[this.selected];
     const holdingLanternBlock = kind === 'block' && heldId === TORCH;
+    const isCandidateItem =
+      kind === 'block' && heldId !== undefined && !holdingLanternBlock && !BLOCKS[heldId]?.solid;
+    if (isCandidateItem && heldId !== undefined && heldId !== this.itemShown) {
+      this.itemShown = heldId;
+      this.toolItem.clear();
+      const fancy = this.buildFancyDrop(heldId);
+      if (fancy) {
+        this.toolItem.add(fancy);
+        this.itemHasFancy = true;
+      } else {
+        this.itemHasFancy = false;
+      }
+    }
+    const holdingFancyItem = isCandidateItem && this.itemHasFancy;
+
     this.toolPick.visible = kind === 'pick';
     this.toolHand.visible = kind === 'fist';
     this.toolSword.visible = kind === 'sword';
-    this.toolBlock.visible = kind === 'block' && !holdingLanternBlock;
+    this.toolBlock.visible = kind === 'block' && !holdingLanternBlock && !holdingFancyItem;
+    this.toolItem.visible = holdingFancyItem;
     this.toolLantern.visible = holdingLanternBlock;
     this.toolTorch.visible = kind === 'torch';
     this.toolAxe.visible = kind === 'axe';
@@ -4697,50 +4724,91 @@ export class Engine {
         break;
       }
       case COAL: {
-        // 3D faceted coal lump
-        B(g, 0, 0, 0, 0.24, 0.22, 0.22, 0x1e2026);
-        B(g, 0.04, 0.08, 0.02, 0.16, 0.14, 0.16, 0x2c2e38);
-        B(g, -0.05, -0.04, 0.04, 0.14, 0.12, 0.14, 0x141519);
+        // 3D Ember-Core Anthracite Shard Cluster: 3 jagged dark carbon spires + glowing orange ember heart
+        B(g, 0, 0.03, 0, 0.14, 0.30, 0.14, 0x222636, 0.08, -0.08);
+        B(g, -0.09, -0.02, 0.03, 0.12, 0.22, 0.12, 0x161924, 0, 0.28);
+        B(g, 0.09, -0.01, -0.02, 0.12, 0.24, 0.12, 0x2c3145, -0.1, -0.26);
+        // Glowing orange-gold ember fissure core
+        B(g, 0, -0.01, 0.05, 0.09, 0.12, 0.08, 0xff771a);
+        B(g, 0, 0.01, 0.07, 0.05, 0.07, 0.05, 0xffe270);
         break;
       }
-      case IRON:
-      case GOLD: {
-        // 3D beveled metallic ingot bar
-        const base = id === GOLD ? 0xeab324 : 0xc4c8d0;
-        const top = id === GOLD ? 0xfde047 : 0xeef0f4;
-        B(g, 0, -0.02, 0, 0.32, 0.10, 0.18, base);
-        B(g, 0, 0.04, 0, 0.26, 0.06, 0.13, top);
+      case IRON: {
+        // 3D Dwarven Twin-Flanged Steel Bar with Brass Rivets
+        B(g, 0, 0, 0, 0.34, 0.09, 0.14, 0x5c667a); // recessed gunmetal web
+        B(g, 0, 0.055, 0, 0.34, 0.03, 0.17, 0xeef4fc); // top silver-steel rail
+        B(g, 0, -0.055, 0, 0.34, 0.03, 0.17, 0x9aa6ba); // bottom steel rail
+        B(g, -0.11, 0, 0, 0.07, 0.15, 0.19, 0xd6e0ed); // left flange collar
+        B(g, 0.11, 0, 0, 0.07, 0.15, 0.19, 0xd6e0ed); // right flange collar
+        B(g, -0.04, 0.07, 0, 0.035, 0.03, 0.06, 0xf0b442); // brass rivet L
+        B(g, 0.04, 0.07, 0, 0.035, 0.03, 0.06, 0xf0b442); // brass rivet R
         break;
       }
       case REDSTONE: {
-        // 3D glowing redstone dust mound
-        B(g, 0, -0.05, 0, 0.28, 0.10, 0.28, 0x9e0e0e);
-        B(g, 0, 0.03, 0, 0.20, 0.10, 0.20, 0xd91818);
-        B(g, 0, 0.10, 0, 0.10, 0.08, 0.10, 0xff3b30);
+        // 3D Volatile Arcane Crimson Energy Crystal & Orbiting Sparks
+        B(g, 0, 0.02, 0, 0.12, 0.32, 0.12, 0xc91230, 0.12, 0.18);
+        B(g, 0, 0.02, 0, 0.18, 0.18, 0.18, 0xf01e42, 0.12, 0.18);
+        B(g, 0, 0.02, 0, 0.09, 0.22, 0.15, 0xff6680, 0.12, 0.18);
+        // Orbiting scarlet-pink energy motes
+        B(g, -0.15, 0.13, 0.06, 0.06, 0.06, 0.06, 0xff2e4c);
+        B(g, 0.15, 0.11, -0.05, 0.06, 0.06, 0.06, 0xff8598);
+        B(g, -0.13, -0.10, -0.06, 0.05, 0.05, 0.05, 0xff2e4c);
+        B(g, 0.13, -0.09, 0.06, 0.05, 0.05, 0.05, 0xff8598);
+        break;
+      }
+      case GOLD: {
+        // 3D Royal Sun-Stamped Gold Bullion Trapezoid with Ruby Solar Seal
+        B(g, 0, -0.04, 0, 0.36, 0.07, 0.22, 0xc48210); // lower wide bevel
+        B(g, 0, 0.02, 0, 0.30, 0.07, 0.17, 0xf5be24); // middle gold table
+        B(g, 0, 0.06, 0, 0.24, 0.03, 0.13, 0xfff39e); // gleaming top rim
+        B(g, 0, 0.08, 0, 0.09, 0.03, 0.08, 0xe61e38); // inset ruby solar crest
+        B(g, 0, 0.09, 0, 0.04, 0.02, 0.04, 0xff99a8); // ruby glint
         break;
       }
       case LAPIS: {
-        // 3D deep blue lapis lazuli gem
-        B(g, 0, 0, 0, 0.22, 0.26, 0.12, 0x2448ba, 0, 0.25);
-        B(g, 0.02, 0.04, 0.02, 0.14, 0.16, 0.10, 0x5282ff, 0, 0.25);
+        // 3D Celestial Crescent Astral Sapphire Shard with Golden Pyrite Stars
+        B(g, -0.03, 0, 0, 0.14, 0.22, 0.10, 0x1e42b8, 0, 0.15); // crescent spine
+        B(g, 0.04, 0.10, 0, 0.14, 0.11, 0.09, 0x2b58de, 0, -0.45); // upper horn
+        B(g, 0.04, -0.10, 0, 0.14, 0.11, 0.09, 0x2b58de, 0, 0.45); // lower horn
+        B(g, -0.01, 0.01, 0.02, 0.09, 0.15, 0.09, 0x5c8cff, 0, 0.15); // bright azure ridge
+        // Golden pyrite star studs
+        B(g, -0.02, 0.06, 0.055, 0.04, 0.04, 0.03, 0xffe052);
+        B(g, 0.04, 0.11, 0.045, 0.035, 0.035, 0.03, 0xffe052);
+        B(g, 0.01, -0.07, 0.05, 0.035, 0.035, 0.03, 0xffe052);
         break;
       }
       case DIAMOND: {
-        // 3D faceted cyan diamond gem
-        B(g, 0, 0, 0, 0.24, 0.28, 0.10, 0x32cfd4);
-        B(g, 0, 0.04, 0, 0.16, 0.18, 0.12, 0x7af8fa);
+        // 3D 4-Pointed Star-Prism Ice Crystal
+        B(g, 0, 0, 0, 0.11, 0.34, 0.11, 0x42e8f5); // vertical star spear
+        B(g, 0, 0, 0, 0.32, 0.11, 0.11, 0x42e8f5); // horizontal star spear
+        B(g, 0, 0, 0, 0.11, 0.11, 0.28, 0x1fa6bd); // depth star spear
+        B(g, 0, 0, 0, 0.18, 0.18, 0.15, 0x8cfaff, 0, Math.PI / 4); // diagonal prism core
+        B(g, 0, 0, 0, 0.10, 0.10, 0.17, 0xffffff); // brilliant white heart
         break;
       }
       case EMERALD: {
-        // 3D octagonal green emerald gem
-        B(g, 0, 0, 0, 0.22, 0.28, 0.10, 0x19b549);
-        B(g, 0, 0, 0, 0.14, 0.20, 0.12, 0x5cf28b);
+        // 3D Twin-Spire Jade Beryl Cluster on Dark Rock Matrix
+        B(g, 0, -0.12, 0, 0.22, 0.08, 0.18, 0x323642); // dark rock matrix base
+        B(g, 0.03, 0.03, 0, 0.12, 0.30, 0.11, 0x15b856, 0, -0.1); // tall main jade spire
+        B(g, 0.03, 0.05, 0, 0.07, 0.26, 0.13, 0x5ef298, 0, -0.1); // bright mint facet
+        B(g, -0.08, -0.02, 0.02, 0.09, 0.20, 0.09, 0x0f8f42, 0.08, 0.36); // angled side spire
+        B(g, -0.08, 0, 0.02, 0.05, 0.16, 0.10, 0x8affb8, 0.08, 0.36); // side spire highlight
         break;
       }
       case QUARTZ: {
-        // 3D jagged white nether quartz crystal shards
-        B(g, -0.04, 0, 0, 0.12, 0.28, 0.12, 0xede7e0, 0, 0.25);
-        B(g, 0.06, -0.03, 0.03, 0.10, 0.22, 0.10, 0xffffff, 0, -0.3);
+        // 3D Radiating 3-Pronged Rose-Ivory Geode Crown
+        B(g, 0, -0.11, 0, 0.22, 0.08, 0.16, 0x4a1e2b); // dark volcanic geode base
+        B(g, 0, 0.04, 0, 0.10, 0.28, 0.10, 0xf7f0f2); // central tall quartz needle
+        B(g, 0, 0.07, 0, 0.06, 0.24, 0.11, 0xffffff); // pure white tip
+        B(g, -0.09, 0.01, 0.02, 0.09, 0.22, 0.09, 0xdecbcf, 0.08, 0.42); // left angled needle
+        B(g, 0.09, 0.01, -0.02, 0.09, 0.22, 0.09, 0xe8d8dc, -0.08, -0.42); // right angled needle
+        break;
+      }
+      case NETHERITE: {
+        // 3D Ancient Damascus Ingot with Glowing Lava Runes
+        B(g, 0, -0.02, 0, 0.34, 0.10, 0.19, 0x261c1f);
+        B(g, 0, 0.04, 0, 0.28, 0.06, 0.14, 0x453338);
+        B(g, 0, 0.075, 0, 0.18, 0.02, 0.06, 0xff6a1a);
         break;
       }
       default: {

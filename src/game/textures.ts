@@ -15,6 +15,7 @@ import {
   LAPIS,
   EMERALD,
   QUARTZ,
+  NETHERITE,
 } from './blocks';
 
 export const TILE = 16;
@@ -107,12 +108,6 @@ function blobs(
   });
 }
 
-function oreTile(ctx: Ctx, ox: number, oy: number, seed: number, colors: string[]) {
-  speckle(ctx, ox, oy, '#83838a', seed * 7 + 3, 14);
-  blobs(ctx, ox, oy, seed, colors, 4, 2);
-  blobs(ctx, ox, oy, seed + 91, colors, 3, 2);
-}
-
 function drawTile(ctx: Ctx, index: number) {
   const [ox, oy] = tileOrigin(index);
   const rand = mulberry32(index * 1337 + 11);
@@ -174,18 +169,79 @@ function drawTile(ctx: Ctx, index: number) {
       });
       break;
     }
-    case T.coal:
-      oreTile(ctx, ox, oy, 41, ['#26262b', '#33333a', '#1b1b20']);
+    case T.coal: {
+      // Unique style: Chiseled slate rock split by diagonal anthracite seams with glowing ember glints
+      speckle(ctx, ox, oy, '#767882', 41, 14);
+      // Rock strata corner bevels
+      px(ctx, ox, oy, 0, 0, 16, 1, '#9295a0');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#585a63');
+      // Diagonal anthracite crystal pockets
+      for (const [sx, sy, sw, sh] of [
+        [2, 2, 5, 3],
+        [9, 3, 5, 4],
+        [4, 7, 6, 4],
+        [2, 12, 5, 3],
+        [10, 11, 4, 3],
+      ]) {
+        px(ctx, ox, oy, sx, sy, sw, sh, '#16171d');
+        px(ctx, ox, oy, sx + 1, sy + 1, Math.max(1, sw - 2), Math.max(1, sh - 2), '#2b2e3a');
+      }
+      // Warm glowing ember glints inside the coal seams
+      px(ctx, ox, oy, 4, 3, 1, 1, '#ff7a1f');
+      px(ctx, ox, oy, 6, 8, 2, 1, '#ff9d3b');
+      px(ctx, ox, oy, 11, 5, 1, 1, '#ff6a14');
       break;
-    case T.iron:
-      oreTile(ctx, ox, oy, 53, ['#d3a177', '#c08f68', '#e6bd95']);
+    }
+    case T.iron: {
+      // Unique style: Fractured stone with metallic copper-rust & bright steel chevron veins
+      speckle(ctx, ox, oy, '#787a84', 53, 14);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#9497a3');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#595b64');
+      const veins: Array<[number, number, number, number]> = [
+        [2, 3, 4, 2],
+        [5, 2, 3, 2],
+        [10, 4, 4, 3],
+        [3, 9, 5, 2],
+        [7, 8, 4, 2],
+        [9, 12, 5, 2],
+      ];
+      for (const [vx, vy, vw, vh] of veins) {
+        px(ctx, ox, oy, vx, vy, vw, vh, '#7a4b3a');
+        px(ctx, ox, oy, vx + 1, vy, Math.max(1, vw - 1), 1, '#d89b72');
+        px(ctx, ox, oy, vx + 1, vy + 1, Math.max(1, vw - 2), 1, '#e8eef5');
+      }
       break;
-    case T.gold:
-      oreTile(ctx, ox, oy, 67, ['#f7d34b', '#e0b62f', '#fff08a']);
+    }
+    case T.gold: {
+      // Unique style: Recessed cavern stone laced with branching golden sun-veins & gleaming nuggets
+      speckle(ctx, ox, oy, '#757780', 67, 14);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#92949e');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#555760');
+      // Dark geode pockets + bright gold crystal veins
+      for (const [gx, gy] of [[2, 2], [9, 3], [5, 7], [2, 11], [10, 10]]) {
+        px(ctx, ox, oy, gx, gy, 4, 3, '#4e3810');
+        px(ctx, ox, oy, gx + 1, gy, 3, 2, '#eab324');
+        px(ctx, ox, oy, gx + 1, gy + 1, 2, 1, '#fff394');
+      }
+      // Connecting gold filament
+      px(ctx, ox, oy, 5, 4, 4, 1, '#d49a1a');
+      px(ctx, ox, oy, 8, 9, 3, 1, '#d49a1a');
       break;
-    case T.diamond:
-      oreTile(ctx, ox, oy, 83, ['#4fe3d6', '#37c9bd', '#a6fff4']);
+    }
+    case T.diamond: {
+      // Unique style: Deep stone with 4-pointed star-prism cyan ice crystals
+      speckle(ctx, ox, oy, '#727580', 83, 14);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#8e929e');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#52555e');
+      for (const [cx, cy] of [[4, 4], [11, 5], [6, 11], [12, 12]]) {
+        px(ctx, ox, oy, cx - 1, cy - 1, 3, 3, '#104e5b');
+        px(ctx, ox, oy, cx, cy - 2, 1, 5, '#2ed8eb');
+        px(ctx, ox, oy, cx - 2, cy, 5, 1, '#2ed8eb');
+        px(ctx, ox, oy, cx - 1, cy - 1, 3, 3, '#6ef7ff');
+        px(ctx, ox, oy, cx, cy, 1, 1, '#ffffff');
+      }
       break;
+    }
     case T.logSide: {
       speckle(ctx, ox, oy, '#6d5233', 97, 12);
       for (let x = 0; x < 16; x++) {
@@ -295,15 +351,29 @@ function drawTile(ctx: Ctx, index: number) {
       break;
     }
     case T.goldBlock: {
-      speckle(ctx, ox, oy, '#e8b92f', 233, 12);
-      ctx.fillStyle = '#fff08a';
-      ctx.fillRect(ox + 2, oy + 2, 12, 2);
-      ctx.fillRect(ox + 2, oy + 2, 2, 12);
-      ctx.fillStyle = '#a8801a';
-      ctx.fillRect(ox + 2, oy + 12, 12, 2);
-      ctx.fillRect(ox + 12, oy + 2, 2, 12);
-      for (let i = 0; i < 12; i++)
-        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#f6d65c' : '#c99a20');
+      // Unique style: Royal Sun-Crest Bullion Block with bronze corner scrollwork & ruby solar core
+      ctx.fillStyle = '#d49618';
+      ctx.fillRect(ox, oy, 16, 16);
+      // Outer ornate dark-bronze & bright-gold frame
+      ctx.fillStyle = '#784b08';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      ctx.fillStyle = '#fce36b';
+      ctx.fillRect(ox + 1, oy + 1, 14, 14);
+      ctx.fillStyle = '#e5a820';
+      ctx.fillRect(ox + 2, oy + 2, 12, 12);
+      // Corner filigree studs
+      for (const [cx, cy] of [[2, 2], [12, 2], [2, 12], [12, 12]]) {
+        px(ctx, ox, oy, cx, cy, 2, 2, '#915c0c');
+      }
+      // Raised central Sun Medallion + Ruby core
+      px(ctx, ox, oy, 5, 5, 6, 6, '#9c640e');
+      px(ctx, ox, oy, 7, 3, 2, 10, '#fff59e');
+      px(ctx, ox, oy, 3, 7, 10, 2, '#fff59e');
+      px(ctx, ox, oy, 6, 6, 4, 4, '#ffe863');
+      px(ctx, ox, oy, 7, 7, 2, 2, '#d92338');
       break;
     }
     case T.glass: {
@@ -894,15 +964,23 @@ function drawTile(ctx: Ctx, index: number) {
       break;
     }
     case T.diamondBlock: {
-      speckle(ctx, ox, oy, '#3fd4c8', 251, 14);
-      ctx.fillStyle = '#a6fff4';
-      ctx.fillRect(ox + 2, oy + 2, 12, 2);
-      ctx.fillRect(ox + 2, oy + 2, 2, 12);
-      ctx.fillStyle = '#1e9c93';
-      ctx.fillRect(ox + 2, oy + 12, 12, 2);
-      ctx.fillRect(ox + 12, oy + 2, 2, 12);
-      for (let i = 0; i < 14; i++)
-        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#7ff5ea' : '#25b3a8');
+      // Unique style: Prismatic Star-Cut Crystal Vault Block with refracting facets & white-cyan star core
+      ctx.fillStyle = '#0e4d5c';
+      ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#22a6bd';
+      ctx.fillRect(ox + 1, oy + 1, 14, 14);
+      ctx.fillStyle = '#3fe0f0';
+      ctx.fillRect(ox + 2, oy + 2, 12, 12);
+      // Dark teal corner triangles
+      for (const [cx, cy] of [[1, 1], [13, 1], [1, 13], [13, 13]]) {
+        px(ctx, ox, oy, cx, cy, 2, 2, '#126475');
+      }
+      // 4-pointed star prism in center
+      px(ctx, ox, oy, 7, 2, 2, 12, '#8cfaff');
+      px(ctx, ox, oy, 2, 7, 12, 2, '#8cfaff');
+      px(ctx, ox, oy, 5, 5, 6, 6, '#5ceef7');
+      px(ctx, ox, oy, 6, 6, 4, 4, '#b8ffff');
+      px(ctx, ox, oy, 7, 7, 2, 2, '#ffffff');
       break;
     }
     case T.birchLogSide: {
@@ -1427,163 +1505,216 @@ function drawTile(ctx: Ctx, index: number) {
       px(ctx, ox, oy, 11, 1, 3, 2, '#686e78');
       break;
     }
-    // ---- New Mineral Ores (Row 1 of reference table) ----
+    // ---- New Mineral Ores (Unique Stylized Geode & Fissure Aesthetic) ----
     case T.redstoneOre: {
-      oreTile(ctx, ox, oy, 401, ['#8f0c0c', '#c91616', '#ff362b', '#ff6459']);
+      // Dark stone split by glowing neon-crimson lightning fissures & ruby core node
+      speckle(ctx, ox, oy, '#6e707a', 401, 14);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#8a8d99');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#4f5159');
+      // Dark fissure channel
+      for (const [fx, fy, fw, fh] of [
+        [2, 2, 4, 2],
+        [5, 4, 4, 3],
+        [7, 6, 4, 4],
+        [10, 9, 4, 3],
+        [3, 10, 4, 3],
+      ]) {
+        px(ctx, ox, oy, fx, fy, fw, fh, '#590814');
+        px(ctx, ox, oy, fx + 1, fy, Math.max(1, fw - 2), fh, '#e61938');
+      }
+      // Glowing white-pink energy sparks along the lightning vein
+      px(ctx, ox, oy, 6, 5, 2, 1, '#ff7a8a');
+      px(ctx, ox, oy, 8, 7, 2, 2, '#ff2e4c');
+      px(ctx, ox, oy, 8, 7, 1, 1, '#ffe0e5');
+      px(ctx, ox, oy, 4, 11, 2, 1, '#ff7a8a');
       break;
     }
     case T.lapisOre: {
-      oreTile(ctx, ox, oy, 402, ['#14287a', '#2447ba', '#3e6df2', '#6f98ff']);
+      // Cavern stone with recessed astral-indigo geode cavities & golden pyrite star specks
+      speckle(ctx, ox, oy, '#737682', 402, 14);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#8e929f');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#545761');
+      for (const [gx, gy, gw, gh] of [
+        [2, 2, 5, 4],
+        [9, 3, 5, 5],
+        [4, 9, 6, 5],
+      ]) {
+        px(ctx, ox, oy, gx, gy, gw, gh, '#0f1d5e');
+        px(ctx, ox, oy, gx + 1, gy + 1, gw - 2, gh - 2, '#2b58de');
+        px(ctx, ox, oy, gx + 1, gy + 1, 2, 1, '#6e9eff');
+      }
+      // Golden pyrite star flecks inside the lapis geodes
+      px(ctx, ox, oy, 4, 4, 1, 1, '#ffd84d');
+      px(ctx, ox, oy, 11, 5, 1, 1, '#ffd84d');
+      px(ctx, ox, oy, 7, 11, 1, 1, '#ffd84d');
       break;
     }
     case T.emeraldOre: {
-      speckle(ctx, ox, oy, '#83838a', 403, 14);
-      // Distinct 2x2 emerald crystal spots in stone (matching column 7 row 1)
-      const spots: Array<[number, number]> = [
-        [3, 2],
-        [11, 3],
-        [6, 6],
+      // Mountain rock with diagonal pointed jade-beryl crystal spires jutting upward
+      speckle(ctx, ox, oy, '#747882', 403, 14);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#9095a1');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#545861');
+      const spires: Array<[number, number]> = [
+        [3, 3],
+        [10, 2],
+        [6, 8],
         [2, 10],
-        [12, 9],
-        [7, 12],
+        [11, 9],
       ];
-      for (const [sx, sy] of spots) {
-        px(ctx, ox, oy, sx, sy, 2, 2, '#0d6e2b');
-        px(ctx, ox, oy, sx, sy, 1, 1, '#58f289');
-        px(ctx, ox, oy, sx + 1, sy, 1, 1, '#1ed458');
+      for (const [sx, sy] of spires) {
+        px(ctx, ox, oy, sx, sy, 2, 4, '#095228');
+        px(ctx, ox, oy, sx, sy + 1, 2, 3, '#18c962');
+        px(ctx, ox, oy, sx, sy, 1, 2, '#78ffad');
+        px(ctx, ox, oy, sx, sy, 1, 1, '#e0ffec');
       }
       break;
     }
     case T.quartzOre: {
-      // Crimson-burgundy Netherrack stone with jagged white quartz veins (matching column 8 row 1)
-      speckle(ctx, ox, oy, '#682626', 404, 22);
-      for (let i = 0; i < 24; i++) {
-        px(
-          ctx,
-          ox,
-          oy,
-          Math.floor(rand() * 16),
-          Math.floor(rand() * 16),
-          1,
-          1,
-          rand() < 0.5 ? '#481515' : '#853535',
-        );
+      // Dark volcanic obsidian-crimson matrix with radiating star-fans of rose-white quartz needles
+      speckle(ctx, ox, oy, '#471b26', 404, 18);
+      px(ctx, ox, oy, 0, 0, 16, 1, '#632938');
+      px(ctx, ox, oy, 0, 15, 16, 1, '#2e0f17');
+      for (let i = 0; i < 16; i++) {
+        px(ctx, ox, oy, Math.floor(rand() * 16), Math.floor(rand() * 16), 1, 1, rand() < 0.5 ? '#331019' : '#6b2837');
       }
-      const veins: Array<[number, number, number, number]> = [
-        [2, 2, 4, 2],
-        [9, 3, 4, 2],
-        [4, 7, 5, 2],
-        [10, 8, 4, 2],
-        [2, 12, 5, 2],
-        [9, 13, 4, 2],
-      ];
-      for (const [vx, vy, vw, vh] of veins) {
-        px(ctx, ox, oy, vx, vy, vw, vh, '#d6cbc0');
-        px(ctx, ox, oy, vx + 1, vy, Math.max(1, vw - 2), 1, '#ffffff');
-        px(ctx, ox, oy, vx, vy + vh - 1, Math.max(1, vw - 1), 1, '#a8988a');
+      // Radiating quartz crystal needles
+      for (const [qx, qy] of [[3, 3], [10, 4], [5, 10], [11, 11]]) {
+        px(ctx, ox, oy, qx, qy, 3, 3, '#b89ea6');
+        px(ctx, ox, oy, qx + 1, qy - 1, 1, 4, '#f5ebed');
+        px(ctx, ox, oy, qx - 1, qy + 1, 4, 1, '#f5ebed');
+        px(ctx, ox, oy, qx + 1, qy, 1, 2, '#ffffff');
       }
       break;
     }
-    // ---- Crafted Mineral Blocks (Row 3 of reference table) ----
+    // ---- Crafted Mineral Blocks (Unique Ornate Architectural & Runic Style) ----
     case T.coalBlock: {
-      speckle(ctx, ox, oy, '#18181c', 405, 10);
-      ctx.fillStyle = '#0f0f12';
-      ctx.fillRect(ox, oy, 16, 1);
-      ctx.fillRect(ox, oy, 1, 16);
-      ctx.fillRect(ox + 15, oy, 1, 16);
-      ctx.fillRect(ox, oy + 15, 16, 1);
-      for (const [bx, by] of [[2, 2], [8, 3], [3, 9], [9, 10]]) {
-        px(ctx, ox, oy, bx, by, 4, 4, '#24252b');
-        px(ctx, ox, oy, bx + 1, by + 1, 2, 2, '#2f3138');
+      // Interlocking forged carbon-brick weave with glowing orange-amber ember seams
+      ctx.fillStyle = '#14151c';
+      ctx.fillRect(ox, oy, 16, 16);
+      // Glowing ember mortar lines
+      ctx.fillStyle = '#d95b16';
+      for (const y of [3, 7, 11, 15]) ctx.fillRect(ox, oy + y, 16, 1);
+      // Staggered dark anthracite bricks with metallic sheen
+      const rows: Array<[number, number]> = [
+        [0, 0],
+        [4, 4],
+        [8, 0],
+        [12, 4],
+      ];
+      for (const [ry, xShift] of rows) {
+        for (let bx = 0; bx < 16; bx += 8) {
+          const x0 = (bx + xShift) % 16;
+          px(ctx, ox, oy, x0, ry, 7, 3, '#222530');
+          px(ctx, ox, oy, x0 + 1, ry, 5, 1, '#363b4d');
+        }
+      }
+      // Hot ember spark intersections
+      for (const [ex, ey] of [[3, 3], [11, 7], [7, 11]]) {
+        px(ctx, ox, oy, ex, ey, 2, 1, '#ffb03b');
       }
       break;
     }
     case T.ironBlock: {
-      // Brushed silver-white iron block with horizontal metallic lines & border bevel (column 2 row 3)
-      ctx.fillStyle = '#dcdedf';
+      // Dwarven bolted steel vault plate with raised X-brace & brass corner rivets
+      ctx.fillStyle = '#5c6473';
       ctx.fillRect(ox, oy, 16, 16);
-      for (let y = 1; y < 15; y++) {
-        ctx.fillStyle = y % 3 === 0 ? '#c6c9cc' : y % 3 === 1 ? '#eceeef' : '#dcdedf';
-        ctx.fillRect(ox + 1, oy + y, 14, 1);
+      ctx.fillStyle = '#cfd7e3';
+      ctx.fillRect(ox + 1, oy + 1, 14, 14);
+      ctx.fillStyle = '#aeb8c7';
+      ctx.fillRect(ox + 3, oy + 3, 10, 10);
+      // Diagonal raised steel X-ribs
+      for (let i = 3; i <= 12; i++) {
+        px(ctx, ox, oy, i, i, 2, 1, '#eef3fa');
+        px(ctx, ox, oy, i, 15 - i, 2, 1, '#eef3fa');
       }
-      // Outer bevel frame
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(ox, oy, 16, 1);
-      ctx.fillRect(ox, oy, 1, 16);
-      ctx.fillStyle = '#a6aaae';
-      ctx.fillRect(ox + 15, oy, 1, 16);
-      ctx.fillRect(ox, oy + 15, 16, 1);
+      // Central steel boss
+      px(ctx, ox, oy, 6, 6, 4, 4, '#7a8496');
+      px(ctx, ox, oy, 7, 7, 2, 2, '#ffffff');
+      // 4 Golden-brass corner rivets
+      for (const [rx, ry] of [[2, 2], [12, 2], [2, 12], [12, 12]]) {
+        px(ctx, ox, oy, rx, ry, 2, 2, '#d89b38');
+      }
       break;
     }
     case T.redstoneBlock: {
-      // Deep glowing crimson-red block with ruby inner facets (column 3 row 3)
-      speckle(ctx, ox, oy, '#af1812', 407, 14);
-      ctx.fillStyle = '#780b07';
-      ctx.fillRect(ox, oy, 16, 1);
-      ctx.fillRect(ox, oy, 1, 16);
-      ctx.fillRect(ox + 15, oy, 1, 16);
-      ctx.fillRect(ox, oy + 15, 16, 1);
-      ctx.fillStyle = '#d8231b';
+      // Arcane Runic Power Core Block: dark obsidian cage + glowing neon-crimson rune cross
+      ctx.fillStyle = '#261019';
+      ctx.fillRect(ox, oy, 16, 16);
+      // Inner crimson energy chamber
+      ctx.fillStyle = '#850c22';
       ctx.fillRect(ox + 2, oy + 2, 12, 12);
-      ctx.fillStyle = '#b51710';
-      ctx.fillRect(ox + 4, oy + 4, 8, 8);
-      ctx.fillStyle = '#ff3b30';
-      ctx.fillRect(ox + 2, oy + 2, 12, 1);
-      ctx.fillRect(ox + 2, oy + 2, 1, 12);
+      // Glowing scarlet rune cross & circuit bars
+      ctx.fillStyle = '#f01e3c';
+      ctx.fillRect(ox + 6, oy + 1, 4, 14);
+      ctx.fillRect(ox + 1, oy + 6, 14, 4);
+      ctx.fillStyle = '#ff5972';
+      ctx.fillRect(ox + 7, oy + 2, 2, 12);
+      ctx.fillRect(ox + 2, oy + 7, 12, 2);
+      // Dark obsidian corner brackets
+      for (const [cx, cy] of [[1, 1], [11, 1], [1, 11], [11, 11]]) {
+        px(ctx, ox, oy, cx, cy, 4, 4, '#361824');
+        px(ctx, ox, oy, cx + 1, cy + 1, 2, 2, '#ff3856');
+      }
+      // White-hot pulsing core
+      px(ctx, ox, oy, 7, 7, 2, 2, '#ffe8ec');
       break;
     }
     case T.lapisBlock: {
-      // Rich ultramarine blue stone block with azure/gold flecks (column 5 row 3)
-      speckle(ctx, ox, oy, '#2145b8', 408, 22);
-      ctx.fillStyle = '#152d80';
-      ctx.fillRect(ox, oy, 16, 1);
-      ctx.fillRect(ox, oy, 1, 16);
-      ctx.fillRect(ox + 15, oy, 1, 16);
-      ctx.fillRect(ox, oy + 15, 16, 1);
-      for (let i = 0; i < 14; i++) {
-        px(
-          ctx,
-          ox,
-          oy,
-          1 + Math.floor(rand() * 14),
-          1 + Math.floor(rand() * 14),
-          2,
-          1,
-          rand() < 0.25 ? '#d4b85a' : '#4a78f5',
-        );
-      }
+      // Celestial Night-Sky Mosaic Tile with golden border & 4-pointed golden star inlay
+      ctx.fillStyle = '#0d1b54';
+      ctx.fillRect(ox, oy, 16, 16);
+      // Ornate gold mosaic border
+      ctx.fillStyle = '#d4a338';
+      ctx.fillRect(ox + 1, oy + 1, 14, 1);
+      ctx.fillRect(ox + 1, oy + 14, 14, 1);
+      ctx.fillRect(ox + 1, oy + 1, 1, 14);
+      ctx.fillRect(ox + 14, oy + 1, 1, 14);
+      // Deep sapphire inner field
+      speckle(ctx, ox + 2, oy + 2, '#1f45b8', 408, 18);
+      ctx.fillStyle = '#2e62eb';
+      ctx.fillRect(ox + 4, oy + 4, 8, 8);
+      // Central 4-pointed golden star inlay
+      px(ctx, ox, oy, 7, 3, 2, 10, '#ffd84d');
+      px(ctx, ox, oy, 3, 7, 10, 2, '#ffd84d');
+      px(ctx, ox, oy, 6, 6, 4, 4, '#ffe878');
+      px(ctx, ox, oy, 7, 7, 2, 2, '#ffffff');
       break;
     }
     case T.emeraldBlock: {
-      // Vivid emerald green beveled square-faceted gem block (column 7 row 3)
-      ctx.fillStyle = '#1ec954';
+      // Carved Jade-Temple Coffered Block with stepped geometric relief & mint crystal heart
+      ctx.fillStyle = '#074722';
       ctx.fillRect(ox, oy, 16, 16);
-      // Outer bright & dark bevel
-      ctx.fillStyle = '#6cf596';
-      ctx.fillRect(ox, oy, 16, 1);
-      ctx.fillRect(ox, oy, 1, 16);
-      ctx.fillStyle = '#0d7a2f';
-      ctx.fillRect(ox + 15, oy, 1, 16);
-      ctx.fillRect(ox, oy + 15, 16, 1);
-      // Inner concentric gem table
-      ctx.fillStyle = '#159e3f';
-      ctx.fillRect(ox + 3, oy + 3, 10, 10);
-      ctx.fillStyle = '#2ee066';
-      ctx.fillRect(ox + 4, oy + 4, 8, 8);
-      ctx.fillStyle = '#7aff9e';
-      ctx.fillRect(ox + 4, oy + 4, 8, 1);
-      ctx.fillRect(ox + 4, oy + 4, 1, 8);
+      ctx.fillStyle = '#128744';
+      ctx.fillRect(ox + 1, oy + 1, 14, 14);
+      // Corner jade studs
+      for (const [cx, cy] of [[2, 2], [12, 2], [2, 12], [12, 12]]) {
+        px(ctx, ox, oy, cx, cy, 2, 2, '#5ef298');
+      }
+      // Stepped diamond temple relief in center
+      px(ctx, ox, oy, 4, 4, 8, 8, '#0b5e2d');
+      px(ctx, ox, oy, 6, 3, 4, 10, '#22d46b');
+      px(ctx, ox, oy, 3, 6, 10, 4, '#22d46b');
+      px(ctx, ox, oy, 5, 5, 6, 6, '#4df58d');
+      px(ctx, ox, oy, 6, 6, 4, 4, '#a6ffca');
+      px(ctx, ox, oy, 7, 7, 2, 2, '#0b5e2d');
       break;
     }
     case T.quartzBlock: {
-      // Smooth pearlescent marble-white quartz block (column 8 row 3)
-      speckle(ctx, ox, oy, '#ede8e1', 410, 6);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(ox, oy, 16, 1);
-      ctx.fillRect(ox, oy, 1, 16);
-      ctx.fillStyle = '#cfc7bc';
-      ctx.fillRect(ox + 15, oy, 1, 16);
-      ctx.fillRect(ox, oy + 15, 16, 1);
+      // Classical Fluted Rose-Ivory Marble Pillar Block with rose-gold frieze bands
+      ctx.fillStyle = '#f2ebed';
+      ctx.fillRect(ox, oy, 16, 16);
+      // Top & bottom rose-gold capital & base trim
+      ctx.fillStyle = '#b88c94';
+      ctx.fillRect(ox, oy, 16, 2);
+      ctx.fillRect(ox, oy + 14, 16, 2);
+      ctx.fillStyle = '#d9b8bf';
+      ctx.fillRect(ox, oy + 2, 16, 1);
+      ctx.fillRect(ox, oy + 13, 16, 1);
+      // Vertical fluted marble grooves
+      for (const fx of [2, 6, 10, 14]) {
+        px(ctx, ox, oy, fx, 3, 1, 10, '#d4c3c8');
+        px(ctx, ox, oy, fx + 1, 3, 1, 10, '#ffffff');
+      }
       break;
     }
     // ---- Mineral Item Tiles (Row 2 fallback in atlas) ----
@@ -1850,111 +1981,174 @@ export function getBlockIcon(id: number): string {
     return url;
   }
 
-  // ---- 8 Mineral Items (Row 2 of reference table: pixel-art sprites on 16x16 grid scaled 3x to 48x48) ----
+  // ---- Unique Stylized Mineral Material Icons (16x16 grid scaled 3x to 48x48) ----
   const p = (gx: number, gy: number, gw: number, gh: number, col: string) => {
     ctx.fillStyle = col;
     ctx.fillRect(gx * 3, gy * 3, gw * 3, gh * 3);
   };
   if (id === COAL) {
-    // 1. Coal Lump (Уголь)
-    p(5, 2, 5, 12, '#101014');
-    p(3, 4, 10, 9, '#101014');
-    p(2, 6, 12, 6, '#101014');
-    p(5, 3, 4, 10, '#22232a');
-    p(4, 5, 8, 7, '#282a32');
-    p(3, 7, 10, 4, '#1d1e24');
-    p(5, 4, 3, 3, '#3c3f4a');
-    p(6, 5, 2, 2, '#505462');
+    // 1. Ember-Core Anthracite Shard Cluster (3 jagged dark carbon spires + glowing orange ember fissure)
+    p(6, 2, 4, 12, '#0e0f14');
+    p(2, 5, 5, 8, '#0e0f14');
+    p(9, 4, 5, 9, '#0e0f14');
+    // Left shard
+    p(3, 6, 3, 6, '#232634');
+    p(3, 6, 2, 2, '#3a3f54');
+    // Right shard
+    p(10, 5, 3, 7, '#1d202b');
+    p(11, 5, 2, 3, '#34394c');
+    // Central tall spire
+    p(7, 3, 2, 9, '#2b2f40');
+    p(7, 3, 1, 4, '#4c536e');
+    // Glowing orange-gold ember vein in the core
+    p(6, 8, 3, 3, '#d94e14');
+    p(7, 7, 2, 3, '#ff8826');
+    p(7, 8, 1, 2, '#ffe478');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
   }
-  if (id === IRON || id === GOLD) {
-    // 2 & 4. Iron Ingot (Железный слиток) & Gold Ingot (Золотой слиток)
-    const isGold = id === GOLD;
-    const outline = isGold ? '#593a08' : '#3d3e42';
-    const dark = isGold ? '#b87d12' : '#858890';
-    const mid = isGold ? '#eab324' : '#c2c6ce';
-    const top = isGold ? '#fde047' : '#e4e7ec';
-    const shine = isGold ? '#fef9c3' : '#ffffff';
-    // Tilted 3D ingot bar
-    p(2, 6, 12, 6, outline);
-    p(4, 4, 9, 3, outline);
-    p(1, 7, 12, 4, dark);
-    p(3, 5, 10, 4, mid);
-    p(4, 5, 8, 2, top);
-    p(5, 5, 4, 1, shine);
-    p(3, 8, 8, 2, mid);
+  if (id === IRON) {
+    // 2. Dwarven Twin-Flanged Steel Bar with Brass Rivets
+    p(1, 5, 14, 6, '#2b303b');
+    p(2, 4, 4, 8, '#2b303b');
+    p(10, 4, 4, 8, '#2b303b');
+    // Flanged end collars
+    p(3, 5, 2, 6, '#d6e0ed');
+    p(11, 5, 2, 6, '#d6e0ed');
+    p(3, 5, 2, 2, '#ffffff');
+    p(11, 5, 2, 2, '#ffffff');
+    // Recessed gunmetal web with silver-blue top & bottom rails
+    p(5, 6, 6, 4, '#5a6478');
+    p(5, 5, 6, 1, '#eef4fc');
+    p(5, 10, 6, 1, '#98a4b8');
+    // Two golden-brass rivets
+    p(6, 7, 1, 2, '#f0b442');
+    p(9, 7, 1, 2, '#f0b442');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
   }
   if (id === REDSTONE) {
-    // 3. Redstone Dust Pile (Красная пыль / Красный камень)
-    p(6, 3, 4, 2, '#4a0404');
-    p(4, 5, 8, 3, '#4a0404');
-    p(2, 8, 12, 5, '#4a0404');
-    p(6, 4, 4, 2, '#b81111');
-    p(5, 6, 6, 3, '#d91818');
-    p(3, 9, 10, 3, '#9e0d0d');
-    p(5, 8, 6, 3, '#ee2222');
-    p(7, 5, 1, 1, '#ff5c4d');
-    p(5, 9, 2, 1, '#ff5c4d');
-    p(9, 10, 1, 1, '#ff5c4d');
+    // 3. Volatile Arcane Crimson Energy Crystal & Orbiting Sparks
+    // Central floating tilted energy shard
+    p(6, 2, 4, 12, '#4f0514');
+    p(4, 5, 8, 6, '#4f0514');
+    p(7, 3, 2, 10, '#c91230');
+    p(5, 6, 6, 4, '#f01e42');
+    p(6, 5, 4, 6, '#ff4d6d');
+    p(7, 6, 2, 4, '#ffd6de');
+    // 4 Orbiting glowing scarlet-pink energy motes
+    p(2, 3, 2, 2, '#ff2a4b');
+    p(2, 3, 1, 1, '#fff0f3');
+    p(12, 3, 2, 2, '#ff2a4b');
+    p(13, 3, 1, 1, '#fff0f3');
+    p(2, 11, 2, 2, '#ff2a4b');
+    p(12, 11, 2, 2, '#ff2a4b');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === GOLD) {
+    // 4. Royal Sun-Stamped Gold Bullion Trapezoid with Ruby Seal
+    p(3, 4, 10, 3, '#5c3806');
+    p(1, 6, 14, 6, '#5c3806');
+    // Lower golden bevel
+    p(2, 9, 12, 2, '#c78512');
+    // Upper gleaming gold table
+    p(4, 5, 8, 4, '#f5be24');
+    p(2, 7, 12, 2, '#f5be24');
+    p(4, 5, 8, 1, '#fff6a8');
+    // Inset crimson-ruby solar seal in the center
+    p(6, 6, 4, 4, '#9e5c08');
+    p(7, 7, 2, 2, '#e61e38');
+    p(7, 7, 1, 1, '#ff99a8');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
   }
   if (id === LAPIS) {
-    // 5. Lapis Lazuli (Лазурит)
-    p(6, 2, 6, 3, '#0e1d5c');
-    p(4, 4, 9, 5, '#0e1d5c');
-    p(2, 7, 10, 6, '#0e1d5c');
-    p(6, 3, 5, 3, '#2548ba');
-    p(5, 5, 7, 4, '#325ee0');
-    p(3, 8, 8, 4, '#1f3ea3');
-    p(6, 4, 3, 2, '#638eff');
-    p(5, 7, 3, 2, '#4c78f5');
+    // 5. Celestial Crescent Astral Sapphire Shard with Gold Stars
+    p(5, 2, 7, 3, '#0b164d');
+    p(3, 4, 7, 8, '#0b164d');
+    p(5, 11, 7, 3, '#0b164d');
+    // Curved sapphire crescent body
+    p(6, 3, 5, 2, '#2552d9');
+    p(4, 5, 5, 6, '#1e42b8');
+    p(6, 11, 5, 2, '#2552d9');
+    p(5, 5, 3, 5, '#4c7fff');
+    p(6, 3, 3, 1, '#8cb0ff');
+    // Gleaming golden star-flecks
+    p(5, 6, 1, 1, '#ffe052');
+    p(7, 4, 1, 1, '#ffe052');
+    p(6, 10, 1, 1, '#ffe052');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
   }
   if (id === DIAMOND) {
-    // 6. Diamond Gem (Алмаз)
-    p(5, 2, 6, 2, '#0f484c');
-    p(3, 4, 10, 8, '#0f484c');
-    p(5, 12, 6, 2, '#0f484c');
-    p(5, 3, 6, 2, '#6bf3f5');
-    p(4, 5, 8, 6, '#32cfd4');
-    p(5, 11, 6, 2, '#1d8c91');
-    p(5, 5, 6, 4, '#7af8fa');
-    p(6, 4, 3, 2, '#e6ffff');
+    // 6. 4-Pointed Star-Prism Ice Crystal
+    p(7, 1, 2, 14, '#0c4554');
+    p(1, 7, 14, 2, '#0c4554');
+    p(4, 4, 8, 8, '#0c4554');
+    // Diagonal cyan facet wings
+    p(5, 5, 6, 6, '#1fa6bd');
+    // Vertical & horizontal star-prism spears
+    p(7, 2, 2, 12, '#42e8f5');
+    p(2, 7, 12, 2, '#42e8f5');
+    // Bright white-cyan core
+    p(6, 6, 4, 4, '#99fcff');
+    p(7, 7, 2, 2, '#ffffff');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
   }
   if (id === EMERALD) {
-    // 7. Emerald Octagonal Gem (Изумруд)
-    p(5, 2, 6, 12, '#07471c');
-    p(3, 4, 10, 8, '#07471c');
-    p(5, 3, 6, 10, '#19b549');
-    p(4, 4, 8, 8, '#26d65c');
-    p(6, 5, 4, 6, '#5cf28b');
-    p(6, 4, 2, 2, '#dcffe6');
+    // 7. Twin-Spire Jade Beryl Cluster on Dark Rock Base
+    // Main tall emerald spire (right-center)
+    p(6, 1, 5, 12, '#063d1e');
+    p(7, 2, 3, 10, '#16b857');
+    p(7, 2, 2, 8, '#4df28c');
+    p(7, 2, 1, 4, '#d9ffea');
+    // Secondary angled side crystal spire (left)
+    p(2, 5, 5, 7, '#063d1e');
+    p(3, 6, 3, 5, '#129646');
+    p(3, 6, 2, 3, '#68fa9e');
+    // Dark mineral matrix base
+    p(4, 12, 8, 3, '#2d3038');
+    p(5, 12, 6, 2, '#464a57');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
   }
   if (id === QUARTZ) {
-    // 8. Nether Quartz Crystal (Кварц)
-    p(7, 2, 3, 6, '#6e6259');
-    p(4, 5, 9, 6, '#6e6259');
-    p(3, 9, 10, 4, '#6e6259');
-    p(8, 3, 2, 5, '#f2ede7');
-    p(5, 6, 7, 4, '#e6dfd8');
-    p(4, 9, 8, 3, '#c7bdb2');
-    p(8, 3, 1, 3, '#ffffff');
-    p(6, 6, 2, 2, '#ffffff');
+    // 8. Radiating 3-Pronged Rose-Ivory Geode Crown
+    // Center tall needle
+    p(6, 1, 4, 11, '#543b44');
+    p(7, 2, 2, 9, '#f2e8eb');
+    p(7, 2, 1, 6, '#ffffff');
+    // Left angled needle
+    p(2, 4, 5, 8, '#543b44');
+    p(3, 5, 3, 6, '#decbcf');
+    p(3, 5, 2, 3, '#ffffff');
+    // Right angled needle
+    p(9, 4, 5, 8, '#543b44');
+    p(10, 5, 3, 6, '#d4bcc2');
+    p(11, 5, 2, 3, '#f7f0f2');
+    // Dark volcanic geode base
+    p(4, 11, 8, 3, '#3b1924');
+    p(5, 12, 6, 2, '#5e2838');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === NETHERITE) {
+    // 9. Ancient Damascus Ingot with Glowing Lava Runes
+    p(2, 4, 12, 8, '#1f1618');
+    p(3, 5, 10, 6, '#3d2c30');
+    p(4, 5, 8, 2, '#5c4449');
+    p(5, 7, 6, 2, '#ff6a1a');
+    p(6, 7, 2, 1, '#ffd266');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
