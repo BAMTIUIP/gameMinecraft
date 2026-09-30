@@ -48,8 +48,13 @@ export const MATERIALS: Record<Material, { label: string; color: string; armor: 
   netherite: { label: 'NETHERITE', color: '#8a6a58', armor: 14, dmg: 14 },
 };
 
+export const GEAR_ID_BASE = 300;
+export const isGearHotbarId = (id: number) => id >= GEAR_ID_BASE;
+
 export type Item = {
   uid: string;
+  /** numeric hotbar id (>= 300) so gear can sit in the hotbar and be held/thrown */
+  hid: number;
   slot: Slot;
   material: Material;
   rarity: Rarity;
@@ -81,8 +86,17 @@ const SLOT_WEIGHT: Record<Slot, number> = {
 };
 
 let uidCounter = 0;
+let gearHidCounter = GEAR_ID_BASE;
 export function newUid() {
   return `i${yaServerTime().toString(36)}${(uidCounter++).toString(36)}`;
+}
+export function ensureGearHid(it: Item): Item {
+  if (typeof it.hid !== 'number' || it.hid < GEAR_ID_BASE) {
+    it.hid = gearHidCounter++;
+  } else if (it.hid >= gearHidCounter) {
+    gearHidCounter = it.hid + 1;
+  }
+  return it;
 }
 
 export function makeItem(slot: Slot, material: Material, rarity: Rarity, rand: () => number, crafted = false): Item {
@@ -112,7 +126,7 @@ export function makeItem(slot: Slot, material: Material, rarity: Rarity, rand: (
     }
   }
 
-  return { uid: newUid(), slot, material, rarity, armor, damage, affixes, crafted };
+  return { uid: newUid(), hid: gearHidCounter++, slot, material, rarity, armor, damage, affixes, crafted };
 }
 
 /** loot table used when a monster dies */

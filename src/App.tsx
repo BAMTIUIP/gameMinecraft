@@ -65,6 +65,7 @@ const INITIAL_HUD: HudState = {
   invTab: 'tools',
   tradeNear: false,
   anvilNear: false,
+  workbenchNear: false,
   sandbox: false,
 };
 
@@ -238,6 +239,7 @@ export default function App() {
   );
   const removeSlot = useCallback((slot: number) => engineRef.current?.removeFromSlot(slot), []);
   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
+  const salvageItem = useCallback((id: number) => engineRef.current?.salvageItem(id), []);
 
   const toggleFreeLook = useCallback(() => {
     const next = !(engineRef.current?.freeLookEnabled ?? true);
@@ -394,6 +396,7 @@ export default function App() {
             onPlaceItem={placeItem}
             onRemoveSlot={removeSlot}
             onSalvageGear={salvageGear}
+            onSalvageItem={salvageItem}
             isTouch={isTouch}
           />
         ) : (

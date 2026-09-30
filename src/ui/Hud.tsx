@@ -33,6 +33,7 @@ import {
   isSwordTool,
   isAxeTool,
 } from '../game/recipes';
+import { isGearHotbarId, MATERIALS, RARITY } from '../game/items';
 import { t } from '../game/i18n';
 
 const RING = 2 * Math.PI * 22;
@@ -308,7 +309,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         {hud.target && (
           <div className="mt-1 font-display text-xs tracking-wide text-white/80 text-shadow-hard sm:text-sm">{hud.target.name}</div>
         )}
-        <div className="mt-0.5 font-display text-[10px] tracking-widest text-torch/80 text-shadow-hard">{hud.heldName}</div>
+        <div className="mt-0.5 flex items-center gap-1.5 font-display text-[10px] tracking-widest text-torch/80 text-shadow-hard">
+          <span>{hud.heldName}</span>
+          {hud.heldKind !== 'fist' && !isTouch && (
+            <span className="rounded bg-black/50 px-1 py-0.5 text-[8px] text-white/60">[{t('drop_hint')}]</span>
+          )}
+        </div>
       </div>
 
       {/* ---------------- BANNER ---------------- */}
@@ -432,6 +438,24 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                 <span className="flex h-6 w-6 items-center justify-center text-xl sm:h-9 sm:w-9 sm:text-2xl" title={t('emptyHand')}>
                   ✊
                 </span>
+              ) : isGearHotbarId(slot.id) ? (
+                (() => {
+                  const gear = hud.bagItems.find((b) => b.hid === slot.id);
+                  const matCol = gear ? MATERIALS[gear.material].color : '#d6d9dd';
+                  const rarCol = gear ? RARITY[gear.rarity].color : '#b6c2b8';
+                  return (
+                    <span className="flex flex-col items-center justify-center leading-none" style={{ color: matCol }}>
+                      <span className="text-base sm:text-xl" style={{ textShadow: `0 0 8px ${rarCol}` }}>
+                        ⛨
+                      </span>
+                      {gear && (
+                        <span className="font-display text-[8px] sm:text-[9px]" style={{ color: rarCol }}>
+                          +{gear.armor}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })()
               ) : slot.id >= TOOL_PICK ? (
                 <span
                   className="flex h-6 w-6 items-center justify-center sm:h-9 sm:w-9"

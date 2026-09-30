@@ -133,18 +133,30 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
 
       {/* action cluster */}
       <div className="touch-right absolute flex items-end gap-2.5">
-        <button
-          {...hold('sprint', (v) => {
-            setSprint(v);
-            engine?.setSprint(v);
-          })}
-          className={`${btn(sprint)} h-14 w-14 text-[10px] ${
-            sprint ? 'bg-gradient-to-b from-copper to-[#8a4f27] text-pit-950' : 'bg-gradient-to-b from-pit-500 to-pit-700 text-white/70'
-          }`}
-          style={{ borderColor: '#06090a' }}
-        >
-          {t('run')}
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              engine?.dropHeldItem();
+            }}
+            className={`${btn(false)} h-11 w-14 text-[9px] bg-gradient-to-b from-[#6e3832] to-[#381a17] text-white/85`}
+            style={{ borderColor: '#06090a' }}
+          >
+            {t('drop_hint')}
+          </button>
+          <button
+            {...hold('sprint', (v) => {
+              setSprint(v);
+              engine?.setSprint(v);
+            })}
+            className={`${btn(sprint)} h-14 w-14 text-[10px] ${
+              sprint ? 'bg-gradient-to-b from-copper to-[#8a4f27] text-pit-950' : 'bg-gradient-to-b from-pit-500 to-pit-700 text-white/70'
+            }`}
+            style={{ borderColor: '#06090a' }}
+          >
+            {t('run')}
+          </button>
+        </div>
         <button
           {...hold('place', (v) => engine?.setPlacing(v))}
           className={`${btn(pressed.place)} h-16 w-16 text-xs bg-gradient-to-b from-[#4b6f8a] to-[#26404f] text-white/90`}

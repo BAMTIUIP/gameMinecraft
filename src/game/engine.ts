@@ -90,6 +90,8 @@ import {
   isSwordTool,
   isAxeTool,
   toolSellPrice,
+  getSalvageForItemId,
+  getSalvageForGear,
   type Recipe,
 } from './recipes';
 import { MobSystem, type Mob, type MobId } from './mobs';
@@ -98,9 +100,13 @@ import {
   computeStats,
   damageReduction,
   EMPTY_STATS,
+  ensureGearHid,
+  isGearHotbarId,
   makeItem,
+  MATERIALS,
   RARITY,
   rollLoot,
+  SLOT_KEY,
   type AffixId,
   type Item,
   type Slot,
@@ -157,12 +163,13 @@ export type HudState = {
   phaseName: 'day' | 'dusk' | 'night' | 'dawn';
   kills: number;
   heldName: string;
-  heldKind: 'pick' | 'sword' | 'block' | 'fist' | 'torch' | 'axe' | 'shovel' | 'bow';
+  heldKind: 'pick' | 'sword' | 'block' | 'fist' | 'torch' | 'axe' | 'shovel' | 'bow' | 'gear';
   offers: TradeOffer[];
   sellPrices: Record<number, number>;
   invTab: string;
   tradeNear: boolean;
   anvilNear: boolean;
+  workbenchNear: boolean;
   sandbox: boolean;
   swordTier: number;
   equipped: Partial<Record<Slot, Item>>;
@@ -225,6 +232,10 @@ type Drop = {
   gear?: Item | null;
   /** volumetric model used instead of the textured cube (animal/monster loot) */
   fancy?: THREE.Group | null;
+  /** minimum age before player can pick up this drop (longer when thrown with G) */
+  pickupDelay?: number;
+  /** true when thrown by the player via G (avoids duplicate mining score on re-pickup) */
+  thrown?: boolean;
 };
 
 export class Engine {
@@ -284,6 +295,8 @@ export class Engine {
   private toolAxe!: THREE.Group;
   private toolShovel!: THREE.Group;
   private toolBow!: THREE.Group;
+  private toolGear!: THREE.Group;
+  private gearPlateMat!: THREE.MeshLambertMaterial;
   private torchFlame!: THREE.Mesh;
   private torchFlameMat!: THREE.MeshBasicMaterial;
   private torchLight!: THREE.PointLight;
@@ -946,6 +959,23 @@ export class Engine {
     this.toolLantern.visible = false;
     this.pickGroup.add(this.toolLantern);
 
+    // ---- 3D held Armor / Gear plate ----
+    this.toolGear = new THREE.Group();
+    this.gearPlateMat = new THREE.MeshLambertMaterial({ color: 0xd6d9dd });
+    const gearTrimMat = new THREE.MeshLambertMaterial({ color: 0x3b4046 });
+    const gBody = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.38, 0.12), this.gearPlateMat);
+    const gShoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.14), this.gearPlateMat);
+    gShoulderL.position.set(-0.2, 0.12, 0);
+    const gShoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.14), this.gearPlateMat);
+    gShoulderR.position.set(0.2, 0.12, 0);
+    const gTrim = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.13), gearTrimMat);
+    gTrim.position.set(0, -0.16, 0);
+    this.toolGear.add(gBody, gShoulderL, gShoulderR, gTrim);
+    this.toolGear.rotation.set(0.2, 0.5, 0.05);
+    this.toolGear.position.set(0.02, 0.02, 0);
+    this.toolGear.visible = false;
+    this.pickGroup.add(this.toolGear);
+
     this.pickGroup.position.set(0.44, -0.4, -0.72);
     this.pickGroup.rotation.set(0.35, -0.5, 0.22);
     this.hudScene.add(this.pickGroup);
@@ -966,6 +996,13 @@ export class Engine {
     this.toolAxe.visible = kind === 'axe';
     this.toolShovel.visible = kind === 'shovel';
     this.toolBow.visible = kind === 'bow';
+    this.toolGear.visible = kind === 'gear';
+    if (kind === 'gear' && heldId !== undefined) {
+      const g = this.bagItems.find((b) => b.hid === heldId);
+      if (g && this.gearPlateMat) {
+        this.gearPlateMat.color.set(MATERIALS[g.material]?.color ?? '#d6d9dd');
+      }
+    }
     if (kind === 'torch' || holdingLanternBlock) {
       // flame flicker + world light following the player
       const f = 0.85 + Math.sin(this.time * 11) * 0.12 + Math.sin(this.time * 23) * 0.06;
@@ -1336,6 +1373,10 @@ export class Engine {
     }
     if (this.phase !== 'playing') return;
     if (c === 'KeyF') this.tryPlace();
+    if (c === 'KeyG') {
+      this.dropHeldItem();
+      return;
+    }
     if (c.startsWith('Digit')) {
       const n = parseInt(c.slice(5), 10);
       // 1-9 → slots 1-9, 0 → slot 10
@@ -1580,7 +1621,12 @@ export class Engine {
       this.hotbar[target] = id;
     } else {
       // from the inventory list — ownership must exist (the HAND only lives in the bar)
-      const owned = id === HAND ? this.hotbar.includes(HAND) : (this.inventory.get(id) ?? 0) > 0;
+      const owned =
+        id === HAND
+          ? this.hotbar.includes(HAND)
+          : isGearHotbarId(id)
+            ? this.bagItems.some((b) => b.hid === id)
+            : (this.inventory.get(id) ?? 0) > 0;
       if (!owned) return;
       const occupant = this.hotbar[target];
       if (occupant === HAND) {
@@ -1750,7 +1796,7 @@ export class Engine {
     this.tier = data.tier;
     this.swordTier = data.swordTier;
     this.equipped = data.equipped ?? {};
-    this.bagItems = data.bagItems ?? [];
+    this.bagItems = (data.bagItems ?? []).map((it: Item) => ensureGearHid(it));
     this.stats = computeStats(this.equipped);
     this.hiveHoney = new Map(data.hive ?? []);
     this.birdNests = (Array.isArray(data.birdNests) ? data.birdNests : []).slice(0, 6);
@@ -3180,9 +3226,9 @@ export class Engine {
       return true;
     }
     const tg = this.target;
-    // workbench / crafting table → open the crafting menu
+    // workbench / crafting table → open the workbench dismantle view
     if (tg && tg.id === CRAFTING_TABLE) {
-      this.invTab = 'tools';
+      this.invTab = 'workbench';
       this.openInventory();
       return true;
     }
@@ -4108,7 +4154,7 @@ export class Engine {
     }
   }
 
-  // ================= ANVIL =================
+  // ================= ANVIL & WORKBENCH =================
   anvilNear(): boolean {
     const px = Math.floor(this.pos.x);
     const py = Math.floor(this.pos.y);
@@ -4117,6 +4163,17 @@ export class Engine {
       for (let dz = -3; dz <= 3; dz++)
         for (let dx = -3; dx <= 3; dx++)
           if (this.world.get(px + dx, py + dy, pz + dz) === ANVIL) return true;
+    return false;
+  }
+
+  workbenchNear(): boolean {
+    const px = Math.floor(this.pos.x);
+    const py = Math.floor(this.pos.y);
+    const pz = Math.floor(this.pos.z);
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dz = -4; dz <= 4; dz++)
+        for (let dx = -4; dx <= 4; dx++)
+          if (this.world.get(px + dx, py + dy, pz + dz) === CRAFTING_TABLE) return true;
     return false;
   }
 
@@ -4357,10 +4414,37 @@ export class Engine {
   private tryPlace() {
     if (this.phase !== 'playing') return;
     if (this.placeCooldown > 0) return;
-    const t = this.target;
-    if (!t) return;
     const id = this.hotbar[this.selected];
-    if (!id || id === HAND || id >= TOOL_PICK || isResource(id)) return; // hand/tools/food don't place
+    if (!id || id === HAND) return;
+    // Right-clicking while holding Armor in hand equips it immediately
+    if (isGearHotbarId(id)) {
+      const g = this.bagItems.find((b) => b.hid === id);
+      if (g) {
+        this.equip(g.uid);
+        this.placeCooldown = 0.25;
+      }
+      return;
+    }
+    // Right-clicking while holding Food in hand eats it
+    const foodHeal =
+      id === COOKED_MEAT ? 30 : id === COCONUT ? 22 : id === APPLE ? 20 : id === BANANA ? 16 : id === HONEY ? 15 : 0;
+    if (foodHeal > 0) {
+      const count = this.inventory.get(id) ?? 0;
+      if (count > 0) {
+        this.inventory.set(id, count - 1);
+        this.health = Math.min(100, this.health + foodHeal);
+        this.placeCooldown = 0.32;
+        this.startSwing(0.45);
+        sfx.pickup(4);
+        this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${foodHeal} ${t('hp')}`, '#93c95d', true);
+        this.syncHotbar(true);
+        this.syncHud(true);
+      }
+      return;
+    }
+    const t2 = this.target;
+    if (!t2) return;
+    if (id >= TOOL_PICK || isResource(id)) return; // tools/resources don't place as blocks
     if ((this.inventory.get(id) ?? 0) <= 0) {
       if (this.placeCooldown <= 0) {
         sfx.ui(false);
@@ -4368,9 +4452,9 @@ export class Engine {
       }
       return;
     }
-    const px = t.x + t.nx,
-      py = t.y + t.ny,
-      pz = t.z + t.nz;
+    const px = t2.x + t2.nx,
+      py = t2.y + t2.ny,
+      pz = t2.z + t2.nz;
     if (!this.world.inBounds(px, py, pz)) return;
     const targetCell = this.world.get(px, py, pz);
     if (targetCell !== AIR && targetCell !== WATER) return; // building displaces water
@@ -4584,26 +4668,152 @@ export class Engine {
         B(g, 0.07, 0.17, 0, 0.09, 0.04, 0.06, 0x56a832, 0, 0.3); // leaf
         break;
       }
-      default:
+      default: {
+        if (isPickTool(id)) {
+          const tierIdx = id - PICK_TOOLS[0];
+          const headCol = [0xb98a4d, 0x9aa0a6, 0xd6d9dd, 0x5fe8dc][tierIdx] ?? 0xb98a4d;
+          B(g, 0, -0.02, 0, 0.05, 0.38, 0.05, 0x8b6234, 0, 0.3);
+          B(g, -0.04, 0.14, 0, 0.32, 0.07, 0.07, headCol, 0, 0.3);
+          break;
+        }
+        if (isSwordTool(id)) {
+          const tierIdx = id - SWORD_TOOLS[0];
+          const bladeCol = [0xb98a4d, 0xd6d9dd, 0x5fe8dc][tierIdx] ?? 0xd6d9dd;
+          B(g, 0.04, -0.13, 0, 0.05, 0.13, 0.05, 0x6e4f2a, 0, 0.3);
+          B(g, 0.01, -0.06, 0, 0.18, 0.04, 0.06, 0x4a351d, 0, 0.3);
+          B(g, -0.05, 0.11, 0, 0.08, 0.3, 0.04, bladeCol, 0, 0.3);
+          break;
+        }
+        if (isAxeTool(id)) {
+          const headCol = id === AXE_TOOLS[0] ? 0xb98a4d : 0x9aa0a6;
+          B(g, 0, -0.02, 0, 0.05, 0.36, 0.05, 0x8b6234, 0, 0.25);
+          B(g, 0.06, 0.1, 0, 0.16, 0.14, 0.06, headCol, 0, 0.25);
+          break;
+        }
+        if (id === TOOL_SHOVEL) {
+          B(g, 0, -0.04, 0, 0.05, 0.34, 0.05, 0x8b6234, 0, 0.25);
+          B(g, -0.04, 0.14, 0, 0.14, 0.15, 0.04, 0xa8aeb4, 0, 0.25);
+          break;
+        }
+        if (id === TOOL_BOW) {
+          B(g, 0, 0, 0, 0.05, 0.38, 0.05, 0x8b6234, 0, 0.2);
+          B(g, 0.06, 0, 0, 0.02, 0.36, 0.02, 0xe8e2d2, 0, 0.2);
+          break;
+        }
+        if (id === TOOL_TORCH) {
+          B(g, 0, -0.03, 0, 0.06, 0.28, 0.06, 0x8b6234);
+          B(g, 0, 0.14, 0, 0.08, 0.09, 0.08, 0xffb03a);
+          break;
+        }
         return null;
+      }
     }
     return g;
   }
 
-  private spawnDrop(x: number, y: number, z: number, id: number, gear: Item | null = null) {
+  /**
+   * Throw the currently held item (block, material, food, weapon/tool, or armor)
+   * forward onto the ground when pressing G.
+   */
+  dropHeldItem() {
+    if (this.phase !== 'playing') return;
+    const id = this.hotbar[this.selected];
+    if (id === undefined || id === HAND) {
+      sfx.ui(false);
+      return;
+    }
+
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const sx = this.pos.x + fx * 0.65;
+    const sy = this.pos.y + 1.15;
+    const sz = this.pos.z + fz * 0.65;
+    const tvx = fx * 5.2;
+    const tvy = 2.5 + Math.max(-0.2, this.dirV.y) * 2.4;
+    const tvz = fz * 5.2;
+
+    if (isGearHotbarId(id)) {
+      const idx = this.bagItems.findIndex((b) => b.hid === id);
+      if (idx < 0) {
+        this.hotbar[this.selected] = undefined;
+        this.syncHotbar(true);
+        this.syncHud(true);
+        return;
+      }
+      const [gear] = this.bagItems.splice(idx, 1);
+      this.hotbar[this.selected] = undefined;
+      this.spawnDrop(sx, sy, sz, LOOT_BAG, gear, { vx: tvx, vy: tvy, vz: tvz, pickupDelay: 1.35, thrown: true });
+      this.startSwing(0.45);
+      sfx.place();
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+
+    const count = this.inventory.get(id) ?? 0;
+    if (count <= 0) {
+      this.hotbar[this.selected] = undefined;
+      sfx.ui(false);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+
+    if (count - 1 <= 0) {
+      this.inventory.delete(id);
+      this.hotbar[this.selected] = undefined;
+    } else {
+      this.inventory.set(id, count - 1);
+    }
+
+    if (id >= 200) {
+      this.recalcOwnedToolTiers();
+    }
+
+    this.spawnDrop(sx, sy, sz, id, null, { vx: tvx, vy: tvy, vz: tvz, pickupDelay: 1.35, thrown: true });
+    this.startSwing(0.45);
+    sfx.place();
+    this.syncHotbar(true);
+    this.syncHud(true);
+  }
+
+  private recalcOwnedToolTiers() {
+    let bestPick = 0;
+    for (let t = 0; t < PICK_TOOLS.length; t++) {
+      if ((this.inventory.get(PICK_TOOLS[t]) ?? 0) > 0) bestPick = t;
+    }
+    this.tier = bestPick;
+    this.updatePickaxe();
+    let bestSword = -1;
+    for (let s = 0; s < SWORD_TOOLS.length; s++) {
+      if ((this.inventory.get(SWORD_TOOLS[s]) ?? 0) > 0) bestSword = s;
+    }
+    this.swordTier = bestSword;
+  }
+
+  private spawnDrop(
+    x: number,
+    y: number,
+    z: number,
+    id: number,
+    gear: Item | null = null,
+    opts?: { vx?: number; vy?: number; vz?: number; pickupDelay?: number; thrown?: boolean },
+  ) {
     const d = this.drops.find((dd) => !dd.active) ?? this.drops[0];
     d.active = true;
     d.id = id;
-    d.gear = gear;
+    d.gear = gear ? ensureGearHid(gear) : null;
     d.age = 0;
+    d.pickupDelay = opts?.pickupDelay ?? 0.22;
+    d.thrown = opts?.thrown ?? false;
     d.x = x;
     d.y = y;
     d.z = z;
     const a = this.rand() * Math.PI * 2;
     const sp = 1.4 + this.rand() * 1.5;
-    d.vx = Math.cos(a) * sp;
-    d.vz = Math.sin(a) * sp;
-    d.vy = 3.4 + this.rand() * 1.8;
+    d.vx = opts?.vx ?? Math.cos(a) * sp;
+    d.vz = opts?.vz ?? Math.sin(a) * sp;
+    d.vy = opts?.vy ?? 3.4 + this.rand() * 1.8;
     // volumetric loot models replace the textured cube where available
     if (d.fancy) {
       this.scene.remove(d.fancy);
@@ -4650,9 +4860,10 @@ export class Engine {
       d.age += dt;
       if (!frozen) {
         const dist = Math.hypot(d.x - eye.x, d.y - eye.y, d.z - eye.z);
+        const delay = d.pickupDelay ?? 0.22;
         // attraction radius: short by default, extended by the MAGNET affix
         const magnetR = 2.1 + this.stats.magnet;
-        if (d.age > 0.26 && dist < magnetR) {
+        if (d.age > delay + 0.04 && dist < magnetR) {
           const sd = Math.max(0.001, dist);
           const pull = (34 / Math.max(1.6, dist * 1.1)) * 6;
           const damp = Math.pow(0.02, dt);
@@ -4686,7 +4897,7 @@ export class Engine {
         if (isSolid(this.world.get(Math.floor(d.x), Math.floor(d.y), Math.floor(nz)))) d.vz *= -0.35;
         else d.z = nz;
 
-        if (d.age > 0.22 && dist < 1.35) {
+        if (d.age > delay && dist < 1.35) {
           this.collect(d);
           continue;
         }
@@ -4725,16 +4936,39 @@ export class Engine {
     }
     // a loot bag holds a rolled piece of gear
     if (d.id === LOOT_BAG && d.gear) {
-      const it = d.gear;
+      const it = ensureGearHid(d.gear);
       d.gear = null;
       this.bagItems.push(it);
-      this.pushBanner(
-        t('looted'),
-        `${t(('slot_' + it.slot) as never)} · ${it.affixes.map((a) => t(AFFIX_KEY[a.id])).join(' + ') || '—'}`,
-        RARITY_COLORS[it.rarity],
-      );
-      this.burst(d.x, d.y, d.z, [217, 140, 255], 14, 3);
-      sfx.upgrade();
+      if (!d.thrown) {
+        this.pushBanner(
+          t('looted'),
+          `${t(('slot_' + it.slot) as never)} · ${it.affixes.map((a) => t(AFFIX_KEY[a.id])).join(' + ') || '—'}`,
+          RARITY_COLORS[it.rarity],
+        );
+        this.burst(d.x, d.y, d.z, [217, 140, 255], 14, 3);
+        sfx.upgrade();
+      } else {
+        sfx.pickup(3);
+      }
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+    // Picking up a dropped weapon or tool
+    if (d.id >= 200) {
+      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+      this.addToHotbar(d.id);
+      this.recalcOwnedToolTiers();
+      sfx.pickup(4);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+    if (d.thrown) {
+      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+      this.addToHotbar(d.id);
+      sfx.pickup(2);
+      this.syncHotbar(true);
       this.syncHud(true);
       return;
     }
@@ -5389,18 +5623,24 @@ export class Engine {
   heldKind(): HudState['heldKind'] {
     const id = this.hotbar[this.selected];
     if (id === HAND || id === undefined) return 'fist';
+    if (isGearHotbarId(id)) return 'gear';
     if (id === TOOL_PICK || isPickTool(id)) return 'pick';
     if (isSwordTool(id)) return 'sword';
     if (id === TOOL_TORCH) return 'torch';
     if (id === TOOL_AXE || isAxeTool(id)) return 'axe';
     if (id === TOOL_SHOVEL) return 'shovel';
     if (id === TOOL_BOW) return 'bow';
-    if (id === undefined) return 'fist';
     return 'block';
   }
 
   heldName(): string {
     const k = this.heldKind();
+    if (k === 'gear') {
+      const id = this.hotbar[this.selected] ?? -1;
+      const g = this.bagItems.find((b) => b.hid === id);
+      if (g) return `${t(SLOT_KEY[g.slot])} · ${matName(MATERIALS[g.material].label)}`;
+      return t('gear');
+    }
     if (k === 'pick') return pickaxeLabel(this.heldPickTier());
     if (k === 'sword') return swordLabel(Math.max(0, this.heldSwordTier()));
     if (k === 'torch') return t('handTorch');
@@ -5517,41 +5757,91 @@ export class Engine {
   }
 
   /** dismantle unwanted gear at the workbench back into raw materials */
-  salvageGear(uid: string) {
+  salvageGear(uid: string): boolean {
+    if (!this.workbenchNear() && this.invTab !== 'workbench') {
+      sfx.ui(false);
+      return false;
+    }
     const i = this.bagItems.findIndex((x) => x.uid === uid);
-    if (i < 0) return;
-    const it = this.bagItems[i];
-    this.bagItems.splice(i, 1);
+    let it: Item | undefined;
+    if (i >= 0) {
+      it = this.bagItems[i];
+      this.bagItems.splice(i, 1);
+    } else {
+      // Allow dismantling even if dragged directly from an equipped slot
+      for (const s of Object.keys(this.equipped) as Slot[]) {
+        if (this.equipped[s]?.uid === uid) {
+          it = this.equipped[s];
+          delete this.equipped[s];
+          this.stats = computeStats(this.equipped);
+          break;
+        }
+      }
+    }
+    if (!it) return false;
 
-    let label = '';
-    const addInv = (id: number, count: number) => {
+    const outputs = getSalvageForGear(it);
+    const parts: string[] = [];
+    for (const [id, count] of outputs) {
       this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
       this.addToHotbar(id);
-    };
-
-    if (it.material === 'netherite') {
-      addInv(NETHERITE, 1);
-      addInv(DIAMOND, 2);
-      label = `+1 ${blockName(NETHERITE, 'Netherite')}, +2 ${blockName(DIAMOND, 'Diamond')}`;
-    } else if (it.material === 'diamond') {
-      addInv(DIAMOND, 2);
-      label = `+2 ${blockName(DIAMOND, 'Diamond')}`;
-    } else if (it.material === 'gold') {
-      addInv(GOLD, 3);
-      label = `+3 ${blockName(GOLD, 'Gold')}`;
-    } else if (it.material === 'iron') {
-      addInv(IRON, 2);
-      label = `+2 ${blockName(IRON, 'Iron')}`;
-    } else {
-      addInv(WOOL, 2);
-      label = `+2 ${blockName(WOOL, 'Wool')}`;
+      parts.push(`+${count} ${blockName(id, BLOCKS[id]?.name ?? '')}`);
     }
 
     sfx.breakBlock(0.8);
     this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [220, 220, 230], 12, 2.5);
-    this.pushBanner(t('salvaged'), label, '#93c95d');
+    this.pushBanner(t('salvaged'), parts.join(', '), '#93c95d');
     this.syncHotbar(true);
     this.syncHud(true);
+    return true;
+  }
+
+  /** dismantle any craftable item/tool/weapon/block at the workbench back into reduced crafting ingredients */
+  salvageItem(id: number): boolean {
+    if (!this.workbenchNear() && this.invTab !== 'workbench') {
+      sfx.ui(false);
+      return false;
+    }
+    if (isGearHotbarId(id)) {
+      const g = this.bagItems.find((b) => b.hid === id);
+      return g ? this.salvageGear(g.uid) : false;
+    }
+    const info = getSalvageForItemId(id);
+    if (!info) {
+      sfx.ui(false);
+      return false;
+    }
+    const owned = this.inventory.get(id) ?? 0;
+    if (owned <= 0) {
+      sfx.ui(false);
+      return false;
+    }
+    const consume = Math.min(owned, Math.max(1, info.inputsUsed));
+    const remaining = owned - consume;
+    if (remaining <= 0) {
+      this.inventory.delete(id);
+      const hbIdx = this.hotbar.indexOf(id);
+      if (hbIdx >= 0) this.hotbar[hbIdx] = undefined;
+    } else {
+      this.inventory.set(id, remaining);
+    }
+    if (id >= 200) {
+      this.recalcOwnedToolTiers();
+    }
+
+    const parts: string[] = [];
+    for (const [outId, outCount] of info.outputs) {
+      this.inventory.set(outId, (this.inventory.get(outId) ?? 0) + outCount);
+      this.addToHotbar(outId);
+      parts.push(`+${outCount} ${blockName(outId, BLOCKS[outId]?.name ?? '')}`);
+    }
+
+    sfx.breakBlock(0.8);
+    this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [220, 220, 230], 12, 2.5);
+    this.pushBanner(t('salvaged'), parts.join(', '), '#93c95d');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
   }
 
   /** sell the entire stack of a resource to the trader for score */
@@ -5959,11 +6249,14 @@ export class Engine {
   }
 
   private syncHotbar(force: boolean) {
-    // sparse 10-slot bar: blocks & resources vanish when they run out,
-    // tools stay (ownership lives in the inventory), the HAND is permanent
+    // sparse 10-slot bar: blocks, tools & gear vanish when they are no longer owned;
+    // the HAND is permanent
     for (let i = 0; i < this.hotbar.length; i++) {
       const id = this.hotbar[i];
-      if (id !== undefined && id !== HAND && id < 200 && (this.inventory.get(id) ?? 0) <= 0) {
+      if (id === undefined || id === HAND) continue;
+      if (isGearHotbarId(id)) {
+        if (!this.bagItems.some((b) => b.hid === id)) this.hotbar[i] = undefined;
+      } else if ((this.inventory.get(id) ?? 0) <= 0) {
         this.hotbar[i] = undefined;
       }
     }
@@ -6034,7 +6327,9 @@ export class Engine {
       // sparse hotbar: pad to 10 fixed slots, empty holes become null
       hotbar: Array.from({ length: 10 }, (_, i) => {
         const id = this.hotbar[i];
-        return id === undefined ? null : { id, count: this.inventory.get(id) ?? 0 };
+        if (id === undefined) return null;
+        if (isGearHotbarId(id)) return { id, count: 1 };
+        return { id, count: this.inventory.get(id) ?? 0 };
       }),
       selected: this.selected,
       target: t && t.id !== AIR ? { id: t.id, name: blockName(t.id, BLOCKS[t.id].name) } : null,
@@ -6062,6 +6357,7 @@ export class Engine {
       invTab: this.invTab,
       tradeNear: this.phase === 'playing' || this.inventoryOpen ? this.traderNear() !== null : false,
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,
+      workbenchNear: this.phase === 'playing' || this.inventoryOpen ? this.workbenchNear() : false,
       sandbox: this.sandbox,
       inventoryOpen: this.inventoryOpen,
       craftHint: this.craftHint(),
