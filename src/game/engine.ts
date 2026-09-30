@@ -614,12 +614,12 @@ export class Engine {
       new THREE.MeshBasicMaterial({ color: 0xffd24a, fog: false, transparent: true, opacity: 0.98, depthWrite: false, side: THREE.DoubleSide }),
     );
     const sunHalo = new THREE.Mesh(
-      new THREE.CircleGeometry(52, 40),
+      new THREE.CircleGeometry(46, 40),
       new THREE.MeshBasicMaterial({
         color: 0xffd36a,
         fog: false,
         transparent: true,
-        opacity: 0.24,
+        opacity: 0.18,
         depthWrite: false,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
@@ -635,12 +635,12 @@ export class Engine {
     // a proper round moon: soft halo + bright disc + a few dark craters
     const moon = new THREE.Group();
     const halo = new THREE.Mesh(
-      new THREE.CircleGeometry(16, 32),
-      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.CircleGeometry(11, 32),
+      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide }),
     );
     const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(10, 32),
-      new THREE.MeshBasicMaterial({ color: 0xe8eeff, fog: false, transparent: true, opacity: 0.96, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.CircleGeometry(8, 32),
+      new THREE.MeshBasicMaterial({ color: 0xd6def4, fog: false, transparent: true, opacity: 0.66, depthWrite: false, side: THREE.DoubleSide }),
     );
     disc.position.z = 0.5;
     moon.add(halo);
@@ -1198,7 +1198,7 @@ export class Engine {
     this.fx.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;';
     this.sunGlare = document.createElement('div');
     this.sunGlare.style.cssText =
-      'position:absolute;inset:-12%;pointer-events:none;opacity:0;transition:opacity 80ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,218,92,.22) 0%, rgba(255,188,55,.11) 10%, rgba(255,160,28,.035) 24%, rgba(255,190,30,0) 42%);';
+      'position:absolute;inset:-14%;pointer-events:none;opacity:0;transition:opacity 70ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,255,235,.82) 0%, rgba(255,224,90,.36) 7%, rgba(255,178,42,.12) 19%, rgba(255,190,30,0) 38%),linear-gradient(90deg, rgba(255,230,110,0) 0%, rgba(255,230,110,.24) 48%, rgba(255,248,196,.36) 50%, rgba(255,230,110,.24) 52%, rgba(255,230,110,0) 100%),linear-gradient(0deg, rgba(255,230,110,0) 0%, rgba(255,230,110,.11) 49%, rgba(255,248,196,.22) 50%, rgba(255,230,110,.11) 51%, rgba(255,230,110,0) 100%);';
     this.fx.appendChild(this.sunGlare);
     this.container.appendChild(this.fx);
     for (let i = 0; i < 16; i++) {
@@ -3787,7 +3787,7 @@ export class Engine {
   }
 
   // ================= TURTLE/PENGUIN EGGS, BEES, PREDATION =================
-  private birdNests: Array<{ x: number; y: number; z: number; kind: 'bird' | 'chicken'; t: number }> = [];
+  private birdNests: Array<{ x: number; y: number; z: number; kind: 'bird' | 'chicken'; t: number; brooding?: boolean }> = [];
   private birdNestTimer = 10;
   private turtleEggs: Array<{
     x: number;
@@ -3890,7 +3890,7 @@ export class Engine {
       this.birdNestTimer = 10 + Math.random() * 6;
       if (this.daylight > 0.35 && this.birdNests.length < 6) {
         for (const parent of this.mobSys.mobs) {
-          if (!parent.alive || parent.grow > 0 || !parent.onGround ||
+          if (!parent.alive || parent.grow > 0 || parent.task === 6 || !parent.onGround ||
             (parent.id !== 'bird' && parent.id !== 'chicken') ||
             Math.hypot(parent.x - this.pos.x, parent.z - this.pos.z) > 42) continue;
           const x = Math.floor(parent.x), z = Math.floor(parent.z);
@@ -3915,7 +3915,17 @@ export class Engine {
           }
           const kind = parent.id;
           this.world.set(x, y, z, kind === 'bird' ? BIRD_NEST : CHICKEN_NEST);
-          this.birdNests.push({ x, y, z, kind, t: 32 + Math.random() * 18 });
+          this.birdNests.push({ x, y, z, kind, t: 32 + Math.random() * 18, brooding: true });
+          // Parent settles onto the nest; the hatch timer only runs while a
+          // matching adult is actually brooding nearby.
+          parent.task = 6;
+          parent.taskX = x + 0.5;
+          parent.taskY = y;
+          parent.taskZ = z + 0.5;
+          parent.taskT = 999;
+          parent.tx = x + 0.5;
+          parent.tz = z + 0.5;
+          parent.think = 2;
           this.markDirtyAt(x, z);
           this.burst(x + 0.5, y + 0.3, z + 0.5, kind === 'bird' ? [100, 69, 42] : [211, 177, 92], 4, 0.8);
           break;
@@ -3931,16 +3941,55 @@ export class Engine {
         if (this.world.get(nest.x, nest.y, nest.z) === expected) {
           this.world.set(nest.x, nest.y, nest.z, AIR); this.markDirtyAt(nest.x, nest.z);
         }
+        for (const parent of this.mobSys.mobs) {
+          if (parent.alive && parent.id === nest.kind && parent.task === 6 &&
+              Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5)) < 2.5) {
+            parent.task = 0; parent.think = 0.5;
+          }
+        }
         this.birdNests.splice(i, 1);
         continue;
       }
       // Don't spawn chicks far outside the active wildlife area.
       if (Math.hypot(nest.x - this.pos.x, nest.z - this.pos.z) > 48) continue;
+      nest.brooding = this.mobSys.mobs.some((parent) =>
+        parent.alive && parent.id === nest.kind && parent.grow <= 0 && parent.task === 6 &&
+        Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5)) < 1.45 &&
+        Math.abs(parent.y - nest.y) < 1.4,
+      );
+      if (!nest.brooding) {
+        let closest: Mob | null = null;
+        let best = 10;
+        for (const parent of this.mobSys.mobs) {
+          if (!parent.alive || parent.id !== nest.kind || parent.grow > 0 || parent.task === 6) continue;
+          const d = Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5));
+          if (d < best && Math.abs(parent.y - nest.y) < 4) { best = d; closest = parent; }
+        }
+        if (closest) {
+          closest.task = 6;
+          closest.taskX = nest.x + 0.5;
+          closest.taskY = nest.y;
+          closest.taskZ = nest.z + 0.5;
+          closest.taskT = 999;
+          closest.tx = closest.taskX;
+          closest.tz = closest.taskZ;
+          closest.think = 2;
+        }
+        continue; // eggs stay cold: no progress without a brooding parent
+      }
       nest.t -= dt;
       if (nest.t > 0 || this.mobSys.mobs.length >= this.mobSys.maxMobs - 2) continue;
       this.world.set(nest.x, nest.y, nest.z, AIR);
       this.markDirtyAt(nest.x, nest.z);
       this.birdNests.splice(i, 1);
+      for (const parent of this.mobSys.mobs) {
+        if (parent.alive && parent.id === nest.kind && parent.task === 6 &&
+            Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5)) < 2.5) {
+          parent.task = 0;
+          parent.think = 0.6;
+          parent.jumpCd = 1.2;
+        }
+      }
       for (let b = 0; b < 2; b++) {
         const baby = this.mobSys.spawn(nest.kind, nest.x + 0.35 + b * 0.3, nest.y + 0.05, nest.z + 0.5);
         if (baby) {
@@ -3969,9 +4018,10 @@ export class Engine {
         this.world.set(x, fy, z, AIR);
         this.birdNests = this.birdNests.filter((n) => n.x !== x || n.y !== fy || n.z !== z);
         this.turtleEggs = this.turtleEggs.filter((n) => n.x !== x || n.y !== fy || n.z !== z);
-        if (id === PENGUIN_EGG) for (const parent of this.mobSys.mobs) {
-          if (parent.id === 'penguin' && parent.task === 6 &&
-              Math.hypot(parent.x - x - 0.5, parent.z - z - 0.5) < 2) {
+        if (id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST) for (const parent of this.mobSys.mobs) {
+          const expectedParent = id === PENGUIN_EGG ? 'penguin' : id === BIRD_NEST ? 'bird' : 'chicken';
+          if (parent.id === expectedParent && parent.task === 6 &&
+              Math.hypot(parent.x - x - 0.5, parent.z - z - 0.5) < 2.5) {
             parent.task = 0;
             parent.think = 0;
           }
@@ -6656,7 +6706,8 @@ export class Engine {
       }
       this.pDummy.updateMatrix();
       this.pMesh.setMatrixAt(i, this.pDummy.matrix);
-      this.pColor.setRGB(p.r, p.g, p.b, THREE.SRGBColorSpace);
+      const nightWeatherDim = p.weather ? (0.2 + Math.min(1, this.daylight) * 0.72) : 1;
+      this.pColor.setRGB(p.r * nightWeatherDim, p.g * nightWeatherDim, p.b * nightWeatherDim, THREE.SRGBColorSpace);
       this.pMesh.setColorAt(i, this.pColor);
     }
     if (n > 0) {
@@ -6881,17 +6932,17 @@ export class Engine {
   }
 
   private updateSunGlare() {
-    // No white screen blob at night, dawn or dusk: glare is only a small daytime
-    // sun effect when the real sun is high enough and the player looks at it.
-    if (!this.sunGlare || this.daylight < 0.46 || this.sunDir.y < 0.22 || this.weatherIntensity > 0.55) {
+    // No white screen blob from the moon/dawn/dusk. The flare appears only in
+    // bright daytime and only when the crosshair is almost exactly on the sun.
+    if (!this.sunGlare || this.daylight < 0.72 || this.sunDir.y < 0.38 || this.weatherIntensity > 0.45) {
       if (this.sunGlare) this.sunGlare.style.opacity = '0';
       return;
     }
     const forward = new THREE.Vector3();
     this.camera.getWorldDirection(forward);
     const dot = forward.dot(this.sunDir);
-    const t2 = Math.max(0, Math.min(1, (dot - 0.972) / 0.028));
-    const glare = 0.38 * t2 * t2 * (3 - 2 * t2) * Math.min(1, (this.daylight - 0.42) / 0.58) * (1 - this.weatherIntensity);
+    const t2 = Math.max(0, Math.min(1, (dot - 0.991) / 0.009));
+    const glare = 0.72 * t2 * t2 * (3 - 2 * t2) * Math.min(1, (this.daylight - 0.68) / 0.32) * (1 - this.weatherIntensity);
     this.sunGlare.style.opacity = glare.toFixed(3);
   }
 

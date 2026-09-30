@@ -2100,16 +2100,17 @@ export class MobSystem {
           }
         }
 
-        // brooding penguins sit tight on the nest (engine releases them at hatch)
-        if (m.id === 'penguin' && m.task === 6) {
+        // Brooding birds sit tight on their eggs (engine releases them at hatch).
+        // Chickens still cannot fly; this only pins them gently to the nest.
+        if ((m.id === 'penguin' || m.id === 'bird' || m.id === 'chicken') && m.task === 6) {
           m.tx = m.taskX;
           m.tz = m.taskZ;
           m.think = 2;
           const nd = Math.hypot(m.x - m.taskX, m.z - m.taskZ);
           if (nd < 0.5) {
-            // settled: waddle in place, no wandering off
-            m.vx *= 0.5;
-            m.vz *= 0.5;
+            // settled: waddle/perch in place, no wandering off
+            m.vx *= 0.45;
+            m.vz *= 0.45;
           }
         }
 
@@ -2244,7 +2245,7 @@ export class MobSystem {
 
         // Birds can perch, hop on ground/canopy, then use explicit takeoff
         // and landing phases. Chickens are separate mobs and never enter this path.
-        if (m.id === 'bird') {
+        if (m.id === 'bird' && m.task !== 6) {
           const takingOff = m.task === 15;
           const flying = m.task === 9;
           const landing = m.task === 12;
