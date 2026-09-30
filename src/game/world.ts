@@ -4,10 +4,6 @@ import {
   DIRT,
   STONE,
   COBBLE,
-  COAL,
-  IRON,
-  GOLD,
-  DIAMOND,
   LOG,
   LEAVES,
   SAND,
@@ -37,7 +33,10 @@ import {
   BIRCH_LOG,
   BIRCH_LEAVES,
   APPLE_LEAVES,
-  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, SANDSTONE, isCutout, isFlower,
+  VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, SANDSTONE,
+  COAL_ORE, IRON_ORE, REDSTONE_ORE, GOLD_ORE, LAPIS_ORE, DIAMOND_ORE, EMERALD_ORE, QUARTZ_ORE,
+  COAL_BLOCK,
+  isCutout, isFlower,
 } from './blocks';
 import { isDesertMountainTransition, spawnDesertBiomeStructures } from './desertAssets';
 import { buildCliffsideCarvedTemple } from './desertLandmarks';
@@ -339,11 +338,17 @@ export class World {
           const nC = noise3(x * 0.22 + 44.7, y * 0.34 - 12, z * 0.22 - 33.1);
           const nD = noise3(x * 0.26 - 61.2, y * 0.4 + 19, z * 0.26 + 51.9);
           const nE = noise3(x * 0.31 + 97.3, y * 0.5 - 41, z * 0.31 - 77.7);
+          const nF = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
+          const nG = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
           if (nE > 0.74 && y < 7) chunk.blocks[cidx(lx, y, lz)] = NETHERITE_ORE;
-          else if (nD > 0.6 - depth * 0.24 && y < 12) chunk.blocks[cidx(lx, y, lz)] = DIAMOND;
-          else if (nC > 0.58 - depth * 0.16 && y < 17) chunk.blocks[cidx(lx, y, lz)] = GOLD;
-          else if (nB > 0.52 - depth * 0.1 && y < 26) chunk.blocks[cidx(lx, y, lz)] = IRON;
-          else if (nA > 0.46 && y < 34) chunk.blocks[cidx(lx, y, lz)] = COAL;
+          else if (nG > 0.65 - depth * 0.2 && y < 16) chunk.blocks[cidx(lx, y, lz)] = EMERALD_ORE;
+          else if (nD > 0.6 - depth * 0.24 && y < 12) chunk.blocks[cidx(lx, y, lz)] = DIAMOND_ORE;
+          else if (nF > 0.59 - depth * 0.15 && y < 19) chunk.blocks[cidx(lx, y, lz)] = LAPIS_ORE;
+          else if (nC > 0.58 - depth * 0.16 && y < 17) chunk.blocks[cidx(lx, y, lz)] = GOLD_ORE;
+          else if (nF < -0.56 + depth * 0.14 && y < 18) chunk.blocks[cidx(lx, y, lz)] = REDSTONE_ORE;
+          else if (nG < -0.57 + depth * 0.12 && y < 22) chunk.blocks[cidx(lx, y, lz)] = QUARTZ_ORE;
+          else if (nB > 0.52 - depth * 0.1 && y < 26) chunk.blocks[cidx(lx, y, lz)] = IRON_ORE;
+          else if (nA > 0.46 && y < 34) chunk.blocks[cidx(lx, y, lz)] = COAL_ORE;
         }
 
         const caveTop = biome === 'desert' ? h - 4 : h - 1;
@@ -588,7 +593,18 @@ export class World {
       if (this.biomeAt(x, z, h) === 'desert') continue;
       if (top !== GRASS && top !== STONE && top !== SAND) continue;
       const roll = rand();
-      const kind = roll < 0.6 ? COAL : roll < 0.9 ? IRON : GOLD;
+      const kind =
+        roll < 0.45
+          ? COAL_ORE
+          : roll < 0.72
+            ? IRON_ORE
+            : roll < 0.84
+              ? GOLD_ORE
+              : roll < 0.91
+                ? REDSTONE_ORE
+                : roll < 0.96
+                  ? LAPIS_ORE
+                  : QUARTZ_ORE;
       this.placeOreColumn(x, z, kind, 1 + Math.floor(rand() * 2));
       if (rand() < 0.5) this.placeOreColumn(x + (rand() < 0.5 ? 1 : -1), z + (rand() < 0.5 ? 1 : -1), kind, 1);
     }
@@ -601,7 +617,7 @@ export class World {
         const x = cx * CHUNK + 2 + Math.floor(rand() * 12);
         const z = cz * CHUNK + 2 + Math.floor(rand() * 12);
         if (this.biomeAt(x, z) === 'desert') continue;
-        this.placeOreColumn(x, z, i < 2 ? COAL : IRON, 1 + (i % 2));
+        this.placeOreColumn(x, z, i < 2 ? COAL_ORE : IRON_ORE, 1 + (i % 2));
       }
     }
 
@@ -1132,7 +1148,7 @@ export class World {
     if (rand() < 0.5) {
       const tx = x0 + w - 2;
       const tz = z0 + d - 2;
-      this.set(tx, y0 + 1, tz, rand() < 0.3 ? GOLD_BLOCK : COAL);
+      this.set(tx, y0 + 1, tz, rand() < 0.3 ? GOLD_BLOCK : COAL_BLOCK);
       // trap: a lava pocket lurks right under the treasure
       if (rand() < 0.55) {
         for (let dy = 1; dy <= 2; dy++) this.set(tx, y0 - dy, tz, AIR);
@@ -1179,7 +1195,7 @@ export class World {
     }
     this.set(x0 + 1, y0 + 1, z0 + 1, TORCH);
     // towers always hoard something worth guarding
-    this.set(x0 + 3, y0 + 1, z0 + 3, rand() < 0.5 ? GOLD_BLOCK : COAL);
+    this.set(x0 + 3, y0 + 1, z0 + 3, rand() < 0.5 ? GOLD_BLOCK : COAL_BLOCK);
     if (rand() < 0.5) {
       // trapped doorway: thin sand bridge over a lava pit just inside
       this.set(x0 + 2, y0, z0 + 1, SAND);

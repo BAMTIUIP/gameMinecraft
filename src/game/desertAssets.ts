@@ -6,10 +6,11 @@ import {
   CHISELED_SANDSTONE,
   CRAFTING_TABLE,
   DEAD_BUSH,
-  DIAMOND,
+  DIAMOND_BLOCK,
   DIRT,
   DOOR_WOOD,
   DRY_BLOOM,
+  EMERALD_BLOCK,
   FENCE_IRON,
   FENCE_STONE,
   FENCE_WOOD,
@@ -17,7 +18,6 @@ import {
   FLOWER_RED,
   FLOWER_YELLOW,
   GLASS,
-  GOLD,
   GOLD_BLOCK,
   GRASS,
   HAY_BALE,
@@ -1352,7 +1352,7 @@ function buildDesertTemple(world: World, x0: number, y0: number, z0: number, ran
       }
     }
     world.set(cx - 1, vy, cz, GOLD_BLOCK);
-    world.set(cx + 1, vy, cz, rand() < 0.65 ? DIAMOND : GOLD);
+    world.set(cx + 1, vy, cz, rand() < 0.65 ? DIAMOND_BLOCK : EMERALD_BLOCK);
     world.set(cx, vy, cz + 1, PEDESTAL_GOLD);
     world.set(cx, vy, cz - 1, TORCH);
   }

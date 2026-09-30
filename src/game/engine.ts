@@ -9,12 +9,27 @@ import {
   COBBLE,
   COOKED_MEAT,
   DIAMOND,
+  DIAMOND_BLOCK,
   DOOR_IRON,
   DOOR_WOOD,
   GLASS,
   IRON,
   DIRT,
   GOLD,
+  GOLD_BLOCK,
+  GOLD_ORE,
+  DIAMOND_ORE,
+  EMERALD_ORE,
+  COAL_BLOCK,
+  IRON_BLOCK,
+  REDSTONE_BLOCK,
+  LAPIS_BLOCK,
+  EMERALD_BLOCK,
+  QUARTZ_BLOCK,
+  REDSTONE,
+  LAPIS,
+  EMERALD,
+  QUARTZ,
   GRASS,
   LAVA,
   LEAVES,
@@ -2961,10 +2976,23 @@ export class Engine {
       }
     }
 
-    if (id === DIAMOND || id === GOLD) {
-      this.burst(x + 0.5, y + 0.5, z + 0.5, id === DIAMOND ? [120, 245, 235] : [255, 220, 90], 22, 4.4);
+    if (id === DIAMOND_ORE || id === GOLD_ORE || id === EMERALD_ORE || id === DIAMOND || id === GOLD) {
+      const isDia = id === DIAMOND_ORE || id === DIAMOND;
+      const isEm = id === EMERALD_ORE;
+      this.burst(
+        x + 0.5,
+        y + 0.5,
+        z + 0.5,
+        isDia ? [120, 245, 235] : isEm ? [60, 235, 110] : [255, 220, 90],
+        22,
+        4.4,
+      );
       this.addShake(0.6);
-      this.pushBanner(id === DIAMOND ? t('diamond') : t('gold'), `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`, id === DIAMOND ? '#5fe8dc' : '#f7d34b');
+      this.pushBanner(
+        isDia || isEm ? t('diamond') : t('gold'),
+        `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`,
+        isDia ? '#5fe8dc' : isEm ? '#2bd45e' : '#f7d34b',
+      );
     }
     this.syncHotbar(false);
     this.syncHud(true);
@@ -4668,6 +4696,53 @@ export class Engine {
         B(g, 0.07, 0.17, 0, 0.09, 0.04, 0.06, 0x56a832, 0, 0.3); // leaf
         break;
       }
+      case COAL: {
+        // 3D faceted coal lump
+        B(g, 0, 0, 0, 0.24, 0.22, 0.22, 0x1e2026);
+        B(g, 0.04, 0.08, 0.02, 0.16, 0.14, 0.16, 0x2c2e38);
+        B(g, -0.05, -0.04, 0.04, 0.14, 0.12, 0.14, 0x141519);
+        break;
+      }
+      case IRON:
+      case GOLD: {
+        // 3D beveled metallic ingot bar
+        const base = id === GOLD ? 0xeab324 : 0xc4c8d0;
+        const top = id === GOLD ? 0xfde047 : 0xeef0f4;
+        B(g, 0, -0.02, 0, 0.32, 0.10, 0.18, base);
+        B(g, 0, 0.04, 0, 0.26, 0.06, 0.13, top);
+        break;
+      }
+      case REDSTONE: {
+        // 3D glowing redstone dust mound
+        B(g, 0, -0.05, 0, 0.28, 0.10, 0.28, 0x9e0e0e);
+        B(g, 0, 0.03, 0, 0.20, 0.10, 0.20, 0xd91818);
+        B(g, 0, 0.10, 0, 0.10, 0.08, 0.10, 0xff3b30);
+        break;
+      }
+      case LAPIS: {
+        // 3D deep blue lapis lazuli gem
+        B(g, 0, 0, 0, 0.22, 0.26, 0.12, 0x2448ba, 0, 0.25);
+        B(g, 0.02, 0.04, 0.02, 0.14, 0.16, 0.10, 0x5282ff, 0, 0.25);
+        break;
+      }
+      case DIAMOND: {
+        // 3D faceted cyan diamond gem
+        B(g, 0, 0, 0, 0.24, 0.28, 0.10, 0x32cfd4);
+        B(g, 0, 0.04, 0, 0.16, 0.18, 0.12, 0x7af8fa);
+        break;
+      }
+      case EMERALD: {
+        // 3D octagonal green emerald gem
+        B(g, 0, 0, 0, 0.22, 0.28, 0.10, 0x19b549);
+        B(g, 0, 0, 0, 0.14, 0.20, 0.12, 0x5cf28b);
+        break;
+      }
+      case QUARTZ: {
+        // 3D jagged white nether quartz crystal shards
+        B(g, -0.04, 0, 0, 0.12, 0.28, 0.12, 0xede7e0, 0, 0.25);
+        B(g, 0.06, -0.03, 0.03, 0.10, 0.22, 0.10, 0xffffff, 0, -0.3);
+        break;
+      }
       default: {
         if (isPickTool(id)) {
           const tierIdx = id - PICK_TOOLS[0];
@@ -4979,14 +5054,14 @@ export class Engine {
     this.score += gained;
     this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
     this.addToHotbar(d.id);
-    if (d.id >= 5 && d.id <= 8) this.oresFound++;
+    if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound++;
     if (def.timeBonus > 0) {
       this.timeLeft = Math.min(this.runTime + 40, this.timeLeft + def.timeBonus);
       this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}${t('secShort')}`, '#7ee7a0', true);
     }
-    if (d.id === DIAMOND) this.health = Math.min(100, this.health + 16);
-    else if (d.id === GOLD) this.health = Math.min(100, this.health + 8);
-    else if (d.id === IRON) this.health = Math.min(100, this.health + 4);
+    if (d.id === DIAMOND || d.id === EMERALD) this.health = Math.min(100, this.health + 16);
+    else if (d.id === GOLD || d.id === LAPIS || d.id === QUARTZ) this.health = Math.min(100, this.health + 8);
+    else if (d.id === IRON || d.id === REDSTONE) this.health = Math.min(100, this.health + 4);
     else if (d.id === COAL) this.health = Math.min(100, this.health + 2);
 
     this.popup(d.x, d.y + 0.3, d.z, `+${gained}`, gained >= 200 ? '#f7d34b' : gained >= 40 ? '#8fe3ff' : '#ffffff', gained >= 100);
@@ -5682,8 +5757,20 @@ export class Engine {
   private static SELL_PRICES: Array<[number, number]> = [
     [COAL, 40],
     [IRON, 100],
+    [REDSTONE, 140],
     [GOLD, 220],
+    [LAPIS, 170],
     [DIAMOND, 550],
+    [EMERALD, 650],
+    [QUARTZ, 130],
+    [COAL_BLOCK, 160],
+    [IRON_BLOCK, 400],
+    [REDSTONE_BLOCK, 560],
+    [GOLD_BLOCK, 880],
+    [LAPIS_BLOCK, 680],
+    [DIAMOND_BLOCK, 2200],
+    [EMERALD_BLOCK, 2600],
+    [QUARTZ_BLOCK, 520],
     [LOG, 12],
     [RAW_MEAT, 18],
     [COOKED_MEAT, 45],

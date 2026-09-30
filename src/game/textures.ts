@@ -1,13 +1,28 @@
 import * as THREE from 'three';
 import { mulberry32 } from './noise';
-import { T, BLOCKS, TORCH, BED, DOOR_WOOD, DOOR_IRON } from './blocks';
+import {
+  T,
+  BLOCKS,
+  TORCH,
+  BED,
+  DOOR_WOOD,
+  DOOR_IRON,
+  COAL,
+  IRON,
+  GOLD,
+  DIAMOND,
+  REDSTONE,
+  LAPIS,
+  EMERALD,
+  QUARTZ,
+} from './blocks';
 
 export const TILE = 16;
 /** gutter of replicated edge pixels on every side — stops mipmap bleeding between tiles */
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 25; // 100 tiles
+export const ATLAS_ROWS = 30; // 120 tiles
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -1412,6 +1427,190 @@ function drawTile(ctx: Ctx, index: number) {
       px(ctx, ox, oy, 11, 1, 3, 2, '#686e78');
       break;
     }
+    // ---- New Mineral Ores (Row 1 of reference table) ----
+    case T.redstoneOre: {
+      oreTile(ctx, ox, oy, 401, ['#8f0c0c', '#c91616', '#ff362b', '#ff6459']);
+      break;
+    }
+    case T.lapisOre: {
+      oreTile(ctx, ox, oy, 402, ['#14287a', '#2447ba', '#3e6df2', '#6f98ff']);
+      break;
+    }
+    case T.emeraldOre: {
+      speckle(ctx, ox, oy, '#83838a', 403, 14);
+      // Distinct 2x2 emerald crystal spots in stone (matching column 7 row 1)
+      const spots: Array<[number, number]> = [
+        [3, 2],
+        [11, 3],
+        [6, 6],
+        [2, 10],
+        [12, 9],
+        [7, 12],
+      ];
+      for (const [sx, sy] of spots) {
+        px(ctx, ox, oy, sx, sy, 2, 2, '#0d6e2b');
+        px(ctx, ox, oy, sx, sy, 1, 1, '#58f289');
+        px(ctx, ox, oy, sx + 1, sy, 1, 1, '#1ed458');
+      }
+      break;
+    }
+    case T.quartzOre: {
+      // Crimson-burgundy Netherrack stone with jagged white quartz veins (matching column 8 row 1)
+      speckle(ctx, ox, oy, '#682626', 404, 22);
+      for (let i = 0; i < 24; i++) {
+        px(
+          ctx,
+          ox,
+          oy,
+          Math.floor(rand() * 16),
+          Math.floor(rand() * 16),
+          1,
+          1,
+          rand() < 0.5 ? '#481515' : '#853535',
+        );
+      }
+      const veins: Array<[number, number, number, number]> = [
+        [2, 2, 4, 2],
+        [9, 3, 4, 2],
+        [4, 7, 5, 2],
+        [10, 8, 4, 2],
+        [2, 12, 5, 2],
+        [9, 13, 4, 2],
+      ];
+      for (const [vx, vy, vw, vh] of veins) {
+        px(ctx, ox, oy, vx, vy, vw, vh, '#d6cbc0');
+        px(ctx, ox, oy, vx + 1, vy, Math.max(1, vw - 2), 1, '#ffffff');
+        px(ctx, ox, oy, vx, vy + vh - 1, Math.max(1, vw - 1), 1, '#a8988a');
+      }
+      break;
+    }
+    // ---- Crafted Mineral Blocks (Row 3 of reference table) ----
+    case T.coalBlock: {
+      speckle(ctx, ox, oy, '#18181c', 405, 10);
+      ctx.fillStyle = '#0f0f12';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      for (const [bx, by] of [[2, 2], [8, 3], [3, 9], [9, 10]]) {
+        px(ctx, ox, oy, bx, by, 4, 4, '#24252b');
+        px(ctx, ox, oy, bx + 1, by + 1, 2, 2, '#2f3138');
+      }
+      break;
+    }
+    case T.ironBlock: {
+      // Brushed silver-white iron block with horizontal metallic lines & border bevel (column 2 row 3)
+      ctx.fillStyle = '#dcdedf';
+      ctx.fillRect(ox, oy, 16, 16);
+      for (let y = 1; y < 15; y++) {
+        ctx.fillStyle = y % 3 === 0 ? '#c6c9cc' : y % 3 === 1 ? '#eceeef' : '#dcdedf';
+        ctx.fillRect(ox + 1, oy + y, 14, 1);
+      }
+      // Outer bevel frame
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillStyle = '#a6aaae';
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      break;
+    }
+    case T.redstoneBlock: {
+      // Deep glowing crimson-red block with ruby inner facets (column 3 row 3)
+      speckle(ctx, ox, oy, '#af1812', 407, 14);
+      ctx.fillStyle = '#780b07';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      ctx.fillStyle = '#d8231b';
+      ctx.fillRect(ox + 2, oy + 2, 12, 12);
+      ctx.fillStyle = '#b51710';
+      ctx.fillRect(ox + 4, oy + 4, 8, 8);
+      ctx.fillStyle = '#ff3b30';
+      ctx.fillRect(ox + 2, oy + 2, 12, 1);
+      ctx.fillRect(ox + 2, oy + 2, 1, 12);
+      break;
+    }
+    case T.lapisBlock: {
+      // Rich ultramarine blue stone block with azure/gold flecks (column 5 row 3)
+      speckle(ctx, ox, oy, '#2145b8', 408, 22);
+      ctx.fillStyle = '#152d80';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      for (let i = 0; i < 14; i++) {
+        px(
+          ctx,
+          ox,
+          oy,
+          1 + Math.floor(rand() * 14),
+          1 + Math.floor(rand() * 14),
+          2,
+          1,
+          rand() < 0.25 ? '#d4b85a' : '#4a78f5',
+        );
+      }
+      break;
+    }
+    case T.emeraldBlock: {
+      // Vivid emerald green beveled square-faceted gem block (column 7 row 3)
+      ctx.fillStyle = '#1ec954';
+      ctx.fillRect(ox, oy, 16, 16);
+      // Outer bright & dark bevel
+      ctx.fillStyle = '#6cf596';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillStyle = '#0d7a2f';
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      // Inner concentric gem table
+      ctx.fillStyle = '#159e3f';
+      ctx.fillRect(ox + 3, oy + 3, 10, 10);
+      ctx.fillStyle = '#2ee066';
+      ctx.fillRect(ox + 4, oy + 4, 8, 8);
+      ctx.fillStyle = '#7aff9e';
+      ctx.fillRect(ox + 4, oy + 4, 8, 1);
+      ctx.fillRect(ox + 4, oy + 4, 1, 8);
+      break;
+    }
+    case T.quartzBlock: {
+      // Smooth pearlescent marble-white quartz block (column 8 row 3)
+      speckle(ctx, ox, oy, '#ede8e1', 410, 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ox, oy, 16, 1);
+      ctx.fillRect(ox, oy, 1, 16);
+      ctx.fillStyle = '#cfc7bc';
+      ctx.fillRect(ox + 15, oy, 1, 16);
+      ctx.fillRect(ox, oy + 15, 16, 1);
+      break;
+    }
+    // ---- Mineral Item Tiles (Row 2 fallback in atlas) ----
+    case T.coalItem:
+      speckle(ctx, ox, oy, '#222328', 411, 14);
+      break;
+    case T.ironIngot:
+      speckle(ctx, ox, oy, '#d6d9de', 412, 12);
+      break;
+    case T.redstone:
+      speckle(ctx, ox, oy, '#d41919', 413, 16);
+      break;
+    case T.goldIngot:
+      speckle(ctx, ox, oy, '#f5c428', 414, 14);
+      break;
+    case T.lapis:
+      speckle(ctx, ox, oy, '#264ecc', 415, 16);
+      break;
+    case T.diamondGem:
+      speckle(ctx, ox, oy, '#45e6e8', 416, 14);
+      break;
+    case T.emerald:
+      speckle(ctx, ox, oy, '#1ed458', 417, 14);
+      break;
+    case T.quartz:
+      speckle(ctx, ox, oy, '#f0eae2', 418, 10);
+      break;
   }
 }
 
@@ -1646,6 +1845,116 @@ export function getBlockIcon(id: number): string {
     fill(30, 18, 14, 10, '#e2e4ec');
     fill(32, 14, 11, 7, '#f7f8fc');
     fill(32, 19, 11, 2, '#cfd3de');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
+  // ---- 8 Mineral Items (Row 2 of reference table: pixel-art sprites on 16x16 grid scaled 3x to 48x48) ----
+  const p = (gx: number, gy: number, gw: number, gh: number, col: string) => {
+    ctx.fillStyle = col;
+    ctx.fillRect(gx * 3, gy * 3, gw * 3, gh * 3);
+  };
+  if (id === COAL) {
+    // 1. Coal Lump (Уголь)
+    p(5, 2, 5, 12, '#101014');
+    p(3, 4, 10, 9, '#101014');
+    p(2, 6, 12, 6, '#101014');
+    p(5, 3, 4, 10, '#22232a');
+    p(4, 5, 8, 7, '#282a32');
+    p(3, 7, 10, 4, '#1d1e24');
+    p(5, 4, 3, 3, '#3c3f4a');
+    p(6, 5, 2, 2, '#505462');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === IRON || id === GOLD) {
+    // 2 & 4. Iron Ingot (Железный слиток) & Gold Ingot (Золотой слиток)
+    const isGold = id === GOLD;
+    const outline = isGold ? '#593a08' : '#3d3e42';
+    const dark = isGold ? '#b87d12' : '#858890';
+    const mid = isGold ? '#eab324' : '#c2c6ce';
+    const top = isGold ? '#fde047' : '#e4e7ec';
+    const shine = isGold ? '#fef9c3' : '#ffffff';
+    // Tilted 3D ingot bar
+    p(2, 6, 12, 6, outline);
+    p(4, 4, 9, 3, outline);
+    p(1, 7, 12, 4, dark);
+    p(3, 5, 10, 4, mid);
+    p(4, 5, 8, 2, top);
+    p(5, 5, 4, 1, shine);
+    p(3, 8, 8, 2, mid);
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === REDSTONE) {
+    // 3. Redstone Dust Pile (Красная пыль / Красный камень)
+    p(6, 3, 4, 2, '#4a0404');
+    p(4, 5, 8, 3, '#4a0404');
+    p(2, 8, 12, 5, '#4a0404');
+    p(6, 4, 4, 2, '#b81111');
+    p(5, 6, 6, 3, '#d91818');
+    p(3, 9, 10, 3, '#9e0d0d');
+    p(5, 8, 6, 3, '#ee2222');
+    p(7, 5, 1, 1, '#ff5c4d');
+    p(5, 9, 2, 1, '#ff5c4d');
+    p(9, 10, 1, 1, '#ff5c4d');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === LAPIS) {
+    // 5. Lapis Lazuli (Лазурит)
+    p(6, 2, 6, 3, '#0e1d5c');
+    p(4, 4, 9, 5, '#0e1d5c');
+    p(2, 7, 10, 6, '#0e1d5c');
+    p(6, 3, 5, 3, '#2548ba');
+    p(5, 5, 7, 4, '#325ee0');
+    p(3, 8, 8, 4, '#1f3ea3');
+    p(6, 4, 3, 2, '#638eff');
+    p(5, 7, 3, 2, '#4c78f5');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === DIAMOND) {
+    // 6. Diamond Gem (Алмаз)
+    p(5, 2, 6, 2, '#0f484c');
+    p(3, 4, 10, 8, '#0f484c');
+    p(5, 12, 6, 2, '#0f484c');
+    p(5, 3, 6, 2, '#6bf3f5');
+    p(4, 5, 8, 6, '#32cfd4');
+    p(5, 11, 6, 2, '#1d8c91');
+    p(5, 5, 6, 4, '#7af8fa');
+    p(6, 4, 3, 2, '#e6ffff');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === EMERALD) {
+    // 7. Emerald Octagonal Gem (Изумруд)
+    p(5, 2, 6, 12, '#07471c');
+    p(3, 4, 10, 8, '#07471c');
+    p(5, 3, 6, 10, '#19b549');
+    p(4, 4, 8, 8, '#26d65c');
+    p(6, 5, 4, 6, '#5cf28b');
+    p(6, 4, 2, 2, '#dcffe6');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === QUARTZ) {
+    // 8. Nether Quartz Crystal (Кварц)
+    p(7, 2, 3, 6, '#6e6259');
+    p(4, 5, 9, 6, '#6e6259');
+    p(3, 9, 10, 4, '#6e6259');
+    p(8, 3, 2, 5, '#f2ede7');
+    p(5, 6, 7, 4, '#e6dfd8');
+    p(4, 9, 8, 3, '#c7bdb2');
+    p(8, 3, 1, 3, '#ffffff');
+    p(6, 6, 2, 2, '#ffffff');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;

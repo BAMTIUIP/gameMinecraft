@@ -45,6 +45,18 @@ import {
   CRAFTING_TABLE,
   NETHERITE,
   MUSHROOM,
+  COAL_BLOCK,
+  IRON_BLOCK,
+  REDSTONE_BLOCK,
+  LAPIS_BLOCK,
+  EMERALD_BLOCK,
+  QUARTZ_BLOCK,
+  REDSTONE,
+  LAPIS,
+  EMERALD,
+  QUARTZ,
+  SANDSTONE,
+  CHISELED_SANDSTONE,
 } from './blocks';
 import type { Item, Material, Slot } from './items';
 
@@ -685,7 +697,40 @@ export const RECIPES: Recipe[] = [
   gear('hands_diamond', 'DIAMOND GAUNTLETS', 'hands', 'diamond', [[DIAMOND, 3]], '#5fe8dc'),
   gear('shield_diamond', 'DIAMOND SHIELD', 'offhand', 'diamond', [[DIAMOND, 3], [IRON, 2]], '#5fe8dc'),
 
-  // ---------------- trophies ----------------
+  // ---------------- mineral blocks (Row 3 of reference table) ----------------
+  {
+    key: 'coal_block',
+    name: 'COAL BLOCK',
+    desc: 'Compacted coal block — fuel & dark building stone',
+    inputs: [[COAL, 4]],
+    out: [COAL_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#4a4c58',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'iron_block',
+    name: 'IRON BLOCK',
+    desc: 'Solid forged iron block — heavy metallic plating',
+    inputs: [[IRON, 4]],
+    out: [IRON_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#dcdedf',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'redstone_block',
+    name: 'REDSTONE BLOCK',
+    desc: 'Glowing block of compacted redstone dust',
+    inputs: [[REDSTONE, 4]],
+    out: [REDSTONE_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#e0241a',
+    hotkey: '',
+    group: 'blocks',
+  },
   {
     key: 'gold_block',
     name: 'GOLD BLOCK',
@@ -698,6 +743,17 @@ export const RECIPES: Recipe[] = [
     group: 'blocks',
   },
   {
+    key: 'lapis_block',
+    name: 'LAPIS BLOCK',
+    desc: 'Deep royal ultramarine stone block crafted from lapis lazuli',
+    inputs: [[LAPIS, 4]],
+    out: [LAPIS_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#3e6df2',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
     key: 'diamond_block',
     name: 'DIAMOND BLOCK',
     desc: 'The trophy block. Mine it back for 1400.',
@@ -705,6 +761,50 @@ export const RECIPES: Recipe[] = [
     out: [DIAMOND_BLOCK, 1],
     kind: 'blocks',
     accent: '#5fe8dc',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'emerald_block',
+    name: 'EMERALD BLOCK',
+    desc: 'Precious faceted emerald block — gleaming treasure',
+    inputs: [[EMERALD, 4]],
+    out: [EMERALD_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#2bd45e',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'quartz_block',
+    name: 'QUARTZ BLOCK',
+    desc: 'Smooth marble-white block crafted from 4 nether quartz',
+    inputs: [[QUARTZ, 4]],
+    out: [QUARTZ_BLOCK, 1],
+    kind: 'blocks',
+    accent: '#f0ebe3',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'sandstone_block',
+    name: 'SANDSTONE',
+    desc: 'Compress 4 sand into solid desert sandstone',
+    inputs: [[SAND, 4]],
+    out: [SANDSTONE, 1],
+    kind: 'blocks',
+    accent: '#ded09c',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
+    key: 'chiseled_sandstone_block',
+    name: 'CHISELED SANDSTONE',
+    desc: 'Carved hieroglyphic sandstone block',
+    inputs: [[SANDSTONE, 2]],
+    out: [CHISELED_SANDSTONE, 2],
+    kind: 'blocks',
+    accent: '#e4d6a2',
     hotkey: '',
     group: 'blocks',
   },
@@ -804,10 +904,26 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
       return { inputsUsed: 1, outputs: [[LOG, 1], [COAL, 1]] };
     case WOOL:
       return { inputsUsed: 1, outputs: [[WEB, 2]] };
+    case COAL_BLOCK:
+      return { inputsUsed: 1, outputs: [[COAL, 2]] };
+    case IRON_BLOCK:
+      return { inputsUsed: 1, outputs: [[IRON, 2]] };
+    case REDSTONE_BLOCK:
+      return { inputsUsed: 1, outputs: [[REDSTONE, 2]] };
     case GOLD_BLOCK:
       return { inputsUsed: 1, outputs: [[GOLD, 2]] };
+    case LAPIS_BLOCK:
+      return { inputsUsed: 1, outputs: [[LAPIS, 2]] };
     case DIAMOND_BLOCK:
       return { inputsUsed: 1, outputs: [[DIAMOND, 2]] };
+    case EMERALD_BLOCK:
+      return { inputsUsed: 1, outputs: [[EMERALD, 2]] };
+    case QUARTZ_BLOCK:
+      return { inputsUsed: 1, outputs: [[QUARTZ, 2]] };
+    case SANDSTONE:
+      return { inputsUsed: 1, outputs: [[SAND, 2]] };
+    case CHISELED_SANDSTONE:
+      return { inputsUsed: 1, outputs: [[SANDSTONE, 1]] };
     case DOOR_WOOD:
       return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
     case DOOR_IRON:

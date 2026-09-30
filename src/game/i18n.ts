@@ -1221,6 +1221,14 @@ const RECIPES_RU: Record<string, [string, string]> = {
   shield_diamond: ['АЛМАЗНЫЙ ЩИТ', 'ЩИТ · алмазные пластины'],
   gold_block: ['ЗОЛОТОЙ БЛОК', 'Спрессованное богатство — памятник забегу'],
   diamond_block: ['АЛМАЗНЫЙ БЛОК', 'Трофейный блок. Добудьте обратно за 1400.'],
+  coal_block: ['УГОЛЬНЫЙ БЛОК', 'Спрессованный угольный блок из 4 углей'],
+  iron_block: ['ЖЕЛЕЗНЫЙ БЛОК', 'Кованый железный блок из 4 железных слитков'],
+  redstone_block: ['БЛОК КРАСНОГО КАМНЯ', 'Светящийся блок из 4 красной пыли'],
+  lapis_block: ['ЛАЗУРИТОВЫЙ БЛОК', 'Глубокий синий блок из 4 лазуритов'],
+  emerald_block: ['ИЗУМРУДНЫЙ БЛОК', 'Драгоценный гранёный блок из 4 изумрудов'],
+  quartz_block: ['КВАРЦЕВЫЙ БЛОК', 'Гладкий белоснежный блок из 4 кристаллов кварца'],
+  sandstone_block: ['ПЕСЧАНИК', 'Спрессовать 4 блока песка в прочный песчаник'],
+  chiseled_sandstone_block: ['РЕЗНОЙ ПЕСЧАНИК', 'Украшенный иероглифами песчаник'],
   anvil: ['НАКОВАЛЬНЯ', 'Поставьте и нажмите E — улучшение и укрепление снаряжения'],
   eat_honey: ['СЪЕСТЬ МЁД', 'Сладкая энергия из улья — +15 хп'],
 };
@@ -1282,6 +1290,14 @@ const RECIPES_FR: Record<string, [string, string]> = {
   shield_diamond: ['BOUCLIER EN DIAMANT', 'BOUCLIER · plaques de diamant'],
   gold_block: ["BLOC D'OR", 'Richesse compressée — un monument'],
   diamond_block: ['BLOC DE DIAMANT', 'Le bloc trophée. Reminez-le pour 1400.'],
+  coal_block: ['BLOC DE CHARBON', 'Bloc de charbon compacté'],
+  iron_block: ['BLOC DE FER', 'Bloc de fer forgé massif'],
+  redstone_block: ['BLOC DE REDSTONE', 'Bloc lumineux de poudre de redstone'],
+  lapis_block: ['BLOC DE LAPIS-LAZULI', 'Bloc bleu outremer de lapis-lazuli'],
+  emerald_block: ["BLOC D'ÉMERAUDE", "Bloc précieux d'émeraude facettée"],
+  quartz_block: ['BLOC DE QUARTZ', 'Bloc blanc lisse en quartz du Nether'],
+  sandstone_block: ['GRÈS', 'Compresser 4 sables en grès'],
+  chiseled_sandstone_block: ['GRÈS SCULPTÉ', 'Grès orné de hiéroglyphes'],
   anvil: ['ENCLUME', 'Posez-la et appuyez sur E — amélioration et renforcement'],
   eat_honey: ['MANGER DU MIEL', "Énergie sucrée de la ruche — rend 15 PV"],
 };
@@ -1345,6 +1361,14 @@ const RECIPES_DE: Record<string, [string, string]> = {
   shield_diamond: ['DIAMANTSCHILD', 'SCHILD · Diamantplatten'],
   gold_block: ['GOLDBLOCK', 'Komprimierter Reichtum — ein Denkmal'],
   diamond_block: ['DIAMANTBLOCK', 'Der Trophäenblock. Zurückabbauen für 1400.'],
+  coal_block: ['KOHLEBLOCK', 'Komprimierter Kohleblock'],
+  iron_block: ['EISENBLOCK', 'Massiver geschmiedeter Eisenblock'],
+  redstone_block: ['REDSTONE-BLOCK', 'Leuchtender Block aus Redstone-Staub'],
+  lapis_block: ['LAPISLAZULIBLOCK', 'Tiefblauer Block aus Lapislazuli'],
+  emerald_block: ['SMARAGDBLOCK', 'Kostbarer facettierter Smaragdblock'],
+  quartz_block: ['QUARZBLOCK', 'Glatter weißer Block aus Netherquarz'],
+  sandstone_block: ['SANDSTEIN', '4 Sand zu festem Sandstein pressen'],
+  chiseled_sandstone_block: ['GEMEISSELTER SANDSTEIN', 'Verzierter Sandsteinblock'],
 };
 
 /** localized recipe name + description; falls back to the English strings */
@@ -1354,8 +1378,8 @@ export function recipeText(key: string, fallbackName: string, fallbackDesc: stri
 }
 
 const BLOCKS_RU: Record<number, string> = {
-  1: 'Трава', 2: 'Земля', 3: 'Камень', 4: 'Булыжник', 5: 'Угольная руда', 6: 'Железная руда',
-  7: 'Золотая руда', 8: 'Алмазная руда', 9: 'Дубовое бревно', 10: 'Листва', 11: 'Песок',
+  1: 'Трава', 2: 'Земля', 3: 'Камень', 4: 'Булыжник', 5: 'Уголь', 6: 'Железный слиток',
+  7: 'Золотой слиток', 8: 'Алмаз', 9: 'Дубовое бревно', 10: 'Листва', 11: 'Песок',
   12: 'Доски', 13: 'Бедрок', 14: 'Лава', 15: 'Фонарь', 16: 'Золотой блок', 17: 'Алмазный блок',
   18: 'Окно', 19: 'Деревянная дверь', 20: 'Железная дверь', 21: 'Деревянный забор',
   22: 'Каменный забор', 23: 'Железные прутья', 24: 'Костёр', 25: 'Каменный постамент',
@@ -1371,12 +1395,17 @@ const BLOCKS_RU: Record<number, string> = {
   64: 'Берёзовое бревно', 65: 'Берёзовая листва', 66: 'Яблоневая листва', 67: 'Яблоко',
   69: 'Вулканический камень', 70: 'Ствол пальмы', 71: 'Кокосовая листва', 72: 'Банановые листья', 73: 'Лиана', 74: 'Кокос', 75: 'Банан', 76: 'Сухой пустынный цветок', 77: 'Пустынный чертополох', 78: 'Гнездо из веток', 79: 'Соломенное гнездо',
   80: 'Лесной гриб', 81: 'Песчаник', 82: 'Резной песчаник', 83: 'Оранжевая терракота', 84: 'Сноп сена',
+  85: 'Угольная руда', 86: 'Железная руда', 87: 'Руда красного камня', 88: 'Золотая руда',
+  89: 'Лазуритовая руда', 90: 'Алмазная руда', 91: 'Изумрудная руда', 92: 'Кварцевая руда',
+  93: 'Угольный блок', 94: 'Железный блок', 95: 'Блок красного камня', 96: 'Лазуритовый блок',
+  97: 'Изумрудный блок', 98: 'Кварцевый блок',
+  99: 'Красный камень', 100: 'Лазурит', 101: 'Изумруд', 102: 'Кварц',
   68: 'Верстак',
 };
 
 const BLOCKS_FR: Record<number, string> = {
-  1: 'Herbe', 2: 'Terre', 3: 'Pierre', 4: 'Pavé', 5: 'Minerai de charbon', 6: 'Minerai de fer',
-  7: "Minerai d'or", 8: 'Minerai de diamant', 9: 'Bûche de chêne', 10: 'Feuillage', 11: 'Sable',
+  1: 'Herbe', 2: 'Terre', 3: 'Pierre', 4: 'Pavé', 5: 'Charbon', 6: 'Lingot de fer',
+  7: "Lingot d'or", 8: 'Diamant', 9: 'Bûche de chêne', 10: 'Feuillage', 11: 'Sable',
   12: 'Planches', 13: 'Bedrock', 14: 'Lave', 15: 'Lanterne', 16: "Bloc d'or", 17: 'Bloc de diamant',
   18: 'Fenêtre', 19: 'Porte en bois', 20: 'Porte en fer', 21: 'Clôture en bois',
   22: 'Clôture en pierre', 23: 'Barreaux de fer', 24: 'Feu de camp', 25: 'Piédestal de pierre',
@@ -1392,12 +1421,17 @@ const BLOCKS_FR: Record<number, string> = {
   64: 'Bûche de bouleau', 65: 'Feuillage de bouleau', 66: 'Feuillage de pommier', 67: 'Pomme',
   69: 'Roche volcanique', 70: 'Tronc de palmier', 71: 'Feuilles de cocotier', 72: 'Feuilles de bananier', 73: 'Liane', 74: 'Noix de coco', 75: 'Banane', 76: 'Fleur désertique séchée', 77: 'Chardon du désert', 78: 'Nid de brindilles', 79: 'Nid de paille',
   80: 'Champignon des bois', 81: 'Grès', 82: 'Grès sculpté', 83: 'Terre cuite orange', 84: 'Botte de foin',
+  85: 'Minerai de charbon', 86: 'Minerai de fer', 87: 'Minerai de redstone', 88: "Minerai d'or",
+  89: 'Minerai de lapis-lazuli', 90: 'Minerai de diamant', 91: "Minerai d'émeraude", 92: 'Minerai de quartz',
+  93: 'Bloc de charbon', 94: 'Bloc de fer', 95: 'Bloc de redstone', 96: 'Bloc de lapis-lazuli',
+  97: "Bloc d'émeraude", 98: 'Bloc de quartz',
+  99: 'Redstone', 100: 'Lapis-lazuli', 101: 'Émeraude', 102: 'Quartz du Nether',
   68: 'Établi',
 };
 
 const BLOCKS_DE: Record<number, string> = {
-  1: 'Gras', 2: 'Erde', 3: 'Stein', 4: 'Kopfstein', 5: 'Kohleerz', 6: 'Eisenerz',
-  7: 'Gold Erz', 8: 'Diamanterz', 9: 'Eichenstamm', 10: 'Laub', 11: 'Sand',
+  1: 'Gras', 2: 'Erde', 3: 'Stein', 4: 'Kopfstein', 5: 'Kohle', 6: 'Eisenbarren',
+  7: 'Goldbarren', 8: 'Diamant', 9: 'Eichenstamm', 10: 'Laub', 11: 'Sand',
   12: 'Bretter', 13: 'Fels', 14: 'Lava', 15: 'Laterne', 16: 'Goldblock', 17: 'Diamantblock',
   18: 'Fenster', 19: 'Holztür', 20: 'Eisentür', 21: 'Holzzaun',
   22: 'Steinzaun', 23: 'Eisengitter', 24: 'Lagerfeuer', 25: 'Steinsockel',
@@ -1413,6 +1447,11 @@ const BLOCKS_DE: Record<number, string> = {
   64: 'Birkenstamm', 65: 'Birkenlaub', 66: 'Apfelbaumlaub', 67: 'Apfel',
   69: 'Vulkangestein', 70: 'Palmstamm', 71: 'Kokosblätter', 72: 'Bananenblätter', 73: 'Liane', 74: 'Kokosnuss', 75: 'Banane', 76: 'Trockene Wüstenblume', 77: 'Wüstendistel', 78: 'Zweignest', 79: 'Strohnest',
   80: 'Waldpilz', 81: 'Sandstein', 82: 'Gemeißelter Sandstein', 83: 'Orangefarbene Keramik', 84: 'Strohballen',
+  85: 'Kohleerz', 86: 'Eisenerz', 87: 'Redstone-Erz', 88: 'Golderz',
+  89: 'Lapislazulierz', 90: 'Diamanterz', 91: 'Smaragderz', 92: 'Netherquarzerz',
+  93: 'Kohleblock', 94: 'Eisenblock', 95: 'Redstone-Block', 96: 'Lapislazuliblock',
+  97: 'Smaragdblock', 98: 'Quarzblock',
+  99: 'Redstone', 100: 'Lapislazuli', 101: 'Smaragd', 102: 'Netherquarz',
   68: 'Werkbank',
 };
 

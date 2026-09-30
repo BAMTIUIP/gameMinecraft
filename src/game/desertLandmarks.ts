@@ -3,14 +3,15 @@ import {
   BED,
   CAMPFIRE,
   CHISELED_SANDSTONE,
-  COAL,
+  COAL_ORE,
   COBBLE,
   CRAFTING_TABLE,
-  DIAMOND,
   DIAMOND_BLOCK,
   DIRT,
   DOOR_WOOD,
   DRY_BLOOM,
+  EMERALD_BLOCK,
+  EMERALD_ORE,
   FENCE_IRON,
   FENCE_STONE,
   FENCE_WOOD,
@@ -18,19 +19,22 @@ import {
   FLOWER_BLUE,
   FLOWER_RED,
   FLOWER_YELLOW,
-  GOLD,
   GOLD_BLOCK,
+  GOLD_ORE,
   GRASS,
   HAY_BALE,
-  IRON,
+  IRON_ORE,
   LAMP_BLUE,
   LAMP_RED,
   LAMP_YELLOW,
+  LAPIS_BLOCK,
   LAVA,
   LEAVES,
   LOG,
   PEDESTAL_GOLD,
   PLANKS,
+  QUARTZ_BLOCK,
+  REDSTONE_BLOCK,
   SAND,
   SANDSTONE,
   STONE,
@@ -454,7 +458,7 @@ export function buildPyramidSteppedMaya(world: World, x0: number, y0: number, z0
   }
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz + 1, GOLD_BLOCK);
-  world.set(cx + 1, y0 + 1, cz + 1, rand() < 0.7 ? DIAMOND : GOLD);
+  world.set(cx + 1, y0 + 1, cz + 1, rand() < 0.7 ? DIAMOND_BLOCK : EMERALD_BLOCK);
   world.set(cx, y0 + 3, cz, TORCH);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'tower' });
 }
@@ -706,7 +710,7 @@ export function buildPyramidPharaohRed(world: World, x0: number, y0: number, z0:
   world.set(cx + 1, y0 + 3, z0 + 2, TORCH);
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz + 1, GOLD_BLOCK);
-  world.set(cx + 1, y0 + 1, cz + 1, DIAMOND);
+  world.set(cx + 1, y0 + 1, cz + 1, DIAMOND_BLOCK);
   world.set(cx, y0 + 3, cz, TORCH);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'tower' });
 }
@@ -1290,7 +1294,7 @@ export function buildGiantDesertSkull(world: World, x0: number, y0: number, z0: 
   // Hidden treasure inside the hollow cranium
   world.set(cx, y0 + 1, cz, PEDESTAL_GOLD);
   world.set(cx - 1, y0 + 1, cz, GOLD_BLOCK);
-  world.set(cx + 1, y0 + 1, cz, rand() < 0.75 ? DIAMOND_BLOCK : GOLD);
+  world.set(cx + 1, y0 + 1, cz, rand() < 0.75 ? DIAMOND_BLOCK : EMERALD_BLOCK);
   world.set(cx, y0 + 1, cz + 1, CAMPFIRE);
   world.structureSites.push({ x: cx, y: y0 + 1, z: cz, kind: 'ruin' });
 }
@@ -1360,7 +1364,7 @@ export function buildRuinedDesertCastle(world: World, x0: number, y0: number, z0
   }
   world.set(tx, y0 + 1, tz, PEDESTAL_GOLD);
   world.set(tx - 1, y0 + 1, tz, GOLD_BLOCK);
-  world.set(tx + 1, y0 + 1, tz, rand() < 0.7 ? DIAMOND : GOLD);
+  world.set(tx + 1, y0 + 1, tz, rand() < 0.7 ? DIAMOND_BLOCK : LAPIS_BLOCK);
   world.set(tx, y0 + 3, tz, TORCH);
   world.structureSites.push({ x: tx, y: y0 + 1, z: tz, kind: 'ruin' });
 }
@@ -1524,12 +1528,14 @@ export function buildCliffsideCarvedTemple(world: World, cx: number, cz: number,
     }
   }
   // Ore veins & treasure inside the mountain cave grotto
-  world.set(midX - 3, y0 + 2, z0 + 11, GOLD);
-  world.set(midX + 3, y0 + 2, z0 + 11, IRON);
-  world.set(midX - 2, y0 + 1, z0 + 12, COAL);
+  world.set(midX - 3, y0 + 2, z0 + 11, GOLD_ORE);
+  world.set(midX + 3, y0 + 2, z0 + 11, IRON_ORE);
+  world.set(midX - 2, y0 + 1, z0 + 12, COAL_ORE);
+  world.set(midX + 2, y0 + 1, z0 + 12, EMERALD_ORE);
   world.set(midX, y0, z0 + 11, PEDESTAL_GOLD);
   world.set(midX - 1, y0, z0 + 11, GOLD_BLOCK);
-  world.set(midX + 1, y0, z0 + 11, rand() < 0.8 ? DIAMOND_BLOCK : GOLD_BLOCK);
+  world.set(midX + 1, y0, z0 + 11, rand() < 0.5 ? DIAMOND_BLOCK : rand() < 0.5 ? EMERALD_BLOCK : QUARTZ_BLOCK);
+  world.set(midX, y0 + 2, z0 + 12, REDSTONE_BLOCK);
   world.set(midX, y0 + 3, z0 + 11, TORCH);
 
   world.structureSites.push({ x: midX, y: y0 + 1, z: facadeZ + 2, kind: 'ruin' });
