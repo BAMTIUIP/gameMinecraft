@@ -225,6 +225,10 @@ const WALK = 4.6;
 const SPRINT = 7.1;
 const PLAYER_HALF = 0.3;
 const PLAYER_HEIGHT = 1.8;
+const CRAWL_HEIGHT = 0.72;
+const CRAWL_HALF_WIDTH = 0.33;
+const CRAWL_HALF_LENGTH = 0.96;
+const CRAWL_BODY_CENTER = 0.96;
 const EYE = 1.62;
 const REACH = 5.6;
 
@@ -433,10 +437,11 @@ export class Engine {
   private crouchLerp = 0;
   private crawling = false;
   private crawlLerp = 0;
+  private crawlYaw = 0;
 
   /** collision height depends on posture: crawling fits through 1-block gaps */
-  private playerHeight() {
-    return this.crawling ? 0.72 : PLAYER_HEIGHT;
+  private playerHeight(crawling = this.crawling) {
+    return crawling ? CRAWL_HEIGHT : PLAYER_HEIGHT;
   }
   private sleeping = false;
   private sleepDark = 0;
@@ -2303,6 +2308,7 @@ if (tpClipActive > 0.5) {
     this.crouchLerp = 0;
     this.crawling = false;
     this.crawlLerp = 0;
+    this.crawlYaw = this.yaw;
     this.spawnTimer = 3;
     this.animalTimer = 1;
     this.ambientTimer = 1.5;
@@ -2719,13 +2725,31 @@ if (tpClipActive > 0.5) {
   }
 
   // ================= PLAYER =================
-  private collides(px: number, py: number, pz: number) {
-    const minX = Math.floor(px - PLAYER_HALF),
-      maxX = Math.floor(px + PLAYER_HALF);
+  private angleDelta(to: number, from: number) {
+    return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  }
+
+  private playerHalfExtents(crawling = this.crawling, yaw = this.crawlYaw) {
+    if (!crawling) return { halfX: PLAYER_HALF, halfZ: PLAYER_HALF };
+    const sin = Math.sin(yaw);
+    const cos = Math.cos(yaw);
+    // The prone third-person body is long in the facing direction.  Use the
+    // oriented body's AABB for physics too, otherwise the visual avatar can
+    // slide through walls while the tiny standing footprint still fits.
+    return {
+      halfX: Math.abs(sin) * CRAWL_HALF_LENGTH + Math.abs(cos) * CRAWL_HALF_WIDTH,
+      halfZ: Math.abs(cos) * CRAWL_HALF_LENGTH + Math.abs(sin) * CRAWL_HALF_WIDTH,
+    };
+  }
+
+  private collides(px: number, py: number, pz: number, crawling = this.crawling, yaw = this.crawlYaw) {
+    const { halfX, halfZ } = this.playerHalfExtents(crawling, yaw);
+    const minX = Math.floor(px - halfX),
+      maxX = Math.floor(px + halfX);
     const minY = Math.floor(py),
-      maxY = Math.floor(py + this.playerHeight() - 0.001);
-    const minZ = Math.floor(pz - PLAYER_HALF),
-      maxZ = Math.floor(pz + PLAYER_HALF);
+      maxY = Math.floor(py + this.playerHeight(crawling) - 0.001);
+    const minZ = Math.floor(pz - halfZ),
+      maxZ = Math.floor(pz + halfZ);
     for (let y = minY; y <= maxY; y++)
       for (let z = minZ; z <= maxZ; z++)
         for (let x = minX; x <= maxX; x++) if (isSolid(this.world.get(x, y, z))) return true;
@@ -2736,12 +2760,13 @@ if (tpClipActive > 0.5) {
     if (amount === 0) return { blocked: false, top: 0 };
     const p = this.pos;
     p[axis] += amount;
-    const minX = Math.floor(p.x - PLAYER_HALF),
-      maxX = Math.floor(p.x + PLAYER_HALF);
+    const { halfX, halfZ } = this.playerHalfExtents();
+    const minX = Math.floor(p.x - halfX),
+      maxX = Math.floor(p.x + halfX);
     const minY = Math.floor(p.y),
       maxY = Math.floor(p.y + this.playerHeight() - 0.001);
-    const minZ = Math.floor(p.z - PLAYER_HALF),
-      maxZ = Math.floor(p.z + PLAYER_HALF);
+    const minZ = Math.floor(p.z - halfZ),
+      maxZ = Math.floor(p.z + halfZ);
     let blocked = false;
     let top = 0;
     let best = amount > 0 ? Infinity : -Infinity;
@@ -2759,8 +2784,8 @@ if (tpClipActive > 0.5) {
     if (blocked) {
       const eps = 0.0005;
       if (axis === 'y') p.y = amount > 0 ? best - this.playerHeight() - eps : best + 1 + eps;
-      else if (axis === 'x') p.x = amount > 0 ? best - PLAYER_HALF - eps : best + 1 + PLAYER_HALF + eps;
-      else p.z = amount > 0 ? best - PLAYER_HALF - eps : best + 1 + PLAYER_HALF + eps;
+      else if (axis === 'x') p.x = amount > 0 ? best - halfX - eps : best + 1 + halfX + eps;
+      else p.z = amount > 0 ? best - halfZ - eps : best + 1 + halfZ + eps;
       this.vel[axis] = 0;
       if (axis === 'y' && amount < 0) this.onGround = true;
     }
@@ -2779,11 +2804,35 @@ if (tpClipActive > 0.5) {
     fz += -this.touchMove.y;
     // C = crawl (prone, fits 1-block gaps); CTRL = crouch; SHIFT = sprint
     const wantCrawl = !!k['KeyC'];
-    if (wantCrawl) this.crawling = true;
-    else if (this.crawling) {
+    if (wantCrawl && !this.crawling) {
+      // Lie down in the direction the player is facing; do not pick a sideways
+      // fallback, because that makes the avatar appear to clip through walls.
+      if (!this.collides(this.pos.x, this.pos.y, this.pos.z, true, this.yaw)) {
+        this.crawlYaw = this.yaw;
+        this.crawling = true;
+      }
+    } else if (!wantCrawl && this.crawling) {
       // stand up only if there is headroom for the full-height box
       this.crawling = false;
-      if (this.collides(this.pos.x, this.pos.y, this.pos.z)) this.crawling = true; // stuck in a tunnel — stay prone
+      if (this.collides(this.pos.x, this.pos.y, this.pos.z, false, this.yaw)) this.crawling = true; // stuck in a tunnel — stay prone
+    }
+    if (this.crawling) {
+      // While prone, rotate the body only as far as the elongated crawl
+      // footprint still fits.  This prevents a lying avatar from sweeping
+      // through nearby blocks just because the camera was turned.
+      const delta = this.angleDelta(this.yaw, this.crawlYaw);
+      const maxTurn = dt * 5.6;
+      const step = Math.max(-maxTurn, Math.min(maxTurn, delta));
+      if (Math.abs(step) > 0.0001) {
+        const candidate = this.crawlYaw + step;
+        if (!this.collides(this.pos.x, this.pos.y, this.pos.z, true, candidate)) this.crawlYaw = candidate;
+        else {
+          const smaller = this.crawlYaw + step * 0.35;
+          if (!this.collides(this.pos.x, this.pos.y, this.pos.z, true, smaller)) this.crawlYaw = smaller;
+        }
+      }
+    } else {
+      this.crawlYaw = this.yaw;
     }
     this.crouching = !this.crawling && !!(k['ControlLeft'] || k['ControlRight']);
     const sprint =
@@ -2992,19 +3041,64 @@ if (tpClipActive > 0.5) {
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
     if (!visible) return;
-    this.playerAvatar.position.set(this.pos.x, this.pos.y + this.crawlLerp * 0.44, this.pos.z);
-    this.playerAvatar.rotation.set(-Math.PI * 0.5 * this.crawlLerp, this.yaw, 0);
+
+    const crawl = Math.max(0, Math.min(1, this.crawlLerp));
+    const yawBlend = this.yaw + this.angleDelta(this.crawlYaw, this.yaw) * crawl;
+    const forwardX = -Math.sin(yawBlend);
+    const forwardZ = -Math.cos(yawBlend);
+    const crawlShift = CRAWL_BODY_CENTER * crawl;
+    this.playerAvatar.position.set(this.pos.x - forwardX * crawlShift, this.pos.y + crawl * 0.44, this.pos.z - forwardZ * crawlShift);
+
+    const crawlSpeed = WALK * 0.3;
+    const planarSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const uprightMove = Math.min(1, planarSpeed / WALK);
+    const crawlMove = Math.min(1, planarSpeed / Math.max(0.01, crawlSpeed));
+    const sideRoll = crawl * Math.min(0.12, crawlMove * 0.08) * Math.sin(this.bob * 4.2);
+    this.playerAvatar.rotation.set(-Math.PI * 0.5 * crawl, yawBlend, sideRoll);
+
     const squat = 1 - this.crouchLerp * 0.16;
     this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
-    const move = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / WALK);
-    const uprightSwing = Math.sin(this.bob * 2.35) * 0.55 * move * (1 - this.crawlLerp);
-    const crawlSwing = Math.sin(this.bob * 3.8) * 0.48 * move * this.crawlLerp;
-    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.x = uprightSwing - crawlSwing * 0.55;
-    if (this.avatarRightLeg) this.avatarRightLeg.rotation.x = -uprightSwing + crawlSwing * 0.55;
+
+    const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+    const uprightSwing = Math.sin(this.bob * 2.35) * 0.55 * uprightMove;
     const miningSwing = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT) * Math.PI) * 0.95 : 0;
-    if (this.avatarLeftArm) this.avatarLeftArm.rotation.x = -uprightSwing * 0.7 - crawlSwing;
-    if (this.avatarRightArm) this.avatarRightArm.rotation.x = uprightSwing * 0.7 + crawlSwing - miningSwing * (1 - this.crawlLerp * 0.45);
-    if (this.avatarHead) this.avatarHead.rotation.x = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45 - this.crawlLerp * 0.18));
+
+    const rightX = Math.cos(yawBlend);
+    const rightZ = -Math.sin(yawBlend);
+    const localForward = this.vel.x * forwardX + this.vel.z * forwardZ;
+    const localSide = this.vel.x * rightX + this.vel.z * rightZ;
+    const forwardAmt = Math.min(1, Math.abs(localForward) / Math.max(0.01, crawlSpeed));
+    const sideAmt = Math.min(1, Math.abs(localSide) / Math.max(0.01, crawlSpeed));
+    const fSign = localForward < -0.04 ? -1 : 1;
+    const sSign = localSide < -0.04 ? -1 : 1;
+    const wave = Math.sin(this.bob * 4.15);
+    const wave2 = Math.cos(this.bob * 4.15);
+    const activeCrawl = Math.min(1, forwardAmt + sideAmt);
+
+    const crawlLeftArmX = -0.42 + fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt;
+    const crawlRightArmX = -0.42 - fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt - miningSwing * 0.22;
+    const crawlLeftLegX = 0.26 - fSign * wave * 0.32 * forwardAmt + 0.12 * sideAmt;
+    const crawlRightLegX = 0.26 + fSign * wave * 0.32 * forwardAmt + 0.12 * sideAmt;
+    const crawlLeftArmZ = sSign * (0.28 + wave2 * 0.24) * sideAmt + 0.1 * (1 - activeCrawl);
+    const crawlRightArmZ = sSign * (-0.28 + wave2 * 0.24) * sideAmt - 0.1 * (1 - activeCrawl);
+    const crawlLeftLegZ = sSign * (-0.18 + wave * 0.16) * sideAmt;
+    const crawlRightLegZ = sSign * (0.18 + wave * 0.16) * sideAmt;
+
+    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.set(mix(uprightSwing, crawlLeftLegX, crawl), 0, crawlLeftLegZ * crawl);
+    if (this.avatarRightLeg) this.avatarRightLeg.rotation.set(mix(-uprightSwing, crawlRightLegX, crawl), 0, crawlRightLegZ * crawl);
+    if (this.avatarLeftArm) this.avatarLeftArm.rotation.set(mix(-uprightSwing * 0.7, crawlLeftArmX, crawl), 0, crawlLeftArmZ * crawl);
+    if (this.avatarRightArm) {
+      this.avatarRightArm.rotation.set(
+        mix(uprightSwing * 0.7 - miningSwing * (1 - crawl * 0.45), crawlRightArmX, crawl),
+        0,
+        crawlRightArmZ * crawl,
+      );
+    }
+    if (this.avatarHead) {
+      const uprightHead = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45));
+      const crawlHead = Math.max(-0.25, Math.min(0.58, this.pitch * 0.22 + 0.26));
+      this.avatarHead.rotation.set(mix(uprightHead, crawlHead, crawl), 0, 0);
+    }
   }
 
   private restoreThirdPersonOccluders() {
