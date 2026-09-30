@@ -3156,6 +3156,17 @@ if (tpClipActive > 0.5) {
     this.setPlayerAvatarOpacity(0.18 + 0.82 * smooth);
   }
 
+  private visualWaterSurfaceY() {
+    const x = Math.floor(this.pos.x);
+    const z = Math.floor(this.pos.z);
+    const top = Math.floor(this.pos.y + 2.4);
+    const bottom = Math.floor(this.pos.y - 1.4);
+    for (let y = top; y >= bottom; y--) {
+      if (this.world.get(x, y, z) === WATER && this.world.get(x, y + 1, z) !== WATER) return y + 1;
+    }
+    return null;
+  }
+
   private updatePlayerAvatar() {
     if (!this.playerAvatar) return;
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
@@ -3170,9 +3181,23 @@ if (tpClipActive > 0.5) {
     const yawBlend = this.yaw + this.angleDelta(this.crawlYaw, this.yaw) * crawl;
     const forwardX = -Math.sin(yawBlend);
     const forwardZ = -Math.cos(yawBlend);
-    const crawlShift = CRAWL_BODY_CENTER * prone;
-    const lift = mix(crawl * 0.44, 0.68, swim);
-    this.playerAvatar.position.set(this.pos.x - forwardX * crawlShift, this.pos.y + lift, this.pos.z - forwardZ * crawlShift);
+    const waterSurface = swim > 0.01 ? this.visualWaterSurfaceY() : null;
+    const nearSurface = waterSurface !== null && this.pos.y + 1.12 > waterSurface - 0.38;
+    const underWater = swim > 0.01 && !nearSurface;
+    const crawlShift = CRAWL_BODY_CENTER * crawl;
+    const swimShift = CRAWL_BODY_CENTER * swim;
+    const bodyShift = Math.max(crawlShift, swimShift);
+    let avatarY = this.pos.y + crawl * 0.44;
+    if (swim > 0.01) {
+      // Visual-only water clamp: physics stays untouched, but the third-person
+      // puppet no longer rises high above the water when Space is held.  Near
+      // the surface the body stays submerged, leaving mostly head and arms visible.
+      const followPhysicsY = this.pos.y + 0.52;
+      const surfaceY = waterSurface !== null ? waterSurface - 0.14 : followPhysicsY;
+      const swimY = nearSurface ? Math.min(followPhysicsY, surfaceY) : followPhysicsY;
+      avatarY = mix(avatarY, swimY, swim);
+    }
+    this.playerAvatar.position.set(this.pos.x - forwardX * bodyShift, avatarY, this.pos.z - forwardZ * bodyShift);
 
     const crawlSpeed = WALK * 0.3;
     const swimSpeed = WALK * 0.78;
@@ -3180,9 +3205,15 @@ if (tpClipActive > 0.5) {
     const uprightMove = Math.min(1, planarSpeed / WALK);
     const crawlMove = Math.min(1, planarSpeed / Math.max(0.01, crawlSpeed));
     const swimMove = Math.min(1, (planarSpeed + Math.abs(this.vel.y) * 0.45) / Math.max(0.01, swimSpeed));
-    const swimRise = swim * (this.keys['Space'] || this.touchJump ? 0.42 : Math.max(-0.62, Math.min(0.5, this.pitch * 0.62)));
+    const surfaceSwimPitch = -Math.PI * 0.5 + Math.sin(this.bob * 2.15) * 0.025;
+    const underwaterSwimPitch = -Math.PI * 0.5 + Math.max(-0.72, Math.min(0.62, this.pitch * 0.62));
+    // On the surface, looking above the character means “swim forward”, not
+    // “stand up out of the water”.  Only underwater does the puppet pitch fully
+    // with the crosshair.
+    const swimPitch = underWater ? underwaterSwimPitch : surfaceSwimPitch;
+    const bodyPitch = mix(-Math.PI * 0.5 * crawl, swimPitch, swim);
     const sideRoll = prone * Math.min(0.14, (crawlMove + swimMove) * 0.07) * Math.sin(this.bob * 4.2);
-    this.playerAvatar.rotation.set(-Math.PI * 0.5 * prone + swimRise, yawBlend, sideRoll);
+    this.playerAvatar.rotation.set(bodyPitch, yawBlend, sideRoll);
 
     const squat = 1 - this.crouchLerp * 0.16;
     this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
@@ -3249,7 +3280,7 @@ if (tpClipActive > 0.5) {
     if (this.avatarHead) {
       const uprightHead = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45));
       const crawlHead = Math.max(-0.25, Math.min(0.58, this.pitch * 0.22 + 0.26));
-      const swimHead = Math.max(-0.36, Math.min(0.48, this.pitch * 0.18 + (this.keys['Space'] || this.touchJump ? 0.18 : 0)));
+      const swimHead = underWater ? Math.max(-0.36, Math.min(0.48, this.pitch * 0.18)) : 0.16;
       this.avatarHead.rotation.set(mix(mix(uprightHead, crawlHead, crawl), swimHead, swim), 0, 0);
     }
   }
