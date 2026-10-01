@@ -149,7 +149,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const e2 = e.code;
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
-      if (e2 === 'Escape' || e2 === 'KeyP') {
+      if ((e2 === 'Escape' || e2 === 'KeyP') && !e.repeat) {
         if (eng.inventoryOpen) eng.closeInventory();
         else if (eng.phase === 'playing') eng.pause();
         else if (eng.phase === 'paused') eng.resume();
@@ -231,16 +231,17 @@ export default function App() {
   const buyOffer = useCallback((i: number) => engineRef.current?.buyOffer(i), []);
   const upgradeItem = useCallback((uid: string) => engineRef.current?.upgradeToNetherite(uid), []);
   const reinforceItem = useCallback((uid: string) => engineRef.current?.reinforceItem(uid), []);
-  const sellTool = useCallback((id: number) => engineRef.current?.sellTool(id), []);
+  const sellTool = useCallback((id: number, instanceId?: number) => engineRef.current?.sellTool(id, instanceId), []);
   const sellGear = useCallback((uid: string) => engineRef.current?.sellGear(uid), []);
   // sparse hotbar: place any owned item into a slot (swap / evict), or remove it back
   const placeItem = useCallback(
-    (id: number, slot?: number, fromSlot?: number) => engineRef.current?.placeInSlot(id, slot, fromSlot),
+    (id: number, slot?: number, fromSlot?: number, instanceId?: number) => engineRef.current?.placeInSlot(id, slot, fromSlot, instanceId),
     [],
   );
   const removeSlot = useCallback((slot: number) => engineRef.current?.removeFromSlot(slot), []);
   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
-  const salvageItem = useCallback((id: number) => engineRef.current?.salvageItem(id), []);
+  const salvageItem = useCallback((id: number, instanceId?: number) => engineRef.current?.salvageItem(id, instanceId), []);
+  const repairTool = useCallback((instanceId: number) => engineRef.current?.repairTool(instanceId), []);
 
   const toggleFreeLook = useCallback(() => {
     const next = !(engineRef.current?.freeLookEnabled ?? true);
@@ -248,11 +249,9 @@ export default function App() {
     setFreeLookUi(next);
   }, []);
 
-  // Yandex Games lifecycle: ready() once the menu is interactive,
-  // GameplayAPI.start/stop around actual play (rules 2.20 / gameplay signals).
-  // Only phase 'playing' is gameplay. The pause menu AND the inventory / workbench / trader are 'paused': the
-  // world is frozen there (shift timer and world clock stand still, see Engine.updateIdle), and the moderation
-  // methodology (1.19.3) wants a red indicator for any menu or shop that takes the player out of the run.
+  // Yandex GameplayAPI follows the actual engine phase. The inventory is a live overlay over 'playing',
+  // so opening/crafting/closing it must not stop the session; changing camera perspective is phase-neutral too.
+  // Platform/system pauses still switch the phase to 'paused' and stop gameplay until the platform resumes.
   useEffect(() => {
     if (hud.phase !== 'loading') yaLoadingReady();
     if (hud.phase === 'playing') yaGameplayStart();
@@ -352,7 +351,7 @@ export default function App() {
         />
       )}
 
-      {isTouch && hud.phase === 'playing' && <TouchControls engine={engine} />}
+      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} />}
 
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (
@@ -379,41 +378,42 @@ export default function App() {
           onContinueWorld={continueWorld}
         />
       )}
-      {hud.phase === 'paused' &&
-        (hud.inventoryOpen ? (
-          <Inventory
-            hud={hud}
-            onCraft={craft}
-            onSelectSlot={selectSlot}
-            onClose={closeInventory}
-            onEquip={equip}
-            onUnequip={unequip}
-            onSell={sell}
-            onBuy={buyOffer}
-            onUpgrade={upgradeItem}
-            onReinforce={reinforceItem}
-            onSellTool={sellTool}
-            onSellGear={sellGear}
-            onPlaceItem={placeItem}
-            onRemoveSlot={removeSlot}
-            onSalvageGear={salvageGear}
-            onSalvageItem={salvageItem}
-            isTouch={isTouch}
-          />
-        ) : (
-          <PauseScreen
-            hud={hud}
-            onResume={resume}
-            onRestart={restart}
-            onQuit={quit}
-            onBag={openInventory}
-            music={music}
-            onMusic={toggleMusic}
-            muted={muted}
-            onMute={toggleMute}
-            onSaveWorld={saveWorld}
-          />
-        ))}
+      {hud.phase === 'playing' && hud.inventoryOpen && (
+        <Inventory
+          hud={hud}
+          onCraft={craft}
+          onSelectSlot={selectSlot}
+          onClose={closeInventory}
+          onEquip={equip}
+          onUnequip={unequip}
+          onSell={sell}
+          onBuy={buyOffer}
+          onUpgrade={upgradeItem}
+          onReinforce={reinforceItem}
+          onRepairTool={repairTool}
+          onSellTool={sellTool}
+          onSellGear={sellGear}
+          onPlaceItem={placeItem}
+          onRemoveSlot={removeSlot}
+          onSalvageGear={salvageGear}
+          onSalvageItem={salvageItem}
+          isTouch={isTouch}
+        />
+      )}
+      {hud.phase === 'paused' && (
+        <PauseScreen
+          hud={hud}
+          onResume={resume}
+          onRestart={restart}
+          onQuit={quit}
+          onBag={openInventory}
+          music={music}
+          onMusic={toggleMusic}
+          muted={muted}
+          onMute={toggleMute}
+          onSaveWorld={saveWorld}
+        />
+      )}
       {hud.phase === 'gameover' && (
         <GameOverScreen
           hud={hud}

@@ -1,3 +1,5 @@
+import { getToolSpec } from './tools';
+
 export type Lang = 'en' | 'ru' | 'fr' | 'de';
 
 export const LANGS: Array<{ id: Lang; label: string; flag: string }> = [
@@ -131,6 +133,10 @@ const EN = {
   patchedUp: 'PATCHED UP',
   health: 'health',
   looted: 'LOOTED',
+  chestOpened: 'TREASURE FOUND',
+  chestOpenHint: 'E · OPEN',
+  chestEmptyHint: 'E · EMPTY',
+  chestEmpty: 'ALREADY LOOTED',
   // affixes
   aff_fire: 'FLAME',
   aff_fireD: 'Ignites enemies · burn damage each second',
@@ -245,14 +251,37 @@ const EN = {
   tier_wood: 'WOODEN',
   tier_stone: 'STONE',
   tier_iron: 'IRON',
+  tier_gold: 'GOLDEN',
   tier_diamond: 'DIAMOND',
   tier_netherite: 'NETHERITE',
   tool_pickaxe: 'PICKAXE',
   tool_sword_wood: 'WOODEN SWORD',
+  tool_sword_stone: 'STONE SWORD',
   tool_sword_iron: 'IRON SWORD',
+  tool_sword_gold: 'GOLDEN SWORD',
   tool_sword_diamond: 'DIAMOND SWORD',
+  tool_sword_netherite: 'NETHERITE SWORD',
+  tool_axe_wood: 'WOODEN AXE',
+  tool_axe_stone: 'STONE AXE',
+  tool_axe_iron: 'IRON AXE',
+  tool_axe_gold: 'GOLDEN AXE',
+  tool_axe_diamond: 'DIAMOND AXE',
+  tool_axe_netherite: 'NETHERITE AXE',
+  tool_shovel_wood: 'WOODEN SHOVEL',
+  tool_shovel_stone: 'STONE SHOVEL',
+  tool_shovel_iron: 'IRON SHOVEL',
+  tool_shovel_gold: 'GOLDEN SHOVEL',
+  tool_shovel_diamond: 'DIAMOND SHOVEL',
+  tool_shovel_netherite: 'NETHERITE SHOVEL',
   tool_shovel: 'SHOVEL',
   tool_bow: 'BOW',
+  toolDurability: 'DURABILITY',
+  toolRepair: 'REPAIR',
+  repairCost: 'REPAIR COST',
+  indestructible: 'UNBREAKABLE',
+  toolRepaired: 'TOOL REPAIRED',
+  toolBroken: 'TOOL BROKE',
+  toolRecipeDesc: '{durability} uses · repair with {resource} at an anvil',
   // score table & value table
   blk: 'blk',
   secShort: 's',
@@ -412,6 +441,10 @@ const RU: Dict = {
   patchedUp: 'ПЕРЕВЯЗАНО',
   health: 'здоровья',
   looted: 'ДОБЫЧА',
+  chestOpened: 'НАЙДЕНО СОКРОВИЩЕ',
+  chestOpenHint: 'E · ОТКРЫТЬ',
+  chestEmptyHint: 'E · ПУСТО',
+  chestEmpty: 'УЖЕ РАЗГРАБЛЕНО',
   aff_fire: 'ПЛАМЯ',
   aff_fireD: 'Поджигает врагов · урон огнём каждую секунду',
   aff_frost: 'МОРОЗ',
@@ -522,14 +555,37 @@ const RU: Dict = {
   tier_wood: 'ДЕРЕВЯННАЯ',
   tier_stone: 'КАМЕННАЯ',
   tier_iron: 'ЖЕЛЕЗНАЯ',
+  tier_gold: 'ЗОЛОТАЯ',
   tier_diamond: 'АЛМАЗНАЯ',
   tier_netherite: 'НЕЗЕРИТОВАЯ',
   tool_pickaxe: 'КИРКА',
   tool_sword_wood: 'ДЕРЕВЯННЫЙ МЕЧ',
+  tool_sword_stone: 'КАМЕННЫЙ МЕЧ',
   tool_sword_iron: 'ЖЕЛЕЗНЫЙ МЕЧ',
+  tool_sword_gold: 'ЗОЛОТОЙ МЕЧ',
   tool_sword_diamond: 'АЛМАЗНЫЙ МЕЧ',
+  tool_sword_netherite: 'НЕЗЕРИТОВЫЙ МЕЧ',
+  tool_axe_wood: 'ДЕРЕВЯННЫЙ ТОПОР',
+  tool_axe_stone: 'КАМЕННЫЙ ТОПОР',
+  tool_axe_iron: 'ЖЕЛЕЗНЫЙ ТОПОР',
+  tool_axe_gold: 'ЗОЛОТОЙ ТОПОР',
+  tool_axe_diamond: 'АЛМАЗНЫЙ ТОПОР',
+  tool_axe_netherite: 'НЕЗЕРИТОВЫЙ ТОПОР',
+  tool_shovel_wood: 'ДЕРЕВЯННАЯ ЛОПАТА',
+  tool_shovel_stone: 'КАМЕННАЯ ЛОПАТА',
+  tool_shovel_iron: 'ЖЕЛЕЗНАЯ ЛОПАТА',
+  tool_shovel_gold: 'ЗОЛОТАЯ ЛОПАТА',
+  tool_shovel_diamond: 'АЛМАЗНАЯ ЛОПАТА',
+  tool_shovel_netherite: 'НЕЗЕРИТОВАЯ ЛОПАТА',
   tool_shovel: 'ЛОПАТА',
   tool_bow: 'ЛУК',
+  toolDurability: 'ПРОЧНОСТЬ',
+  toolRepair: 'ПОЧИНИТЬ',
+  repairCost: 'ЦЕНА РЕМОНТА',
+  indestructible: 'НЕРАЗРУШИМОЕ',
+  toolRepaired: 'ИНСТРУМЕНТ ПОЧИНЕН',
+  toolBroken: 'ИНСТРУМЕНТ СЛОМАЛСЯ',
+  toolRecipeDesc: '{durability} ед. прочности · ремонт на наковальне за {resource}',
   blk: 'блок',
   secShort: 'с',
   miner: 'ШАХТЁР',
@@ -681,6 +737,10 @@ const FR: Dict = {
   patchedUp: 'SOIGNÉ',
   health: 'de vie',
   looted: 'BUTIN',
+  chestOpened: 'TRÉSOR DÉCOUVERT',
+  chestOpenHint: 'E · OUVRIR',
+  chestEmptyHint: 'E · VIDE',
+  chestEmpty: 'DÉJÀ PILLÉ',
   aff_fire: 'FLAMME',
   aff_fireD: 'Enflamme les ennemis · dégâts de brûlure chaque seconde',
   aff_frost: 'GIVRE',
@@ -791,14 +851,37 @@ const FR: Dict = {
   tier_wood: 'EN BOIS',
   tier_stone: 'EN PIERRE',
   tier_iron: 'EN FER',
+  tier_gold: 'EN OR',
   tier_diamond: 'EN DIAMANT',
   tier_netherite: 'EN NETHERITE',
   tool_pickaxe: 'PIOCHE',
   tool_sword_wood: 'ÉPÉE EN BOIS',
+  tool_sword_stone: 'ÉPÉE EN PIERRE',
   tool_sword_iron: 'ÉPÉE EN FER',
+  tool_sword_gold: 'ÉPÉE EN OR',
   tool_sword_diamond: 'ÉPÉE EN DIAMANT',
+  tool_sword_netherite: 'ÉPÉE EN NETHERITE',
+  tool_axe_wood: 'HACHE EN BOIS',
+  tool_axe_stone: 'HACHE EN PIERRE',
+  tool_axe_iron: 'HACHE EN FER',
+  tool_axe_gold: 'HACHE EN OR',
+  tool_axe_diamond: 'HACHE EN DIAMANT',
+  tool_axe_netherite: 'HACHE EN NETHERITE',
+  tool_shovel_wood: 'PELLE EN BOIS',
+  tool_shovel_stone: 'PELLE EN PIERRE',
+  tool_shovel_iron: 'PELLE EN FER',
+  tool_shovel_gold: 'PELLE EN OR',
+  tool_shovel_diamond: 'PELLE EN DIAMANT',
+  tool_shovel_netherite: 'PELLE EN NETHERITE',
   tool_shovel: 'PELLE',
   tool_bow: 'ARC',
+  toolDurability: 'DURABILITÉ',
+  toolRepair: 'RÉPARER',
+  repairCost: 'COÛT DE RÉPARATION',
+  indestructible: 'INDESTRUCTIBLE',
+  toolRepaired: 'OUTIL RÉPARÉ',
+  toolBroken: 'OUTIL CASSÉ',
+  toolRecipeDesc: 'Durabilité : {durability} · réparation à l’enclume : {resource}',
   blk: 'bloc',
   secShort: 's',
   miner: 'MINEUR',
@@ -950,6 +1033,10 @@ const DE: Dict = {
   patchedUp: 'VERBAND VERSEHNT',
   health: 'Leben',
   looted: 'GEPLÜNDERT',
+  chestOpened: 'SCHATZ GEFUNDEN',
+  chestOpenHint: 'E · ÖFFNEN',
+  chestEmptyHint: 'E · LEER',
+  chestEmpty: 'SCHON GEPLÜNDERT',
   aff_fire: 'FLAMME',
   aff_fireD: 'Zündet Feinde an · Verbrennungsschaden pro Sekunde',
   aff_frost: 'FROST',
@@ -1060,14 +1147,37 @@ const DE: Dict = {
   tier_wood: 'HOLZ',
   tier_stone: 'STEIN',
   tier_iron: 'EISEN',
+  tier_gold: 'GOLD',
   tier_diamond: 'DIAMANT',
   tier_netherite: 'NETHERIT',
   tool_pickaxe: 'SPITZHACKE',
   tool_sword_wood: 'HOLZSCHWERT',
+  tool_sword_stone: 'STEINSCHWERT',
   tool_sword_iron: 'EISENSCHWERT',
+  tool_sword_gold: 'GOLDSCHWERT',
   tool_sword_diamond: 'DIAMANTSCHWERT',
+  tool_sword_netherite: 'NETHERITSCHWERT',
+  tool_axe_wood: 'HOLZAXT',
+  tool_axe_stone: 'STEINAXT',
+  tool_axe_iron: 'EISENAXT',
+  tool_axe_gold: 'GOLDAXT',
+  tool_axe_diamond: 'DIAMANTAXT',
+  tool_axe_netherite: 'NETHERITAXT',
+  tool_shovel_wood: 'HOLZSCHAUFEL',
+  tool_shovel_stone: 'STEINSCHAUFEL',
+  tool_shovel_iron: 'EISENSCHAUFEL',
+  tool_shovel_gold: 'GOLDSCHAUFEL',
+  tool_shovel_diamond: 'DIAMANTSCHAUFEL',
+  tool_shovel_netherite: 'NETHERITSCHAUFEL',
   tool_shovel: 'SCHAUFEL',
   tool_bow: 'BOGEN',
+  toolDurability: 'HALTBARKEIT',
+  toolRepair: 'REPARIEREN',
+  repairCost: 'REPARATURKOSTEN',
+  indestructible: 'UNZERSTÖRBAR',
+  toolRepaired: 'WERKZEUG REPARIERT',
+  toolBroken: 'WERKZEUG ZERBROCHEN',
+  toolRecipeDesc: 'Haltbarkeit: {durability} · Reparatur am Amboss: {resource}',
   blk: 'Blk',
   secShort: 's',
   miner: 'BERGBAUER',
@@ -1163,9 +1273,9 @@ export type TKey = keyof Dict;
 
 /* ---------------- localized tool names ---------------- */
 
-const TIER_KEYS: TKey[] = ['tier_wood', 'tier_stone', 'tier_iron', 'tier_diamond', 'tier_netherite'];
+const TIER_KEYS: TKey[] = ['tier_wood', 'tier_stone', 'tier_iron', 'tier_gold', 'tier_diamond', 'tier_netherite'];
 
-/** "WOODEN" / "ДЕРЕВЯННАЯ" / "EN BOIS" for a pickaxe tier index (0–4) */
+/** Material prefix for a pickaxe tier index (0–5). */
 export function tierLabel(tier: number): string {
   return t(TIER_KEYS[Math.max(0, Math.min(TIER_KEYS.length - 1, tier))]);
 }
@@ -1175,11 +1285,41 @@ export function pickaxeLabel(tier: number): string {
   return `${tierLabel(tier)} ${t('tool_pickaxe')}`;
 }
 
-const SWORD_KEYS: TKey[] = ['tool_sword_wood', 'tool_sword_iron', 'tool_sword_diamond'];
+const SWORD_KEYS: TKey[] = [
+  'tool_sword_wood', 'tool_sword_stone', 'tool_sword_iron',
+  'tool_sword_gold', 'tool_sword_diamond', 'tool_sword_netherite',
+];
+const AXE_KEYS: TKey[] = [
+  'tool_axe_wood', 'tool_axe_stone', 'tool_axe_iron',
+  'tool_axe_gold', 'tool_axe_diamond', 'tool_axe_netherite',
+];
+const SHOVEL_KEYS: TKey[] = [
+  'tool_shovel_wood', 'tool_shovel_stone', 'tool_shovel_iron',
+  'tool_shovel_gold', 'tool_shovel_diamond', 'tool_shovel_netherite',
+];
 
-/** full sword name by tier index (0–2) */
+/** Full sword name by material tier (0–5). */
 export function swordLabel(tier: number): string {
   return t(SWORD_KEYS[Math.max(0, Math.min(SWORD_KEYS.length - 1, tier))]);
+}
+
+export function axeLabel(tier: number): string {
+  return t(AXE_KEYS[Math.max(0, Math.min(AXE_KEYS.length - 1, tier))]);
+}
+
+export function shovelLabel(tier: number): string {
+  return t(SHOVEL_KEYS[Math.max(0, Math.min(SHOVEL_KEYS.length - 1, tier))]);
+}
+
+/** Localized name for any durable weapon/tool ID (including v1 save aliases). */
+export function toolLabelForId(id: number): string {
+  const spec = getToolSpec(id);
+  if (!spec) return id === 202 ? t('handTorch') : t('tool_pickaxe');
+  if (spec.kind === 'pickaxe') return pickaxeLabel(spec.tier);
+  if (spec.kind === 'sword') return swordLabel(spec.tier);
+  if (spec.kind === 'axe') return axeLabel(spec.tier);
+  if (spec.kind === 'shovel') return shovelLabel(spec.tier);
+  return t('tool_bow');
 }
 
 /* ---------------- recipe & block name translations ---------------- */
@@ -1189,6 +1329,7 @@ const RECIPES_RU: Record<string, [string, string]> = {
   planks_birch: ['БЕРЁЗОВЫЕ ДОСКИ', 'Распилить берёзовое бревно на доски'],
   crafting_table: ['ВЕРСТАК', '4 доски — ставьте куда угодно, E — крафт'],
   lantern: ['ФОНАРЬ-БЛОК', 'Освещает шахту — ставится куда угодно'],
+  netherite_ingot: ['НЕЗЕРИТОВЫЙ СЛИТОК', 'Сплавьте 4 древних обломка с 4 золотыми слитками'],
   pick_wood: ['ДЕРЕВЯННАЯ КИРКА', 'Первый настоящий инструмент — 3 доски'],
   pick_stone: ['КАМЕННАЯ КИРКА', 'Скорость добычи 1.7x · очки 1.15x'],
   pick_iron: ['ЖЕЛЕЗНАЯ КИРКА', 'Скорость добычи 2.6x · очки 1.40x'],
@@ -1258,6 +1399,7 @@ const RECIPES_FR: Record<string, [string, string]> = {
   planks_birch: ['PLANCHES DE BOULEAU', 'Scier une bûche de bouleau en planches'],
   crafting_table: ['ÉTABLI', '4 planches — posez n\'importe où, E pour fabriquer'],
   lantern: ['LANTERNE-BLOC', 'Éclaire la mine — se pose partout'],
+  netherite_ingot: ['LINGOT DE NETHERITE', 'Forgez 4 fragments antiques avec 4 lingots d’or'],
   pick_wood: ['PIOCHE EN BOIS', 'Votre premier vrai outil — 3 planches'],
   pick_stone: ['PIOCHE EN PIERRE', 'Minage 1.7x · score 1.15x'],
   pick_iron: ['PIOCHE EN FER', 'Minage 2.6x · score 1.40x'],
@@ -1327,6 +1469,7 @@ const RECIPES_DE: Record<string, [string, string]> = {
   planks_birch: ['BIRKENBRETTER', 'Einen Birkenstamm in Bau-Bretter spalten'],
   crafting_table: ['WERKBANK', 'Überall hinstellen, E zum Basteln · 4 Bretter'],
   lantern: ['LATERNE-BLOCK', 'Beleuchtet die Mine — überall hinstellbar'],
+  netherite_ingot: ['NETHERITBARREN', 'Schmiede 4 antike Splitter mit 4 Goldbarren'],
   pick_wood: ['HOLZSPITZHACKE', 'Dein erstes echtes Werkzeug — 3 Bretter'],
   pick_stone: ['STEINSPITZHACKE', 'Abbaurate 1.7x · Punkte 1.15x'],
   pick_iron: ['EISENSPITZHACKE', 'Abbaurate 2.6x · Punkte 1.40x'],
@@ -1409,7 +1552,7 @@ const BLOCKS_RU: Record<number, string> = {
   40: 'Красная лампа', 41: 'Синяя лампа', 42: 'Золотая лампа',
   43: 'Заснеженная трава', 44: 'Лёд', 45: 'Заиндевевшая листва',
   46: 'Улей', 47: 'Черепашье яйцо', 48: 'Наковальня', 49: 'Древние обломки',
-  50: 'Мёд', 51: 'Незеритовый слиток', 52: 'Шерсть', 53: 'Перо', 54: 'Панцирь черепахи',
+  50: 'Мёд', 51: 'Незеритовый лом', 52: 'Шерсть', 53: 'Перо', 54: 'Панцирь черепахи',
   55: 'Панцирь краба', 56: 'Рыбья чешуя', 57: 'Коготь рыси', 58: 'Пингвинье яйцо',
   59: 'Высокая трава', 60: 'Папоротник', 61: 'Мёртвый куст', 62: 'Кактус', 63: 'Бледный кактус',
   64: 'Берёзовое бревно', 65: 'Берёзовая листва', 66: 'Яблоневая листва', 67: 'Яблоко',
@@ -1420,6 +1563,11 @@ const BLOCKS_RU: Record<number, string> = {
   93: 'Угольный блок', 94: 'Железный блок', 95: 'Блок красного камня', 96: 'Лазуритовый блок',
   97: 'Изумрудный блок', 98: 'Кварцевый блок',
   99: 'Красный камень', 100: 'Лазурит', 101: 'Изумруд', 102: 'Кварц',
+  103: 'Осенняя листва', 104: 'Листва сакуры', 105: 'Розовый цветок', 106: 'Сиреневый цветок', 107: 'Белая ромашка', 108: 'Листва жакаранды', 109: 'Незеритовый слиток',
+  110: 'Сундук с сокровищами равнин', 111: 'Ледяной сундук с сокровищами', 112: 'Янтарный сундук с сокровищами',
+  113: 'Оплетённый лианами сундук', 114: 'Пустынный сундук с сокровищами', 115: 'Сундук каньона', 116: 'Сундук с углями', 117: 'Затонувший сундук с ракушками',
+  118: 'Дубовый сундук (открыт)', 119: 'Ледяной сундук (открыт)', 120: 'Янтарный сундук (открыт)', 121: 'Сундук в лианах (открыт)',
+  122: 'Пустынный сундук (открыт)', 123: 'Сундук каньона (открыт)', 124: 'Сундук с углями (открыт)', 125: 'Затонувший сундук (открыт)',
   68: 'Верстак',
 };
 
@@ -1435,7 +1583,7 @@ const BLOCKS_FR: Record<number, string> = {
   40: 'Lampe rouge', 41: 'Lampe bleue', 42: 'Lampe dorée',
   43: 'Herbe enneigée', 44: 'Glace', 45: 'Feuillage givré',
   46: 'Ruche', 47: 'Œuf de tortue', 48: 'Enclume', 49: 'Débris antiques',
-  50: 'Miel', 51: 'Lingot de netherite', 52: 'Laine', 53: 'Plume', 54: 'Carapace de tortue',
+  50: 'Miel', 51: 'Fragment de netherite', 52: 'Laine', 53: 'Plume', 54: 'Carapace de tortue',
   55: 'Carapace de crabe', 56: 'Écaille de poisson', 57: 'Griffe de lynx', 58: 'Œuf de manchot',
   59: 'Hautes herbes', 60: 'Fougère', 61: 'Arbrisseau mort', 62: 'Cactus', 63: 'Cactus pâle',
   64: 'Bûche de bouleau', 65: 'Feuillage de bouleau', 66: 'Feuillage de pommier', 67: 'Pomme',
@@ -1446,6 +1594,11 @@ const BLOCKS_FR: Record<number, string> = {
   93: 'Bloc de charbon', 94: 'Bloc de fer', 95: 'Bloc de redstone', 96: 'Bloc de lapis-lazuli',
   97: "Bloc d'émeraude", 98: 'Bloc de quartz',
   99: 'Redstone', 100: 'Lapis-lazuli', 101: 'Émeraude', 102: 'Quartz du Nether',
+  103: 'Feuillage automnal', 104: 'Fleurs de cerisier', 105: 'Fleur rose', 106: 'Fleur violette', 107: 'Marguerite blanche', 108: 'Feuillage de jacaranda', 109: 'Lingot de netherite',
+  110: 'Coffre des plaines', 111: 'Coffre givré', 112: 'Coffre ambré', 113: 'Coffre envahi de lianes',
+  114: 'Coffre du désert', 115: 'Coffre du canyon', 116: 'Coffre de braises', 117: 'Coffre marin incrusté de coquillages',
+  118: 'Coffre en chêne (ouvert)', 119: 'Coffre givré (ouvert)', 120: 'Coffre ambré (ouvert)', 121: 'Coffre envahi de lianes (ouvert)',
+  122: 'Coffre du désert (ouvert)', 123: 'Coffre du canyon (ouvert)', 124: 'Coffre de braises (ouvert)', 125: 'Coffre marin (ouvert)',
   68: 'Établi',
 };
 
@@ -1461,7 +1614,7 @@ const BLOCKS_DE: Record<number, string> = {
   40: 'Rote Lampe', 41: 'Blaue Lampe', 42: 'Goldene Lampe',
   43: 'Schneebedecktes Gras', 44: 'Eis', 45: 'Gefrorenes Laub',
   46: 'Bienenstock', 47: 'Schildkröten-Ei', 48: 'Ambos', 49: 'Antike Trümmer',
-  50: 'Honig', 51: 'Netherit-Barren', 52: 'Wolle', 53: 'Feder', 54: 'Schildkrötenpanzer',
+  50: 'Honig', 51: 'Netherit-Schrott', 52: 'Wolle', 53: 'Feder', 54: 'Schildkrötenpanzer',
   55: 'Krabbenpanzer', 56: 'Fischschuppen', 57: 'Luchskralle', 58: 'Pinguin-Ei',
   59: 'Hohes Gras', 60: 'Farne', 61: 'Toter Strauch', 62: 'Kaktus', 63: 'Blasser Kaktus',
   64: 'Birkenstamm', 65: 'Birkenlaub', 66: 'Apfelbaumlaub', 67: 'Apfel',
@@ -1472,6 +1625,11 @@ const BLOCKS_DE: Record<number, string> = {
   93: 'Kohleblock', 94: 'Eisenblock', 95: 'Redstone-Block', 96: 'Lapislazuliblock',
   97: 'Smaragdblock', 98: 'Quarzblock',
   99: 'Redstone', 100: 'Lapislazuli', 101: 'Smaragd', 102: 'Netherquarz',
+  103: 'Herbstlaub', 104: 'Kirschblüten', 105: 'Rosa Blume', 106: 'Violette Blume', 107: 'Weiße Gänseblümchen', 108: 'Jacarandablätter', 109: 'Netheritbarren',
+  110: 'Schatztruhe der Ebene', 111: 'Frostige Schatztruhe', 112: 'Bernstein-Schatztruhe', 113: 'Überwucherte Schatztruhe',
+  114: 'Wüsten-Schatztruhe', 115: 'Schatztruhe des Canyons', 116: 'Glut-Schatztruhe', 117: 'Versunkene Muscheltruhe',
+  118: 'Eichentruhe (offen)', 119: 'Frostige Truhe (offen)', 120: 'Bernstein-Truhe (offen)', 121: 'Überwucherte Truhe (offen)',
+  122: 'Wüstentruhe (offen)', 123: 'Canyontruhe (offen)', 124: 'Gluttruhe (offen)', 125: 'Muscheltruhe (offen)',
   68: 'Werkbank',
 };
 

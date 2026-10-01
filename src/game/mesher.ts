@@ -13,7 +13,26 @@ import {
   FENCE_WOOD,
   FERN,
   MUSHROOM,
-  FLOWER_BLUE, DRY_BLOOM, DESERT_THISTLE, BIRD_NEST, CHICKEN_NEST,
+  FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
+  DRY_BLOOM,
+  DESERT_THISTLE,
+  BIRD_NEST,
+  CHICKEN_NEST,
+  CHEST_AUTUMN,
+  CHEST_CANYON,
+  CHEST_DESERT,
+  CHEST_JUNGLE,
+  CHEST_PLAINS,
+  CHEST_UNDERWATER,
+  CHEST_VOLCANIC,
+  CHEST_WINTER,
+  baseChestId,
+  isOpenChest,
+  isTreasureChest,
+  isUnderwaterChest,
   COCONUT_LEAVES,
   BANANA_LEAVES,
   T,
@@ -104,14 +123,16 @@ export type ChunkGeometry = {
   solid: THREE.BufferGeometry | null;
   cutout: THREE.BufferGeometry | null;
   water: THREE.BufferGeometry | null;
-  /** untextured coloured decor models: flowers, egg clutches */
+  /** untextured coloured decor models: flowers, egg clutches, chest bodies */
   decor: THREE.BufferGeometry | null;
+  /** hinged chest lids, drawn as separate meshes so they can swing open */
+  chestLids: ChestLidSpec[];
 };
 
 /** per-face brightness matching the terrain look */
 const BOX_SHADE = [0.66, 0.66, 0.46, 1.0, 0.8, 0.8]; // -x +x -y +y -z +z
 
-/** append an axis-aligned coloured box (centre cx,cy,cz) to the decor buffers */
+/** Append a shaded coloured box to the decor buffers; angleY enables tiny rotated details. */
 function addBox(
   P: number[],
   C: number[],
@@ -125,6 +146,10 @@ function addBox(
   r: number,
   g: number,
   b: number,
+  angleY = 0,
+  angleX = 0,
+  pivotY = cy,
+  pivotZ = cz,
 ) {
   const x0 = cx - w / 2;
   const x1 = cx + w / 2;
@@ -144,8 +169,28 @@ function addBox(
   for (let f = 0; f < 6; f++) {
     const base = P.length / 3;
     const sh = Math.pow(BOX_SHADE[f], 2.2);
+    const cosY = Math.cos(angleY);
+    const sinY = Math.sin(angleY);
+    const cosX = Math.cos(angleX);
+    const sinX = Math.sin(angleX);
     for (const v of faces[f]) {
-      P.push(v[0], v[1], v[2]);
+      let vx = v[0];
+      let vy = v[1];
+      let vz = v[2];
+      // in-plane spin first, then the hinge swing — a sea star on an opening lid stays a sea star
+      if (angleY !== 0) {
+        const dx = vx - cx;
+        const dz = vz - cz;
+        vx = cx + dx * cosY + dz * sinY;
+        vz = cz - dx * sinY + dz * cosY;
+      }
+      if (angleX !== 0) {
+        const dy = vy - pivotY;
+        const dz = vz - pivotZ;
+        vy = pivotY + dy * cosX - dz * sinX;
+        vz = pivotZ + dy * sinX + dz * cosX;
+      }
+      P.push(vx, vy, vz);
       C.push(r * sh, g * sh, b * sh);
     }
     I.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
@@ -204,6 +249,9 @@ const COL = {
   red: srgb(0xe2564a),
   yellow: srgb(0xf4c842),
   blue: srgb(0x5e8cff),
+  pink: srgb(0xf28bb5),
+  purple: srgb(0xa875df),
+  white: srgb(0xfff8e8),
   coreY: srgb(0xf4c842),
   coreB: srgb(0xb8722a),
   egg: srgb(0xeef2e4),
@@ -389,25 +437,205 @@ function addBirdNest(P: number[], C: number[], I: number[], x: number, y: number
   }
 }
 
-/** a chunky voxel flower: stem, two leaves, cross-shaped petal head */
+/** One palette per chest family, shared by the body and its hinged lid. */
+type ChestPalette = { body: number; lid: number; band: number; iron: number; jewel: number };
+const CHEST_PALETTES: Record<number, ChestPalette> = {
+  [CHEST_PLAINS]: { body: 0x80502e, lid: 0xa76635, band: 0xd4a84d, iron: 0x49342a, jewel: 0xf2ca60 },
+  [CHEST_WINTER]: { body: 0x3f6474, lid: 0x628fa1, band: 0xc3dce1, iron: 0x2f4556, jewel: 0xc2f1ff },
+  [CHEST_AUTUMN]: { body: 0x87452e, lid: 0xb86631, band: 0xdba94b, iron: 0x452c26, jewel: 0xffd16a },
+  [CHEST_JUNGLE]: { body: 0x435b37, lid: 0x648347, band: 0xa49a49, iron: 0x2b3a2a, jewel: 0xb8d35b },
+  [CHEST_DESERT]: { body: 0x93602e, lid: 0xc39245, band: 0xe4c76c, iron: 0x594027, jewel: 0xffe99a },
+  [CHEST_CANYON]: { body: 0x713d2d, lid: 0xa75234, band: 0xc38b42, iron: 0x3f2926, jewel: 0xf18a4b },
+  [CHEST_VOLCANIC]: { body: 0x302b32, lid: 0x514049, band: 0x815248, iron: 0x1c1a20, jewel: 0xff7148 },
+  [CHEST_UNDERWATER]: { body: 0x3b5b51, lid: 0x58776a, band: 0x9b7650, iron: 0x354942, jewel: 0x69c7b5 },
+};
+
+/** Hinge line of every chest lid, measured from the block's own corner. */
+export const CHEST_LID_HINGE_Y = 0.335;
+export const CHEST_LID_HINGE_Z = -0.365;
+/** lid swung fully back, standing behind the chest */
+export const CHEST_LID_OPEN_ANGLE = -Math.PI / 2;
+
+/** engine-side description of a hinged lid found while meshing a chunk */
+export type ChestLidSpec = {
+  x: number;
+  y: number;
+  z: number;
+  /** closed-variant id; selects the palette */
+  base: number;
+  open: boolean;
+};
+
+/**
+ * Lid, banding, gem and the sea-growth that rides on the lid — authored around
+ * the hinge at origin so the same numbers serve the baked model and the swing.
+ */
+function emitChestLid(
+  P: number[],
+  C: number[],
+  I: number[],
+  hx: number,
+  hy: number,
+  hz: number,
+  baseId: number,
+  angleX: number,
+) {
+  const palette = CHEST_PALETTES[baseId] ?? CHEST_PALETTES[CHEST_PLAINS];
+  const lid = srgb(palette.lid), band = srgb(palette.band), body = srgb(palette.body), jewel = srgb(palette.jewel);
+  const put = (rx: number, ry: number, rz: number, w: number, h: number, d: number, col: number[], angleY = 0) =>
+    addBox(P, C, I, hx + rx, hy + ry, hz + rz, w, h, d, col[0], col[1], col[2], angleY, angleX, hy, hz);
+
+  put(0, 0.07, 0.345, 0.79, 0.14, 0.67, lid);
+  put(0, 0.151, 0.345, 0.75, 0.035, 0.63, band);
+  // Short, raised wood-grain strips and a small material gem distinguish each biome chest.
+  for (const dx of [-0.22, 0, 0.22]) put(dx, 0.177, 0.345, 0.035, 0.018, 0.48, body);
+  put(0, 0.2, 0.33, 0.13, 0.045, 0.13, jewel);
+  put(0, 0.225, 0.33, 0.065, 0.03, 0.065, band);
+
+  if (isUnderwaterChest(baseId)) {
+    const shell = srgb(0xc7b996);
+    const shellShade = srgb(0x8e9e89);
+    const star = srgb(0xf07b53);
+    const addBarnacle = (bx: number, bz: number, scale: number) => {
+      put(bx, 0.205, bz, 0.11 * scale, 0.055 * scale, 0.1 * scale, shellShade);
+      put(bx, 0.24, bz, 0.075 * scale, 0.055 * scale, 0.075 * scale, shell);
+      put(bx, 0.275, bz, 0.04 * scale, 0.035 * scale, 0.045 * scale, srgb(0xe2d8bb));
+    };
+    addBarnacle(-0.27, 0.185, 0.9);
+    addBarnacle(0.28, 0.465, 0.75);
+    addBarnacle(0.18, 0.125, 0.65);
+    addBarnacle(-0.36, 0.585, 0.72);
+    // Five rotated little arms form a bright sea star resting on the lid.
+    for (let arm = 0; arm < 5; arm++) {
+      put(-0.12, 0.245, 0.465, 0.065, 0.035, 0.23, star, arm * (Math.PI * 2 / 5));
+    }
+    put(-0.12, 0.25, 0.465, 0.11, 0.04, 0.11, srgb(0xf8a06a));
+  }
+}
+
+const chestLidGeometryCache = new Map<number, THREE.BufferGeometry>();
+
+/**
+ * Stand-alone lid geometry for the engine's swinging meshes: hinge at the
+ * origin, lid extending toward +z in the closed pose. Cached per chest family.
+ */
+export function chestLidGeometry(blockId: number): THREE.BufferGeometry {
+  const base = baseChestId(blockId);
+  const cached = chestLidGeometryCache.get(base);
+  if (cached) return cached;
+  const P: number[] = [];
+  const C: number[] = [];
+  const I: number[] = [];
+  emitChestLid(P, C, I, 0, 0, 0, base, 0);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  geo.setIndex(I);
+  geo.computeBoundingSphere();
+  chestLidGeometryCache.set(base, geo);
+  return geo;
+}
+
+/**
+ * Biome-coloured voxel treasure chest body. The lid is a separate hinged piece
+ * so the engine can swing it open; a looted chest shows its dark interior.
+ */
+function addTreasureChestBody(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number) {
+  const base = baseChestId(id);
+  const open = isOpenChest(id);
+  const palette = CHEST_PALETTES[base] ?? CHEST_PALETTES[CHEST_PLAINS];
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  const body = srgb(palette.body), band = srgb(palette.band);
+  const iron = srgb(palette.iron), jewel = srgb(palette.jewel);
+  const front = z + 0.145;
+
+  // Feet, reinforced body and a raised rim the lid rests on.
+  for (const dx of [-0.29, 0.29]) for (const dz of [-0.23, 0.23])
+    addBox(P, C, I, cx + dx, y + 0.055, cz + dz, 0.13, 0.11, 0.13, ...iron);
+  addBox(P, C, I, cx, y + 0.22, cz, 0.78, 0.31, 0.66, ...body);
+  addBox(P, C, I, cx, y + 0.095, cz, 0.80, 0.065, 0.68, ...iron);
+  addBox(P, C, I, cx, y + 0.395, cz, 0.83, 0.15, 0.71, ...iron);
+
+  // Metal corner straps and front-facing latch, kept chunky so they read at game distance.
+  for (const dx of [-0.25, 0.25]) {
+    addBox(P, C, I, cx + dx, y + 0.245, front, 0.055, 0.29, 0.04, ...band);
+    addBox(P, C, I, cx + dx, y + 0.245, z + 0.855, 0.055, 0.29, 0.04, ...band);
+    addBox(P, C, I, x + 0.105, y + 0.245, cz + dx * 0.78, 0.04, 0.29, 0.055, ...band);
+    addBox(P, C, I, x + 0.895, y + 0.245, cz + dx * 0.78, 0.04, 0.29, 0.055, ...band);
+  }
+  addBox(P, C, I, cx, y + 0.285, z + 0.132, 0.15, 0.17, 0.065, ...iron);
+  addBox(P, C, I, cx, y + 0.3, z + 0.092, 0.075, 0.085, 0.025, ...jewel);
+  addBox(P, C, I, cx, y + 0.276, z + 0.074, 0.025, 0.045, 0.018, ...iron);
+
+  if (open) {
+    // dark interior, a faint warm glow and a few coins the looter left behind
+    addBox(P, C, I, cx, y + 0.366, cz, 0.62, 0.075, 0.5, ...srgb(0x1d1512));
+    addEmissiveBox(P, C, I, cx, y + 0.336, cz, 0.5, 0.02, 0.38, ...srgb(0x6b4a1c));
+    for (const [dx, dz, s] of [[-0.17, -0.11, 1], [0.14, 0.05, 0.85], [0.02, -0.2, 0.7]] as const)
+      addBox(P, C, I, cx + dx, y + 0.375, cz + dz, 0.12 * s, 0.03, 0.12 * s, ...jewel);
+  }
+
+  if (isUnderwaterChest(base)) {
+    const moss = srgb(0x557a59);
+    const darkMoss = srgb(0x365b4e);
+    // Algae trails droop over the corners like a chest abandoned on the sea floor.
+    for (const [dx, dz, height] of [[-0.33, -0.23, 0.22], [0.32, 0.2, 0.28], [-0.28, 0.24, 0.16]] as const) {
+      addBox(P, C, I, cx + dx, y + 0.37 - height * 0.36, cz + dz, 0.055, height, 0.07, ...moss);
+      addBox(P, C, I, cx + dx + 0.045, y + 0.34 - height * 0.42, cz + dz + 0.025, 0.045, height * 0.72, 0.06, ...darkMoss);
+    }
+  }
+}
+
+/** Chunky voxel flowers with distinct tulip, lavender, daisy and classic rosette silhouettes. */
 function addFlower(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, seed: number) {
   const cx = x + 0.5 + (((seed * 7) % 5) - 2) * 0.04;
   const cz = z + 0.5 + (((seed * 13) % 5) - 2) * 0.04;
-  const petal = id === FLOWER_RED ? COL.red : id === FLOWER_YELLOW ? COL.yellow : COL.blue;
+  const petal = id === FLOWER_RED ? COL.red
+    : id === FLOWER_YELLOW ? COL.yellow
+      : id === FLOWER_BLUE ? COL.blue
+        : id === FLOWER_PINK ? COL.pink
+          : id === FLOWER_PURPLE ? COL.purple
+            : COL.white;
   const core = id === FLOWER_YELLOW ? COL.coreB : COL.coreY;
-  const h = 0.5 + ((seed % 3) - 1) * 0.05;
-  // stem
+  const h = id === FLOWER_PURPLE ? 0.66 : 0.5 + ((seed % 3) - 1) * 0.05;
   addBox(P, C, I, cx, y + h / 2, cz, 0.07, h, 0.07, ...COL.stem);
-  // leaves
   addBox(P, C, I, cx + 0.1, y + h * 0.35, cz, 0.14, 0.05, 0.08, ...COL.leafG);
   addBox(P, C, I, cx - 0.09, y + h * 0.55, cz + 0.02, 0.12, 0.05, 0.08, ...COL.leafG);
-  // head: core + 4 petals
+
+  if (id === FLOWER_PURPLE) {
+    // Tall lavender spike: several compact florets rise along a single stem.
+    for (let row = 0; row < 4; row++) {
+      const fy = y + 0.24 + row * 0.105;
+      const offset = row % 2 === 0 ? -0.045 : 0.045;
+      addBox(P, C, I, cx + offset, fy, cz, 0.12, 0.09, 0.12, ...petal);
+      addBox(P, C, I, cx - offset, fy + 0.025, cz + 0.035, 0.09, 0.07, 0.09, ...COL.pink);
+    }
+    return;
+  }
+
   const hy = y + h + 0.08;
+  if (id === FLOWER_PINK) {
+    // Tulip cup: three upright petals around a shaded base.
+    addBox(P, C, I, cx, hy - 0.035, cz, 0.17, 0.14, 0.17, ...COL.purple);
+    addBox(P, C, I, cx, hy + 0.035, cz, 0.14, 0.14, 0.14, ...petal);
+    addBox(P, C, I, cx - 0.095, hy + 0.045, cz, 0.09, 0.17, 0.12, ...petal);
+    addBox(P, C, I, cx + 0.095, hy + 0.045, cz, 0.09, 0.17, 0.12, ...petal);
+    addBox(P, C, I, cx, hy + 0.055, cz - 0.09, 0.12, 0.16, 0.09, ...COL.pink);
+    addBox(P, C, I, cx, hy + 0.09, cz, 0.07, 0.06, 0.07, ...COL.coreY);
+    return;
+  }
+
+  // Classic flower/daisy head: a yellow core with a cross of petals, plus diagonals for daisies.
   addBox(P, C, I, cx, hy, cz, 0.14, 0.14, 0.14, ...core);
   addBox(P, C, I, cx + 0.14, hy, cz, 0.14, 0.12, 0.12, ...petal);
   addBox(P, C, I, cx - 0.14, hy, cz, 0.14, 0.12, 0.12, ...petal);
   addBox(P, C, I, cx, hy, cz + 0.14, 0.12, 0.12, 0.14, ...petal);
   addBox(P, C, I, cx, hy, cz - 0.14, 0.12, 0.12, 0.14, ...petal);
+  if (id === FLOWER_WHITE) {
+    for (const [dx, dz] of [[0.1, 0.1], [-0.1, 0.1], [0.1, -0.1], [-0.1, -0.1]])
+      addBox(P, C, I, cx + dx, hy, cz + dz, 0.11, 0.1, 0.11, ...petal);
+  }
   addBox(P, C, I, cx, hy + 0.12, cz, 0.1, 0.06, 0.1, ...petal);
 }
 
@@ -864,6 +1092,8 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
   const wColors: number[] = [];
   const wUvs: number[] = [];
   const wIndices: number[] = [];
+  // hinged lids: separate meshes so a chest can creak open in front of the player
+  const chestLids: ChestLidSpec[] = [];
   // volumetric decor pass (flowers, egg clutches) — coloured, untextured
   const dPositions: number[] = [];
   const dColors: number[] = [];
@@ -881,7 +1111,10 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         const id = world.get(x, y, z);
         if (id === AIR) continue;
         // flowers, grasses & egg clutches render as little 3D models, not textured cubes
-        if (id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE) {
+        if (
+          id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
+          id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE
+        ) {
           addFlower(dPositions, dColors, dIndices, x, y, z, id, x * 31 + z * 17 + y);
           continue;
         }
@@ -891,6 +1124,11 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         }
         if (id === BIRD_NEST || id === CHICKEN_NEST) {
           addBirdNest(dPositions, dColors, dIndices, x, y, z, id === CHICKEN_NEST);
+          continue;
+        }
+        if (isTreasureChest(id)) {
+          addTreasureChestBody(dPositions, dColors, dIndices, x, y, z, id);
+          chestLids.push({ x, y, z, base: baseChestId(id), open: isOpenChest(id) });
           continue;
         }
         if (id === VINE) {
@@ -1077,5 +1315,6 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
     cutout: make(cPositions, cNormals, cColors, cUvs, cIndices),
     water: make(wPositions, wNormals, wColors, wUvs, wIndices),
     decor,
+    chestLids,
   };
 }

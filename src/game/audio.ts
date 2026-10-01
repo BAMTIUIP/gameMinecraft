@@ -48,6 +48,104 @@ function now() {
   return ctx ? ctx.currentTime : 0;
 }
 
+type FilterOpts = { type: BiquadFilterType; freq: number; q?: number; sweepTo?: number };
+
+type ToneOpts = {
+  freq: number;
+  dur: number;
+  type?: OscillatorType;
+  vol?: number;
+  slideTo?: number;
+  detune?: number;
+  attack?: number;
+  /** band-shaping: what turns a plain oscillator into a voice */
+  filter?: FilterOpts;
+  /** frequency wobble (Hz deviation) */
+  vibrato?: { rate: number; depth: number };
+  /** amplitude wobble (0..1 of the peak gain) */
+  tremolo?: { rate: number; depth: number };
+};
+
+/** one synthesised note, optionally filtered, wobbling and shaken */
+function toneTo(dest: AudioNode | null, t0: number, o: ToneOpts) {
+  if (!ctx || !dest) return;
+  const dur = Math.max(0.02, o.dur);
+  const vol = Math.max(0.0002, o.vol ?? 0.2);
+  const osc = ctx.createOscillator();
+  osc.type = o.type ?? 'triangle';
+  osc.frequency.setValueAtTime(Math.max(20, o.freq), t0);
+  if (o.slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.slideTo), t0 + dur);
+  if (o.detune) osc.detune.setValueAtTime(o.detune, t0);
+  if (o.vibrato) {
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    lfo.frequency.setValueAtTime(o.vibrato.rate, t0);
+    lg.gain.setValueAtTime(Math.max(0.5, o.vibrato.depth), t0);
+    lfo.connect(lg).connect(osc.frequency);
+    lfo.start(t0);
+    lfo.stop(t0 + dur + 0.05);
+  }
+  const g = ctx.createGain();
+  const attack = Math.min(o.attack ?? 0.012, dur * 0.45);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  if (o.tremolo) {
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    lfo.frequency.setValueAtTime(o.tremolo.rate, t0);
+    lg.gain.setValueAtTime(Math.max(0.0002, vol * o.tremolo.depth), t0);
+    lfo.connect(lg).connect(g.gain);
+    lfo.start(t0);
+    lfo.stop(t0 + dur + 0.05);
+  }
+  let node: AudioNode = osc;
+  if (o.filter) {
+    const f = ctx.createBiquadFilter();
+    f.type = o.filter.type;
+    f.frequency.setValueAtTime(Math.max(40, o.filter.freq), t0);
+    if (o.filter.sweepTo) f.frequency.exponentialRampToValueAtTime(Math.max(40, o.filter.sweepTo), t0 + dur);
+    f.Q.value = o.filter.q ?? 1;
+    node = node.connect(f);
+  }
+  node.connect(g).connect(dest);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.05);
+}
+
+type NoiseOpts = {
+  dur: number;
+  vol?: number;
+  freq: number;
+  q?: number;
+  type?: BiquadFilterType;
+  sweepTo?: number;
+  attack?: number;
+};
+
+/** one filtered noise burst — breath, hiss, rattle or rustle */
+function noiseTo(dest: AudioNode | null, t0: number, o: NoiseOpts) {
+  if (!ctx || !dest || !noiseBuf) return;
+  const dur = Math.max(0.02, o.dur);
+  const vol = Math.max(0.0002, o.vol ?? 0.2);
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  if (dur > 0.42) src.loop = true; // the buffer is 0.5s long
+  const f = ctx.createBiquadFilter();
+  f.type = o.type ?? 'bandpass';
+  f.frequency.setValueAtTime(Math.max(40, o.freq), t0);
+  if (o.sweepTo) f.frequency.exponentialRampToValueAtTime(Math.max(40, o.sweepTo), t0 + dur);
+  f.Q.value = o.q ?? 1;
+  const g = ctx.createGain();
+  const attack = Math.min(o.attack ?? 0.006, dur * 0.45);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f).connect(g).connect(dest);
+  src.start(t0);
+  src.stop(t0 + dur + 0.05);
+}
+
 function tone(
   freq: number,
   dur: number,
@@ -57,36 +155,38 @@ function tone(
   delay = 0,
 ) {
   if (!ctx || !master || muted) return;
-  const t = now() + delay;
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(Math.max(20, freq), t);
-  if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.012, dur * 0.3));
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(master);
-  o.start(t);
-  o.stop(t + dur + 0.02);
+  toneTo(master, now() + delay, { freq, dur, type, vol, slideTo });
 }
 
 function noise(dur: number, vol = 0.2, freq = 900, q = 1, type: BiquadFilterType = 'bandpass', delay = 0, sweepTo?: number) {
-  if (!ctx || !master || !noiseBuf || muted) return;
-  const t = now() + delay;
-  const src = ctx.createBufferSource();
-  src.buffer = noiseBuf;
-  const f = ctx.createBiquadFilter();
-  f.type = type;
-  f.frequency.setValueAtTime(freq, t);
-  if (sweepTo) f.frequency.exponentialRampToValueAtTime(Math.max(40, sweepTo), t + dur);
-  f.Q.value = q;
+  if (!ctx || !master || muted) return;
+  noiseTo(master, now() + delay, { dur, vol, freq, q, type, sweepTo });
+}
+
+/**
+ * Mix bus for world sounds: distance volume, stereo placement and the dull
+ * low-pass the underwater listener hears. Returns the node to play into.
+ */
+function voiceBus(vol: number, pan: number, muffled: boolean): { dest: AudioNode; t0: number } | null {
+  if (!ctx || !master || muted) return null;
+  const t0 = ctx.currentTime + 0.012;
   const g = ctx.createGain();
-  g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f).connect(g).connect(master);
-  src.start(t);
-  src.stop(t + dur + 0.02);
+  g.gain.setValueAtTime(Math.max(0.0002, vol), t0);
+  let node: AudioNode = g;
+  if (muffled) {
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(760, t0);
+    lp.Q.value = 0.8;
+    node = node.connect(lp);
+  }
+  if (pan !== 0 && typeof ctx.createStereoPanner === 'function') {
+    const p = ctx.createStereoPanner();
+    p.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t0);
+    node = node.connect(p);
+  }
+  node.connect(master);
+  return { dest: g, t0 };
 }
 
 /* =======================================================================
@@ -223,6 +323,193 @@ export function requestMusic() {
   if (musicEnabled) startMusic();
 }
 
+/* =======================================================================
+   CREATURE VOICES & WOODEN CREAKS — procedural, no samples.
+   ======================================================================= */
+
+export type CreatureVoice =
+  | 'cow' | 'pig' | 'sheep' | 'chicken' | 'bird' | 'bee' | 'cat' | 'deer' | 'moose'
+  | 'camel' | 'monkey' | 'frog' | 'lizard' | 'rabbit' | 'hedgehog' | 'crab' | 'turtle'
+  | 'fish' | 'jellyfish' | 'rustle'
+  | 'zombie' | 'skeleton' | 'spider' | 'creeper' | 'trader';
+
+export type VoiceState = 'idle' | 'hurt' | 'attack' | 'death';
+
+export type VoiceOptions = {
+  state?: VoiceState;
+  volume?: number;
+  pan?: number;
+  pitch?: number;
+  /** the listener's head is in water: dull the whole call */
+  underwater?: boolean;
+};
+
+/** per-state colouring: a hurt animal yelps, a dying one trails off */
+const VOICE_STATE: Record<VoiceState, { pitch: number; dur: number; vol: number; yelp: number }> = {
+  idle: { pitch: 1, dur: 1, vol: 1, yelp: 0 },
+  hurt: { pitch: 1.18, dur: 0.62, vol: 1.25, yelp: 0.5 },
+  attack: { pitch: 1.06, dur: 0.8, vol: 1.15, yelp: 0.12 },
+  death: { pitch: 0.82, dur: 1.35, vol: 1.2, yelp: 0.32 },
+};
+
+type VoiceCtx = { dest: AudioNode; t0: number; pitch: number; vol: number; dur: number };
+
+/** every species' call, written against a shared little synthesizer */
+const VOICES: Record<CreatureVoice, (c: VoiceCtx) => void> = {
+  // deep, slow "mmm-booo" with a warm body under it
+  cow: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 132 * P, slideTo: 96 * P, dur: 0.8 * c.dur, type: 'sawtooth', vol: 0.2 * V,
+      filter: { type: 'bandpass', freq: 430 * P, q: 3, sweepTo: 320 * P }, vibrato: { rate: 6.5, depth: 7 * P } });
+    toneTo(c.dest, c.t0, { freq: 66 * P, slideTo: 50 * P, dur: 0.82 * c.dur, type: 'triangle', vol: 0.12 * V, attack: 0.05 });
+  },
+  // two snorty grunts
+  pig: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.15, 1.18]] as const) {
+      noiseTo(c.dest, c.t0 + d, { dur: 0.11 * c.dur, vol: 0.17 * V, freq: 720 * P * f, q: 3.4, sweepTo: 420 * P * f });
+      toneTo(c.dest, c.t0 + d, { freq: 200 * P * f, slideTo: 142 * P * f, dur: 0.1 * c.dur, type: 'square', vol: 0.08 * V });
+    }
+  },
+  // bleating "baa" — fast tremolo is what sells it
+  sheep: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 330 * P, slideTo: 268 * P, dur: 0.55 * c.dur, type: 'sawtooth', vol: 0.15 * V,
+      filter: { type: 'bandpass', freq: 900 * P, q: 2.2 }, tremolo: { rate: 21, depth: 0.55 } });
+  },
+  chicken: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.14, 0.86]] as const) {
+      noiseTo(c.dest, c.t0 + d, { dur: 0.045 * c.dur, vol: 0.13 * V, freq: 2400 * P * f, q: 6 });
+      toneTo(c.dest, c.t0 + d, { freq: 880 * P * f, slideTo: 600 * P * f, dur: 0.05 * c.dur, type: 'square', vol: 0.05 * V });
+    }
+  },
+  // two to four rising/falling whistles
+  bird: (c) => {
+    const P = c.pitch, V = c.vol;
+    const notes = 2 + Math.floor(Math.random() * 3);
+    for (let n = 0; n < notes; n++) {
+      const up = n % 2 === 1;
+      const base = (2500 + Math.random() * 900) * P;
+      toneTo(c.dest, c.t0 + n * 0.085, { freq: base, slideTo: up ? base * 1.35 : base * 0.72, dur: 0.07 * c.dur,
+        type: 'sine', vol: 0.09 * V, attack: 0.008 });
+    }
+    noiseTo(c.dest, c.t0, { dur: 0.05, vol: 0.02 * V, freq: 5200, q: 3 });
+  },
+  bee: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 186 * P, slideTo: 208 * P, dur: 0.55 * c.dur, type: 'sawtooth', vol: 0.06 * V,
+      filter: { type: 'bandpass', freq: 620 * P, q: 6 }, tremolo: { rate: 33, depth: 0.45 } });
+  },
+  cat: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 640 * P, slideTo: 430 * P, dur: 0.5 * c.dur, type: 'sawtooth', vol: 0.12 * V,
+      filter: { type: 'bandpass', freq: 1100 * P, q: 3.5, sweepTo: 720 * P }, vibrato: { rate: 15, depth: 14 * P } });
+    noiseTo(c.dest, c.t0 + 0.28, { dur: 0.14, vol: 0.02 * V, freq: 2600, q: 2 });
+  },
+  deer: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 420 * P, slideTo: 330 * P, dur: 0.34 * c.dur, type: 'sawtooth', vol: 0.12 * V,
+      filter: { type: 'bandpass', freq: 1200 * P, q: 3 }, tremolo: { rate: 17, depth: 0.4 } });
+  },
+  moose: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 148 * P, slideTo: 96 * P, dur: 0.9 * c.dur, type: 'sawtooth', vol: 0.19 * V,
+      filter: { type: 'bandpass', freq: 380 * P, q: 3 }, vibrato: { rate: 5, depth: 8 * P } });
+  },
+  camel: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 172 * P, slideTo: 118 * P, dur: 0.34 * c.dur, type: 'sawtooth', vol: 0.15 * V,
+      filter: { type: 'bandpass', freq: 520 * P, q: 3 }, tremolo: { rate: 12, depth: 0.3 } });
+    noiseTo(c.dest, c.t0 + 0.2, { dur: 0.16, vol: 0.07 * V, freq: 640 * P, q: 2, sweepTo: 380 * P });
+  },
+  monkey: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.13, 1.22]] as const) {
+      toneTo(c.dest, c.t0 + d, { freq: 520 * P * f, slideTo: 900 * P * f, dur: 0.12 * c.dur, type: 'sine', vol: 0.11 * V });
+    }
+  },
+  frog: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const d of [0, 0.16]) {
+      toneTo(c.dest, c.t0 + d, { freq: 205 * P, dur: 0.13 * c.dur, type: 'square', vol: 0.12 * V,
+        filter: { type: 'bandpass', freq: 480 * P, q: 5 }, tremolo: { rate: 38, depth: 0.8 } });
+    }
+  },
+  lizard: (c) => {
+    const P = c.pitch, V = c.vol;
+    noiseTo(c.dest, c.t0, { dur: 0.05 * c.dur, vol: 0.1 * V, freq: 3000 * P, q: 7, sweepTo: 2200 * P });
+    toneTo(c.dest, c.t0, { freq: 1800 * P, slideTo: 1350 * P, dur: 0.05 * c.dur, type: 'sine', vol: 0.05 * V });
+  },
+  rabbit: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.1, 1.15]] as const)
+      toneTo(c.dest, c.t0 + d, { freq: 1650 * P * f, slideTo: 2300 * P * f, dur: 0.07 * c.dur, type: 'sine', vol: 0.09 * V });
+  },
+  hedgehog: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.12, 0.9], [0.22, 1.05]] as const)
+      noiseTo(c.dest, c.t0 + d, { dur: 0.09 * c.dur, vol: 0.07 * V, freq: 900 * P * f, q: 2, type: 'lowpass', sweepTo: 560 * P });
+  },
+  crab: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.1, 1.12]] as const) {
+      noiseTo(c.dest, c.t0 + d, { dur: 0.035 * c.dur, vol: 0.12 * V, freq: 1800 * P * f, q: 8 });
+      toneTo(c.dest, c.t0 + d, { freq: 430 * P * f, dur: 0.03 * c.dur, type: 'square', vol: 0.05 * V });
+    }
+  },
+  turtle: (c) => {
+    noiseTo(c.dest, c.t0, { dur: 0.2 * c.dur, vol: 0.09 * c.vol, freq: 480, q: 2, type: 'lowpass', sweepTo: 300 });
+  },
+  fish: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.11, 1.25]] as const) {
+      toneTo(c.dest, c.t0 + d, { freq: 380 * P * f, slideTo: 760 * P * f, dur: 0.06 * c.dur, type: 'sine', vol: 0.06 * V });
+      noiseTo(c.dest, c.t0 + d, { dur: 0.03, vol: 0.03 * V, freq: 1400, q: 4 });
+    }
+  },
+  jellyfish: (c) => {
+    toneTo(c.dest, c.t0, { freq: 240 * c.pitch, slideTo: 150 * c.pitch, dur: 0.28 * c.dur, type: 'sine', vol: 0.05 * c.vol });
+  },
+  rustle: (c) => {
+    noiseTo(c.dest, c.t0, { dur: 0.55 * c.dur, vol: 0.07 * c.vol, freq: 2600, q: 1.2, sweepTo: 1100, attack: 0.12 });
+  },
+  zombie: (c) => {
+    const P = c.pitch, V = c.vol;
+    toneTo(c.dest, c.t0, { freq: 128 * P, slideTo: 92 * P, dur: 0.85 * c.dur, type: 'sawtooth', vol: 0.17 * V,
+      filter: { type: 'lowpass', freq: 700, q: 1 }, vibrato: { rate: 4.5, depth: 6 * P } });
+    noiseTo(c.dest, c.t0, { dur: 0.6 * c.dur, vol: 0.05 * V, freq: 420, q: 1, type: 'lowpass' });
+  },
+  skeleton: (c) => {
+    const V = c.vol;
+    for (let n = 0; n < 6; n++)
+      noiseTo(c.dest, c.t0 + n * 0.045, { dur: 0.025, vol: (0.08 - n * 0.006) * V, freq: 3200 + n * 180, q: 8 });
+    toneTo(c.dest, c.t0, { freq: 900, slideTo: 620, dur: 0.16 * c.dur, type: 'triangle', vol: 0.05 * V });
+  },
+  spider: (c) => {
+    noiseTo(c.dest, c.t0, { dur: 0.45 * c.dur, vol: 0.1 * c.vol, freq: 3800, q: 1.5, sweepTo: 2400 });
+  },
+  // the wandering trader's soft nasal hum
+  trader: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f] of [[0, 1], [0.22, 1.06]] as const) {
+      toneTo(c.dest, c.t0 + d, { freq: 232 * P * f, slideTo: 196 * P * f, dur: 0.2 * c.dur, type: 'triangle', vol: 0.11 * V,
+        filter: { type: 'bandpass', freq: 620 * P, q: 2.5 }, vibrato: { rate: 7, depth: 5 * P } });
+      toneTo(c.dest, c.t0 + d, { freq: 464 * P * f, dur: 0.18 * c.dur, type: 'sine', vol: 0.04 * V });
+    }
+  },
+  creeper: (c) => {
+    noiseTo(c.dest, c.t0, { dur: 0.9 * c.dur, vol: 0.14 * c.vol, freq: 5000, q: 1.2, sweepTo: 2400, attack: 0.05 });
+    toneTo(c.dest, c.t0, { freq: 300, slideTo: 720, dur: 0.85 * c.dur, type: 'triangle', vol: 0.05 * c.vol, attack: 0.3 });
+  },
+};
+
+/** a short pained yelp laid over hurt/death calls */
+function yelp(dest: AudioNode, t0: number, pitch: number, amount: number) {
+  noiseTo(dest, t0, { dur: 0.09, vol: 0.07 * amount, freq: 1400 * pitch, q: 1.4, sweepTo: 700 * pitch });
+  toneTo(dest, t0, { freq: 420 * pitch, slideTo: 240 * pitch, dur: 0.12, type: 'triangle', vol: 0.06 * amount });
+}
+
 export const sfx = {
   swing(step: number) {
     noise(0.07, 0.11, 1500 + step * 120, 1.4, 'bandpass', 0, 700);
@@ -272,5 +559,42 @@ export const sfx = {
   },
   start() {
     [330, 494, 659].forEach((f, i) => tone(f, 0.18, 'square', 0.1, f * 1.5, i * 0.06));
+  },
+  /**
+   * Old timber lid: a slow stick-slip groan with a low wooden knock.
+   * `opening` stretches the groan upward; a re-opened chest only creaks briefly.
+   */
+  creak(opening = true) {
+    if (!ctx || !master || muted) return;
+    const t0 = now();
+    const dur = opening ? 0.62 : 0.34;
+    const from = opening ? 320 : 480;
+    const to = opening ? 620 : 300;
+    noiseTo(master, t0, { dur, vol: 0.075, freq: from, q: 13, type: 'bandpass', sweepTo: to, attack: 0.05 });
+    noiseTo(master, t0 + dur * 0.18, { dur: dur * 0.7, vol: 0.045, freq: from * 1.6, q: 18, type: 'bandpass', sweepTo: to * 1.35, attack: 0.08 });
+    // stick-slip impulses: the little catches as the hinge grinds round
+    for (let i = 0; i < (opening ? 5 : 2); i++) {
+      const at = t0 + dur * (0.12 + i * (opening ? 0.17 : 0.3));
+      noiseTo(master, at, { dur: 0.035, vol: 0.05, freq: 900 + i * 260, q: 9 });
+    }
+    toneTo(master, t0 + dur * 0.86, { freq: 118, slideTo: 84, dur: 0.14, type: 'triangle', vol: 0.1, attack: 0.006 });
+    if (opening) toneTo(master, t0 + dur * 0.2, { freq: 92, slideTo: 70, dur: 0.3, type: 'sine', vol: 0.05, attack: 0.1 });
+  },
+  /** any mob's voice, placed in the world by distance and stereo direction */
+  creature(voice: CreatureVoice, opts: VoiceOptions = {}) {
+    const build = VOICES[voice];
+    if (!build) return;
+    const state = VOICE_STATE[opts.state ?? 'idle'];
+    const bus = voiceBus((opts.volume ?? 1) * 0.85, opts.pan ?? 0, opts.underwater ?? false);
+    if (!bus) return;
+    const ctxVoice: VoiceCtx = {
+      dest: bus.dest,
+      t0: bus.t0,
+      pitch: (opts.pitch ?? 1) * state.pitch,
+      vol: state.vol,
+      dur: state.dur,
+    };
+    build(ctxVoice);
+    if (state.yelp > 0) yelp(bus.dest, bus.t0, ctxVoice.pitch, state.yelp);
   },
 };
