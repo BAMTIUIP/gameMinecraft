@@ -158,6 +158,7 @@ const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
 ) as Record<AffixId, Parameters<typeof t>[0]>;
 const RARITY_COLORS = RARITY.map((r) => r.color);
+
 import {
   buildChunkGeometry,
   chestLidGeometry,
@@ -168,9 +169,40 @@ import {
 } from './mesher';
 import { crackTileUV, getAtlasTexture, getCloudTexture, getCrackTexture, getSkyTexture, tileUV } from './textures';
 import { mulberry32, seedNoise } from './noise';
-import { initAudio, requestMusic, resumeAudio, sfx, stopMusic, suspendAudio } from './audio';
+import {
+  initAudio,
+  requestMusic,
+  resumeAudio,
+  sfx,
+  stopMusic,
+  suspendAudio,
+  type CreatureVoice,
+  type VoiceState,
+} from './audio';
 
 export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
+
+/** every species collapses onto one of the synthesised voices */
+const MOB_VOICE: Partial<Record<MobId, CreatureVoice>> = {
+  pig: 'pig', sheep: 'sheep', cow: 'cow', calf: 'cow', chicken: 'chicken',
+  deer: 'deer', roe_deer: 'deer', fawn: 'deer', moose: 'moose',
+  camel: 'camel', camel_calf: 'camel', monkey: 'monkey', lizard: 'lizard', frog: 'frog',
+  rabbit: 'rabbit', hedgehog: 'hedgehog', crab: 'crab', turtle: 'turtle', seal: 'turtle',
+  penguin: 'chicken', bird: 'bird', bee: 'bee', cat: 'cat',
+  fish: 'fish', jellyfish: 'jellyfish', tumbleweed: 'rustle',
+  zombie: 'zombie', skeleton: 'skeleton', archer: 'skeleton', spider: 'spider', spiderling: 'spider', creeper: 'creeper',
+  trader: 'trader',
+};
+
+/** how chatty a species is while nothing is happening: birds and insects fill the air */
+const MOB_VOICE_RATE: Partial<Record<MobId, number>> = {
+  bird: 6, bee: 3.5, chicken: 2.2, frog: 2.4,
+  crab: 1.6, cat: 1.3, cow: 1.2, sheep: 1.2, pig: 1.1, calf: 1.6, fawn: 1.4,
+  deer: 0.9, roe_deer: 0.9, moose: 0.7, camel: 0.8, camel_calf: 1.3, monkey: 1.2,
+  rabbit: 0.8, hedgehog: 0.8, lizard: 0.7, turtle: 0.5, seal: 0.9, penguin: 1.1,
+  zombie: 0.8, skeleton: 0.5, archer: 0.4, spider: 0.6, spiderling: 0.5, creeper: 0.25,
+  fish: 0.9, jellyfish: 0.4, tumbleweed: 0.4, trader: 1,
+};
 
 export type HudState = {
   phase: Phase;
@@ -418,6 +450,9 @@ export class Engine {
   private clock = 0.28;
   private daylight = 1;
   private mobSys!: MobSystem;
+  /** idle wildlife calls near the player: next one, and a short gap after any call */
+  private voiceTimer = 2.4;
+  private voiceCooldown = 0;
   private spawnTimer = 0;
   private animalTimer = 0;
   private ambientTimer = 0;
@@ -4689,7 +4724,7 @@ if (tpClipActive > 0.5) {
         0.5,
       );
       this.pushBanner(t('chestEmpty'), blockName(base, BLOCKS[base].name), bannerColor);
-      sfx.ui(false);
+      sfx.creak(false);
       this.syncHud(true);
       return true;
     }
@@ -4761,6 +4796,7 @@ if (tpClipActive > 0.5) {
     this.world.set(x, y, z, base + CHEST_OPEN_OFFSET);
     this.rebuildAt(x, z);
     this.swingChestLid(x, y, z, 0, [[0, 0], [1, CHEST_LID_OPEN_ANGLE]], 0.62);
+    sfx.creak(true);
     const summary: string[] = [];
     for (const [rewardId, count] of loot) {
       this.inventory.set(rewardId, (this.inventory.get(rewardId) ?? 0) + count);
@@ -7137,6 +7173,68 @@ if (tpClipActive > 0.5) {
     return 1 + this.survivalThreatLevel() * 0.16;
   }
 
+  /** is the listener's head under water right now? */
+  private headUnderwater() {
+    return this.world.get(Math.floor(this.pos.x), Math.floor(this.pos.y + EYE), Math.floor(this.pos.z)) === WATER;
+  }
+
+  /**
+   * Play a mob's voice out in the world: quieter with distance, panned to the
+   * side it stands on, and dulled while the player's head is underwater.
+   */
+  private playMobVoice(m: Mob, state: VoiceState, volume = 1) {
+    if (this.phase !== 'playing') return;
+    const voice = MOB_VOICE[m.id];
+    if (!voice) return;
+    const dx = m.x - this.pos.x;
+    const dy = m.y + 0.4 - (this.pos.y + EYE * 0.75);
+    const dz = m.z - this.pos.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist > 34) return;
+    // fade with distance; anything practically on top of the player is centred
+    const falloff = Math.max(0.05, 1 - dist / 34);
+    const rightX = -this.dirV.z;
+    const rightZ = this.dirV.x;
+    const rightLen = Math.hypot(rightX, rightZ) || 1;
+    const pan = dist < 1.2 ? 0 : Math.max(-0.7, Math.min(0.7, ((dx * rightX + dz * rightZ) / rightLen / dist) * 0.8));
+    this.voiceCooldown = Math.max(this.voiceCooldown, 0.16);
+    sfx.creature(voice, {
+      state,
+      volume: falloff * volume,
+      pan,
+      // babies answer in a higher voice; adults vary a little so repeats never sound looped
+      pitch: (m.grow > 0 ? 1.32 : 1) * (0.94 + Math.random() * 0.12),
+      underwater: this.headUnderwater(),
+    });
+  }
+
+  /**
+   * Idle wildlife calls: every second or two one nearby animal speaks up —
+   * birds and insects most of all, so the woods around the player feel alive.
+   */
+  private updateCreatureVoices(dt: number) {
+    this.voiceCooldown = Math.max(0, this.voiceCooldown - dt);
+    this.voiceTimer -= dt;
+    if (this.voiceTimer > 0 || this.voiceCooldown > 0) return;
+    this.voiceTimer = 1 + Math.random() * 1.9;
+    let best: Mob | null = null;
+    let bestScore = 0;
+    for (const m of this.mobSys.mobs) {
+      if (!m.alive || m.hidden || !MOB_VOICE[m.id]) continue;
+      const dist = Math.hypot(m.x - this.pos.x, m.y - this.pos.y, m.z - this.pos.z);
+      if (dist > 30) continue;
+      const rate = MOB_VOICE_RATE[m.id] ?? 0.8;
+      if (rate <= 0) continue;
+      const score = rate * (m.grow > 0 ? 1.25 : 1) * Math.max(0.05, 1 - dist / 32) * (0.45 + Math.random());
+      if (score > bestScore) {
+        bestScore = score;
+        best = m;
+      }
+    }
+    // smaller wildlife sings more softly
+    if (best) this.playMobVoice(best, 'idle', best.id === 'bird' || best.id === 'bee' ? 0.75 : 1);
+  }
+
   private updateMobs(dt: number) {
     const night = this.isNightClock();
     const threat = this.survivalThreatLevel();
@@ -7327,6 +7425,8 @@ if (tpClipActive > 0.5) {
         this.burst(x, y, z, particles, 2, 0.35, 0.25);
       },
     );
+
+    this.updateCreatureVoices(dt);
   }
 
   /** dark-cave spawn: air pocket with a solid floor, below the surface, near the player */
@@ -7370,6 +7470,7 @@ if (tpClipActive > 0.5) {
     } else {
       this.addShake(0.3);
       this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [220, 60, 50], 6, 2);
+      if (m.def.hostile) this.playMobVoice(m, 'attack', 0.9);
     }
     // thorns reflect
     if (this.stats.thorns > 0 && m.alive) {
@@ -7432,6 +7533,7 @@ if (tpClipActive > 0.5) {
     this.popup(m.x, m.y + 1.5, m.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#ffffff', crit);
     this.addShake(crit ? 0.32 : 0.16);
     sfx.breakBlock(1.4);
+    this.playMobVoice(m, 'hurt');
     this.damageHeldTool(1);
 
     if (m.hp <= 0) this.mobDied(m, false);
@@ -7686,6 +7788,7 @@ if (tpClipActive > 0.5) {
       const it = rollLoot(def.level, (Math.random() * 1e9) | 0);
       if (it) this.spawnDrop(m.x, m.y + 0.7, m.z, LOOT_BAG, it);
     }
+    this.playMobVoice(m, 'death', 1.05);
     this.mobSys.remove(m);
     this.syncHud(true);
   }
