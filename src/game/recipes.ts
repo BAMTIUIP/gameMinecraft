@@ -666,8 +666,12 @@ export const RECIPES: Recipe[] = [
   },
 
   // ---------------- armour ----------------
+  // Full leather set: the game uses leaves as its early-game hide/fibre resource.
   gear('helmet_leather', 'LEATHER HELMET', 'head', 'leather', [[LEAVES, 5]], '#a3763f'),
   gear('chest_leather', 'LEATHER TUNIC', 'chest', 'leather', [[LEAVES, 8]], '#a3763f'),
+  gear('legs_leather', 'LEATHER LEGGINGS', 'legs', 'leather', [[LEAVES, 7]], '#a3763f'),
+  gear('feet_leather', 'LEATHER BOOTS', 'feet', 'leather', [[LEAVES, 4]], '#a3763f'),
+  gear('hands_leather', 'LEATHER GLOVES', 'hands', 'leather', [[LEAVES, 3]], '#a3763f'),
   gear('legs_iron', 'IRON LEGGINGS', 'legs', 'iron', [[IRON, 4]], '#d6d9dd'),
   gear('feet_iron', 'IRON BOOTS', 'feet', 'iron', [[IRON, 3]], '#d6d9dd'),
   gear('hands_iron', 'IRON GAUNTLETS', 'hands', 'iron', [[IRON, 3], [LEAVES, 2]], '#d6d9dd'),

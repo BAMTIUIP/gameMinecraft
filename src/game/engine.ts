@@ -1011,26 +1011,29 @@ if (tpClipActive > 0.5) {
     this.toolCrafted = new THREE.Group();
     this.toolCrafted.position.set(0.02, -0.02, 0.02);
     this.toolCrafted.rotation.set(0.08, 0.45, 0.48);
-    this.toolCrafted.scale.setScalar(1.18);
+    this.toolCrafted.scale.setScalar(0.92);
     this.toolCrafted.visible = false;
     this.pickGroup.add(this.toolCrafted);
 
-    // Chunky, oversized tool so it reads clearly against any terrain.
-    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x0a0d0b, side: THREE.BackSide, fog: false });
+    // Chunky pixel geometry keeps the tool readable even after the view-model is reduced.
+    // Keep wooden tools warm and readable; the ember-black outline is reserved for metal tiers.
+    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x4b2a1c, side: THREE.BackSide, fog: false });
     const parts: Array<{ geo: THREE.BoxGeometry; mat: THREE.Material; pos: [number, number, number]; rot?: [number, number, number]; head?: boolean }> = [];
 
-    const woodMat = new THREE.MeshLambertMaterial({ color: 0x9c7743 });
-    const woodDarkMat = new THREE.MeshLambertMaterial({ color: 0x6e5129 });
-    const headColors = [0xc79455, 0xa8aeb4, 0xeccaa2, 0x6cf2e4];
+    const woodMat = new THREE.MeshLambertMaterial({ color: 0x86502d });
+    const woodDarkMat = new THREE.MeshLambertMaterial({ color: 0x5a321f });
+    const headColors = [0x9b5f35, 0xa8aeb4, 0xeccaa2, 0x6cf2e4];
     headColors.forEach((c) => this.pickHeadMats.push(new THREE.MeshLambertMaterial({ color: c })));
     const headMat = this.pickHeadMats[0];
 
     parts.push({ geo: new THREE.BoxGeometry(0.1, 0.92, 0.1), mat: woodMat, pos: [0, -0.3, 0.08], rot: [0.2, 0, 0] });
     parts.push({ geo: new THREE.BoxGeometry(0.105, 0.2, 0.105), mat: woodDarkMat, pos: [0, -0.56, 0.13], rot: [0.2, 0, 0] });
-    // head bar + two swept tips
-    parts.push({ geo: new THREE.BoxGeometry(0.17, 0.18, 0.66), mat: headMat, pos: [0, 0.2, -0.02], head: true });
-    parts.push({ geo: new THREE.BoxGeometry(0.15, 0.15, 0.26), mat: headMat, pos: [0, 0.15, -0.42], rot: [-0.55, 0, 0], head: true });
-    parts.push({ geo: new THREE.BoxGeometry(0.15, 0.15, 0.26), mat: headMat, pos: [0, 0.15, 0.38], rot: [0.55, 0, 0], head: true });
+    // A proper pick head: the bar is across the handle and the two ends taper away
+    // from it.  It is later turned into the scene so a point, not the flat face,
+    // leads the strike.
+    parts.push({ geo: new THREE.BoxGeometry(0.66, 0.18, 0.17), mat: headMat, pos: [0, 0.2, -0.02], head: true });
+    parts.push({ geo: new THREE.BoxGeometry(0.26, 0.15, 0.15), mat: headMat, pos: [-0.42, 0.15, -0.02], rot: [0, 0, -0.55], head: true });
+    parts.push({ geo: new THREE.BoxGeometry(0.26, 0.15, 0.15), mat: headMat, pos: [0.42, 0.15, -0.02], rot: [0, 0, 0.55], head: true });
     // collar where head meets shaft
     parts.push({ geo: new THREE.BoxGeometry(0.15, 0.14, 0.15), mat: new THREE.MeshLambertMaterial({ color: 0x3f4046 }), pos: [0, 0.06, 0.02] });
 
@@ -1050,9 +1053,9 @@ if (tpClipActive > 0.5) {
       shell.renderOrder = -1;
       this.toolPick.add(shell);
     }
-    // Minecraft grip: the head crosses the view so the whole T-shape reads,
-    // handle runs to the lower-right, blade tips up-left.
-    this.toolPick.rotation.set(-0.12, 1.32, 0.62);
+    // Turn the head partly into depth: one pointed end now leads toward a block,
+    // while the other remains visible as a readable pickaxe silhouette.
+    this.toolPick.rotation.set(0.18, -0.9, 0.54);
     this.toolPick.position.set(0.02, -0.02, 0.06);
     this.pickGroup.add(this.toolPick);
 
@@ -1078,7 +1081,8 @@ if (tpClipActive > 0.5) {
       shell.renderOrder = -1;
       this.toolSword.add(shell);
     }
-    this.toolSword.rotation.set(0.05, 0.5, 0.85);
+    // Blade tilts away from the camera instead of presenting a flat card.
+    this.toolSword.rotation.set(0.46, 0.22, 0.42);
     this.toolSword.visible = false;
     this.pickGroup.add(this.toolSword);
 
@@ -1102,7 +1106,9 @@ if (tpClipActive > 0.5) {
       shell.renderOrder = -1;
       this.toolAxe.add(shell);
     }
-    this.toolAxe.rotation.set(-0.12, 1.1, 0.62);
+    // The cutting edge points into the world and a little to screen-left;
+    // the butt is no longer the conspicuous right-facing end.
+    this.toolAxe.rotation.set(0.3, -1.45, 0.38);
     this.toolAxe.visible = false;
     this.pickGroup.add(this.toolAxe);
 
@@ -1120,7 +1126,7 @@ if (tpClipActive > 0.5) {
       shell.renderOrder = -1;
       this.toolShovel.add(shell);
     }
-    this.toolShovel.rotation.set(-0.1, 0.9, 0.55);
+    this.toolShovel.rotation.set(0.32, -0.78, 0.34);
     this.toolShovel.visible = false;
     this.pickGroup.add(this.toolShovel);
 
@@ -1480,6 +1486,15 @@ if (tpClipActive > 0.5) {
         this.toolCrafted.add(this.buildToolModel(heldId, wear));
         this.craftedToolKey = signature;
       }
+      // Give each tool a useful working pose.  The head/edge points into the
+      // scene, while the flat face remains visible enough to identify it.
+      this.toolCrafted.position.set(0.02, -0.03, 0.02);
+      this.toolCrafted.scale.setScalar(craftedSpec.kind === 'sword' ? 0.86 : 0.92);
+      if (craftedSpec.kind === 'pickaxe') this.toolCrafted.rotation.set(0.36, -0.95, 0.48);
+      else if (craftedSpec.kind === 'axe') this.toolCrafted.rotation.set(0.32, -1.45, 0.34);
+      else if (craftedSpec.kind === 'shovel') this.toolCrafted.rotation.set(0.34, -0.78, 0.32);
+      else if (craftedSpec.kind === 'sword') this.toolCrafted.rotation.set(0.48, 0.2, 0.38);
+      else this.toolCrafted.rotation.set(0.22, 0.15, 0.28);
     }
     const holdingLanternBlock = kind === 'block' && heldId === TORCH;
     const isCandidateItem =
@@ -2209,8 +2224,8 @@ if (tpClipActive > 0.5) {
   private layoutViewModel(aspect: number) {
     if (!this.pickGroup) return;
     const portrait = aspect < 1;
-    this.pickBaseX = portrait ? 0.24 : aspect < 1.35 ? 0.38 : 0.5;
-    this.pickGroup.scale.setScalar(portrait ? 0.95 : aspect < 1.35 ? 1.1 : 1.22);
+    this.pickBaseX = portrait ? 0.2 : aspect < 1.35 ? 0.32 : 0.42;
+    this.pickGroup.scale.setScalar(portrait ? 0.68 : aspect < 1.35 ? 0.76 : 0.82);
   }
 
   private onBlur = () => {
@@ -4044,18 +4059,23 @@ if (tpClipActive > 0.5) {
             );
           }
         }
-        sx = -k * 1.15;
-        sy = k * 0.35;
-        sz = k * 0.28;
-        px = k * 0.06;
-        py = -k * 0.16 + (impact ? 0.02 : 0);
+        const swingKind = this.heldKind();
+        // A sword makes a compact thrust/slash; a pick drops straight into the
+        // block; an axe gets the wider diagonal chop that matches its forward-left edge.
+        sx = -k * (swingKind === 'axe' ? 0.92 : swingKind === 'sword' ? 0.72 : 1.0);
+        sy = k * (swingKind === 'axe' ? 0.28 : swingKind === 'sword' ? 0.16 : 0.32);
+        sz = k * (swingKind === 'axe' ? 0.62 : swingKind === 'sword' ? 0.18 : 0.28);
+        px = k * (swingKind === 'axe' ? 0.08 : 0.06);
+        py = -k * (swingKind === 'axe' ? 0.2 : 0.16) + (impact ? 0.02 : 0);
       }
     }
     this.syncViewModel();
-    this.pickGroup.rotation.set(0.42 + sx + idle, -0.58 + sy, 0.3 + sz + idle * 0.6);
+    // Keep the view model in the lower-right hand area.  The smaller scale and
+    // extra depth leave the crosshair and most of the world unobstructed.
+    this.pickGroup.rotation.set(0.3 + sx + idle, -0.2 + sy, 0.2 + sz + idle * 0.6);
     this.pickGroup.position.x = this.pickBaseX + px;
-    this.pickGroup.position.y = -0.46 + py + idle * 0.6;
-    this.pickGroup.position.z = -0.92 + Math.max(0, sx) * -0.14;
+    this.pickGroup.position.y = -0.56 + py + idle * 0.6;
+    this.pickGroup.position.z = -1.08 + Math.max(0, sx) * -0.14;
 
     // popups
     this.updatePopups(dt);
@@ -6154,6 +6174,7 @@ if (tpClipActive > 0.5) {
     if (!spec) return group;
 
     const materialCache = new Map<string, THREE.MeshLambertMaterial>();
+    const outlineColor = spec.tier === 0 ? '#4b2a1c' : '#17171a';
     const material = (color: string, glow = false) => {
       const key = `${color}:${glow}`;
       let found = materialCache.get(key);
@@ -6174,7 +6195,7 @@ if (tpClipActive > 0.5) {
       if (outline) {
         const shell = new THREE.Mesh(
           new THREE.BoxGeometry(w * 1.14, h * 1.14, d * 1.14),
-          material('#17171a'),
+          material(outlineColor),
         );
         shell.position.set(x, y, z);
         group.add(shell);

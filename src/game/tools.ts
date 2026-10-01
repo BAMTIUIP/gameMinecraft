@@ -27,7 +27,7 @@ export type ToolMaterial = {
 export const TOOL_MATERIALS: readonly ToolMaterial[] = [
   {
     key: 'wood', durability: 48, speed: 1.0,
-    head: '#75452e', edge: '#c28b4f', accent: '#f0c56c', handle: '#53331f',
+    head: '#7a472b', edge: '#b8733d', accent: '#8f542c', handle: '#5a321f',
     repairResource: PLANKS, pickDamage: 4, swordDamage: 9, axeDamage: 7, shovelDamage: 4,
   },
   {
