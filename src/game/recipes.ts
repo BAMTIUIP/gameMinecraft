@@ -65,11 +65,13 @@ import {
 } from './blocks';
 import {
   AXE_TOOLS,
+  HOE_TOOLS,
   PICK_TOOLS,
   SHOVEL_TOOLS,
   SWORD_TOOLS,
   TOOL_AXE,
   TOOL_BOW,
+  TOOL_HOE,
   TOOL_PICK,
   TOOL_SHOVEL,
   TOOL_SWORD,
@@ -77,6 +79,7 @@ import {
   TOOL_MATERIALS,
   getToolSpec,
   isAxeTool,
+  isHoeTool,
   isPickTool,
   isShovelTool,
   isSwordTool,
@@ -87,16 +90,19 @@ import type { Item, Material, Slot } from './items';
 
 export {
   AXE_TOOLS,
+  HOE_TOOLS,
   PICK_TOOLS,
   SHOVEL_TOOLS,
   SWORD_TOOLS,
   TOOL_AXE,
   TOOL_BOW,
+  TOOL_HOE,
   TOOL_PICK,
   TOOL_SHOVEL,
   TOOL_SWORD,
   TOOL_TORCH,
   isAxeTool,
+  isHoeTool,
   isPickTool,
   isShovelTool,
   isSwordTool,
@@ -114,6 +120,7 @@ export type RecipeKind =
   | 'food'
   | 'axe'
   | 'shovel'
+  | 'hoe'
   | 'bow';
 
 export type Recipe = {
@@ -175,19 +182,20 @@ export function toolSellPrice(id: number): number {
     sword: [25, 65, 140, 210, 380, 720],
     axe: [20, 60, 130, 190, 320, 620],
     shovel: [15, 35, 80, 120, 210, 420],
+    hoe: [15, 35, 80, 120, 210, 420],
     bow: [30],
   };
   return tables[spec.kind]?.[spec.tier] ?? 30;
 }
 
-function toolInputs(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel', tier: number): Array<[number, number]> {
-  if (tier === 0) return [[PLANKS, kind === 'shovel' ? 2 : 3]];
-  const headCount = kind === 'sword' ? 2 : kind === 'shovel' ? 1 : 3;
+function toolInputs(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel' | 'hoe', tier: number): Array<[number, number]> {
+  if (tier === 0) return [[PLANKS, kind === 'shovel' || kind === 'hoe' ? 2 : 3]];
+  const headCount = kind === 'sword' || kind === 'hoe' ? 2 : kind === 'shovel' ? 1 : 3;
   const handleCount = kind === 'sword' ? 1 : 2;
   return [[MATERIAL_ITEMS[tier], headCount], [PLANKS, handleCount]];
 }
 
-function toolRecipe(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel', tier: number, hotkey = ''): Recipe {
+function toolRecipe(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel' | 'hoe', tier: number, hotkey = ''): Recipe {
   const toolId = toolIdFor(kind, tier);
   const material = TOOL_MATERIALS[tier];
   const prefix = kind === 'pickaxe' ? 'pick' : kind === 'sword' ? 'sword' : kind;
@@ -217,6 +225,7 @@ const TOOL_RECIPES: Recipe[] = [
   ]),
   ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('axe', tier)]),
   ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('shovel', tier)]),
+  ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('hoe', tier)]),
 ];
 
 export const RECIPES: Recipe[] = [
@@ -666,8 +675,12 @@ export const RECIPES: Recipe[] = [
   },
 
   // ---------------- armour ----------------
+  // Full leather set: the game uses leaves as its early-game hide/fibre resource.
   gear('helmet_leather', 'LEATHER HELMET', 'head', 'leather', [[LEAVES, 5]], '#a3763f'),
   gear('chest_leather', 'LEATHER TUNIC', 'chest', 'leather', [[LEAVES, 8]], '#a3763f'),
+  gear('legs_leather', 'LEATHER LEGGINGS', 'legs', 'leather', [[LEAVES, 7]], '#a3763f'),
+  gear('feet_leather', 'LEATHER BOOTS', 'feet', 'leather', [[LEAVES, 4]], '#a3763f'),
+  gear('hands_leather', 'LEATHER GLOVES', 'hands', 'leather', [[LEAVES, 3]], '#a3763f'),
   gear('legs_iron', 'IRON LEGGINGS', 'legs', 'iron', [[IRON, 4]], '#d6d9dd'),
   gear('feet_iron', 'IRON BOOTS', 'feet', 'iron', [[IRON, 3]], '#d6d9dd'),
   gear('hands_iron', 'IRON GAUNTLETS', 'hands', 'iron', [[IRON, 3], [LEAVES, 2]], '#d6d9dd'),
@@ -857,7 +870,7 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
     if (tool.kind === 'bow') return { inputsUsed: 1, outputs: [[PLANKS, 2], [LEAVES, 2]] };
     if (tool.tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
     const materialId = MATERIAL_ITEMS[tool.tier];
-    const materialCount = tool.kind === 'pickaxe' || tool.kind === 'axe' ? 2 : 1;
+    const materialCount = tool.kind === 'pickaxe' || tool.kind === 'axe' || tool.kind === 'hoe' ? 2 : 1;
     return { inputsUsed: 1, outputs: [[materialId, materialCount], [PLANKS, 1]] };
   }
   if (id === TOOL_TORCH) return { inputsUsed: 1, outputs: [[PLANKS, 1]] };

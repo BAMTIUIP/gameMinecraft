@@ -119,6 +119,8 @@ export const FLOWER_WHITE = 107;
 export const JACARANDA_LEAVES = 108;
 /** refined netherite alloy used for the final tool tier */
 export const NETHERITE_INGOT = 109;
+/** tilled soil created by a hoe; it drops dirt when broken */
+export const FARMLAND = 126;
 
 /** biome-skinned treasure chests are non-solid block entities stored in the world grid. */
 export const CHEST_PLAINS = 110;
@@ -230,6 +232,7 @@ export function blockClass(id: number): BlockClass {
     case SAND:
     case SNOW_GRASS:
     case HAY_BALE:
+    case FARMLAND:
       return 'earth';
     case ICE:
       return 'stone';
@@ -382,6 +385,7 @@ export const T = {
   flowerWhite: 120,
   jacarandaLeaves: 121,
   netheriteIngot: 122,
+  farmland: 123,
 };
 
 export type BlockDef = {
@@ -902,6 +906,7 @@ export const BLOCKS: BlockDef[] = [
   d({ id: CHEST_CANYON_OPEN, name: 'Redstone Treasure Chest (open)', side: T.sandstoneSide, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [155, 73, 48] }),
   d({ id: CHEST_VOLCANIC_OPEN, name: 'Ember Treasure Chest (open)', side: T.volcanicStone, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [74, 59, 61] }),
   d({ id: CHEST_UNDERWATER_OPEN, name: 'Barnacled Sea Chest (open)', side: T.netherite, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [75, 121, 107] }),
+  d({ id: FARMLAND, name: 'Farmland', top: T.farmland, side: T.dirt, bottom: T.dirt, hardness: 0.45, score: 2, drop: DIRT, tint: [116, 79, 54] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
