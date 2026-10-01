@@ -1420,6 +1420,7 @@ const BLOCKS_RU: Record<number, string> = {
   93: 'Угольный блок', 94: 'Железный блок', 95: 'Блок красного камня', 96: 'Лазуритовый блок',
   97: 'Изумрудный блок', 98: 'Кварцевый блок',
   99: 'Красный камень', 100: 'Лазурит', 101: 'Изумруд', 102: 'Кварц',
+  103: 'Осенняя листва', 104: 'Листва сакуры', 105: 'Розовый цветок', 106: 'Сиреневый цветок', 107: 'Белая ромашка',
   68: 'Верстак',
 };
 
@@ -1446,6 +1447,7 @@ const BLOCKS_FR: Record<number, string> = {
   93: 'Bloc de charbon', 94: 'Bloc de fer', 95: 'Bloc de redstone', 96: 'Bloc de lapis-lazuli',
   97: "Bloc d'émeraude", 98: 'Bloc de quartz',
   99: 'Redstone', 100: 'Lapis-lazuli', 101: 'Émeraude', 102: 'Quartz du Nether',
+  103: 'Feuillage automnal', 104: 'Fleurs de cerisier', 105: 'Fleur rose', 106: 'Fleur violette', 107: 'Marguerite blanche',
   68: 'Établi',
 };
 
@@ -1472,6 +1474,7 @@ const BLOCKS_DE: Record<number, string> = {
   93: 'Kohleblock', 94: 'Eisenblock', 95: 'Redstone-Block', 96: 'Lapislazuliblock',
   97: 'Smaragdblock', 98: 'Quarzblock',
   99: 'Redstone', 100: 'Lapislazuli', 101: 'Smaragd', 102: 'Netherquarz',
+  103: 'Herbstlaub', 104: 'Kirschblüten', 105: 'Rosa Blume', 106: 'Violette Blume', 107: 'Weiße Gänseblümchen',
   68: 'Werkbank',
 };
 

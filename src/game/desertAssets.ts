@@ -1477,7 +1477,7 @@ export function isDesertMountainTransition(world: World, cx: number, cz: number)
     const h = world.heightAt(x + ox, z + oz);
     const b = world.biomeAt(x + ox, z + oz, h);
     if (b === 'desert') hasDesert = true;
-    if (b === 'canyon' || b === 'volcanic' || b === 'plains' || h >= SEA + 8) {
+    if (b === 'canyon' || b === 'volcanic' || b === 'plains' || b === 'autumn' || h >= SEA + 8) {
       hasHighlandOrBorder = true;
     }
     minH = Math.min(minH, h);

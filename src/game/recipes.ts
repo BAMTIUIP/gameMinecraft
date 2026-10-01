@@ -15,6 +15,9 @@ import {
   FLOWER_BLUE,
   FLOWER_RED,
   FLOWER_YELLOW,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
   LAMP_BLUE,
   LAMP_RED,
   LAMP_YELLOW,
@@ -855,6 +858,9 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all'> {
     id === FLOWER_RED ||
     id === FLOWER_YELLOW ||
     id === FLOWER_BLUE ||
+    id === FLOWER_PINK ||
+    id === FLOWER_PURPLE ||
+    id === FLOWER_WHITE ||
     id === CAMPFIRE
   ) {
     return 'food';

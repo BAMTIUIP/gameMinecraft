@@ -110,6 +110,12 @@ export const REDSTONE = 99;
 export const LAPIS = 100;
 export const EMERALD = 101;
 export const QUARTZ = 102;
+/** seasonal canopy and flowering-tree foliage */
+export const AUTUMN_LEAVES = 103;
+export const CHERRY_LEAVES = 104;
+export const FLOWER_PINK = 105;
+export const FLOWER_PURPLE = 106;
+export const FLOWER_WHITE = 107;
 
 export const isOreBlock = (id: number) =>
   (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
@@ -120,12 +126,16 @@ export const isMineralItem = (id: number) =>
   id === NETHERITE;
 
 export const isFluid = (id: number) => id === WATER || id === LAVA;
-export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === DRY_BLOOM || id === DESERT_THISTLE;
+export const isFlower = (id: number) =>
+  id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
+  id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE ||
+  id === DRY_BLOOM || id === DESERT_THISTLE;
 export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM;
 export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
-  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES || id === COCONUT_LEAVES || id === BANANA_LEAVES;
+  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES ||
+  id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES;
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 
 export const isResource = (id: number) =>
@@ -190,6 +200,8 @@ export function blockClass(id: number): BlockClass {
     case BIRCH_LEAVES:
     case APPLE_LEAVES:
     case SNOW_LEAVES:
+    case AUTUMN_LEAVES:
+    case CHERRY_LEAVES:
     case DOOR_WOOD:
     case FENCE_WOOD:
     case CAMPFIRE:
@@ -319,6 +331,11 @@ export const T = {
   diamondGem: 113,
   emerald: 114,
   quartz: 115,
+  autumnLeaves: 116,
+  cherryLeaves: 117,
+  flowerPink: 118,
+  flowerPurple: 119,
+  flowerWhite: 120,
 };
 
 export type BlockDef = {
@@ -814,6 +831,12 @@ export const BLOCKS: BlockDef[] = [
     drop: 0,
     tint: [238, 230, 220],
   }),
+  // ---- seasonal foliage and extra wildflowers ----
+  d({ id: AUTUMN_LEAVES, name: 'Autumn Leaves', side: T.autumnLeaves, hardness: 0.22, score: 3, drop: LEAVES, tint: [226, 126, 43] }),
+  d({ id: CHERRY_LEAVES, name: 'Cherry Blossoms', side: T.cherryLeaves, hardness: 0.22, score: 4, drop: LEAVES, tint: [236, 154, 184] }),
+  d({ id: FLOWER_PINK, name: 'Pink Flower', side: T.flowerPink, hardness: 0.1, score: 3, solid: false, tint: [245, 132, 176] }),
+  d({ id: FLOWER_PURPLE, name: 'Purple Flower', side: T.flowerPurple, hardness: 0.1, score: 3, solid: false, tint: [161, 113, 224] }),
+  d({ id: FLOWER_WHITE, name: 'White Daisy', side: T.flowerWhite, hardness: 0.1, score: 3, solid: false, tint: [244, 240, 224] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */

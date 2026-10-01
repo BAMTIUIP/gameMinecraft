@@ -13,7 +13,14 @@ import {
   FENCE_WOOD,
   FERN,
   MUSHROOM,
-  FLOWER_BLUE, DRY_BLOOM, DESERT_THISTLE, BIRD_NEST, CHICKEN_NEST,
+  FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
+  DRY_BLOOM,
+  DESERT_THISTLE,
+  BIRD_NEST,
+  CHICKEN_NEST,
   COCONUT_LEAVES,
   BANANA_LEAVES,
   T,
@@ -204,6 +211,9 @@ const COL = {
   red: srgb(0xe2564a),
   yellow: srgb(0xf4c842),
   blue: srgb(0x5e8cff),
+  pink: srgb(0xf28bb5),
+  purple: srgb(0xa875df),
+  white: srgb(0xfff8e8),
   coreY: srgb(0xf4c842),
   coreB: srgb(0xb8722a),
   egg: srgb(0xeef2e4),
@@ -389,25 +399,55 @@ function addBirdNest(P: number[], C: number[], I: number[], x: number, y: number
   }
 }
 
-/** a chunky voxel flower: stem, two leaves, cross-shaped petal head */
+/** Chunky voxel flowers with distinct tulip, lavender, daisy and classic rosette silhouettes. */
 function addFlower(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, seed: number) {
   const cx = x + 0.5 + (((seed * 7) % 5) - 2) * 0.04;
   const cz = z + 0.5 + (((seed * 13) % 5) - 2) * 0.04;
-  const petal = id === FLOWER_RED ? COL.red : id === FLOWER_YELLOW ? COL.yellow : COL.blue;
+  const petal = id === FLOWER_RED ? COL.red
+    : id === FLOWER_YELLOW ? COL.yellow
+      : id === FLOWER_BLUE ? COL.blue
+        : id === FLOWER_PINK ? COL.pink
+          : id === FLOWER_PURPLE ? COL.purple
+            : COL.white;
   const core = id === FLOWER_YELLOW ? COL.coreB : COL.coreY;
-  const h = 0.5 + ((seed % 3) - 1) * 0.05;
-  // stem
+  const h = id === FLOWER_PURPLE ? 0.66 : 0.5 + ((seed % 3) - 1) * 0.05;
   addBox(P, C, I, cx, y + h / 2, cz, 0.07, h, 0.07, ...COL.stem);
-  // leaves
   addBox(P, C, I, cx + 0.1, y + h * 0.35, cz, 0.14, 0.05, 0.08, ...COL.leafG);
   addBox(P, C, I, cx - 0.09, y + h * 0.55, cz + 0.02, 0.12, 0.05, 0.08, ...COL.leafG);
-  // head: core + 4 petals
+
+  if (id === FLOWER_PURPLE) {
+    // Tall lavender spike: several compact florets rise along a single stem.
+    for (let row = 0; row < 4; row++) {
+      const fy = y + 0.24 + row * 0.105;
+      const offset = row % 2 === 0 ? -0.045 : 0.045;
+      addBox(P, C, I, cx + offset, fy, cz, 0.12, 0.09, 0.12, ...petal);
+      addBox(P, C, I, cx - offset, fy + 0.025, cz + 0.035, 0.09, 0.07, 0.09, ...COL.pink);
+    }
+    return;
+  }
+
   const hy = y + h + 0.08;
+  if (id === FLOWER_PINK) {
+    // Tulip cup: three upright petals around a shaded base.
+    addBox(P, C, I, cx, hy - 0.035, cz, 0.17, 0.14, 0.17, ...COL.purple);
+    addBox(P, C, I, cx, hy + 0.035, cz, 0.14, 0.14, 0.14, ...petal);
+    addBox(P, C, I, cx - 0.095, hy + 0.045, cz, 0.09, 0.17, 0.12, ...petal);
+    addBox(P, C, I, cx + 0.095, hy + 0.045, cz, 0.09, 0.17, 0.12, ...petal);
+    addBox(P, C, I, cx, hy + 0.055, cz - 0.09, 0.12, 0.16, 0.09, ...COL.pink);
+    addBox(P, C, I, cx, hy + 0.09, cz, 0.07, 0.06, 0.07, ...COL.coreY);
+    return;
+  }
+
+  // Classic flower/daisy head: a yellow core with a cross of petals, plus diagonals for daisies.
   addBox(P, C, I, cx, hy, cz, 0.14, 0.14, 0.14, ...core);
   addBox(P, C, I, cx + 0.14, hy, cz, 0.14, 0.12, 0.12, ...petal);
   addBox(P, C, I, cx - 0.14, hy, cz, 0.14, 0.12, 0.12, ...petal);
   addBox(P, C, I, cx, hy, cz + 0.14, 0.12, 0.12, 0.14, ...petal);
   addBox(P, C, I, cx, hy, cz - 0.14, 0.12, 0.12, 0.14, ...petal);
+  if (id === FLOWER_WHITE) {
+    for (const [dx, dz] of [[0.1, 0.1], [-0.1, 0.1], [0.1, -0.1], [-0.1, -0.1]])
+      addBox(P, C, I, cx + dx, hy, cz + dz, 0.11, 0.1, 0.11, ...petal);
+  }
   addBox(P, C, I, cx, hy + 0.12, cz, 0.1, 0.06, 0.1, ...petal);
 }
 
@@ -881,7 +921,10 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         const id = world.get(x, y, z);
         if (id === AIR) continue;
         // flowers, grasses & egg clutches render as little 3D models, not textured cubes
-        if (id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE) {
+        if (
+          id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
+          id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE
+        ) {
           addFlower(dPositions, dColors, dIndices, x, y, z, id, x * 31 + z * 17 + y);
           continue;
         }

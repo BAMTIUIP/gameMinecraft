@@ -19,7 +19,12 @@ import {
   WATER,
   FLOWER_RED,
   FLOWER_YELLOW,
-  FLOWER_BLUE, DRY_BLOOM, DESERT_THISTLE,
+  FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
+  DRY_BLOOM,
+  DESERT_THISTLE,
   SNOW_GRASS,
   ICE,
   SNOW_LEAVES,
@@ -32,6 +37,8 @@ import {
   CACTUS_PALE,
   BIRCH_LOG,
   BIRCH_LEAVES,
+  AUTUMN_LEAVES,
+  CHERRY_LEAVES,
   APPLE_LEAVES,
   VOLCANIC_STONE, PALM_LOG, COCONUT_LEAVES, BANANA_LEAVES, VINE, MUSHROOM, SANDSTONE,
   COAL_ORE, IRON_ORE, REDSTONE_ORE, GOLD_ORE, LAPIS_ORE, DIAMOND_ORE, EMERALD_ORE, QUARTZ_ORE,
@@ -58,7 +65,7 @@ export const CZ = WZ / CHUNK;
 /** world origin the spawn basin is carved around */
 export const ORIGIN_X = 64;
 export const ORIGIN_Z = 64;
-export type Biome = 'winter' | 'plains' | 'jungle' | 'desert' | 'canyon' | 'volcanic';
+export type Biome = 'winter' | 'plains' | 'autumn' | 'jungle' | 'desert' | 'canyon' | 'volcanic';
 
 const smooth = (v: number) => {
   const t = Math.max(0, Math.min(1, v));
@@ -234,6 +241,10 @@ export class World {
     if (heat > 0.15 && humidity < -0.42) return 'canyon';
     if (heat > 0.08 && humidity < -0.18) return 'desert';
     if (heat > 0.02 && humidity > 0.12) return 'jungle';
+    // Temperate shoulder-climate grows its own deciduous woodland: amber maples
+    // and asters, rather than making every non-frozen greenland look identical.
+    if (heat > -0.16 && heat < 0.14 && humidity > -0.28 && humidity < 0.18) return 'autumn';
+    // The remaining temperate grassland is the warm/summer palette.
     return 'plains';
   }
 
@@ -428,19 +439,20 @@ export class World {
     chunk.state = 2;
     const rand = mulberry32(this.seed * 31 + 7 + chunkKey(cx, cz) * 2654435761);
 
-    // ---- diverse trees: oaks, bushy oaks, giants, birch, apple trees, spruce ----
+    // ---- seasonal tree forms: oaks, maples, cherry, birch, apple, spruce, palms ----
     for (let lz = 0; lz < CHUNK; lz++) {
       for (let lx = 0; lx < CHUNK; lx++) {
         const x = cx * CHUNK + lx;
         const z = cz * CHUNK + lz;
         const h = chunk.height[lz * CHUNK + lx];
         const biome = this.biomeAt(x, z, h);
-        if (rand() > (biome === 'jungle' ? 0.11 : 0.04)) continue;
+        const treeChance = biome === 'jungle' ? 0.11 : biome === 'autumn' ? 0.075 : 0.04;
+        if (rand() > treeChance) continue;
         const top = this.get(x, h, z);
         const winter = top === SNOW_GRASS;
         if (top !== GRASS && !winter) continue;
-        if (winter && rand() < 0.35) continue; // taiga
-        if (h < SEA + 2 || h > (winter ? 34 : 30)) continue;
+        if (winter && rand() < 0.35) continue; // open taiga clearings
+        if (h < SEA + 2 || h > (winter ? 34 : biome === 'autumn' ? 31 : 30)) continue;
         let ok = true;
         for (let dz = -2; dz <= 2 && ok; dz++)
           for (let dx = -2; dx <= 2; dx++) {
@@ -452,7 +464,7 @@ export class World {
           }
         if (!ok) continue;
         if (biome === 'jungle' && rand() < 0.48) this.growPalm(x, h + 1, z, rand);
-        else this.growDiverseTree(x, h + 1, z, rand, winter, biome === 'jungle');
+        else this.growDiverseTree(x, h + 1, z, rand, winter, biome === 'jungle', biome === 'autumn');
       }
     }
 
@@ -494,7 +506,7 @@ export class World {
     }
 
     // ---- small mushroom clusters in warm, leafy forest floors ----
-    if (['plains', 'jungle'].includes(this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8))) {
+    if (['plains', 'autumn', 'jungle'].includes(this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8))) {
       for (let i = 0; i < 5; i++) {
         if (rand() > 0.62) continue;
         const mx = cx * CHUNK + 1 + Math.floor(rand() * 14);
@@ -518,17 +530,27 @@ export class World {
       }
     }
 
-    // ---- flowers: colourful patches on grass ----
-    for (let i = 0; i < 3; i++) {
+    // ---- seasonal flower meadows: summer blooms, autumn asters, jungle orchids ----
+    const centerBiome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
+    const flowerPatches = centerBiome === 'jungle' ? 5 : centerBiome === 'autumn' ? 4 : 3;
+    for (let i = 0; i < flowerPatches; i++) {
       if (rand() > 0.75) continue;
       const fx = cx * CHUNK + 2 + Math.floor(rand() * 12);
       const fz = cz * CHUNK + 2 + Math.floor(rand() * 12);
-      const kind = [FLOWER_RED, FLOWER_YELLOW, FLOWER_BLUE][Math.floor(rand() * 3)];
-      for (let p = 0; p < 4 + Math.floor(rand() * 4); p++) {
+      const patchBiome = this.biomeAt(fx, fz, this.getHeight(fx, fz));
+      const palette = patchBiome === 'autumn'
+        ? [FLOWER_YELLOW, FLOWER_PURPLE, FLOWER_RED]
+        : patchBiome === 'jungle'
+          ? [FLOWER_PINK, FLOWER_WHITE, FLOWER_BLUE, FLOWER_RED]
+          : [FLOWER_RED, FLOWER_YELLOW, FLOWER_BLUE, FLOWER_PINK, FLOWER_WHITE];
+      const kind = palette[Math.floor(rand() * palette.length)];
+      for (let p = 0; p < 4 + Math.floor(rand() * 5); p++) {
         const px = fx + Math.floor(rand() * 5) - 2;
         const pz = fz + Math.floor(rand() * 5) - 2;
         const h = this.getHeight(px, pz);
-        if (this.get(px, h, pz) === GRASS && this.get(px, h + 1, pz) === AIR) this.set(px, h + 1, pz, kind);
+        const localBiome = this.biomeAt(px, pz, h);
+        if (localBiome !== 'winter' && this.get(px, h, pz) === GRASS && this.get(px, h + 1, pz) === AIR)
+          this.set(px, h + 1, pz, kind);
       }
     }
 
@@ -823,8 +845,9 @@ export class World {
 
   growPalm(x: number, y: number, z: number, rand: () => number) {
     const height = 6 + Math.floor(rand() * 4);
-    if (y + height + 3 >= WY) return;
+    if (y + height + 4 >= WY) return;
     const leaf = rand() < 0.5 ? COCONUT_LEAVES : BANANA_LEAVES;
+    const crownStyle = Math.floor(rand() * 3);
     // Slight natural lean for oasis palms
     const leanDir: [number, number] = [
       [1, 0],
@@ -844,46 +867,115 @@ export class World {
         this.set(cx, y + i, cz, PALM_LOG);
       }
     }
+
     const crown = y + height;
-    let vines = 0;
-    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
-      const r = Math.abs(dx) + Math.abs(dz);
-      if (r > 3 || (r === 3 && rand() < 0.3)) continue;
-      const py = crown - (r >= 3 ? 1 : 0);
-      if (this.get(cx + dx, py, cz + dz) === AIR) this.set(cx + dx, py, cz + dz, leaf);
-      // hanging climbable vines on the outer leaves
-      if (r === 3 && vines < 3 && rand() < 0.5) {
+    const putLeaf = (px: number, py: number, pz: number) => {
+      if (py >= 0 && py < WY && this.get(px, py, pz) === AIR) this.set(px, py, pz, leaf);
+    };
+    putLeaf(cx, crown, cz);
+
+    if (leaf === BANANA_LEAVES) {
+      // Banana palms carry broad, overlapping paddle fronds in a flat oval fan.
+      const alongX = rand() < 0.5;
+      for (let dx = -4; dx <= 4; dx++) for (let dz = -3; dz <= 3; dz++) {
+        const u = alongX ? dx : dz;
+        const v = alongX ? dz : dx;
+        if (u * u / 20 + v * v / 10 > 1) continue;
+        putLeaf(cx + dx, crown - (Math.abs(u) > 2 ? 1 : 0), cz + dz);
+        if (Math.abs(u) === 3 && Math.abs(v) <= 1) putLeaf(cx + dx, crown - 2, cz + dz);
+      }
+      putLeaf(cx, crown + 1, cz);
+    } else if (crownStyle === 1) {
+      // Coconut fan: eight individual fronds with stepped, ribbed-looking tips.
+      const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+      for (const [dx, dz] of dirs) {
+        const length = 2 + Math.floor(rand() * 2);
+        const px = -dz, pz = dx;
+        for (let step = 1; step <= length; step++) {
+          const py = crown - Math.floor((step + 1) / 2);
+          const fx = cx + dx * step, fz = cz + dz * step;
+          putLeaf(fx, py, fz);
+          if (step < length) {
+            putLeaf(fx + px, py, fz + pz);
+            putLeaf(fx - px, py, fz - pz);
+          }
+          if (step === length) putLeaf(fx, py - 1, fz);
+        }
+      }
+      putLeaf(cx, crown + 1, cz);
+    } else {
+      // Date-palm silhouette: long cardinal fronds droop at their ends.
+      const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (const [dx, dz] of dirs) {
+        const length = 3 + Math.floor(rand() * 2);
+        for (let step = 1; step <= length; step++) {
+          const py = crown - Math.floor(step * (crownStyle === 2 ? 0.62 : 0.38));
+          putLeaf(cx + dx * step, py, cz + dz * step);
+          if (step < length) {
+            putLeaf(cx + dx * step + dz, py, cz + dz * step - dx);
+            putLeaf(cx + dx * step - dz, py, cz + dz * step + dx);
+          }
+          if (step === length) putLeaf(cx + dx * step, py - 1, cz + dz * step);
+        }
+      }
+      putLeaf(cx, crown + 1, cz);
+    }
+
+    // Occasional trailing vines make jungle palms distinct from dry date palms.
+    if (leaf === BANANA_LEAVES) {
+      const vineDirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      let vines = 0;
+      for (const [dx, dz] of vineDirs) {
+        if (vines >= 2 || rand() > 0.38) continue;
         vines++;
-        for (let v = 1; v < height; v++) {
-          if (this.get(cx + dx, py - v, cz + dz) !== AIR) break;
-          this.set(cx + dx, py - v, cz + dz, VINE);
+        const py = crown - 1;
+        for (let v = 1; v < Math.min(height, 5); v++) {
+          if (this.get(cx + dx * 3, py - v, cz + dz * 3) !== AIR) break;
+          this.set(cx + dx * 3, py - v, cz + dz * 3, VINE);
         }
       }
     }
-    if (this.get(cx, crown + 1, cz) === AIR) this.set(cx, crown + 1, cz, leaf);
   }
 
-  private growDiverseTree(x: number, y: number, z: number, rand: () => number, winter = false, jungle = false) {
+  private growDiverseTree(
+    x: number,
+    y: number,
+    z: number,
+    rand: () => number,
+    winter = false,
+    jungle = false,
+    autumn = false,
+  ) {
     if (winter) {
       if (rand() < 0.2) this.growBirch(x, y, z, rand, true);
       else this.growSpruce(x, y, z, rand);
       return;
     }
-    if (jungle) {
+    if (autumn) {
+      // Reuse familiar silhouettes, but swap their canopy palette so the whole
+      // woodland turns gold and rust instead of only generating one maple form.
+      const roll = rand();
+      if (roll < 0.30) this.growMaple(x, y, z, rand);
+      else if (roll < 0.50) this.growStandardOak(x, y, z, rand, AUTUMN_LEAVES);
+      else if (roll < 0.70) this.growBushyOak(x, y, z, rand, AUTUMN_LEAVES);
+      else if (roll < 0.86) this.growBirch(x, y, z, rand, false, AUTUMN_LEAVES);
+      else this.growSmallBush(x, y, z, rand, AUTUMN_LEAVES);
+    } else if (jungle) {
       if (rand() < 0.72) this.growGiantOak(x, y, z, rand);
       else this.growBushyOak(x, y, z, rand);
     } else {
       const roll = rand();
-      if (roll < 0.28) this.growStandardOak(x, y, z, rand);
-      else if (roll < 0.48) this.growBushyOak(x, y, z, rand);
-      else if (roll < 0.66) this.growBirch(x, y, z, rand, false);
-      else if (roll < 0.82) this.growAppleTree(x, y, z, rand);
-      else if (roll < 0.94) this.growGiantOak(x, y, z, rand);
+      if (roll < 0.24) this.growStandardOak(x, y, z, rand);
+      else if (roll < 0.42) this.growBushyOak(x, y, z, rand);
+      else if (roll < 0.58) this.growBirch(x, y, z, rand, false);
+      else if (roll < 0.73) this.growAppleTree(x, y, z, rand);
+      else if (roll < 0.86) this.growGiantOak(x, y, z, rand);
+      else if (roll < 0.95) this.growCherryTree(x, y, z, rand);
       else this.growSmallBush(x, y, z, rand);
     }
 
-    // beehives on tree trunks (summer, 4.5% chance)
-    if (rand() < 0.045) {
+    // Hives are a warm/summer detail rather than a feature of frosted or late-autumn trees.
+    if (!autumn && rand() < 0.045) {
       for (const [hx, hz] of [
         [x + 1, z],
         [x - 1, z],
@@ -899,20 +991,20 @@ export class World {
     }
   }
 
-  private growSmallBush(x: number, y: number, z: number, rand: () => number) {
+  private growSmallBush(x: number, y: number, z: number, rand: () => number, leaves = LEAVES) {
     const h = 2 + Math.floor(rand() * 2);
     for (let i = 0; i < h; i++) this.set(x, y + i, z, LOG);
     const top = y + h;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         if (Math.abs(dx) === 1 && Math.abs(dz) === 1 && rand() < 0.5) continue;
-        if (this.get(x + dx, top, z + dz) === AIR) this.set(x + dx, top, z + dz, LEAVES);
+        if (this.get(x + dx, top, z + dz) === AIR) this.set(x + dx, top, z + dz, leaves);
       }
     }
-    this.set(x, top + 1, z, LEAVES);
+    this.set(x, top + 1, z, leaves);
   }
 
-  private growStandardOak(x: number, y: number, z: number, rand: () => number) {
+  private growStandardOak(x: number, y: number, z: number, rand: () => number, leaves = LEAVES) {
     const th = 4 + Math.floor(rand() * 3);
     for (let i = 0; i < th; i++) this.set(x, y + i, z, LOG);
     const top = y + th;
@@ -923,14 +1015,14 @@ export class World {
           if (Math.abs(dx) === r && Math.abs(dz) === r && rand() < 0.5) continue;
           if (dx === 0 && dz === 0 && dy < 1) continue;
           const yy = top + dy;
-          if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, LEAVES);
+          if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, leaves);
         }
       }
     }
-    if (top + 1 < WY) this.set(x, top + 1, z, LEAVES);
+    if (top + 1 < WY) this.set(x, top + 1, z, leaves);
   }
 
-  private growBushyOak(x: number, y: number, z: number, rand: () => number) {
+  private growBushyOak(x: number, y: number, z: number, rand: () => number, leaves = LEAVES) {
     const th = 4 + Math.floor(rand() * 2);
     for (let i = 0; i < th; i++) this.set(x, y + i, z, LOG);
     const top = y + th;
@@ -941,14 +1033,14 @@ export class World {
           if (dx * dx + dz * dz > r * r + 0.5) continue;
           if (dx === 0 && dz === 0 && dy < 1) continue;
           const yy = top + dy;
-          if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, LEAVES);
+          if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, leaves);
         }
       }
     }
-    if (top + 2 < WY) this.set(x, top + 2, z, LEAVES);
+    if (top + 2 < WY) this.set(x, top + 2, z, leaves);
   }
 
-  private growGiantOak(x: number, y: number, z: number, rand: () => number) {
+  private growGiantOak(x: number, y: number, z: number, rand: () => number, leaves = LEAVES) {
     const th = 8 + Math.floor(rand() * 5); // 8-12 blocks high
     for (let i = 0; i < th; i++) this.set(x, y + i, z, LOG);
     // branching arms
@@ -977,7 +1069,7 @@ export class World {
               for (let dz = -1; dz <= 1; dz++) {
                 const ly = curY + dy;
                 if (ly < WY && this.get(bx + dx, ly, bz + dz) === AIR) {
-                  this.set(bx + dx, ly, bz + dz, LEAVES);
+                  this.set(bx + dx, ly, bz + dz, leaves);
                 }
               }
             }
@@ -993,15 +1085,73 @@ export class World {
         for (let dz = -r; dz <= r; dz++) {
           if (dx * dx + dz * dz > r * r + 0.8) continue;
           const yy = top + dy;
-          if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, LEAVES);
+          if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, leaves);
         }
       }
     }
-    if (top + 2 < WY) this.set(x, top + 2, z, LEAVES);
+    if (top + 2 < WY) this.set(x, top + 2, z, leaves);
   }
 
-  private growBirch(x: number, y: number, z: number, rand: () => number, winter = false) {
-    const leaf = winter ? SNOW_LEAVES : BIRCH_LEAVES;
+  /** Broad, lobed maple crown with visible scaffold branches and an amber fall canopy. */
+  private growMaple(x: number, y: number, z: number, rand: () => number) {
+    const th = 5 + Math.floor(rand() * 3);
+    for (let i = 0; i < th; i++) this.set(x, y + i, z, LOG);
+
+    const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1]];
+    const branchCount = 3 + Math.floor(rand() * 2);
+    for (let i = 0; i < branchCount; i++) {
+      const [dx, dz] = dirs[(i + Math.floor(rand() * 2)) % dirs.length];
+      const by = y + 2 + Math.floor(rand() * Math.max(1, th - 3));
+      const length = 1 + (rand() < 0.55 ? 1 : 0);
+      let ex = x, ez = z, ey = by;
+      for (let step = 1; step <= length; step++) {
+        ex = x + dx * step;
+        ez = z + dz * step;
+        ey = by + Math.floor(step / 2);
+        if (ey < WY && this.get(ex, ey, ez) === AIR) this.set(ex, ey, ez, LOG);
+      }
+      for (let dy = -1; dy <= 1; dy++) for (let ox = -1; ox <= 1; ox++) for (let oz = -1; oz <= 1; oz++) {
+        const ly = ey + dy;
+        if (ly < WY && this.get(ex + ox, ly, ez + oz) === AIR) this.set(ex + ox, ly, ez + oz, AUTUMN_LEAVES);
+      }
+    }
+
+    const top = y + th;
+    for (let dy = -2; dy <= 2; dy++) {
+      const r = dy === 0 ? 3 : Math.abs(dy) === 1 ? 2 : 1;
+      for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        if (dx * dx + dz * dz > r * r + 0.5 || (Math.abs(dx) === r && Math.abs(dz) === r && rand() < 0.35)) continue;
+        const yy = top + dy;
+        if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, AUTUMN_LEAVES);
+      }
+    }
+    if (top + 1 < WY && this.get(x, top + 1, z) === AIR) this.set(x, top + 1, z, AUTUMN_LEAVES);
+  }
+
+  /** Short flowering cherry tree with a rounded, blossom-heavy pink canopy. */
+  private growCherryTree(x: number, y: number, z: number, rand: () => number) {
+    const th = 5 + Math.floor(rand() * 3);
+    for (let i = 0; i < th; i++) this.set(x, y + i, z, BIRCH_LOG);
+    const top = y + th;
+    for (let dy = -2; dy <= 1; dy++) {
+      const r = dy === -1 || dy === 0 ? 2 : 1;
+      for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        if (Math.abs(dx) === r && Math.abs(dz) === r && rand() < 0.28) continue;
+        if (dx === 0 && dz === 0 && dy < 1) continue;
+        const yy = top + dy;
+        if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, CHERRY_LEAVES);
+      }
+    }
+    // flowering side boughs make the pink crown asymmetrical rather than a cube
+    for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
+      const yy = top - 1 - Math.floor(rand() * 2);
+      if (yy < WY && this.get(x + dx, yy, z + dz) === AIR) this.set(x + dx, yy, z + dz, CHERRY_LEAVES);
+    }
+    if (top + 1 < WY && this.get(x, top + 1, z) === AIR) this.set(x, top + 1, z, CHERRY_LEAVES);
+  }
+
+  private growBirch(x: number, y: number, z: number, rand: () => number, winter = false, leafOverride?: number) {
+    const leaf = leafOverride ?? (winter ? SNOW_LEAVES : BIRCH_LEAVES);
     const th = 6 + Math.floor(rand() * 3);
     for (let i = 0; i < th; i++) this.set(x, y + i, z, BIRCH_LOG);
     const top = y + th;

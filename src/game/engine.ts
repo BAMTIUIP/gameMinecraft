@@ -46,6 +46,9 @@ import {
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
   BIRD_NEST, CHICKEN_NEST,
   ICE,
   ANVIL,
@@ -660,8 +663,9 @@ if (tpClipActive > 0.5) {
       seedNoise(candidate);
       this.world.reset(candidate);
 
-      const counts: Record<'plains' | 'winter' | 'jungle' | 'dry' | 'volcanic', number> = {
+      const counts: Record<'plains' | 'autumn' | 'winter' | 'jungle' | 'dry' | 'volcanic', number> = {
         plains: 0,
+        autumn: 0,
         winter: 0,
         jungle: 0,
         dry: 0,
@@ -680,8 +684,8 @@ if (tpClipActive > 0.5) {
       const values = Object.values(counts);
       const dominant = Math.max(...values);
       const diversity = values.filter((v) => v > 0).length;
-      const hasGreenSpawn = counts.plains + counts.jungle + counts.winter;
-      const target = 49 / 4;
+      const hasGreenSpawn = counts.plains + counts.autumn + counts.jungle + counts.winter;
+      const target = 49 / 5;
       const balancePenalty = values.reduce((sum, v) => sum + Math.abs(v - target), 0);
       const dryPenalty = Math.max(0, counts.dry - 15) * 4 + coreDry * 3;
       const score = diversity * 26 + hasGreenSpawn * 0.35 - balancePenalty - dryPenalty - Math.max(0, dominant - 19) * 6;
@@ -5753,18 +5757,38 @@ if (tpClipActive > 0.5) {
       }
       case FLOWER_RED:
       case FLOWER_YELLOW:
-      case FLOWER_BLUE: {
-        // a picked bloom: short stem, leaf, petal cross around a core
-        const petal = id === FLOWER_RED ? 0xe2564a : id === FLOWER_YELLOW ? 0xf4c842 : 0x5e8cff;
+      case FLOWER_BLUE:
+      case FLOWER_PINK:
+      case FLOWER_PURPLE:
+      case FLOWER_WHITE: {
+        const petal = id === FLOWER_RED ? 0xe2564a
+          : id === FLOWER_YELLOW ? 0xf4c842
+            : id === FLOWER_BLUE ? 0x5e8cff
+              : id === FLOWER_PINK ? 0xf28bb5
+                : id === FLOWER_PURPLE ? 0xa875df
+                  : 0xfff8e8;
         const core = id === FLOWER_YELLOW ? 0xb8722a : 0xf4c842;
-        B(g, 0, -0.12, 0, 0.05, 0.24, 0.05, 0x4d8c31, 0, 0.3); // tilted stem
-        B(g, 0.07, -0.16, 0, 0.1, 0.04, 0.06, 0x5f9738); // leaf
-        B(g, 0, 0.05, 0, 0.11, 0.11, 0.11, core);
-        B(g, 0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
-        B(g, -0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
-        B(g, 0, 0.05, 0.11, 0.09, 0.09, 0.11, petal);
-        B(g, 0, 0.05, -0.11, 0.09, 0.09, 0.11, petal);
-        B(g, 0, 0.14, 0, 0.08, 0.05, 0.08, petal);
+        B(g, 0, -0.12, 0, 0.05, 0.24, 0.05, 0x4d8c31, 0, 0.3);
+        B(g, 0.07, -0.16, 0, 0.1, 0.04, 0.06, 0x5f9738);
+        if (id === FLOWER_PURPLE) {
+          for (let i = 0; i < 3; i++) {
+            B(g, (i % 2 ? 0.04 : -0.04), -0.03 + i * 0.09, 0, 0.1, 0.09, 0.1, petal);
+            B(g, (i % 2 ? -0.04 : 0.04), 0.005 + i * 0.09, 0.025, 0.07, 0.07, 0.07, 0xd9a3f0);
+          }
+        } else {
+          B(g, 0, 0.05, 0, 0.11, 0.11, 0.11, core);
+          B(g, 0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
+          B(g, -0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
+          B(g, 0, 0.05, 0.11, 0.09, 0.09, 0.11, petal);
+          B(g, 0, 0.05, -0.11, 0.09, 0.09, 0.11, petal);
+          if (id === FLOWER_WHITE) {
+            B(g, 0.08, 0.05, 0.08, 0.08, 0.08, 0.08, petal);
+            B(g, -0.08, 0.05, 0.08, 0.08, 0.08, 0.08, petal);
+            B(g, 0.08, 0.05, -0.08, 0.08, 0.08, 0.08, petal);
+            B(g, -0.08, 0.05, -0.08, 0.08, 0.08, 0.08, petal);
+          }
+          B(g, 0, 0.14, 0, 0.08, 0.05, 0.08, petal);
+        }
         break;
       }
       case TALL_GRASS:
@@ -7093,6 +7117,9 @@ if (tpClipActive > 0.5) {
     [FLOWER_RED, 8],
     [FLOWER_YELLOW, 8],
     [FLOWER_BLUE, 8],
+    [FLOWER_PINK, 8],
+    [FLOWER_PURPLE, 9],
+    [FLOWER_WHITE, 8],
     [HONEY, 25],
     [NETHERITE, 800],
     [APPLE, 12],

@@ -23,7 +23,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 30; // 120 tiles
+export const ATLAS_ROWS = 31; // 124 tiles
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -693,6 +693,36 @@ function drawTile(ctx: Ctx, index: number) {
       px(ctx, ox, oy, 7, 3, 2, 2, core);
       break;
     }
+    case T.flowerPink:
+    case T.flowerPurple:
+    case T.flowerWhite: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const petal = index === T.flowerPink ? '#f28bb5' : index === T.flowerPurple ? '#a875df' : '#fff8e6';
+      const core = index === T.flowerPurple ? '#f3cd58' : '#eebd42';
+      ctx.fillStyle = '#4d8c31';
+      ctx.fillRect(ox + 7, oy + 7, 2, 9);
+      px(ctx, ox, oy, 5, 10, 3, 1, '#5f9738');
+      px(ctx, ox, oy, 9, 12, 2, 1, '#5f9738');
+      if (index === T.flowerPurple) {
+        // lavender spike with clustered florets
+        ctx.fillStyle = petal;
+        for (const [x, y] of [[6, 5], [9, 4], [6, 2], [9, 1], [7, 0]]) ctx.fillRect(ox + x, oy + y, 2, 2);
+        px(ctx, ox, oy, 8, 3, 1, 1, '#d9a3f0');
+      } else {
+        ctx.fillStyle = petal;
+        // six-petal rosette, especially daisy-like for the white variant
+        ctx.fillRect(ox + 6, oy + 2, 4, 4);
+        ctx.fillRect(ox + 4, oy + 3, 2, 2);
+        ctx.fillRect(ox + 10, oy + 3, 2, 2);
+        ctx.fillRect(ox + 7, oy, 2, 2);
+        if (index === T.flowerWhite) {
+          ctx.fillRect(ox + 5, oy + 1, 2, 2);
+          ctx.fillRect(ox + 9, oy + 1, 2, 2);
+        }
+        px(ctx, ox, oy, 7, 3, 2, 2, core);
+      }
+      break;
+    }
     case T.lampRed:
     case T.lampBlue:
     case T.lampYellow: {
@@ -1053,6 +1083,36 @@ function drawTile(ctx: Ctx, index: number) {
       drawApple(3, 4);
       drawApple(10, 9);
       drawApple(4, 11);
+      break;
+    }
+    case T.autumnLeaves: {
+      // mottled maple canopy: gold, amber, vermilion and russet with cutout gaps
+      speckle(ctx, ox, oy, '#c65a25', 911, 28);
+      const fallColors = ['#e99b28', '#f0bd3c', '#d84926', '#9f3525', '#ef7628'];
+      for (let i = 0; i < 38; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1 + (rand() < 0.22 ? 1 : 0), 1, fallColors[Math.floor(rand() * fallColors.length)]);
+      }
+      for (const [x, y] of [[2, 3], [11, 2], [6, 8], [12, 12], [3, 13]])
+        px(ctx, ox, oy, x, y, 2, 2, '#f3cb4c');
+      const autumnHoles = mulberry32(919);
+      for (let i = 0; i < 13; i++) ctx.clearRect(ox + Math.floor(autumnHoles() * 15), oy + Math.floor(autumnHoles() * 15), 1, 1);
+      break;
+    }
+    case T.cherryLeaves: {
+      // pale sakura canopy with layered pink blossoms and a few fresh green leaves
+      speckle(ctx, ox, oy, '#e9a6be', 929, 22);
+      for (let i = 0; i < 32; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.58 ? '#f7c6d7' : '#ce789b');
+      }
+      for (const [x, y] of [[2, 4], [10, 2], [6, 9], [12, 12], [3, 13]]) {
+        px(ctx, ox, oy, x, y, 2, 2, '#fff0f4');
+        px(ctx, ox, oy, x, y, 1, 1, '#ffe1a1');
+      }
+      for (const [x, y] of [[4, 8], [11, 6], [8, 13]]) px(ctx, ox, oy, x, y, 2, 1, '#82b54c');
+      const cherryHoles = mulberry32(937);
+      for (let i = 0; i < 14; i++) ctx.clearRect(ox + Math.floor(cherryHoles() * 15), oy + Math.floor(cherryHoles() * 15), 1, 1);
       break;
     }
     case T.cactusSide: {
