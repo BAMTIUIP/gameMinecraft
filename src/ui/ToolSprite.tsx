@@ -19,6 +19,8 @@ export function ToolSprite({ id, size = 32, durability, className = '', style }:
     ? toolWearStage(durability ?? spec.maxDurability, spec.maxDurability)
     : 0;
   const { head, edge, accent, handle } = spec;
+  // Wood should read as a simple, warm plank tool rather than a dark, ornate relic.
+  const outline = spec.tier === 0 ? '#4b2a1c' : DARK;
   const shaft = [
     [13, 33], [16, 30], [19, 27], [22, 24], [25, 21], [28, 18], [31, 15],
   ];
@@ -35,7 +37,7 @@ export function ToolSprite({ id, size = 32, durability, className = '', style }:
     >
       {spec.kind === 'bow' ? (
         <g>
-          <path d="M13 7h4v3h3v5h3v8h-3v7h-3v5h-4v4h-4v-5h4v-4h3v-5h3v-8h-3v-5h-3v-3h-4z" fill={DARK} />
+          <path d="M13 7h4v3h3v5h3v8h-3v7h-3v5h-4v4h-4v-5h4v-4h3v-5h3v-8h-3v-5h-3v-3h-4z" fill={outline} />
           <path d="M13 9h3v3h3v5h2v6h-2v6h-3v5h-3v2h-2v-2h3v-5h3v-6h2v-6h-2v-5h-3v-3h-3z" fill={head} />
           <path d="M13 10h2v4h3v5h2v4h-2v5h-3v5h-2v2h-1v-2h2v-5h3v-5h2v-4h-2v-5h-3v-4h-1z" fill={edge} />
           <path d="M13 8 13 39" stroke="#e7dcc8" strokeWidth="1.5" />
@@ -47,13 +49,13 @@ export function ToolSprite({ id, size = 32, durability, className = '', style }:
         <g>
           {spec.kind === 'sword' ? (
             <g>
-              <path d="M20 26 34 12l7-4-3 8-14 14z" fill={DARK} />
+              <path d="M20 26 34 12l7-4-3 8-14 14z" fill={outline} />
               <path d="M22 25 35 12l4-2-2 5-13 13z" fill={head} />
               <path d="M25 25 36 14l2-4-4 2-11 11z" fill={edge} />
               <path d="M28 19 36 11" stroke={accent} strokeWidth="1.6" />
-              <path d="M13 28 17 24l9 9-4 4z" fill={DARK} />
+              <path d="M13 28 17 24l9 9-4 4z" fill={outline} />
               <path d="M14 28 17 26l7 7-2 2z" fill={edge} />
-              <rect x="10" y="31" width="7" height="6" fill={DARK} />
+              <rect x="10" y="31" width="7" height="6" fill={outline} />
               <rect x="11" y="32" width="5" height="4" fill={handle} />
               <rect x="12" y="33" width="2" height="2" fill={accent} />
             </g>
@@ -61,30 +63,41 @@ export function ToolSprite({ id, size = 32, durability, className = '', style }:
             <g>
               {shaft.map(([x, y], i) => (
                 <g key={i}>
-                  <rect x={x - 1} y={y - 1} width="7" height="7" fill={DARK} />
+                  <rect x={x - 1} y={y - 1} width="7" height="7" fill={outline} />
                   <rect x={x} y={y} width="5" height="5" fill={handle} />
-                  <rect x={x + 1} y={y + 1} width="2" height="3" fill={i % 2 ? '#9a7046' : '#795337'} />
+                  <rect x={x + 1} y={y + 1} width="2" height="3" fill={i % 2 ? accent : handle} />
                 </g>
               ))}
               {spec.kind === 'pickaxe' && (
                 <g>
-                  <path d="M8 12 12 8h23l5 4-3 5h-7l-4-3-4 3H12z" fill={DARK} />
-                  <path d="M11 11 14 9h19l4 3-2 3h-5l-5-3-5 3H13z" fill={head} />
-                  <path d="M14 10h17v2H14zM11 12h4v2h-4zM32 12h4v2h-4z" fill={edge} />
-                  <path d="M20 10h7v1h-7z" fill={accent} />
+                  {/* Full centered pick head: both pointed ends stay inside the 48px icon. */}
+                  <path d="M8 13 12 8h24l4 5-4 5h-7l-5-3-5 3h-7z" fill={outline} />
+                  <path d="M11 13 14 10h20l3 3-2 3h-6l-5-3-5 3h-6z" fill={head} />
+                  <path d="M14 10h20v2H14zM11 13h6v2h-6zM31 13h6v2h-6z" fill={edge} />
+                  <path d="M21 11h6v1h-6z" fill={accent} />
                 </g>
               )}
               {spec.kind === 'axe' && (
                 <g>
-                  <path d="M10 8h18l5 4v6l-5 5H17l-4-4h-5V13z" fill={DARK} />
+                  <path d="M10 8h18l5 4v6l-5 5H17l-4-4h-5V13z" fill={outline} />
                   <path d="M11 10h15l4 3v4l-4 4h-8l-4-4h-3z" fill={head} />
                   <path d="M10 10h15v2H11v5H9v-4z" fill={edge} />
                   <path d="M12 12h4v5h-4z" fill={accent} />
                 </g>
               )}
+              {spec.kind === 'hoe' && (
+                <g>
+                  <path d="M24 8h14v4h3v5h-4v5h-8v-4h-5z" fill={outline} />
+                  <path d="M26 10h10v3h3v3h-3v4h-7v-4h-3z" fill={head} />
+                  <path d="M27 10h8v2h-8zM34 13h5v2h-5z" fill={edge} />
+                  <path d="M15 39 18 40 30 16 26 14z" fill={outline} />
+                  <path d="M17 37 19 38 29 16 27 15z" fill={handle} />
+                  <path d="M20 32h3v2h-3zM23 26h3v2h-3z" fill={accent} />
+                </g>
+              )}
               {spec.kind === 'shovel' && (
                 <g>
-                  <path d="M25 7h12v4h3v10h-3v4H25v-4h-3V11h3z" fill={DARK} />
+                  <path d="M25 7h12v4h3v10h-3v4H25v-4h-3V11h3z" fill={outline} />
                   <path d="M27 9h8v3h3v7h-3v3h-8v-3h-2v-7h2z" fill={head} />
                   <path d="M27 10h7v2h-7zM26 13h2v4h-2z" fill={edge} />
                   <rect x="30" y="10" width="3" height="2" fill={accent} />

@@ -73,6 +73,14 @@ export const AxeIcon = ({ className = '', size = 24, style }: P) => (
   </svg>
 );
 
+export const HoeIcon = ({ className = '', size = 24, style }: P) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M5 21 14 8" strokeWidth="2.4" strokeLinecap="round" />
+    <path d="M13 4h6v3h2v3h-3v3h-5V9h-2V6h2z" fill="currentColor" strokeLinejoin="round" />
+    <path d="M15 5h4" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+);
+
 export const ShovelIcon = ({ className = '', size = 24, style }: P) => (
   <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M15.5 8.5L6 18" strokeWidth="2.2" strokeLinecap="round" />

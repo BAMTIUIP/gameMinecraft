@@ -4,6 +4,7 @@ import { PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import {
   AxeIcon,
+  HoeIcon,
   BagIcon,
   BowIcon,
   ClockIcon,
@@ -21,20 +22,18 @@ import {
 } from './icons';
 import {
   HAND,
-  SWORDS,
   TOOL_BOW,
   TOOL_PICK,
-  TOOL_SHOVEL,
   TOOL_TORCH,
-  PICK_TOOLS,
-  SWORD_TOOLS,
-  AXE_TOOLS,
+  isHoeTool,
   isPickTool,
+  isShovelTool,
   isSwordTool,
   isAxeTool,
 } from '../game/recipes';
 import { isGearHotbarId, MATERIALS, RARITY } from '../game/items';
 import { t } from '../game/i18n';
+import { getToolSpec } from '../game/tools';
 
 const RING = 2 * Math.PI * 22;
 
@@ -457,15 +456,14 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                     </span>
                   );
                 })()
-              ) : slot.id >= TOOL_PICK ? (
+              ) : (
+                isPickTool(slot.id) || isSwordTool(slot.id) || isAxeTool(slot.id) ||
+                isHoeTool(slot.id) || isShovelTool(slot.id) || slot.id === TOOL_BOW || slot.id === TOOL_TORCH
+              ) ? (
                 <span
                   className="flex h-6 w-6 items-center justify-center sm:h-9 sm:w-9"
                   style={{
-                    color: isSwordTool(slot.id)
-                      ? SWORDS[slot.id - SWORD_TOOLS[0]].color
-                      : isPickTool(slot.id)
-                        ? PICKAXE_TIERS[slot.id - PICK_TOOLS[0]].color
-                        : tierColor,
+                    color: getToolSpec(slot.id)?.edge ?? tierColor,
                   }}
                 >
                   {isSwordTool(slot.id) ? (
@@ -475,9 +473,11 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                   ⨙
                 </span>
               ) : isAxeTool(slot.id) ? (
-                <AxeIcon size={24} style={{ color: slot.id === AXE_TOOLS[0] ? '#b98a4d' : '#9aa0a6' }} />
-              ) : slot.id === TOOL_SHOVEL ? (
-                <ShovelIcon size={24} style={{ color: '#b98a4d' }} />
+                <AxeIcon size={24} style={{ color: getToolSpec(slot.id)?.tier === 0 ? '#b98a4d' : '#9aa0a6' }} />
+              ) : isHoeTool(slot.id) ? (
+                <HoeIcon size={24} style={{ color: getToolSpec(slot.id)?.tier === 0 ? '#b98a4d' : '#9aa0a6' }} />
+              ) : isShovelTool(slot.id) ? (
+                <ShovelIcon size={24} style={{ color: getToolSpec(slot.id)?.tier === 0 ? '#b98a4d' : '#9aa0a6' }} />
               ) : slot.id === TOOL_BOW ? (
                 <BowIcon size={24} style={{ color: '#b98a4d' }} />
               ) : (
