@@ -1836,42 +1836,61 @@ if (tpClipActive > 0.5) {
   }
 
   // ================= INPUT =================
+  private togglePerspective() {
+    this.thirdPerson = !this.thirdPerson;
+    this.thirdPersonCamReady = false;
+    if (!this.thirdPerson) this.restoreThirdPersonOccluders();
+    sfx.ui(true);
+    // Camera-only action: do not touch phase or Yandex GameplayAPI state.
+  }
+
   private onKeyDown = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
     const c = e.code;
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c) && (this.phase === 'playing' || this.inventoryOpen)) {
+    if (this.keys[c]) return;
+
+    // Inventory is a live overlay: allow craft/close shortcuts but never feed gameplay movement or actions.
+    if (this.inventoryOpen) {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c)) e.preventDefault();
+      if (c === 'KeyE' || c === 'Tab' || c === 'KeyI') {
+        this.keys[c] = true;
+        e.preventDefault();
+        this.closeInventory();
+        return;
+      }
+      if (c === 'KeyV' && this.phase === 'playing') {
+        this.keys[c] = true;
+        this.togglePerspective();
+        return;
+      }
+      if (c.startsWith('Digit')) {
+        this.keys[c] = true; // suppress key-repeat crafting while the key is held
+        const r = RECIPES.find((rr) => rr.hotkey === c.slice(5));
+        if (r) this.craft(r.key);
+      }
+      return;
+    }
+
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c) && this.phase === 'playing') {
       e.preventDefault();
     }
-    if (this.keys[c]) return;
     this.keys[c] = true;
 
     // E = doors / windows / trader; TAB (or I) = inventory / workbench
     if (c === 'KeyE') {
       if (this.phase === 'playing') this.interact();
-      else if (this.inventoryOpen) this.closeInventory();
       return;
     }
     if (c === 'Tab' || c === 'KeyI') {
       if (this.phase === 'playing') {
         e.preventDefault();
         this.openInventory();
-      } else if (this.inventoryOpen) {
-        e.preventDefault();
-        this.closeInventory();
       }
-      return;
-    }
-    if (this.inventoryOpen && c.startsWith('Digit')) {
-      const r = RECIPES.find((rr) => rr.hotkey === c.slice(5));
-      if (r) this.craft(r.key);
       return;
     }
     if (this.phase !== 'playing') return;
     if (c === 'KeyV') {
-      this.thirdPerson = !this.thirdPerson;
-      this.thirdPersonCamReady = false;
-      if (!this.thirdPerson) this.restoreThirdPersonOccluders();
-      sfx.ui(true);
+      this.togglePerspective();
       return;
     }
     if (c === 'KeyF') this.tryPlace();
@@ -1896,14 +1915,14 @@ if (tpClipActive > 0.5) {
     if (!this.locked && this.phase === 'playing') {
       this.mining = false;
       this.placing = false;
-      // in drag-look fallback there is no lock to lose, so never pause on it.
-      // Esc = the player paused; the lock also drops when the window loses focus — a system pause
-      if (!this.isCoarse() && !this.lockFailed) this.pause(!document.hasFocus() || document.hidden);
+      // Inventory deliberately releases pointer lock while the live world keeps running.
+      // Outside inventory, Esc = player pause; focus loss = system pause.
+      if (!this.inventoryOpen && !this.isCoarse() && !this.lockFailed) this.pause(!document.hasFocus() || document.hidden);
     }
     this.syncHud(true);
   };
   private onMouseDown = (e: MouseEvent) => {
-    if (this.phase !== 'playing') return;
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
     if (e.button === 1) e.preventDefault();
     // every click is a fresh chance to grab the pointer — user gesture context
     if (!this.locked && !this.isCoarse()) {
@@ -1922,6 +1941,7 @@ if (tpClipActive > 0.5) {
     if (e.button === 2 || e.button === 1) this.placing = false;
   };
   private onMouseMove = (e: MouseEvent) => {
+    if (this.inventoryOpen) return;
     if (this.locked) {
       this.look(e.movementX * 0.0028, e.movementY * 0.0028);
       return;
@@ -1943,7 +1963,7 @@ if (tpClipActive > 0.5) {
 
   /** hands-free steering — only as a fallback when pointer lock is unavailable */
   private updateHoverLook(dt: number) {
-    if (!this.lockFailed) return; // browser lock works → cursor stays pinned centre
+    if (this.inventoryOpen || !this.lockFailed) return; // browser lock works → cursor stays pinned centre
     if (this.locked || !this.hoverActive || this.isCoarse()) return;
     if (this.mining || this.placing) return; // drag aiming takes over
     if (this.phase !== 'playing' || !this.freeLook) return;
@@ -1969,7 +1989,7 @@ if (tpClipActive > 0.5) {
     return this.freeLook;
   }
   private onWheel = (e: WheelEvent) => {
-    if (this.phase !== 'playing') return;
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
     e.preventDefault();
     const dir = e.deltaY > 0 ? 1 : -1;
     // cycle through all 10 fixed slots — an empty hole selects the bare hand
@@ -2027,6 +2047,7 @@ if (tpClipActive > 0.5) {
   }
 
   requestLock() {
+    if (this.inventoryOpen) return;
     initAudio();
     const el = this.renderer.domElement;
     if (this.isCoarse() || this.lockFailed) return;
@@ -2059,25 +2080,35 @@ if (tpClipActive > 0.5) {
 
   // public input API (touch UI)
   look(dx: number, dy: number) {
+    if (this.inventoryOpen) return;
     this.yaw -= dx;
     this.pitch -= dy;
     this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
   }
   setMove(x: number, y: number) {
-    this.touchMove.x = x;
-    this.touchMove.y = y;
+    this.touchMove.x = this.inventoryOpen ? 0 : x;
+    this.touchMove.y = this.inventoryOpen ? 0 : y;
   }
   setJump(v: boolean) {
-    this.touchJump = v;
+    this.touchJump = !this.inventoryOpen && v;
   }
   setMining(v: boolean) {
+    if (this.inventoryOpen) {
+      this.mining = false;
+      return;
+    }
     initAudio();
     this.mining = v;
   }
   setSprint(v: boolean) {
-    this.touchSprint = v;
+    this.touchSprint = !this.inventoryOpen && v;
   }
   setPlacing(v: boolean) {
+    if (this.inventoryOpen) {
+      this.placing = false;
+      this.touchPlace = false;
+      return;
+    }
     // touch: the PLACE button doubles as the door/window toggle
     if (v && !this.interact()) this.tryPlace();
     this.placing = v;
@@ -2528,14 +2559,15 @@ if (tpClipActive > 0.5) {
     if (!bySystem) sfx.ui(true);
     // a pointer-lock request needs a user gesture; after a platform resume there usually was none, and a
     // refused request would only flag lockFailed — the HUD's "click to capture the mouse" covers that case
-    if (!bySystem || navigator.userActivation?.isActive) this.requestLock();
+    if (!this.inventoryOpen && (!bySystem || navigator.userActivation?.isActive)) this.requestLock();
     this.syncHud(true);
   }
 
   /**
    * Yandex Games asks the game to pause (ad or purchase window, tab switch, minimised window, focus moved
    * to another window) — or the tab was hidden: freeze the run and silence the audio. The platform calls
-   * GameplayAPI.stop() for these on its own, so the game has to actually stop.
+   * GameplayAPI.stop() for these on its own, so the game has to actually stop. This remains true when the
+   * live inventory is open: a system pause always takes precedence over crafting.
    */
   systemPause() {
     this.pause(true);
@@ -2544,7 +2576,7 @@ if (tpClipActive > 0.5) {
 
   /**
    * …and the counterpart: the platform calls GameplayAPI.start() on its own, so a run that *the system*
-   * froze continues. A pause the player chose (Esc, menu, inventory) is never undone behind their back.
+   * froze continues. A pause the player chose (Esc or menu) is never undone behind their back.
    */
   systemResume() {
     resumeAudio();
@@ -7476,10 +7508,28 @@ if (tpClipActive > 0.5) {
 
   openInventory() {
     if (this.phase !== 'playing' && this.phase !== 'paused') return;
+    // A platform/ad pause is authoritative; inventory must not resume it behind the SDK's back.
+    if (this.phase === 'paused' && this.pausedBySystem) return;
     if (!this.traderNear() && this.invTab === 'trade') this.invTab = 'tools';
     this.inventoryOpen = true;
-    this.phase = 'paused';
-    this.pausedBySystem = false;
+    // Opening the bag from the manual pause screen resumes the live world as well.
+    if (this.phase === 'paused') {
+      this.phase = 'playing';
+      this.pausedBySystem = false;
+    }
+    // Stay still while crafting, but keep physics and the world simulation running.
+    for (const key of [
+      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyC', 'KeyF',
+    ]) this.keys[key] = false;
+    this.touchMove.x = 0;
+    this.touchMove.y = 0;
+    this.touchJump = false;
+    this.touchPlace = false;
+    this.touchSprint = false;
+    this.hoverActive = false;
+    this.vel.x = 0;
+    this.vel.z = 0;
     this.mining = false;
     this.placing = false;
     this.lastCraft = null;
@@ -7492,9 +7542,13 @@ if (tpClipActive > 0.5) {
     if (!this.inventoryOpen) return;
     this.inventoryOpen = false;
     this.invTab = 'tools';
-    this.phase = 'playing';
-    sfx.ui(false);
-    this.requestLock();
+    // A real platform pause may have arrived while the live inventory was open.
+    if (this.phase === 'paused' && !this.pausedBySystem) this.phase = 'playing';
+    if (this.phase === 'playing') {
+      this.pausedBySystem = false;
+      sfx.ui(false);
+      this.requestLock();
+    }
     this.syncHud(true);
   }
 
