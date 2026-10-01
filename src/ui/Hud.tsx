@@ -3,11 +3,8 @@ import type { DomRefs, HudState } from '../game/engine';
 import { PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import {
-  AxeIcon,
   BagIcon,
-  BowIcon,
   ClockIcon,
-  ShovelIcon,
   DepthIcon,
   HeartIcon,
   MoonIcon,
@@ -17,24 +14,16 @@ import {
   SkullIcon,
   SoundIcon,
   SunIcon,
-  SwordIcon,
 } from './icons';
 import {
   HAND,
-  SWORDS,
-  TOOL_BOW,
   TOOL_PICK,
-  TOOL_SHOVEL,
   TOOL_TORCH,
-  PICK_TOOLS,
-  SWORD_TOOLS,
-  AXE_TOOLS,
-  isPickTool,
-  isSwordTool,
-  isAxeTool,
 } from '../game/recipes';
 import { isGearHotbarId, MATERIALS, RARITY } from '../game/items';
 import { t } from '../game/i18n';
+import { getToolSpec } from '../game/tools';
+import { ToolSprite } from './ToolSprite';
 
 const RING = 2 * Math.PI * 22;
 
@@ -457,32 +446,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                     </span>
                   );
                 })()
-              ) : slot.id >= TOOL_PICK ? (
-                <span
-                  className="flex h-6 w-6 items-center justify-center sm:h-9 sm:w-9"
-                  style={{
-                    color: isSwordTool(slot.id)
-                      ? SWORDS[slot.id - SWORD_TOOLS[0]].color
-                      : isPickTool(slot.id)
-                        ? PICKAXE_TIERS[slot.id - PICK_TOOLS[0]].color
-                        : tierColor,
-                  }}
-                >
-                  {isSwordTool(slot.id) ? (
-                <SwordIcon size={26} />
-              ) : slot.id === TOOL_TORCH ? (
-                <span className="anim-flicker text-xl leading-none" style={{ color: '#ffb03a' }}>
-                  ⨙
-                </span>
-              ) : isAxeTool(slot.id) ? (
-                <AxeIcon size={24} style={{ color: slot.id === AXE_TOOLS[0] ? '#b98a4d' : '#9aa0a6' }} />
-              ) : slot.id === TOOL_SHOVEL ? (
-                <ShovelIcon size={24} style={{ color: '#b98a4d' }} />
-              ) : slot.id === TOOL_BOW ? (
-                <BowIcon size={24} style={{ color: '#b98a4d' }} />
-              ) : (
-                <PickIcon size={24} />
-              )}
+              ) : (getToolSpec(slot.id) || slot.id === TOOL_TORCH) ? (
+                <span className="flex h-6 w-6 items-center justify-center sm:h-9 sm:w-9">
+                  {slot.id === TOOL_TORCH ? (
+                    <span className="anim-flicker text-xl leading-none" style={{ color: '#ffb03a' }}>
+                      ⨙
+                    </span>
+                  ) : (
+                    <ToolSprite id={slot.id} size={24} />
+                  )}
                 </span>
               ) : (
                 <img src={getBlockIcon(slot.id)} alt="" className="pixelated h-6 w-6 sm:h-9 sm:w-9" draggable={false} />

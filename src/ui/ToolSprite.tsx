@@ -9,19 +9,132 @@ type ToolSpriteProps = {
   durability?: number;
   className?: string;
   style?: CSSProperties;
+  /** Use the same silhouettes for monochrome HUD/stat icons. */
+  monochrome?: boolean;
 };
 
-/** Original ember-forged pixel silhouettes; the same sprite is used throughout the UI. */
-export function ToolSprite({ id, size = 32, durability, className = '', style }: ToolSpriteProps) {
+type Palette = {
+  head: string;
+  edge: string;
+  accent: string;
+  handle: string;
+  outline: string;
+};
+
+/** The shared eight-bit haft used by every hand tool. */
+function PixelHaft({ p }: { p: Palette }) {
+  return (
+    <g>
+      <path d="M7 37 11 42 35 19 31 15Z" fill={p.outline} />
+      <path d="M11 37 13 40 33 20 30 18Z" fill={p.handle} />
+      <path d="M14 35 17 38 19 36 16 33Z" fill={p.accent} />
+      <path d="M20 29 23 32 25 30 22 27Z" fill={p.handle} />
+      <path d="M26 23 29 26 31 24 28 21Z" fill={p.accent} />
+    </g>
+  );
+}
+
+/** A clear, symmetrical pixel pickaxe head with both ends inside the 48px tile. */
+function PickShape({ p }: { p: Palette }) {
+  return (
+    <g>
+      <path d="M7 11 11 7H29L33 10H38L42 13V17H38L35 20H30L27 17H17L13 20H8V17H4V13H7Z" fill={p.outline} />
+      <path d="M10 12 13 9H28L31 12H36L39 14V16H36L33 18H31L27 15H17L13 18H10V16H7V14H10Z" fill={p.head} />
+      <path d="M13 9H28L31 12H35V14H12Z" fill={p.edge} />
+      <path d="M7 14H13V16H8Z" fill={p.edge} />
+      <path d="M35 14H39V16H36Z" fill={p.edge} />
+      <path d="M22 10H27V12H22Z" fill={p.accent} />
+    </g>
+  );
+}
+
+function AxeShape({ p }: { p: Palette }) {
+  return (
+    <g>
+      <path d="M26 8H36V11H40V15H43V23H40V27H32V25H27V21H24V16H22V12H26Z" fill={p.outline} />
+      <path d="M28 10H35V13H38V16H41V21H37V24H33V22H29V19H26V15H25V13H28Z" fill={p.head} />
+      <path d="M28 10H35V13H38V16H27V14H28Z" fill={p.edge} />
+      <path d="M37 16H41V21H38V23H35V20H37Z" fill={p.edge} />
+      <path d="M29 13H33V16H29Z" fill={p.accent} />
+    </g>
+  );
+}
+
+function ShovelShape({ p }: { p: Palette }) {
+  return (
+    <g>
+      {/* Broad scoop, with a tapered lower edge so it cannot read as a mallet. */}
+      <path d="M28 10H37V13H40V17H42V27H40V32H37V35H29V33H25V29H23V18H26V13H28Z" fill={p.outline} />
+      <path d="M29 12H35V15H38V18H40V26H38V30H35V32H30V30H27V27H25V19H28V15H29Z" fill={p.head} />
+      <path d="M29 12H35V15H38V18H28V16H29Z" fill={p.edge} />
+      <path d="M25 19H28V26H26V24H25Z" fill={p.edge} />
+      <path d="M30 29H37V31H30Z" fill={p.accent} />
+    </g>
+  );
+}
+
+function HoeShape({ p }: { p: Palette }) {
+  return (
+    <g>
+      {/* Short crossbar plus a single hanging blade, like a Minecraft hoe. */}
+      <path d="M23 8H37V11H41V14H44V19H38V28H32V20H23V18H19V13H23Z" fill={p.outline} />
+      <path d="M25 10H36V13H39V15H41V17H36V26H34V18H25V16H22V14H25Z" fill={p.head} />
+      <path d="M25 10H36V13H39V15H25Z" fill={p.edge} />
+      <path d="M36 16H41V18H36Z" fill={p.accent} />
+    </g>
+  );
+}
+
+function SwordShape({ p }: { p: Palette }) {
+  return (
+    <g>
+      {/* The same diagonal axis as the tools: grip at bottom-left, tip top-right. */}
+      <path d="M23 28 32 12 42 5 39 15 30 31Z" fill={p.outline} />
+      <path d="M26 27 34 13 39 9 37 15 29 28Z" fill={p.head} />
+      <path d="M29 25 35 13 39 9 36 16 30 27Z" fill={p.edge} />
+      <path d="M34 14 38 10 36 16Z" fill={p.accent} />
+      <path d="M20 27 25 22 32 29 28 33Z" fill={p.outline} />
+      <path d="M22 27 25 24 29 29 27 31Z" fill={p.edge} />
+      <path d="M10 38 14 34 24 34 27 37 23 41 14 41Z" fill={p.outline} />
+      <path d="M13 37 15 35 22 35 24 37 22 39 15 39Z" fill={p.handle} />
+      <path d="M16 36H20V38H16Z" fill={p.accent} />
+    </g>
+  );
+}
+
+function BowShape({ p }: { p: Palette }) {
+  return (
+    <g>
+      <path d="M10 7H15V10H19V14H22V20H24V28H22V34H19V38H15V41H10V37H14V33H17V28H19V22H17V17H14V13H10Z" fill={p.outline} />
+      <path d="M12 9H15V12H18V16H20V21H22V27H20V33H17V36H14V39H12V37H15V33H18V27H19V22H18V17H15V13H12Z" fill={p.head} />
+      <path d="M12 10H14V13H17V17H19V22H20V27H18V22H17V18H14V14H12Z" fill={p.edge} />
+      <path d="M12 8V40" stroke="#e7dcc8" strokeWidth="1.5" />
+      <path d="M12 8V40" stroke={p.accent} strokeWidth="0.7" />
+      <rect x="10" y="37" width="5" height="4" fill={p.handle} />
+    </g>
+  );
+}
+
+/**
+ * Unified pixel-art tool sprite. The silhouettes are redrawn on one 48px grid;
+ * they are not cropped source images, so the pickaxe and every other tool keep
+ * their full head and handle inside the same tile.
+ */
+export function ToolSprite({ id, size = 32, durability, className = '', style, monochrome = false }: ToolSpriteProps) {
   const spec = getToolSpec(id);
   if (!spec) return null;
   const stage = spec.maxDurability > 0
     ? toolWearStage(durability ?? spec.maxDurability, spec.maxDurability)
     : 0;
-  const { head, edge, accent, handle } = spec;
-  const shaft = [
-    [13, 33], [16, 30], [19, 27], [22, 24], [25, 21], [28, 18], [31, 15],
-  ];
+  const p: Palette = monochrome
+    ? { head: 'currentColor', edge: 'currentColor', accent: 'currentColor', handle: 'currentColor', outline: 'currentColor' }
+    : {
+      head: spec.head,
+      edge: spec.edge,
+      accent: spec.accent,
+      handle: spec.handle,
+      outline: spec.tier === 0 ? '#4b2a1c' : DARK,
+    };
 
   return (
     <svg
@@ -34,64 +147,16 @@ export function ToolSprite({ id, size = 32, durability, className = '', style }:
       aria-hidden="true"
     >
       {spec.kind === 'bow' ? (
-        <g>
-          <path d="M13 7h4v3h3v5h3v8h-3v7h-3v5h-4v4h-4v-5h4v-4h3v-5h3v-8h-3v-5h-3v-3h-4z" fill={DARK} />
-          <path d="M13 9h3v3h3v5h2v6h-2v6h-3v5h-3v2h-2v-2h3v-5h3v-6h2v-6h-2v-5h-3v-3h-3z" fill={head} />
-          <path d="M13 10h2v4h3v5h2v4h-2v5h-3v5h-2v2h-1v-2h2v-5h3v-5h2v-4h-2v-5h-3v-4h-1z" fill={edge} />
-          <path d="M13 8 13 39" stroke="#e7dcc8" strokeWidth="1.5" />
-          <path d="M13 8 13 39" stroke={accent} strokeWidth="0.7" />
-          <rect x="10" y="37" width="5" height="4" fill={handle} />
-          <rect x="11" y="37" width="2" height="2" fill={edge} />
-        </g>
+        <BowShape p={p} />
+      ) : spec.kind === 'sword' ? (
+        <SwordShape p={p} />
       ) : (
         <g>
-          {spec.kind === 'sword' ? (
-            <g>
-              <path d="M20 26 34 12l7-4-3 8-14 14z" fill={DARK} />
-              <path d="M22 25 35 12l4-2-2 5-13 13z" fill={head} />
-              <path d="M25 25 36 14l2-4-4 2-11 11z" fill={edge} />
-              <path d="M28 19 36 11" stroke={accent} strokeWidth="1.6" />
-              <path d="M13 28 17 24l9 9-4 4z" fill={DARK} />
-              <path d="M14 28 17 26l7 7-2 2z" fill={edge} />
-              <rect x="10" y="31" width="7" height="6" fill={DARK} />
-              <rect x="11" y="32" width="5" height="4" fill={handle} />
-              <rect x="12" y="33" width="2" height="2" fill={accent} />
-            </g>
-          ) : (
-            <g>
-              {shaft.map(([x, y], i) => (
-                <g key={i}>
-                  <rect x={x - 1} y={y - 1} width="7" height="7" fill={DARK} />
-                  <rect x={x} y={y} width="5" height="5" fill={handle} />
-                  <rect x={x + 1} y={y + 1} width="2" height="3" fill={i % 2 ? '#9a7046' : '#795337'} />
-                </g>
-              ))}
-              {spec.kind === 'pickaxe' && (
-                <g>
-                  <path d="M8 12 12 8h23l5 4-3 5h-7l-4-3-4 3H12z" fill={DARK} />
-                  <path d="M11 11 14 9h19l4 3-2 3h-5l-5-3-5 3H13z" fill={head} />
-                  <path d="M14 10h17v2H14zM11 12h4v2h-4zM32 12h4v2h-4z" fill={edge} />
-                  <path d="M20 10h7v1h-7z" fill={accent} />
-                </g>
-              )}
-              {spec.kind === 'axe' && (
-                <g>
-                  <path d="M10 8h18l5 4v6l-5 5H17l-4-4h-5V13z" fill={DARK} />
-                  <path d="M11 10h15l4 3v4l-4 4h-8l-4-4h-3z" fill={head} />
-                  <path d="M10 10h15v2H11v5H9v-4z" fill={edge} />
-                  <path d="M12 12h4v5h-4z" fill={accent} />
-                </g>
-              )}
-              {spec.kind === 'shovel' && (
-                <g>
-                  <path d="M25 7h12v4h3v10h-3v4H25v-4h-3V11h3z" fill={DARK} />
-                  <path d="M27 9h8v3h3v7h-3v3h-8v-3h-2v-7h2z" fill={head} />
-                  <path d="M27 10h7v2h-7zM26 13h2v4h-2z" fill={edge} />
-                  <rect x="30" y="10" width="3" height="2" fill={accent} />
-                </g>
-              )}
-            </g>
-          )}
+          <PixelHaft p={p} />
+          {spec.kind === 'pickaxe' && <PickShape p={p} />}
+          {spec.kind === 'axe' && <AxeShape p={p} />}
+          {spec.kind === 'shovel' && <ShovelShape p={p} />}
+          {spec.kind === 'hoe' && <HoeShape p={p} />}
         </g>
       )}
 
@@ -104,7 +169,7 @@ export function ToolSprite({ id, size = 32, durability, className = '', style }:
       {stage >= 2 && (
         <g>
           <path d="M29 13 26 17 29 19 25 23" fill="none" stroke="#23191b" strokeWidth="2.2" />
-          <path d="M29 13 26 17" fill="none" stroke={accent} strokeWidth="0.8" />
+          <path d="M29 13 26 17" fill="none" stroke={p.accent} strokeWidth="0.8" />
           <rect x="20" y="30" width="3" height="2" fill="#2a201e" />
         </g>
       )}

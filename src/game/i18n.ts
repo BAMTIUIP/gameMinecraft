@@ -273,6 +273,12 @@ const EN = {
   tool_shovel_gold: 'GOLDEN SHOVEL',
   tool_shovel_diamond: 'DIAMOND SHOVEL',
   tool_shovel_netherite: 'NETHERITE SHOVEL',
+  tool_hoe_wood: 'WOODEN HOE',
+  tool_hoe_stone: 'STONE HOE',
+  tool_hoe_iron: 'IRON HOE',
+  tool_hoe_gold: 'GOLDEN HOE',
+  tool_hoe_diamond: 'DIAMOND HOE',
+  tool_hoe_netherite: 'NETHERITE HOE',
   tool_shovel: 'SHOVEL',
   tool_bow: 'BOW',
   toolDurability: 'DURABILITY',
@@ -577,6 +583,12 @@ const RU: Dict = {
   tool_shovel_gold: 'ЗОЛОТАЯ ЛОПАТА',
   tool_shovel_diamond: 'АЛМАЗНАЯ ЛОПАТА',
   tool_shovel_netherite: 'НЕЗЕРИТОВАЯ ЛОПАТА',
+  tool_hoe_wood: 'ДЕРЕВЯННАЯ ТЯПКА',
+  tool_hoe_stone: 'КАМЕННАЯ ТЯПКА',
+  tool_hoe_iron: 'ЖЕЛЕЗНАЯ ТЯПКА',
+  tool_hoe_gold: 'ЗОЛОТАЯ ТЯПКА',
+  tool_hoe_diamond: 'АЛМАЗНАЯ ТЯПКА',
+  tool_hoe_netherite: 'НЕЗЕРИТОВАЯ ТЯПКА',
   tool_shovel: 'ЛОПАТА',
   tool_bow: 'ЛУК',
   toolDurability: 'ПРОЧНОСТЬ',
@@ -873,6 +885,12 @@ const FR: Dict = {
   tool_shovel_gold: 'PELLE EN OR',
   tool_shovel_diamond: 'PELLE EN DIAMANT',
   tool_shovel_netherite: 'PELLE EN NETHERITE',
+  tool_hoe_wood: 'HOUE EN BOIS',
+  tool_hoe_stone: 'HOUE EN PIERRE',
+  tool_hoe_iron: 'HOUE EN FER',
+  tool_hoe_gold: 'HOUE EN OR',
+  tool_hoe_diamond: 'HOUE EN DIAMANT',
+  tool_hoe_netherite: 'HOUE EN NETHERITE',
   tool_shovel: 'PELLE',
   tool_bow: 'ARC',
   toolDurability: 'DURABILITÉ',
@@ -1169,6 +1187,12 @@ const DE: Dict = {
   tool_shovel_gold: 'GOLDSCHAUFEL',
   tool_shovel_diamond: 'DIAMANTSCHAUFEL',
   tool_shovel_netherite: 'NETHERITSCHAUFEL',
+  tool_hoe_wood: 'HOLZHACKE',
+  tool_hoe_stone: 'STEINHACKE',
+  tool_hoe_iron: 'EISENHACKE',
+  tool_hoe_gold: 'GOLDHACKE',
+  tool_hoe_diamond: 'DIAMANTHACKE',
+  tool_hoe_netherite: 'NETHERITHACKE',
   tool_shovel: 'SCHAUFEL',
   tool_bow: 'BOGEN',
   toolDurability: 'HALTBARKEIT',
@@ -1297,6 +1321,10 @@ const SHOVEL_KEYS: TKey[] = [
   'tool_shovel_wood', 'tool_shovel_stone', 'tool_shovel_iron',
   'tool_shovel_gold', 'tool_shovel_diamond', 'tool_shovel_netherite',
 ];
+const HOE_KEYS: TKey[] = [
+  'tool_hoe_wood', 'tool_hoe_stone', 'tool_hoe_iron',
+  'tool_hoe_gold', 'tool_hoe_diamond', 'tool_hoe_netherite',
+];
 
 /** Full sword name by material tier (0–5). */
 export function swordLabel(tier: number): string {
@@ -1311,14 +1339,21 @@ export function shovelLabel(tier: number): string {
   return t(SHOVEL_KEYS[Math.max(0, Math.min(SHOVEL_KEYS.length - 1, tier))]);
 }
 
+export function hoeLabel(tier: number): string {
+  return t(HOE_KEYS[Math.max(0, Math.min(HOE_KEYS.length - 1, tier))]);
+}
+
 /** Localized name for any durable weapon/tool ID (including v1 save aliases). */
 export function toolLabelForId(id: number): string {
   const spec = getToolSpec(id);
-  if (!spec) return id === 202 ? t('handTorch') : t('tool_pickaxe');
+  // Never guess PICKAXE for an unknown/legacy id: that made a shovel look
+  // like a wooden pick in the first-person label.
+  if (!spec) return id === 202 ? t('handTorch') : `TOOL #${id}`;
   if (spec.kind === 'pickaxe') return pickaxeLabel(spec.tier);
   if (spec.kind === 'sword') return swordLabel(spec.tier);
   if (spec.kind === 'axe') return axeLabel(spec.tier);
   if (spec.kind === 'shovel') return shovelLabel(spec.tier);
+  if (spec.kind === 'hoe') return hoeLabel(spec.tier);
   return t('tool_bow');
 }
 
@@ -1342,6 +1377,12 @@ const RECIPES_RU: Record<string, [string, string]> = {
   axe_wood: ['ДЕРЕВЯННЫЙ ТОПОР', 'Крафтится только из досок — рубит дерево в 2.0 раза быстрее'],
   axe_stone: ['КАМЕННЫЙ ТОПОР', 'Крафтится с булыжником — рубит дерево в 2.8 раза быстрее'],
   shovel: ['ЛОПАТА', 'Копает землю и песок в 2.6 раза быстрее'],
+  hoe_wood: ['ДЕРЕВЯННАЯ ТЯПКА', 'Пашет траву и землю в плодородную почву'],
+  hoe_stone: ['КАМЕННАЯ ТЯПКА', 'Пашет траву и землю · быстрее ломает растительные блоки'],
+  hoe_iron: ['ЖЕЛЕЗНАЯ ТЯПКА', 'Пашет траву и землю · быстро собирает листву'],
+  hoe_gold: ['ЗОЛОТАЯ ТЯПКА', 'Пашет землю очень быстро'],
+  hoe_diamond: ['АЛМАЗНАЯ ТЯПКА', 'Прочная тяпка для фермы и листвы'],
+  hoe_netherite: ['НЕЗЕРИТОВАЯ ТЯПКА', 'Незеритовая тяпка · не ломается'],
   bow: ['ЛУК', 'Дальнобойное оружие — нужны стрелы в рюкзаке'],
   arrows: ['СТРЕЛЫ ×8', 'Рецепт Minecraft: палка + кремень + перо'],
   torch_hand: ['ФАКЕЛ', 'Огонь в руке — освещает пещеры и ночь вокруг'],
@@ -1370,6 +1411,9 @@ const RECIPES_RU: Record<string, [string, string]> = {
   fence_iron: ['ЖЕЛЕЗНЫЕ ПРУТЬЯ', 'Решётка тюремного класса'],
   helmet_leather: ['КОЖАНЫЙ ШЛЕМ', 'ГОЛОВА · кожаная защита'],
   chest_leather: ['КОЖАНАЯ КУРТКА', 'ТОРС · кожаная защита'],
+  legs_leather: ['КОЖАНЫЕ ПОНОЖИ', 'НОГИ · кожаная защита'],
+  feet_leather: ['КОЖАНЫЕ БОТИНКИ', 'СТУПНИ · кожаная защита'],
+  hands_leather: ['КОЖАНЫЕ ПЕРЧАТКИ', 'КИСТИ · кожаная защита'],
   legs_iron: ['ЖЕЛЕЗНЫЕ ПОНОЖИ', 'НОГИ · железные пластины'],
   feet_iron: ['ЖЕЛЕЗНЫЕ БОТИНКИ', 'СТУПНИ · железные пластины'],
   hands_iron: ['ЖЕЛЕЗНЫЕ ПЕРЧАТКИ', 'КИСТИ · железные пластины'],
@@ -1412,6 +1456,12 @@ const RECIPES_FR: Record<string, [string, string]> = {
   axe_wood: ['HACHE EN BOIS', 'Fabriquée uniquement avec du bois — coupe les arbres 2.0x plus vite'],
   axe_stone: ['HACHE EN PIERRE', 'Fabriquée avec des pavés — coupe les arbres 2.8x plus vite'],
   shovel: ['PELLE', 'Creuse la terre et le sable 2.6x plus vite'],
+  hoe_wood: ['HOUE EN BOIS', 'Laboure l’herbe et la terre en sol fertile'],
+  hoe_stone: ['HOUE EN PIERRE', 'Laboure la terre · récolte les blocs végétaux'],
+  hoe_iron: ['HOUE EN FER', 'Laboure la terre · récolte vite les feuilles'],
+  hoe_gold: ['HOUE EN OR', 'Laboure la terre très rapidement'],
+  hoe_diamond: ['HOUE EN DIAMANT', 'Houe durable pour la ferme et le feuillage'],
+  hoe_netherite: ['HOUE EN NETHERITE', 'Houe en netherite · indestructible'],
   bow: ['ARC', 'Arme à distance — flèches requises'],
   arrows: ['FLÈCHES ×8', 'Recette Minecraft : bâton + silex + plume'],
   torch_hand: ['TORCHE', 'Le feu en main — éclaire grottes et nuit'],
@@ -1440,6 +1490,9 @@ const RECIPES_FR: Record<string, [string, string]> = {
   fence_iron: ['BARREAUX DE FER', 'Grille de qualité prison'],
   helmet_leather: ['CASQUE EN CUIR', 'TÊTE · protection de cuir'],
   chest_leather: ['TUNIQUE EN CUIR', 'TORSE · protection de cuir'],
+  legs_leather: ['JAMBIÈRES EN CUIR', 'JAMBES · protection de cuir'],
+  feet_leather: ['BOTTES EN CUIR', 'PIEDS · protection de cuir'],
+  hands_leather: ['GANTS EN CUIR', 'MAINS · protection de cuir'],
   legs_iron: ['JAMBIÈRES EN FER', 'JAMBES · plaques de fer'],
   feet_iron: ['BOTTES EN FER', 'PIEDS · plaques de fer'],
   hands_iron: ['GANTELETS EN FER', 'MAINS · plaques de fer'],
@@ -1482,6 +1535,12 @@ const RECIPES_DE: Record<string, [string, string]> = {
   axe_wood: ['HOLZAXT', 'Nur aus Brettern — fällt Bäume 2.0x schneller'],
   axe_stone: ['STEINAXT', 'Mit Kopfstein — fällt Bäume 2.8x schneller'],
   shovel: ['SCHAUFEL', 'Gräbt Erde und Sand 2.6x schneller'],
+  hoe_wood: ['HOLZHACKE', 'Macht Gras und Erde zu Ackerboden'],
+  hoe_stone: ['STEINHACKE', 'Bearbeitet Erde · erntet Pflanzenblöcke'],
+  hoe_iron: ['EISENHACKE', 'Bearbeitet Erde · sammelt Laub schnell'],
+  hoe_gold: ['GOLDHACKE', 'Bearbeitet Erde besonders schnell'],
+  hoe_diamond: ['DIAMANTHACKE', 'Robuste Hacke für Feld und Laub'],
+  hoe_netherite: ['NETHERITHACKE', 'Netherithacke · unzerstörbar'],
   bow: ['BOGEN', 'Fernwaffe — braucht Pfeile im Rucksack'],
   arrows: ['PFEILE ×8', 'Minecraft-Rezept: Stock + Feuerstein + Feder'],
   torch_hand: ['FACKEL', 'Feuer in der Hand — beleuchtet Höhlen und die Nacht'],
@@ -1512,6 +1571,9 @@ const RECIPES_DE: Record<string, [string, string]> = {
   fence_iron: ['EISENGELÄNDER', 'Gitter in Gefängnisqualität'],
   helmet_leather: ['LEDERHELM', 'KOPF · Lederschutz'],
   chest_leather: ['LEDERUNTERTUNIK', 'BRUST · Lederschutz'],
+  legs_leather: ['LEDERHOSE', 'BEINE · Lederschutz'],
+  feet_leather: ['LEDERSTIEFEL', 'FÜSSE · Lederschutz'],
+  hands_leather: ['LEDERHANDSCHUHE', 'HÄNDE · Lederschutz'],
   legs_iron: ['EISENHOSEN', 'BEINE · Eisenplatten'],
   feet_iron: ['EISENSTIEFEL', 'FÜSSE · Eisenplatten'],
   hands_iron: ['EISENHANDSCHUHE', 'HÄNDE · Eisenplatten'],
@@ -1568,7 +1630,7 @@ const BLOCKS_RU: Record<number, string> = {
   113: 'Оплетённый лианами сундук', 114: 'Пустынный сундук с сокровищами', 115: 'Сундук каньона', 116: 'Сундук с углями', 117: 'Затонувший сундук с ракушками',
   118: 'Дубовый сундук (открыт)', 119: 'Ледяной сундук (открыт)', 120: 'Янтарный сундук (открыт)', 121: 'Сундук в лианах (открыт)',
   122: 'Пустынный сундук (открыт)', 123: 'Сундук каньона (открыт)', 124: 'Сундук с углями (открыт)', 125: 'Затонувший сундук (открыт)',
-  68: 'Верстак',
+  68: 'Верстак', 126: 'Пашня',
 };
 
 const BLOCKS_FR: Record<number, string> = {
@@ -1599,7 +1661,7 @@ const BLOCKS_FR: Record<number, string> = {
   114: 'Coffre du désert', 115: 'Coffre du canyon', 116: 'Coffre de braises', 117: 'Coffre marin incrusté de coquillages',
   118: 'Coffre en chêne (ouvert)', 119: 'Coffre givré (ouvert)', 120: 'Coffre ambré (ouvert)', 121: 'Coffre envahi de lianes (ouvert)',
   122: 'Coffre du désert (ouvert)', 123: 'Coffre du canyon (ouvert)', 124: 'Coffre de braises (ouvert)', 125: 'Coffre marin (ouvert)',
-  68: 'Établi',
+  68: 'Établi', 126: 'Terre labourée',
 };
 
 const BLOCKS_DE: Record<number, string> = {
@@ -1630,7 +1692,7 @@ const BLOCKS_DE: Record<number, string> = {
   114: 'Wüsten-Schatztruhe', 115: 'Schatztruhe des Canyons', 116: 'Glut-Schatztruhe', 117: 'Versunkene Muscheltruhe',
   118: 'Eichentruhe (offen)', 119: 'Frostige Truhe (offen)', 120: 'Bernstein-Truhe (offen)', 121: 'Überwucherte Truhe (offen)',
   122: 'Wüstentruhe (offen)', 123: 'Canyontruhe (offen)', 124: 'Gluttruhe (offen)', 125: 'Muscheltruhe (offen)',
-  68: 'Werkbank',
+  68: 'Werkbank', 126: 'Ackerboden',
 };
 
 export function blockName(id: number, fallback: string): string {

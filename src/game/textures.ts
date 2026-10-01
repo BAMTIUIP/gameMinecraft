@@ -1808,6 +1808,15 @@ function drawTile(ctx: Ctx, index: number) {
       }
       break;
     }
+    case T.farmland: {
+      // Tilled soil: dark dirt with a simple pixel furrow pattern.
+      speckle(ctx, ox, oy, '#725039', 423, 13);
+      ctx.fillStyle = '#4e3528';
+      for (let y = 2; y < 16; y += 4) ctx.fillRect(ox + 1, oy + y, 14, 1);
+      ctx.fillStyle = '#9a6b47';
+      for (let x = 3; x < 16; x += 5) ctx.fillRect(ox + x, oy + 1, 1, 2);
+      break;
+    }
     // ---- Mineral Item Tiles (Row 2 fallback in atlas) ----
     case T.coalItem:
       speckle(ctx, ox, oy, '#222328', 411, 14);
