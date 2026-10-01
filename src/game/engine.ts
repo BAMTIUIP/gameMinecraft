@@ -20,6 +20,11 @@ import {
   GOLD_ORE,
   DIAMOND_ORE,
   EMERALD_ORE,
+  COAL_ORE,
+  IRON_ORE,
+  REDSTONE_ORE,
+  LAPIS_ORE,
+  QUARTZ_ORE,
   COAL_BLOCK,
   IRON_BLOCK,
   REDSTONE_BLOCK,
@@ -46,12 +51,16 @@ import {
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
   BIRD_NEST, CHICKEN_NEST,
   ICE,
   ANVIL,
   TURTLE_EGG,
   HONEY,
   NETHERITE,
+  NETHERITE_INGOT,
   HIVE,
   SNOW_GRASS,
   WOOL,
@@ -87,13 +96,14 @@ import {
   isInteractive,
   isResource,
   isSolid,
+  isTreasureChest,
+  isUnderwaterChest,
 } from './blocks';
 import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
   HAND,
   RECIPES,
   SWORDS,
-  TOOL_AXE,
   TOOL_BOW,
   TOOL_PICK,
   TOOL_SHOVEL,
@@ -101,14 +111,23 @@ import {
   PICK_TOOLS,
   SWORD_TOOLS,
   AXE_TOOLS,
+  SHOVEL_TOOLS,
   isPickTool,
   isSwordTool,
   isAxeTool,
+  toolRecipeDesc,
   toolSellPrice,
   getSalvageForItemId,
   getSalvageForGear,
   type Recipe,
 } from './recipes';
+import {
+  getToolSpec,
+  isDurabilityTool,
+  normalizeToolDurability,
+  toolRepairCost,
+  toolWearStage,
+} from './tools';
 import { MobSystem, type Mob, type MobId } from './mobs';
 import {
   AFFIXES,
@@ -124,10 +143,12 @@ import {
   SLOT_KEY,
   type AffixId,
   type Item,
+  type Material,
+  type Rarity,
   type Slot,
   type Stats,
 } from './items';
-import { blockName, matName, pickaxeLabel, recipeText, swordLabel, t } from './i18n';
+import { blockName, matName, pickaxeLabel, rarName, recipeText, toolLabelForId, t } from './i18n';
 import { yaServerTime } from './yandex';
 
 const AFFIX_KEY = Object.fromEntries(
@@ -156,7 +177,7 @@ export type HudState = {
   deepest: number;
   oresFound: number;
   /** 10 fixed quick slots; `null` = empty hole (sparse hotbar) */
-  hotbar: ({ id: number; count: number } | null)[];
+  hotbar: ({ id: number; count: number; instanceId?: number; durability?: number; maxDurability?: number } | null)[];
   selected: number;
   target: { id: number; name: string } | null;
   banner: { text: string; sub: string; color: string; key: number } | null;
@@ -168,7 +189,7 @@ export type HudState = {
   runTime: number;
   inventoryOpen: boolean;
   craftHint: string | null;
-  inventory: { id: number; count: number }[];
+  inventory: { id: number; count: number; instanceId?: number; durability?: number; maxDurability?: number }[];
   craftable: string[];
   lastCraft: string | null;
   // --- new: world clock, mobs, gear ---
@@ -249,6 +270,8 @@ const NIGHT_SECONDS = 95;
 type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
 type WeatherKind = 'clear' | 'rain' | 'snow';
 type Particle = { weather?: Exclude<WeatherKind, 'clear'>; smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
+type ToolInstance = { instanceId: number; id: number; durability: number };
+
 type Drop = {
   active: boolean;
   id: number;
@@ -270,6 +293,8 @@ type Drop = {
   pickupDelay?: number;
   /** true when thrown by the player via G (avoids duplicate mining score on re-pickup) */
   thrown?: boolean;
+  /** durable tool instance carried by this drop */
+  toolInstance?: ToolInstance | null;
 };
 
 export class Engine {
@@ -323,6 +348,8 @@ export class Engine {
   private pickBaseX = 0.44;
   private toolPick!: THREE.Group;
   private toolSword!: THREE.Group;
+  private toolCrafted!: THREE.Group;
+  private craftedToolKey = '';
   private toolBlock!: THREE.Mesh;
   private toolItem!: THREE.Group;
   private toolLantern!: THREE.Group;
@@ -363,8 +390,13 @@ export class Engine {
   private deepest = 0;
   private tier = 0;
   private inventory = new Map<number, number>();
+  /** One durable record per physical tool; duplicate tools never share wear. */
+  private toolInstances = new Map<number, ToolInstance>();
+  private nextToolInstanceId = 1;
   /** sparse 10-slot quick bar: blocks / tools / HAND / empty holes */
   private hotbar: (number | undefined)[] = [];
+  /** parallel instance reference for durable tools; ordinary stack items leave it empty */
+  private hotbarInstanceIds: (number | undefined)[] = [];
   private selected = 0;
   private deathCause: HudState['deathCause'] = null;
   // --- world clock / mobs / gear ---
@@ -406,6 +438,8 @@ export class Engine {
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
   private avatarHeldRoot!: THREE.Group;
+  private avatarHeldTool!: THREE.Group;
+  private avatarHeldToolKey = '';
   private avatarHeldPick!: THREE.Group;
   private avatarHeldAxe!: THREE.Group;
   private avatarHeldSword!: THREE.Group;
@@ -660,8 +694,9 @@ if (tpClipActive > 0.5) {
       seedNoise(candidate);
       this.world.reset(candidate);
 
-      const counts: Record<'plains' | 'winter' | 'jungle' | 'dry' | 'volcanic', number> = {
+      const counts: Record<'plains' | 'autumn' | 'winter' | 'jungle' | 'dry' | 'volcanic', number> = {
         plains: 0,
+        autumn: 0,
         winter: 0,
         jungle: 0,
         dry: 0,
@@ -680,8 +715,8 @@ if (tpClipActive > 0.5) {
       const values = Object.values(counts);
       const dominant = Math.max(...values);
       const diversity = values.filter((v) => v > 0).length;
-      const hasGreenSpawn = counts.plains + counts.jungle + counts.winter;
-      const target = 49 / 4;
+      const hasGreenSpawn = counts.plains + counts.autumn + counts.jungle + counts.winter;
+      const target = 49 / 5;
       const balancePenalty = values.reduce((sum, v) => sum + Math.abs(v - target), 0);
       const dryPenalty = Math.max(0, counts.dry - 15) * 4 + coreDry * 3;
       const score = diversity * 26 + hasGreenSpawn * 0.35 - balancePenalty - dryPenalty - Math.max(0, dominant - 19) * 6;
@@ -924,6 +959,12 @@ if (tpClipActive > 0.5) {
 
   private buildPickaxe() {
     this.pickGroup = new THREE.Group();
+    this.toolCrafted = new THREE.Group();
+    this.toolCrafted.position.set(0.02, -0.02, 0.02);
+    this.toolCrafted.rotation.set(0.08, 0.45, 0.48);
+    this.toolCrafted.scale.setScalar(1.18);
+    this.toolCrafted.visible = false;
+    this.pickGroup.add(this.toolCrafted);
 
     // Chunky, oversized tool so it reads clearly against any terrain.
     const outlineMat = new THREE.MeshBasicMaterial({ color: 0x0a0d0b, side: THREE.BackSide, fog: false });
@@ -1290,6 +1331,8 @@ if (tpClipActive > 0.5) {
       heldRoot.add(group);
       return group;
     };
+    this.avatarHeldTool = makeHeldGroup();
+    this.avatarHeldTool.position.set(0, -0.02, -0.02);
     const woodHeld = new THREE.MeshLambertMaterial({ color: 0x9c7743 });
     const ironHeld = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
     const darkHeld = new THREE.MeshLambertMaterial({ color: 0x262423 });
@@ -1377,6 +1420,18 @@ if (tpClipActive > 0.5) {
     if (!this.toolPick) return;
     const kind = this.heldKind();
     const heldId = this.hotbar[this.selected];
+    const craftedSpec = heldId === undefined ? null : getToolSpec(heldId);
+    const holdingCraftedTool = !!craftedSpec;
+    if (craftedSpec && heldId !== undefined) {
+      const durability = this.heldToolDurability(heldId);
+      const wear = toolWearStage(durability, craftedSpec.maxDurability);
+      const signature = `${heldId}:${wear}`;
+      if (signature !== this.craftedToolKey) {
+        this.clearToolModel(this.toolCrafted);
+        this.toolCrafted.add(this.buildToolModel(heldId, wear));
+        this.craftedToolKey = signature;
+      }
+    }
     const holdingLanternBlock = kind === 'block' && heldId === TORCH;
     const isCandidateItem =
       kind === 'block' && heldId !== undefined && !holdingLanternBlock && !BLOCKS[heldId]?.solid;
@@ -1393,16 +1448,17 @@ if (tpClipActive > 0.5) {
     }
     const holdingFancyItem = isCandidateItem && this.itemHasFancy;
 
-    this.toolPick.visible = kind === 'pick';
+    this.toolCrafted.visible = holdingCraftedTool;
+    this.toolPick.visible = kind === 'pick' && !holdingCraftedTool;
     this.toolHand.visible = kind === 'fist';
-    this.toolSword.visible = kind === 'sword';
+    this.toolSword.visible = kind === 'sword' && !holdingCraftedTool;
     this.toolBlock.visible = kind === 'block' && !holdingLanternBlock && !holdingFancyItem;
     this.toolItem.visible = holdingFancyItem;
     this.toolLantern.visible = holdingLanternBlock;
     this.toolTorch.visible = kind === 'torch';
-    this.toolAxe.visible = kind === 'axe';
-    this.toolShovel.visible = kind === 'shovel';
-    this.toolBow.visible = kind === 'bow';
+    this.toolAxe.visible = kind === 'axe' && !holdingCraftedTool;
+    this.toolShovel.visible = kind === 'shovel' && !holdingCraftedTool;
+    this.toolBow.visible = kind === 'bow' && !holdingCraftedTool;
     this.toolGear.visible = kind === 'gear';
     if (kind === 'gear' && heldId !== undefined) {
       const g = this.bagItems.find((b) => b.hid === heldId);
@@ -1477,9 +1533,25 @@ if (tpClipActive > 0.5) {
       this.avatarHeldTorch,
     ];
     for (const g of all) if (g) g.visible = false;
+    if (this.avatarHeldTool) this.avatarHeldTool.visible = false;
     if (this.avatarHeldBlock) this.avatarHeldBlock.visible = false;
     const kind = this.heldKind();
     const heldId = this.hotbar[this.selected];
+    const craftedSpec = heldId === undefined ? null : getToolSpec(heldId);
+    if (craftedSpec && heldId !== undefined) {
+      const durability = this.heldToolDurability(heldId);
+      const wear = toolWearStage(durability, craftedSpec.maxDurability);
+      const signature = `${heldId}:${wear}`;
+      if (signature !== this.avatarHeldToolKey) {
+        this.clearToolModel(this.avatarHeldTool);
+        this.avatarHeldTool.add(this.buildToolModel(heldId, wear));
+        this.avatarHeldToolKey = signature;
+      }
+      this.avatarHeldTool.scale.setScalar(0.72);
+      this.avatarHeldTool.rotation.set(0.18, 0.05, 0.32);
+      this.avatarHeldTool.visible = true;
+      return;
+    }
     if (kind === 'pick') {
       this.avatarHeldPick.visible = true;
       const c = PICKAXE_TIERS[this.heldPickTier()].color;
@@ -1832,42 +1904,61 @@ if (tpClipActive > 0.5) {
   }
 
   // ================= INPUT =================
+  private togglePerspective() {
+    this.thirdPerson = !this.thirdPerson;
+    this.thirdPersonCamReady = false;
+    if (!this.thirdPerson) this.restoreThirdPersonOccluders();
+    sfx.ui(true);
+    // Camera-only action: do not touch phase or Yandex GameplayAPI state.
+  }
+
   private onKeyDown = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
     const c = e.code;
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c) && (this.phase === 'playing' || this.inventoryOpen)) {
+    if (this.keys[c]) return;
+
+    // Inventory is a live overlay: allow craft/close shortcuts but never feed gameplay movement or actions.
+    if (this.inventoryOpen) {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c)) e.preventDefault();
+      if (c === 'KeyE' || c === 'Tab' || c === 'KeyI') {
+        this.keys[c] = true;
+        e.preventDefault();
+        this.closeInventory();
+        return;
+      }
+      if (c === 'KeyV' && this.phase === 'playing') {
+        this.keys[c] = true;
+        this.togglePerspective();
+        return;
+      }
+      if (c.startsWith('Digit')) {
+        this.keys[c] = true; // suppress key-repeat crafting while the key is held
+        const r = RECIPES.find((rr) => rr.hotkey === c.slice(5));
+        if (r) this.craft(r.key);
+      }
+      return;
+    }
+
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c) && this.phase === 'playing') {
       e.preventDefault();
     }
-    if (this.keys[c]) return;
     this.keys[c] = true;
 
     // E = doors / windows / trader; TAB (or I) = inventory / workbench
     if (c === 'KeyE') {
       if (this.phase === 'playing') this.interact();
-      else if (this.inventoryOpen) this.closeInventory();
       return;
     }
     if (c === 'Tab' || c === 'KeyI') {
       if (this.phase === 'playing') {
         e.preventDefault();
         this.openInventory();
-      } else if (this.inventoryOpen) {
-        e.preventDefault();
-        this.closeInventory();
       }
-      return;
-    }
-    if (this.inventoryOpen && c.startsWith('Digit')) {
-      const r = RECIPES.find((rr) => rr.hotkey === c.slice(5));
-      if (r) this.craft(r.key);
       return;
     }
     if (this.phase !== 'playing') return;
     if (c === 'KeyV') {
-      this.thirdPerson = !this.thirdPerson;
-      this.thirdPersonCamReady = false;
-      if (!this.thirdPerson) this.restoreThirdPersonOccluders();
-      sfx.ui(true);
+      this.togglePerspective();
       return;
     }
     if (c === 'KeyF') this.tryPlace();
@@ -1892,14 +1983,14 @@ if (tpClipActive > 0.5) {
     if (!this.locked && this.phase === 'playing') {
       this.mining = false;
       this.placing = false;
-      // in drag-look fallback there is no lock to lose, so never pause on it.
-      // Esc = the player paused; the lock also drops when the window loses focus — a system pause
-      if (!this.isCoarse() && !this.lockFailed) this.pause(!document.hasFocus() || document.hidden);
+      // Inventory deliberately releases pointer lock while the live world keeps running.
+      // Outside inventory, Esc = player pause; focus loss = system pause.
+      if (!this.inventoryOpen && !this.isCoarse() && !this.lockFailed) this.pause(!document.hasFocus() || document.hidden);
     }
     this.syncHud(true);
   };
   private onMouseDown = (e: MouseEvent) => {
-    if (this.phase !== 'playing') return;
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
     if (e.button === 1) e.preventDefault();
     // every click is a fresh chance to grab the pointer — user gesture context
     if (!this.locked && !this.isCoarse()) {
@@ -1918,6 +2009,7 @@ if (tpClipActive > 0.5) {
     if (e.button === 2 || e.button === 1) this.placing = false;
   };
   private onMouseMove = (e: MouseEvent) => {
+    if (this.inventoryOpen) return;
     if (this.locked) {
       this.look(e.movementX * 0.0028, e.movementY * 0.0028);
       return;
@@ -1939,7 +2031,7 @@ if (tpClipActive > 0.5) {
 
   /** hands-free steering — only as a fallback when pointer lock is unavailable */
   private updateHoverLook(dt: number) {
-    if (!this.lockFailed) return; // browser lock works → cursor stays pinned centre
+    if (this.inventoryOpen || !this.lockFailed) return; // browser lock works → cursor stays pinned centre
     if (this.locked || !this.hoverActive || this.isCoarse()) return;
     if (this.mining || this.placing) return; // drag aiming takes over
     if (this.phase !== 'playing' || !this.freeLook) return;
@@ -1965,7 +2057,7 @@ if (tpClipActive > 0.5) {
     return this.freeLook;
   }
   private onWheel = (e: WheelEvent) => {
-    if (this.phase !== 'playing') return;
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
     e.preventDefault();
     const dir = e.deltaY > 0 ? 1 : -1;
     // cycle through all 10 fixed slots — an empty hole selects the bare hand
@@ -2023,6 +2115,7 @@ if (tpClipActive > 0.5) {
   }
 
   requestLock() {
+    if (this.inventoryOpen) return;
     initAudio();
     const el = this.renderer.domElement;
     if (this.isCoarse() || this.lockFailed) return;
@@ -2055,25 +2148,35 @@ if (tpClipActive > 0.5) {
 
   // public input API (touch UI)
   look(dx: number, dy: number) {
+    if (this.inventoryOpen) return;
     this.yaw -= dx;
     this.pitch -= dy;
     this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
   }
   setMove(x: number, y: number) {
-    this.touchMove.x = x;
-    this.touchMove.y = y;
+    this.touchMove.x = this.inventoryOpen ? 0 : x;
+    this.touchMove.y = this.inventoryOpen ? 0 : y;
   }
   setJump(v: boolean) {
-    this.touchJump = v;
+    this.touchJump = !this.inventoryOpen && v;
   }
   setMining(v: boolean) {
+    if (this.inventoryOpen) {
+      this.mining = false;
+      return;
+    }
     initAudio();
     this.mining = v;
   }
   setSprint(v: boolean) {
-    this.touchSprint = v;
+    this.touchSprint = !this.inventoryOpen && v;
   }
   setPlacing(v: boolean) {
+    if (this.inventoryOpen) {
+      this.placing = false;
+      this.touchPlace = false;
+      return;
+    }
     // touch: the PLACE button doubles as the door/window toggle
     if (v && !this.interact()) this.tryPlace();
     this.placing = v;
@@ -2103,20 +2206,29 @@ if (tpClipActive > 0.5) {
    *   placed into the target slot, evicting the occupant (which stays owned in
    *   the inventory). The HAND pseudo-item can never be pushed out of the bar.
    */
-  placeInSlot(id: number, slot: number | undefined, fromSlot?: number) {
+  placeInSlot(id: number, slot: number | undefined, fromSlot?: number, instanceId?: number) {
     if (id === undefined || id === null) return;
     const target = slot !== undefined ? Math.max(0, Math.min(9, Math.trunc(slot))) : this.firstFreeSlot();
     if (target < 0) {
       sfx.ui(false);
       return;
     }
+    const durable = isDurabilityTool(id);
+    let resolvedInstanceId = instanceId;
+    if (durable && resolvedInstanceId === undefined) {
+      resolvedInstanceId = [...this.toolInstances.values()].find((it) => it.id === id)?.instanceId;
+    }
 
     if (fromSlot !== undefined) {
       if (this.hotbar[fromSlot] !== id) return;
+      if (durable && this.hotbarInstanceIds[fromSlot] !== resolvedInstanceId) return;
       if (target === fromSlot) return;
       const occupant = this.hotbar[target];
+      const occupantInstanceId = this.hotbarInstanceIds[target];
       this.hotbar[fromSlot] = occupant; // swap if occupied, clear if empty
+      this.hotbarInstanceIds[fromSlot] = occupantInstanceId;
       this.hotbar[target] = id;
+      this.hotbarInstanceIds[target] = durable ? resolvedInstanceId : undefined;
     } else {
       // from the inventory list — ownership must exist (the HAND only lives in the bar)
       const owned =
@@ -2124,18 +2236,32 @@ if (tpClipActive > 0.5) {
           ? this.hotbar.includes(HAND)
           : isGearHotbarId(id)
             ? this.bagItems.some((b) => b.hid === id)
-            : (this.inventory.get(id) ?? 0) > 0;
+            : durable
+              ? resolvedInstanceId !== undefined && this.toolInstances.get(resolvedInstanceId)?.id === id
+              : (this.inventory.get(id) ?? 0) > 0;
       if (!owned) return;
       const occupant = this.hotbar[target];
       if (occupant === HAND) {
         sfx.ui(false); // the hand is permanent — clear that slot first
         return;
       }
-      // one placement per item: move it if it sits in another slot
-      const existing = this.hotbar.indexOf(id);
-      if (existing >= 0 && existing !== target) this.hotbar[existing] = undefined;
-      // the evicted occupant keeps its ownership in the inventory — just clear the slot
+      // One placement per physical tool; same-material duplicates remain distinct.
+      if (durable && resolvedInstanceId !== undefined) {
+        const existing = this.hotbarInstanceIds.indexOf(resolvedInstanceId);
+        if (existing >= 0 && existing !== target) {
+          this.hotbar[existing] = undefined;
+          this.hotbarInstanceIds[existing] = undefined;
+        }
+      } else if (!durable) {
+        const existing = this.hotbar.indexOf(id);
+        if (existing >= 0 && existing !== target) {
+          this.hotbar[existing] = undefined;
+          this.hotbarInstanceIds[existing] = undefined;
+        }
+      }
+      // The evicted occupant keeps its ownership in the inventory — just clear the slot.
       this.hotbar[target] = id;
+      this.hotbarInstanceIds[target] = durable ? resolvedInstanceId : undefined;
     }
 
     this.selected = target;
@@ -2160,9 +2286,12 @@ if (tpClipActive > 0.5) {
         return;
       }
       this.hotbar[0] = HAND;
+      this.hotbarInstanceIds[0] = undefined;
       this.hotbar[i] = undefined;
+      this.hotbarInstanceIds[i] = undefined;
     } else {
       this.hotbar[i] = undefined;
+      this.hotbarInstanceIds[i] = undefined;
     }
     if (this.selected === i) this.selected = 0;
     sfx.ui(true);
@@ -2217,7 +2346,7 @@ if (tpClipActive > 0.5) {
         chunks.push([key, ch.state, Engine.rleEnc(ch.blocks), Engine.rleEnc(ch.height)]);
       }
       const data = {
-        v: 1,
+        v: 2,
         savedAt: yaServerTime(),
         seed: this.world.seed,
         clock: this.clock,
@@ -2227,7 +2356,10 @@ if (tpClipActive > 0.5) {
         health: this.health,
         score: this.score,
         inventory: Array.from(this.inventory.entries()),
+        toolInstances: Array.from(this.toolInstances.values()),
+        nextToolInstanceId: this.nextToolInstanceId,
         hotbar: this.hotbar.slice(),
+        hotbarInstanceIds: this.hotbarInstanceIds.slice(),
         selected: this.selected,
         tier: this.tier,
         swordTier: this.swordTier,
@@ -2263,7 +2395,7 @@ if (tpClipActive > 0.5) {
     } catch {
       return false;
     }
-    if (!data || data.v !== 1) return false;
+    if (!data || (data.v !== 1 && data.v !== 2)) return false;
 
     // fresh run scaffolding first (clears mobs/doors/trees/fluids/meshes)
     this.startRun(undefined, true);
@@ -2288,14 +2420,77 @@ if (tpClipActive > 0.5) {
     this.pitch = data.pitch;
     this.health = data.health;
     this.score = data.score;
-    this.inventory = new Map(data.inventory);
-    // normalize the quick bar to the sparse 10-slot model (old saves are dense;
-    // JSON round-trips empty holes as null)
+    this.inventory = new Map(Array.isArray(data.inventory) ? data.inventory : []);
+    const desiredToolCounts = new Map<number, number>();
+    for (const [id, count] of this.inventory) {
+      if (isDurabilityTool(id) && count > 0) desiredToolCounts.set(id, Math.max(0, Math.floor(count)));
+    }
+    this.toolInstances.clear();
+    this.nextToolInstanceId = 1;
+    const madeCounts = new Map<number, number>();
+    const maxInstanceId = { value: 0 };
+    const savedInstances: unknown[] = Array.isArray(data.toolInstances) ? data.toolInstances : [];
+    for (const raw of savedInstances) {
+      if (!raw || typeof raw !== 'object') continue;
+      const record = raw as Partial<ToolInstance>;
+      const id = Number(record.id);
+      const instanceId = Number(record.instanceId);
+      const spec = getToolSpec(id);
+      const wanted = desiredToolCounts.get(id) ?? 0;
+      const made = madeCounts.get(id) ?? 0;
+      if (!spec || !Number.isInteger(instanceId) || instanceId <= 0 || made >= wanted || this.toolInstances.has(instanceId)) continue;
+      const durability = normalizeToolDurability(id, record.durability);
+      if (spec.maxDurability > 0 && durability <= 0) continue;
+      this.toolInstances.set(instanceId, { id, instanceId, durability });
+      madeCounts.set(id, made + 1);
+      maxInstanceId.value = Math.max(maxInstanceId.value, instanceId);
+    }
+    // v1 saves have no instance table. Create one full-condition record for each
+    // owned tool copy; v2 saves are also repaired defensively if a record is missing.
+    for (const [id, wanted] of desiredToolCounts) {
+      let made = madeCounts.get(id) ?? 0;
+      const spec = getToolSpec(id)!;
+      while (made < wanted) {
+        let instanceId = Math.max(this.nextToolInstanceId, maxInstanceId.value + 1);
+        while (this.toolInstances.has(instanceId)) instanceId++;
+        const item = { id, instanceId, durability: spec.maxDurability };
+        this.toolInstances.set(instanceId, item);
+        made++;
+        madeCounts.set(id, made);
+        maxInstanceId.value = Math.max(maxInstanceId.value, instanceId);
+      }
+      if (made > 0) this.inventory.set(id, made);
+      else this.inventory.delete(id);
+    }
+    this.nextToolInstanceId = Math.max(1, Number(data.nextToolInstanceId) || 1, maxInstanceId.value + 1);
+
+    // Normalize the quick bar; JSON round-trips empty holes as null. Older saves
+    // have only a type ID, so bind each visible tool to one distinct instance.
     const rawBar: unknown[] = Array.isArray(data.hotbar) ? (data.hotbar as unknown[]) : [HAND];
     this.hotbar = rawBar.slice(0, 10).map((x) => (typeof x === 'number' ? x : undefined));
+    const rawInstanceBar: unknown[] = Array.isArray(data.hotbarInstanceIds) ? data.hotbarInstanceIds : [];
+    this.hotbarInstanceIds = Array.from({ length: this.hotbar.length }, () => undefined);
+    const usedInstances = new Set<number>();
+    for (let i = 0; i < this.hotbar.length; i++) {
+      const id = this.hotbar[i];
+      if (id === undefined || !isDurabilityTool(id)) continue;
+      const rawInstanceId = Number(rawInstanceBar[i]);
+      const savedInstance = Number.isInteger(rawInstanceId) ? this.toolInstances.get(rawInstanceId) : undefined;
+      const instance = savedInstance?.id === id && !usedInstances.has(rawInstanceId)
+        ? savedInstance
+        : [...this.toolInstances.values()].find((item) => item.id === id && !usedInstances.has(item.instanceId));
+      if (instance) {
+        this.hotbarInstanceIds[i] = instance.instanceId;
+        usedInstances.add(instance.instanceId);
+      } else {
+        this.hotbar[i] = undefined;
+      }
+    }
     this.selected = Math.max(0, Math.min(9, Number(data.selected) || 0));
-    this.tier = data.tier;
-    this.swordTier = data.swordTier;
+    const oldTier = Math.max(0, Math.min(PICKAXE_TIERS.length - 1, Number(data.tier) || 0));
+    this.tier = data.v === 1 && oldTier >= 3 ? oldTier + 1 : oldTier;
+    const oldSwordTier = Number(data.swordTier);
+    this.swordTier = data.v === 1 ? (oldSwordTier === 1 ? 2 : oldSwordTier === 2 ? 4 : oldSwordTier) : oldSwordTier;
     this.equipped = data.equipped ?? {};
     this.bagItems = (data.bagItems ?? []).map((it: Item) => ensureGearHid(it));
     this.stats = computeStats(this.equipped);
@@ -2310,6 +2505,7 @@ if (tpClipActive > 0.5) {
     this.visualClimateReady = false;
     this.updateClock(0);
     this.wasNight = this.isNightClock();
+    this.recalcOwnedToolTiers();
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -2351,7 +2547,10 @@ if (tpClipActive > 0.5) {
     this.deepest = 0;
     this.tier = 0;
     this.inventory.clear();
+    this.toolInstances.clear();
+    this.nextToolInstanceId = 1;
     this.hotbar = [];
+    this.hotbarInstanceIds = [];
     this.selected = 0;
     this.deathCause = null;
     this.inventoryOpen = false;
@@ -2373,6 +2572,7 @@ if (tpClipActive > 0.5) {
     this.drops.forEach((d) => {
       d.active = false;
       d.mesh.visible = false;
+      d.toolInstance = null;
       if (d.fancy) {
         this.scene.remove(d.fancy);
         d.fancy = null;
@@ -2524,14 +2724,15 @@ if (tpClipActive > 0.5) {
     if (!bySystem) sfx.ui(true);
     // a pointer-lock request needs a user gesture; after a platform resume there usually was none, and a
     // refused request would only flag lockFailed — the HUD's "click to capture the mouse" covers that case
-    if (!bySystem || navigator.userActivation?.isActive) this.requestLock();
+    if (!this.inventoryOpen && (!bySystem || navigator.userActivation?.isActive)) this.requestLock();
     this.syncHud(true);
   }
 
   /**
    * Yandex Games asks the game to pause (ad or purchase window, tab switch, minimised window, focus moved
    * to another window) — or the tab was hidden: freeze the run and silence the audio. The platform calls
-   * GameplayAPI.stop() for these on its own, so the game has to actually stop.
+   * GameplayAPI.stop() for these on its own, so the game has to actually stop. This remains true when the
+   * live inventory is open: a system pause always takes precedence over crafting.
    */
   systemPause() {
     this.pause(true);
@@ -2540,7 +2741,7 @@ if (tpClipActive > 0.5) {
 
   /**
    * …and the counterpart: the platform calls GameplayAPI.start() on its own, so a run that *the system*
-   * froze continues. A pause the player chose (Esc, menu, inventory) is never undone behind their back.
+   * froze continues. A pause the player chose (Esc or menu) is never undone behind their back.
    */
   systemResume() {
     resumeAudio();
@@ -3877,7 +4078,7 @@ if (tpClipActive > 0.5) {
 
     const def = BLOCKS[t.id];
     if (!isBreakable(t.id)) {
-      hlMat.color.setHex(0xe2564a);
+      hlMat.color.setHex(isTreasureChest(t.id) ? 0xf4b942 : 0xe2564a);
       this.crackMesh.visible = false;
       this.mineProgress = 0;
       this.mineBlockKey = '';
@@ -3984,6 +4185,7 @@ if (tpClipActive > 0.5) {
     }
     this.rebuildAt(x, z);
     this.blocksMined++;
+    this.damageHeldTool(1);
 
     const tint = def.tint;
     this.burst(x + 0.5, y + 0.5, z + 0.5, tint, isLeafId(id) ? 8 : 16, id === STONE ? 3.4 : 2.6);
@@ -4318,6 +4520,11 @@ if (tpClipActive > 0.5) {
       this.openInventory();
       return true;
     }
+    // Biome-themed treasure chests open directly into the player's haul.
+    if (tg && isTreasureChest(tg.id)) {
+      this.openTreasureChest(tg.x, tg.y, tg.z, tg.id);
+      return true;
+    }
     // bed → sleep through the night
     if (tg && tg.id === BED) {
       if (this.daylight > 0.5) {
@@ -4368,6 +4575,108 @@ if (tpClipActive > 0.5) {
       this.syncHud(true);
     }
     return closed;
+  }
+
+  /** Chest contents are seed-and-position deterministic, so an unopened chest needs no sidecar save data. */
+  private openTreasureChest(x: number, y: number, z: number, id: number) {
+    if (this.world.get(x, y, z) !== id || !isTreasureChest(id)) return false;
+    const underwater = isUnderwaterChest(id);
+    const seed = (this.world.seed ^ Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791) ^ Math.imul(id, 2654435761)) >>> 0;
+    const rand = mulberry32(seed);
+    const commonPool = underwater
+      ? [
+          { id: FISH_SCALE, weight: 18, min: 1, max: 4 },
+          { id: CRAB_SHELL, weight: 8, min: 1, max: 2 },
+          { id: TURTLE_SHELL, weight: 5, min: 1, max: 1 },
+          { id: IRON, weight: 16, min: 1, max: 3 },
+          { id: GOLD, weight: 12, min: 1, max: 2 },
+          { id: COAL, weight: 12, min: 2, max: 5 },
+          { id: REDSTONE, weight: 9, min: 1, max: 3 },
+          { id: LAPIS, weight: 7, min: 1, max: 3 },
+          { id: QUARTZ, weight: 6, min: 1, max: 2 },
+          { id: DIAMOND, weight: 5, min: 1, max: 1 },
+          { id: NETHERITE, weight: 2, min: 1, max: 1 },
+        ]
+      : [
+          { id: COAL, weight: 22, min: 2, max: 6 },
+          { id: IRON, weight: 20, min: 1, max: 4 },
+          { id: REDSTONE, weight: 13, min: 1, max: 4 },
+          { id: LAPIS, weight: 11, min: 1, max: 3 },
+          { id: GOLD, weight: 10, min: 1, max: 3 },
+          { id: QUARTZ, weight: 8, min: 1, max: 3 },
+          { id: DIAMOND, weight: 7, min: 1, max: 2 },
+          { id: EMERALD, weight: 5, min: 1, max: 2 },
+          { id: NETHERITE, weight: 2, min: 1, max: 1 },
+        ];
+    const totalWeight = commonPool.reduce((sum, entry) => sum + entry.weight, 0);
+    const loot = new Map<number, number>();
+    const pulls = 3 + Math.floor(rand() * 3);
+    for (let pull = 0; pull < pulls; pull++) {
+      let roll = rand() * totalWeight;
+      let reward = commonPool[commonPool.length - 1];
+      for (const entry of commonPool) {
+        roll -= entry.weight;
+        if (roll < 0) {
+          reward = entry;
+          break;
+        }
+      }
+      const count = reward.min + Math.floor(rand() * (reward.max - reward.min + 1));
+      loot.set(reward.id, (loot.get(reward.id) ?? 0) + count);
+    }
+    // Some caches also contain a small cluster of mineable ore blocks, not only ingots/gems.
+    if (rand() < (underwater ? 0.16 : 0.2)) {
+      const ores = [
+        { id: COAL_ORE, weight: 24 }, { id: IRON_ORE, weight: 22 }, { id: REDSTONE_ORE, weight: 16 },
+        { id: LAPIS_ORE, weight: 12 }, { id: GOLD_ORE, weight: 10 }, { id: QUARTZ_ORE, weight: 8 },
+        { id: DIAMOND_ORE, weight: 5 }, { id: EMERALD_ORE, weight: 3 },
+      ];
+      let oreRoll = rand() * ores.reduce((sum, ore) => sum + ore.weight, 0);
+      let oreId = ores[0].id;
+      for (const ore of ores) {
+        oreRoll -= ore.weight;
+        if (oreRoll < 0) {
+          oreId = ore.id;
+          break;
+        }
+      }
+      const oreCount = oreId === COAL_ORE || oreId === IRON_ORE || oreId === REDSTONE_ORE ? 1 + Math.floor(rand() * 2) : 1;
+      loot.set(oreId, (loot.get(oreId) ?? 0) + oreCount);
+    }
+
+    this.world.set(x, y, z, AIR);
+    this.rebuildAt(x, z);
+    const summary: string[] = [];
+    for (const [rewardId, count] of loot) {
+      this.inventory.set(rewardId, (this.inventory.get(rewardId) ?? 0) + count);
+      this.addToHotbar(rewardId);
+      summary.push(`×${count} ${blockName(rewardId, BLOCKS[rewardId]?.name ?? '')}`);
+    }
+
+    // A rare bonus slot can contain enchanted-grade equipment instead of only raw materials.
+    if (rand() < (underwater ? 0.055 : 0.075)) {
+      const materialRoll = rand();
+      const material: Material = materialRoll < 0.3 ? 'iron' : materialRoll < 0.52 ? 'gold' : materialRoll < 0.94 ? 'diamond' : 'netherite';
+      const slot: Slot = (['head', 'chest', 'legs', 'feet', 'hands', 'offhand'] as Slot[])[Math.floor(rand() * 6)];
+      const rarity: Rarity = rand() < 0.24 ? 3 : 2;
+      const item = makeItem(slot, material, rarity, rand);
+      this.bagItems.push(item);
+      summary.push(`${t(SLOT_KEY[slot])} · ${matName(MATERIALS[material].label)} · ${rarName(rarity, RARITY[rarity].name)}`);
+    }
+    if (rand() < 0.025) {
+      this.inventory.set(NETHERITE_INGOT, (this.inventory.get(NETHERITE_INGOT) ?? 0) + 1);
+      this.addToHotbar(NETHERITE_INGOT);
+      summary.push(blockName(NETHERITE_INGOT, BLOCKS[NETHERITE_INGOT].name));
+    }
+
+    const [r, g, b] = BLOCKS[id].tint;
+    this.pushBanner(t('chestOpened'), summary.join(' · '), `rgb(${r}, ${g}, ${b})`);
+    this.burst(x + 0.5, y + 0.4, z + 0.5, BLOCKS[id].tint, 14, 2.2);
+    this.target = null;
+    sfx.upgrade();
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
   }
 
   private openDoorAt(x: number, y: number, z: number, id: number, nx: number, nz: number) {
@@ -5357,6 +5666,35 @@ if (tpClipActive > 0.5) {
     this.syncHud(true);
   }
 
+  /** Repair one individual tool/weapon at a nearby anvil using its matching raw material. */
+  repairTool(instanceId: number) {
+    if (!this.anvilNear() && this.invTab !== 'anvil') {
+      sfx.ui(false);
+      return false;
+    }
+    const instance = this.toolInstances.get(instanceId);
+    if (!instance) return false;
+    const spec = getToolSpec(instance.id);
+    if (!spec || spec.maxDurability <= 0 || !spec.repairResource) return false;
+    const cost = toolRepairCost(instance.id, instance.durability);
+    if (cost <= 0) return false;
+    const available = this.inventory.get(spec.repairResource) ?? 0;
+    if (available < cost) {
+      sfx.ui(false);
+      return false;
+    }
+    const remaining = available - cost;
+    if (remaining > 0) this.inventory.set(spec.repairResource, remaining);
+    else this.inventory.delete(spec.repairResource);
+    const restored = spec.maxDurability - instance.durability;
+    instance.durability = spec.maxDurability;
+    sfx.upgrade();
+    this.pushBanner(t('toolRepaired'), `${toolLabelForId(instance.id)} · +${restored}`, spec.edge);
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
   // ================= STRUCTURE GUARDS =================
   private guardedSites = new Set<number>();
   private guardTimer = 0;
@@ -5660,7 +5998,139 @@ if (tpClipActive > 0.5) {
     g.add(m);
   }
 
-  private buildFancyDrop(id: number): THREE.Group | null {
+  private buildToolModel(id: number, wearStage = 0): THREE.Group {
+    const spec = getToolSpec(id);
+    const group = new THREE.Group();
+    if (!spec) return group;
+
+    const materialCache = new Map<string, THREE.MeshLambertMaterial>();
+    const material = (color: string, glow = false) => {
+      const key = `${color}:${glow}`;
+      let found = materialCache.get(key);
+      if (!found) {
+        found = new THREE.MeshLambertMaterial({
+          color,
+          emissive: glow ? color : '#000000',
+          emissiveIntensity: glow ? 0.34 : 0,
+        });
+        materialCache.set(key, found);
+      }
+      return found;
+    };
+    const addBox = (
+      w: number, h: number, d: number, x: number, y: number, z: number,
+      color: string, outline = true, glow = false,
+    ) => {
+      if (outline) {
+        const shell = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 1.14, h * 1.14, d * 1.14),
+          material('#17171a'),
+        );
+        shell.position.set(x, y, z);
+        group.add(shell);
+      }
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color, glow));
+      mesh.position.set(x, y, z);
+      group.add(mesh);
+      return mesh;
+    };
+    const addSegment = (x1: number, y1: number, x2: number, y2: number, width: number, color: string) => {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const length = Math.hypot(dx, dy);
+      const mesh = addBox(width, length, width, (x1 + x2) / 2, (y1 + y2) / 2, 0, color);
+      mesh.rotation.z = -Math.atan2(dx, dy);
+      return mesh;
+    };
+
+    if (spec.kind === 'bow') {
+      const curve: Array<[number, number]> = [
+        [-0.12, 0.48], [-0.23, 0.34], [-0.29, 0.12], [-0.26, -0.13], [-0.16, -0.38],
+      ];
+      for (let i = 0; i < curve.length - 1; i++) {
+        addSegment(...curve[i], ...curve[i + 1], 0.075, spec.handle);
+      }
+      addSegment(-0.12, 0.48, -0.16, -0.38, 0.018, '#e4d9c7');
+      addBox(0.1, 0.2, 0.1, -0.2, 0.02, 0.02, spec.edge);
+      addBox(0.105, 0.05, 0.12, -0.2, 0.02, 0.025, spec.accent, false);
+    } else if (spec.kind === 'sword') {
+      addBox(0.13, 0.68, 0.08, 0, 0.35, 0, spec.head);
+      addBox(0.085, 0.57, 0.09, -0.016, 0.39, 0.045, spec.edge);
+      addBox(0.045, 0.38, 0.012, -0.016, 0.43, 0.093, spec.accent, false, spec.tier === 5);
+      addBox(0.18, 0.14, 0.11, 0, 0.79, 0, spec.head);
+      addBox(0.28, 0.085, 0.13, 0, -0.025, 0, spec.edge);
+      addBox(0.095, 0.29, 0.105, 0, -0.22, 0, spec.handle);
+      addBox(0.14, 0.07, 0.14, 0, -0.4, 0, spec.head);
+      addBox(0.045, 0.055, 0.115, 0, -0.22, 0.06, spec.accent, false);
+    } else {
+      // Shared wrapped haft: diagonal leather bands make the silhouette read at small scale.
+      const haft = addBox(0.095, 0.78, 0.095, -0.025, -0.17, 0, spec.handle);
+      haft.rotation.z = -0.13;
+      for (let i = 0; i < 3; i++) {
+        const band = addBox(0.112, 0.04, 0.112, -0.025, -0.37 + i * 0.12, 0, i === 1 ? spec.accent : '#34251d', false);
+        band.rotation.z = -0.13;
+      }
+      addBox(0.13, 0.1, 0.13, -0.025, -0.58, 0, spec.head);
+
+      if (spec.kind === 'pickaxe') {
+        addBox(0.68, 0.15, 0.19, 0, 0.37, 0, spec.head);
+        addBox(0.23, 0.17, 0.2, -0.39, 0.33, 0, spec.head).rotation.z = -0.45;
+        addBox(0.23, 0.17, 0.2, 0.39, 0.33, 0, spec.head).rotation.z = 0.45;
+        addBox(0.42, 0.045, 0.205, 0, 0.415, 0.012, spec.edge, false);
+        addBox(0.1, 0.1, 0.205, 0, 0.36, 0.02, spec.accent, false, spec.tier === 5);
+      } else if (spec.kind === 'axe') {
+        addBox(0.32, 0.28, 0.2, 0.17, 0.34, 0, spec.head);
+        addBox(0.15, 0.36, 0.21, 0.34, 0.32, 0, spec.edge);
+        addBox(0.06, 0.24, 0.22, 0.41, 0.32, 0, spec.accent, false, spec.tier === 5);
+        addBox(0.19, 0.08, 0.205, 0.12, 0.47, 0.01, spec.edge, false);
+      } else {
+        addBox(0.3, 0.34, 0.2, 0.02, 0.43, 0, spec.head);
+        addBox(0.23, 0.11, 0.21, 0.02, 0.56, 0.01, spec.edge, false);
+        addBox(0.12, 0.08, 0.215, 0.02, 0.4, 0.015, spec.accent, false, spec.tier === 5);
+      }
+    }
+
+    // Progressive chips and ember cracks are shared by held and dropped models.
+    if (wearStage >= 1) {
+      addBox(0.09, 0.07, 0.22, 0.32, 0.3, 0.08, '#292126', false);
+    }
+    if (wearStage >= 2) {
+      addBox(0.045, 0.2, 0.225, 0.23, 0.34, 0.09, '#211b20', false);
+      addBox(0.035, 0.09, 0.23, 0.25, 0.34, 0.11, spec.accent, false, spec.tier === 5);
+    }
+    if (wearStage >= 3) {
+      addBox(0.11, 0.11, 0.23, 0.34, 0.42, 0.1, '#17171a', false);
+      addBox(0.035, 0.12, 0.24, 0.26, 0.4, 0.12, '#ff7045', false, true);
+    }
+    return group;
+  }
+
+  private clearToolModel(group: THREE.Group) {
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      geometries.add(mesh.geometry);
+      if (Array.isArray(mesh.material)) mesh.material.forEach((m) => materials.add(m));
+      else materials.add(mesh.material);
+    });
+    group.clear();
+    geometries.forEach((geometry) => geometry.dispose());
+    materials.forEach((material) => material.dispose());
+  }
+
+  private buildFancyDrop(id: number, durability?: number): THREE.Group | null {
+    const toolSpec = getToolSpec(id);
+    if (toolSpec) {
+      const stage = toolSpec.maxDurability > 0
+        ? toolWearStage(durability ?? toolSpec.maxDurability, toolSpec.maxDurability)
+        : 0;
+      const model = new THREE.Group();
+      model.add(this.buildToolModel(id, stage));
+      model.rotation.set(0.18, 0, -0.16);
+      return model;
+    }
     const g = new THREE.Group();
     const B = Engine.fancyBox;
     switch (id) {
@@ -5753,18 +6223,38 @@ if (tpClipActive > 0.5) {
       }
       case FLOWER_RED:
       case FLOWER_YELLOW:
-      case FLOWER_BLUE: {
-        // a picked bloom: short stem, leaf, petal cross around a core
-        const petal = id === FLOWER_RED ? 0xe2564a : id === FLOWER_YELLOW ? 0xf4c842 : 0x5e8cff;
+      case FLOWER_BLUE:
+      case FLOWER_PINK:
+      case FLOWER_PURPLE:
+      case FLOWER_WHITE: {
+        const petal = id === FLOWER_RED ? 0xe2564a
+          : id === FLOWER_YELLOW ? 0xf4c842
+            : id === FLOWER_BLUE ? 0x5e8cff
+              : id === FLOWER_PINK ? 0xf28bb5
+                : id === FLOWER_PURPLE ? 0xa875df
+                  : 0xfff8e8;
         const core = id === FLOWER_YELLOW ? 0xb8722a : 0xf4c842;
-        B(g, 0, -0.12, 0, 0.05, 0.24, 0.05, 0x4d8c31, 0, 0.3); // tilted stem
-        B(g, 0.07, -0.16, 0, 0.1, 0.04, 0.06, 0x5f9738); // leaf
-        B(g, 0, 0.05, 0, 0.11, 0.11, 0.11, core);
-        B(g, 0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
-        B(g, -0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
-        B(g, 0, 0.05, 0.11, 0.09, 0.09, 0.11, petal);
-        B(g, 0, 0.05, -0.11, 0.09, 0.09, 0.11, petal);
-        B(g, 0, 0.14, 0, 0.08, 0.05, 0.08, petal);
+        B(g, 0, -0.12, 0, 0.05, 0.24, 0.05, 0x4d8c31, 0, 0.3);
+        B(g, 0.07, -0.16, 0, 0.1, 0.04, 0.06, 0x5f9738);
+        if (id === FLOWER_PURPLE) {
+          for (let i = 0; i < 3; i++) {
+            B(g, (i % 2 ? 0.04 : -0.04), -0.03 + i * 0.09, 0, 0.1, 0.09, 0.1, petal);
+            B(g, (i % 2 ? -0.04 : 0.04), 0.005 + i * 0.09, 0.025, 0.07, 0.07, 0.07, 0xd9a3f0);
+          }
+        } else {
+          B(g, 0, 0.05, 0, 0.11, 0.11, 0.11, core);
+          B(g, 0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
+          B(g, -0.11, 0.05, 0, 0.11, 0.09, 0.09, petal);
+          B(g, 0, 0.05, 0.11, 0.09, 0.09, 0.11, petal);
+          B(g, 0, 0.05, -0.11, 0.09, 0.09, 0.11, petal);
+          if (id === FLOWER_WHITE) {
+            B(g, 0.08, 0.05, 0.08, 0.08, 0.08, 0.08, petal);
+            B(g, -0.08, 0.05, 0.08, 0.08, 0.08, 0.08, petal);
+            B(g, 0.08, 0.05, -0.08, 0.08, 0.08, 0.08, petal);
+            B(g, -0.08, 0.05, -0.08, 0.08, 0.08, 0.08, petal);
+          }
+          B(g, 0, 0.14, 0, 0.08, 0.05, 0.08, petal);
+        }
         break;
       }
       case TALL_GRASS:
@@ -5879,10 +6369,19 @@ if (tpClipActive > 0.5) {
         break;
       }
       case NETHERITE: {
-        // 3D Ancient Damascus Ingot with Glowing Lava Runes
+        // Broken scrap shard, distinct from the finished tool-grade alloy.
         B(g, 0, -0.02, 0, 0.34, 0.10, 0.19, 0x261c1f);
         B(g, 0, 0.04, 0, 0.28, 0.06, 0.14, 0x453338);
-        B(g, 0, 0.075, 0, 0.18, 0.02, 0.06, 0xff6a1a);
+        B(g, 0.045, 0.075, 0, 0.11, 0.025, 0.06, 0xff7045);
+        break;
+      }
+      case NETHERITE_INGOT: {
+        // Finished ember-forged ingot: heavy dark steel with a molten seam.
+        B(g, 0, -0.02, 0, 0.37, 0.11, 0.22, 0x20191e);
+        B(g, 0, 0.035, 0, 0.31, 0.07, 0.18, 0x493a42);
+        B(g, 0, 0.075, 0, 0.22, 0.025, 0.12, 0x8c6e71);
+        B(g, 0, 0.09, 0.068, 0.24, 0.025, 0.025, 0xff7045);
+        B(g, 0, 0.11, 0.069, 0.08, 0.015, 0.028, 0xffd06a);
         break;
       }
       default: {
@@ -5970,7 +6469,26 @@ if (tpClipActive > 0.5) {
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) {
       this.hotbar[this.selected] = undefined;
+      this.hotbarInstanceIds[this.selected] = undefined;
       sfx.ui(false);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
+
+    if (isDurabilityTool(id)) {
+      const heldInstance = this.getToolInstanceAt(this.selected);
+      const droppedInstance = heldInstance ? this.removeToolInstance(heldInstance.instanceId) : null;
+      if (!droppedInstance) {
+        sfx.ui(false);
+        return;
+      }
+      this.recalcOwnedToolTiers();
+      this.spawnDrop(sx, sy, sz, id, null, {
+        vx: tvx, vy: tvy, vz: tvz, pickupDelay: 1.35, thrown: true, toolInstance: droppedInstance,
+      });
+      this.startSwing(0.45);
+      sfx.place();
       this.syncHotbar(true);
       this.syncHud(true);
       return;
@@ -5979,6 +6497,7 @@ if (tpClipActive > 0.5) {
     if (count - 1 <= 0) {
       this.inventory.delete(id);
       this.hotbar[this.selected] = undefined;
+      this.hotbarInstanceIds[this.selected] = undefined;
     } else {
       this.inventory.set(id, count - 1);
     }
@@ -5996,15 +6515,14 @@ if (tpClipActive > 0.5) {
 
   private recalcOwnedToolTiers() {
     let bestPick = 0;
-    for (let t = 0; t < PICK_TOOLS.length; t++) {
-      if ((this.inventory.get(PICK_TOOLS[t]) ?? 0) > 0) bestPick = t;
+    let bestSword = -1;
+    for (const instance of this.toolInstances.values()) {
+      const spec = getToolSpec(instance.id);
+      if (spec?.kind === 'pickaxe') bestPick = Math.max(bestPick, spec.tier);
+      if (spec?.kind === 'sword') bestSword = Math.max(bestSword, spec.tier);
     }
     this.tier = bestPick;
     this.updatePickaxe();
-    let bestSword = -1;
-    for (let s = 0; s < SWORD_TOOLS.length; s++) {
-      if ((this.inventory.get(SWORD_TOOLS[s]) ?? 0) > 0) bestSword = s;
-    }
     this.swordTier = bestSword;
   }
 
@@ -6014,12 +6532,13 @@ if (tpClipActive > 0.5) {
     z: number,
     id: number,
     gear: Item | null = null,
-    opts?: { vx?: number; vy?: number; vz?: number; pickupDelay?: number; thrown?: boolean },
+    opts?: { vx?: number; vy?: number; vz?: number; pickupDelay?: number; thrown?: boolean; toolInstance?: ToolInstance },
   ) {
     const d = this.drops.find((dd) => !dd.active) ?? this.drops[0];
     d.active = true;
     d.id = id;
     d.gear = gear ? ensureGearHid(gear) : null;
+    d.toolInstance = opts?.toolInstance ? { ...opts.toolInstance } : null;
     d.age = 0;
     d.pickupDelay = opts?.pickupDelay ?? 0.22;
     d.thrown = opts?.thrown ?? false;
@@ -6036,7 +6555,7 @@ if (tpClipActive > 0.5) {
       this.scene.remove(d.fancy);
       d.fancy = null;
     }
-    const fancy = this.buildFancyDrop(id);
+    const fancy = this.buildFancyDrop(id, d.toolInstance?.durability);
     if (fancy) {
       d.fancy = fancy;
       // Miniature parts extend below their group's origin (especially flower
@@ -6122,6 +6641,7 @@ if (tpClipActive > 0.5) {
         if (d.age > (d.id === LOOT_BAG ? 150 : 60)) {
           d.active = false;
           d.mesh.visible = false;
+          d.toolInstance = null;
           if (d.fancy) {
             this.scene.remove(d.fancy);
             d.fancy = null;
@@ -6147,6 +6667,8 @@ if (tpClipActive > 0.5) {
   private collect(d: Drop) {
     d.active = false;
     d.mesh.visible = false;
+    const carriedTool = d.toolInstance;
+    d.toolInstance = null;
     if (d.fancy) {
       this.scene.remove(d.fancy);
       d.fancy = null;
@@ -6171,10 +6693,14 @@ if (tpClipActive > 0.5) {
       this.syncHud(true);
       return;
     }
-    // Picking up a dropped weapon or tool
+    // Picking up a dropped weapon or tool; durable items keep their exact wear/identity.
     if (d.id >= 200) {
-      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
-      this.addToHotbar(d.id);
+      if (isDurabilityTool(d.id)) {
+        this.addToolInstance(d.id, carriedTool?.durability, carriedTool?.instanceId);
+      } else {
+        this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+        this.addToHotbar(d.id);
+      }
       this.recalcOwnedToolTiers();
       sfx.pickup(4);
       this.syncHotbar(true);
@@ -6218,10 +6744,88 @@ if (tpClipActive > 0.5) {
   }
 
   private addToHotbar(id: number) {
-    if (this.hotbar.includes(id)) return;
+    if (isDurabilityTool(id) || this.hotbar.includes(id)) return;
     const f = this.firstFreeSlot();
     if (f < 0) return;
     this.hotbar[f] = id;
+    this.hotbarInstanceIds[f] = undefined;
+  }
+
+  private addToolInstance(id: number, durability?: unknown, instanceId?: number): ToolInstance | null {
+    const spec = getToolSpec(id);
+    if (!spec) return null;
+    let uid = Number.isInteger(instanceId) && (instanceId as number) > 0 && !this.toolInstances.has(instanceId as number)
+      ? (instanceId as number)
+      : this.nextToolInstanceId;
+    while (this.toolInstances.has(uid)) uid++;
+    this.nextToolInstanceId = Math.max(this.nextToolInstanceId, uid + 1);
+    const value = normalizeToolDurability(id, durability ?? spec.maxDurability);
+    if (spec.maxDurability > 0 && value <= 0) return null;
+    const item: ToolInstance = { instanceId: uid, id, durability: value };
+    this.toolInstances.set(uid, item);
+    this.inventory.set(id, (this.inventory.get(id) ?? 0) + 1);
+    this.addToolToHotbar(id, uid);
+    return item;
+  }
+
+  private addToolToHotbar(id: number, instanceId: number, slot?: number) {
+    const instance = this.toolInstances.get(instanceId);
+    if (!instance || instance.id !== id || this.hotbarInstanceIds.includes(instanceId)) return;
+    const target = slot === undefined ? this.firstFreeSlot() : Math.max(0, Math.min(9, Math.trunc(slot)));
+    if (target < 0 || this.hotbar[target] === HAND) return;
+    this.hotbar[target] = id;
+    this.hotbarInstanceIds[target] = instanceId;
+  }
+
+  private getToolInstanceAt(slot: number): ToolInstance | undefined {
+    const id = this.hotbar[slot];
+    const instanceId = this.hotbarInstanceIds[slot];
+    if (id === undefined || instanceId === undefined) return undefined;
+    const instance = this.toolInstances.get(instanceId);
+    return instance?.id === id ? instance : undefined;
+  }
+
+  private removeToolInstance(instanceId: number): ToolInstance | null {
+    const instance = this.toolInstances.get(instanceId);
+    if (!instance) return null;
+    this.toolInstances.delete(instanceId);
+    const count = (this.inventory.get(instance.id) ?? 0) - 1;
+    if (count > 0) this.inventory.set(instance.id, count);
+    else this.inventory.delete(instance.id);
+    for (let i = 0; i < this.hotbar.length; i++) {
+      if (this.hotbarInstanceIds[i] === instanceId) {
+        this.hotbar[i] = undefined;
+        this.hotbarInstanceIds[i] = undefined;
+        if (this.selected === i) this.selected = 0;
+      }
+    }
+    return { ...instance };
+  }
+
+  private heldToolDurability(id = this.hotbar[this.selected] ?? -1): number {
+    const spec = getToolSpec(id);
+    if (!spec) return 0;
+    if (spec.maxDurability <= 0) return 0;
+    return this.getToolInstanceAt(this.selected)?.durability ?? spec.maxDurability;
+  }
+
+  private damageHeldTool(amount = 1) {
+    const id = this.hotbar[this.selected] ?? -1;
+    const spec = getToolSpec(id);
+    const instance = this.getToolInstanceAt(this.selected);
+    if (!spec || spec.maxDurability <= 0 || !instance) return;
+    instance.durability = Math.max(0, instance.durability - Math.max(1, amount));
+    if (instance.durability <= 0) {
+      const broken = this.removeToolInstance(instance.instanceId);
+      if (broken) {
+        this.pushBanner(t('toolBroken'), toolLabelForId(id), '#e2564a');
+        this.burst(this.pos.x, this.pos.y + 1.1, this.pos.z, [238, 92, 64], 8, 1.8);
+        sfx.breakBlock(0.8);
+      }
+      this.recalcOwnedToolTiers();
+    }
+    this.syncHotbar(true);
+    this.syncHud(true);
   }
 
   // ================= DAY / NIGHT =================
@@ -6714,16 +7318,21 @@ if (tpClipActive > 0.5) {
     this.popup(m.x, m.y + 1.5, m.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#ffffff', crit);
     this.addShake(crit ? 0.32 : 0.16);
     sfx.breakBlock(1.4);
+    this.damageHeldTool(1);
 
     if (m.hp <= 0) this.mobDied(m, false);
     return true;
   }
 
   attackDamage() {
-    const heldSword = this.heldSwordTier();
-    const base = heldSword >= 0 ? SWORDS[heldSword].damage : 3 + this.heldPickTier() * 2.5;
     const held = this.heldKind();
-    const mul = held === 'sword' ? 1 : held === 'pick' ? 0.55 : 0.3;
+    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
+    const base = spec?.attackDamage ?? 3;
+    const mul =
+      held === 'sword' ? 1 :
+      held === 'axe' ? 0.78 :
+      held === 'pick' ? 0.58 :
+      held === 'shovel' ? 0.44 : 0.3;
     return (base * mul + this.stats.damage) * (1 + this.stats.swift / 220);
   }
 
@@ -6778,6 +7387,7 @@ if (tpClipActive > 0.5) {
     this.attackCd = 0.55 * swift;
     this.startSwing(0.4);
     sfx.swing(4);
+    this.damageHeldTool(1);
     if (!this.arrowGeo) this.arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.52);
     const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
     const sp = 34;
@@ -6993,29 +7603,33 @@ if (tpClipActive > 0.5) {
   // ================= HELD ITEM =================
   /** tier of the pick currently in hand (0 if none) */
   heldPickTier(): number {
-    const id = this.hotbar[this.selected] ?? -1;
-    return isPickTool(id) ? id - PICK_TOOLS[0] : 0;
+    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
+    return spec?.kind === 'pickaxe' ? spec.tier : 0;
   }
   heldSwordTier(): number {
-    const id = this.hotbar[this.selected] ?? -1;
-    return isSwordTool(id) ? id - SWORD_TOOLS[0] : -1;
+    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
+    return spec?.kind === 'sword' ? spec.tier : -1;
   }
   heldAxeTier(): number {
-    const id = this.hotbar[this.selected] ?? -1;
-    if (id === TOOL_AXE) return 1;
-    return isAxeTool(id) ? id - AXE_TOOLS[0] : 0;
+    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
+    return spec?.kind === 'axe' ? spec.tier : 0;
+  }
+  heldShovelTier(): number {
+    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
+    return spec?.kind === 'shovel' ? spec.tier : 0;
   }
 
   heldKind(): HudState['heldKind'] {
     const id = this.hotbar[this.selected];
     if (id === HAND || id === undefined) return 'fist';
     if (isGearHotbarId(id)) return 'gear';
-    if (id === TOOL_PICK || isPickTool(id)) return 'pick';
-    if (isSwordTool(id)) return 'sword';
     if (id === TOOL_TORCH) return 'torch';
-    if (id === TOOL_AXE || isAxeTool(id)) return 'axe';
-    if (id === TOOL_SHOVEL) return 'shovel';
-    if (id === TOOL_BOW) return 'bow';
+    const spec = getToolSpec(id);
+    if (spec?.kind === 'pickaxe') return 'pick';
+    if (spec?.kind === 'sword') return 'sword';
+    if (spec?.kind === 'axe') return 'axe';
+    if (spec?.kind === 'shovel') return 'shovel';
+    if (spec?.kind === 'bow') return 'bow';
     return 'block';
   }
 
@@ -7027,12 +7641,11 @@ if (tpClipActive > 0.5) {
       if (g) return `${t(SLOT_KEY[g.slot])} · ${matName(MATERIALS[g.material].label)}`;
       return t('gear');
     }
-    if (k === 'pick') return pickaxeLabel(this.heldPickTier());
-    if (k === 'sword') return swordLabel(Math.max(0, this.heldSwordTier()));
+    if (k === 'pick' || k === 'sword' || k === 'axe' || k === 'shovel') {
+      return toolLabelForId(this.hotbar[this.selected] ?? -1);
+    }
     if (k === 'torch') return t('handTorch');
-    if (k === 'axe') return this.heldAxeTier() === 0 ? t('axeWood') : t('axeStone');
-    if (k === 'shovel') return t('tool_shovel');
-    if (k === 'bow') return `${t('tool_bow')} · ${this.inventory.get(ARROW_ITEM) ?? 0}`;
+    if (k === 'bow') return `${toolLabelForId(this.hotbar[this.selected] ?? TOOL_BOW)} · ${this.inventory.get(ARROW_ITEM) ?? 0}`;
     if (k === 'fist') return t('emptyHand'); // bare hand (slot 1 or empty)
     const id = this.hotbar[this.selected] ?? -1;
     return blockName(id, BLOCKS[id]?.name ?? '');
@@ -7045,12 +7658,15 @@ if (tpClipActive > 0.5) {
       case 'pick':
         return cls === 'stone' ? 1.35 : cls === 'earth' ? 0.7 : cls === 'wood' ? 0.6 : 0.8;
       case 'axe': {
-        const axeTier = this.heldAxeTier();
-        const axeSpeed = axeTier === 0 ? 2.0 : 2.8;
+        const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
+        const axeSpeed = 1.1 + (spec?.speed ?? 1) * 1.0;
         return cls === 'wood' ? axeSpeed : cls === 'earth' ? 0.6 : 0.35;
       }
-      case 'shovel':
-        return cls === 'earth' ? 2.6 : cls === 'wood' ? 0.5 : 0.3;
+      case 'shovel': {
+        const shovelTier = this.heldShovelTier();
+        const shovelSpeed = [1.5, 2.6, 3.0, 2.7, 3.6, 4.5][shovelTier] ?? 1.5;
+        return cls === 'earth' ? shovelSpeed : cls === 'wood' ? 0.5 : 0.3;
+      }
       case 'sword':
         return 0.25;
       case 'bow':
@@ -7093,6 +7709,9 @@ if (tpClipActive > 0.5) {
     [FLOWER_RED, 8],
     [FLOWER_YELLOW, 8],
     [FLOWER_BLUE, 8],
+    [FLOWER_PINK, 8],
+    [FLOWER_PURPLE, 9],
+    [FLOWER_WHITE, 8],
     [HONEY, 25],
     [NETHERITE, 800],
     [APPLE, 12],
@@ -7121,17 +7740,26 @@ if (tpClipActive > 0.5) {
     return e ? e[1] : Math.max(1, Math.round((BLOCKS[id]?.score ?? 1) * 0.8));
   }
 
-  /** sell a tool straight out of the hotbar */
-  sellTool(id: number) {
+  /** sell a tool straight out of the hotbar or inventory */
+  sellTool(id: number, instanceId?: number) {
     if (id < 200) return;
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) return; // nothing owned — never sell an air slot
-    // clear the quick-bar placement (if any) and drop one from the owned count
-    const i = this.hotbar.indexOf(id);
-    if (i >= 0) this.hotbar[i] = undefined;
-    this.inventory.set(id, count - 1);
-    if (count - 1 <= 0) this.inventory.delete(id);
-    if (this.selected === i) this.selected = 0;
+    if (isDurabilityTool(id)) {
+      const instance = instanceId !== undefined ? this.toolInstances.get(instanceId) : [...this.toolInstances.values()].find((it) => it.id === id);
+      if (!instance || instance.id !== id) return;
+      this.removeToolInstance(instance.instanceId);
+      this.recalcOwnedToolTiers();
+    } else {
+      const i = this.hotbar.indexOf(id);
+      if (i >= 0) {
+        this.hotbar[i] = undefined;
+        this.hotbarInstanceIds[i] = undefined;
+      }
+      if (count - 1 > 0) this.inventory.set(id, count - 1);
+      else this.inventory.delete(id);
+      if (this.selected === i) this.selected = 0;
+    }
     const gained = toolSellPrice(id);
     this.score += gained;
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
@@ -7195,7 +7823,7 @@ if (tpClipActive > 0.5) {
   }
 
   /** dismantle any craftable item/tool/weapon/block at the workbench back into reduced crafting ingredients */
-  salvageItem(id: number): boolean {
+  salvageItem(id: number, instanceId?: number): boolean {
     if (!this.workbenchNear() && this.invTab !== 'workbench') {
       sfx.ui(false);
       return false;
@@ -7214,17 +7842,27 @@ if (tpClipActive > 0.5) {
       sfx.ui(false);
       return false;
     }
-    const consume = Math.min(owned, Math.max(1, info.inputsUsed));
-    const remaining = owned - consume;
-    if (remaining <= 0) {
-      this.inventory.delete(id);
-      const hbIdx = this.hotbar.indexOf(id);
-      if (hbIdx >= 0) this.hotbar[hbIdx] = undefined;
-    } else {
-      this.inventory.set(id, remaining);
-    }
-    if (id >= 200) {
+    if (isDurabilityTool(id)) {
+      const instance = instanceId !== undefined ? this.toolInstances.get(instanceId) : [...this.toolInstances.values()].find((it) => it.id === id);
+      if (!instance || instance.id !== id) {
+        sfx.ui(false);
+        return false;
+      }
+      this.removeToolInstance(instance.instanceId);
       this.recalcOwnedToolTiers();
+    } else {
+      const consume = Math.min(owned, Math.max(1, info.inputsUsed));
+      const remaining = owned - consume;
+      if (remaining <= 0) {
+        this.inventory.delete(id);
+        const hbIdx = this.hotbar.indexOf(id);
+        if (hbIdx >= 0) {
+          this.hotbar[hbIdx] = undefined;
+          this.hotbarInstanceIds[hbIdx] = undefined;
+        }
+      } else {
+        this.inventory.set(id, remaining);
+      }
     }
 
     const parts: string[] = [];
@@ -7323,11 +7961,20 @@ if (tpClipActive > 0.5) {
   }
 
   inventoryList() {
-    const out: { id: number; count: number }[] = [];
+    const out: Array<{ id: number; count: number; instanceId?: number; durability?: number; maxDurability?: number }> = [];
     this.inventory.forEach((count, id) => {
-      if (count > 0) out.push({ id, count });
+      if (count <= 0) return;
+      const spec = getToolSpec(id);
+      if (!spec) {
+        out.push({ id, count });
+        return;
+      }
+      const instances = [...this.toolInstances.values()].filter((item) => item.id === id);
+      for (const item of instances) {
+        out.push({ id, count: 1, instanceId: item.instanceId, durability: item.durability, maxDurability: spec.maxDurability });
+      }
     });
-    out.sort((a, b) => b.count - a.count || a.id - b.id);
+    out.sort((a, b) => b.count - a.count || a.id - b.id || (a.instanceId ?? 0) - (b.instanceId ?? 0));
     return out;
   }
 
@@ -7349,7 +7996,7 @@ if (tpClipActive > 0.5) {
     const key = this.craftHintKey();
     const r = key ? RECIPES.find((rr) => rr.key === key) : undefined;
     if (!r) return null;
-    return recipeText(r.key, r.name, r.desc)[0];
+    return r.toolId ? toolLabelForId(r.toolId) : recipeText(r.key, r.name, r.desc)[0];
   }
 
   craft(key: string): boolean {
@@ -7360,7 +8007,9 @@ if (tpClipActive > 0.5) {
     }
     for (const [id, n] of r.inputs) this.inventory.set(id, (this.inventory.get(id) ?? 0) - n);
     this.lastCraft = r.key;
-    const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
+    const [localizedName, localizedDesc] = recipeText(r.key, r.name, r.desc);
+    const rName = r.toolId ? toolLabelForId(r.toolId) : localizedName;
+    const rDesc = r.toolId ? toolRecipeDesc(r.toolId) : localizedDesc;
 
     if (r.out) {
       const [id, n] = r.out;
@@ -7368,15 +8017,15 @@ if (tpClipActive > 0.5) {
       this.addToHotbar(id);
     }
     if (r.kind === 'axe') {
-      // crafted tools land in the inventory list — the player drags them into a quick slot
-      const tool = r.tier === 0 ? AXE_TOOLS[0] : AXE_TOOLS[1];
-      this.inventory.set(tool, (this.inventory.get(tool) ?? 0) + 1);
+      // Crafted items get individual wear records; duplicates remain independently repairable.
+      const tool = r.toolId ?? AXE_TOOLS[r.tier ?? 0];
+      this.addToolInstance(tool);
       sfx.upgrade();
       this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
     } else if (r.kind === 'shovel' || r.kind === 'bow') {
-      const tool = r.kind === 'shovel' ? TOOL_SHOVEL : TOOL_BOW;
-      this.inventory.set(tool, (this.inventory.get(tool) ?? 0) + 1);
+      const tool = r.toolId ?? (r.kind === 'shovel' ? SHOVEL_TOOLS[r.tier ?? 0] : TOOL_BOW);
+      this.addToolInstance(tool);
       sfx.upgrade();
       this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.3, this.pos.z, [255, 235, 160], 12, 3);
@@ -7400,19 +8049,17 @@ if (tpClipActive > 0.5) {
       this.pushBanner(rName, `+${it.armor} ${t('armorTotal')}`, r.accent);
     } else if (r.kind === 'weapon' && r.weapon !== undefined) {
       this.swordTier = Math.max(this.swordTier, r.weapon);
-      // the new sword is a real inventory item like everything else — count accumulates,
-      // the player drags it into a quick slot themselves
-      const toolId = SWORD_TOOLS[r.weapon];
-      this.inventory.set(toolId, (this.inventory.get(toolId) ?? 0) + 1);
+      // Each copy owns its own durability record and can occupy its own quick slot.
+      const toolId = r.toolId ?? SWORD_TOOLS[r.weapon];
+      this.addToolInstance(toolId);
       sfx.upgrade();
       this.addShake(0.4);
       this.pushBanner(rName, rDesc, r.accent);
     } else if (r.kind === 'pickaxe' && r.tier !== undefined) {
       this.tier = Math.max(this.tier, r.tier);
-      // the pickaxe is a real inventory item — count accumulates, the player
-      // drags it into a quick slot themselves
-      const toolId = PICK_TOOLS[r.tier];
-      this.inventory.set(toolId, (this.inventory.get(toolId) ?? 0) + 1);
+      // The pickaxe is a real physical instance with its own wear record.
+      const toolId = r.toolId ?? PICK_TOOLS[r.tier];
+      this.addToolInstance(toolId);
       this.updatePickaxe();
       this.flash = 0.5;
       this.addShake(0.55);
@@ -7449,10 +8096,28 @@ if (tpClipActive > 0.5) {
 
   openInventory() {
     if (this.phase !== 'playing' && this.phase !== 'paused') return;
+    // A platform/ad pause is authoritative; inventory must not resume it behind the SDK's back.
+    if (this.phase === 'paused' && this.pausedBySystem) return;
     if (!this.traderNear() && this.invTab === 'trade') this.invTab = 'tools';
     this.inventoryOpen = true;
-    this.phase = 'paused';
-    this.pausedBySystem = false;
+    // Opening the bag from the manual pause screen resumes the live world as well.
+    if (this.phase === 'paused') {
+      this.phase = 'playing';
+      this.pausedBySystem = false;
+    }
+    // Stay still while crafting, but keep physics and the world simulation running.
+    for (const key of [
+      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyC', 'KeyF',
+    ]) this.keys[key] = false;
+    this.touchMove.x = 0;
+    this.touchMove.y = 0;
+    this.touchJump = false;
+    this.touchPlace = false;
+    this.touchSprint = false;
+    this.hoverActive = false;
+    this.vel.x = 0;
+    this.vel.z = 0;
     this.mining = false;
     this.placing = false;
     this.lastCraft = null;
@@ -7465,9 +8130,13 @@ if (tpClipActive > 0.5) {
     if (!this.inventoryOpen) return;
     this.inventoryOpen = false;
     this.invTab = 'tools';
-    this.phase = 'playing';
-    sfx.ui(false);
-    this.requestLock();
+    // A real platform pause may have arrived while the live inventory was open.
+    if (this.phase === 'paused' && !this.pausedBySystem) this.phase = 'playing';
+    if (this.phase === 'playing') {
+      this.pausedBySystem = false;
+      sfx.ui(false);
+      this.requestLock();
+    }
     this.syncHud(true);
   }
 
@@ -7673,21 +8342,43 @@ if (tpClipActive > 0.5) {
   }
 
   private syncHotbar(force: boolean) {
-    // sparse 10-slot bar: blocks, tools & gear vanish when they are no longer owned;
-    // the HAND is permanent
+    // Sparse 10-slot bar: blocks, tools & gear vanish when no longer owned;
+    // each durable tool slot must reference one live physical instance.
     for (let i = 0; i < this.hotbar.length; i++) {
       const id = this.hotbar[i];
-      if (id === undefined || id === HAND) continue;
+      if (id === undefined) {
+        this.hotbarInstanceIds[i] = undefined;
+        continue;
+      }
+      if (id === HAND) {
+        this.hotbarInstanceIds[i] = undefined;
+        continue;
+      }
       if (isGearHotbarId(id)) {
-        if (!this.bagItems.some((b) => b.hid === id)) this.hotbar[i] = undefined;
+        if (!this.bagItems.some((b) => b.hid === id)) {
+          this.hotbar[i] = undefined;
+          this.hotbarInstanceIds[i] = undefined;
+        }
+      } else if (isDurabilityTool(id)) {
+        const instanceId = this.hotbarInstanceIds[i];
+        const instance = instanceId === undefined ? undefined : this.toolInstances.get(instanceId);
+        if (!instance || instance.id !== id) {
+          this.hotbar[i] = undefined;
+          this.hotbarInstanceIds[i] = undefined;
+        }
       } else if ((this.inventory.get(id) ?? 0) <= 0) {
         this.hotbar[i] = undefined;
+        this.hotbarInstanceIds[i] = undefined;
       }
     }
     while (this.hotbar.length > 10) this.hotbar.pop();
+    this.hotbarInstanceIds.length = this.hotbar.length;
     if (!this.hotbar.includes(HAND)) {
       const f = this.firstFreeSlot();
-      if (f >= 0) this.hotbar[f] = HAND;
+      if (f >= 0) {
+        this.hotbar[f] = HAND;
+        this.hotbarInstanceIds[f] = undefined;
+      }
     }
     this.selected = Math.max(0, Math.min(9, this.selected));
     if (force) this.lastHudKey = '';
@@ -7705,7 +8396,8 @@ if (tpClipActive > 0.5) {
       }
       this.lastHudCheck = now;
     }
-    const t = this.target;
+    const targetBlock = this.target;
+    const wearKey = [...this.toolInstances.values()].map((item) => `${item.instanceId}:${item.durability}`).join(',');
     const key = [
       this.phase,
       Math.round(this.loadProgress * 100),
@@ -7725,8 +8417,9 @@ if (tpClipActive > 0.5) {
       this.lockFailed ? 1 : 0,
       this.inventoryOpen ? 1 : 0,
       this.lastCraft ?? '-',
-      t ? t.id : 0,
-      this.hotbar.map((id) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}`).join('|'),
+      targetBlock ? targetBlock.id : 0,
+      this.hotbar.map((id, i) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}:${this.hotbarInstanceIds[i] ?? -1}`).join('|'),
+      wearKey,
       this.craftSignature(),
     ].join('~');
     if (!force && key === this.lastHudKey) {
@@ -7753,10 +8446,23 @@ if (tpClipActive > 0.5) {
         const id = this.hotbar[i];
         if (id === undefined) return null;
         if (isGearHotbarId(id)) return { id, count: 1 };
-        return { id, count: this.inventory.get(id) ?? 0 };
+        const instance = this.getToolInstanceAt(i);
+        const spec = getToolSpec(id);
+        return {
+          id,
+          count: this.inventory.get(id) ?? 0,
+          ...(instance && spec ? { instanceId: instance.instanceId, durability: instance.durability, maxDurability: spec.maxDurability } : {}),
+        };
       }),
       selected: this.selected,
-      target: t && t.id !== AIR ? { id: t.id, name: blockName(t.id, BLOCKS[t.id].name) } : null,
+      target: targetBlock && targetBlock.id !== AIR
+        ? {
+            id: targetBlock.id,
+            name: isTreasureChest(targetBlock.id)
+              ? `${blockName(targetBlock.id, BLOCKS[targetBlock.id].name)} · ${t('chestOpenHint')}`
+              : blockName(targetBlock.id, BLOCKS[targetBlock.id].name),
+          }
+        : null,
       banner: this.banner,
       deathCause: this.gameOverState(),
       fps: this.fps,

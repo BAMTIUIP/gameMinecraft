@@ -16,6 +16,7 @@ import {
   EMERALD,
   QUARTZ,
   NETHERITE,
+  NETHERITE_INGOT,
 } from './blocks';
 
 export const TILE = 16;
@@ -23,7 +24,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 30; // 120 tiles
+export const ATLAS_ROWS = 31; // 124 tiles
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -693,6 +694,36 @@ function drawTile(ctx: Ctx, index: number) {
       px(ctx, ox, oy, 7, 3, 2, 2, core);
       break;
     }
+    case T.flowerPink:
+    case T.flowerPurple:
+    case T.flowerWhite: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const petal = index === T.flowerPink ? '#f28bb5' : index === T.flowerPurple ? '#a875df' : '#fff8e6';
+      const core = index === T.flowerPurple ? '#f3cd58' : '#eebd42';
+      ctx.fillStyle = '#4d8c31';
+      ctx.fillRect(ox + 7, oy + 7, 2, 9);
+      px(ctx, ox, oy, 5, 10, 3, 1, '#5f9738');
+      px(ctx, ox, oy, 9, 12, 2, 1, '#5f9738');
+      if (index === T.flowerPurple) {
+        // lavender spike with clustered florets
+        ctx.fillStyle = petal;
+        for (const [x, y] of [[6, 5], [9, 4], [6, 2], [9, 1], [7, 0]]) ctx.fillRect(ox + x, oy + y, 2, 2);
+        px(ctx, ox, oy, 8, 3, 1, 1, '#d9a3f0');
+      } else {
+        ctx.fillStyle = petal;
+        // six-petal rosette, especially daisy-like for the white variant
+        ctx.fillRect(ox + 6, oy + 2, 4, 4);
+        ctx.fillRect(ox + 4, oy + 3, 2, 2);
+        ctx.fillRect(ox + 10, oy + 3, 2, 2);
+        ctx.fillRect(ox + 7, oy, 2, 2);
+        if (index === T.flowerWhite) {
+          ctx.fillRect(ox + 5, oy + 1, 2, 2);
+          ctx.fillRect(ox + 9, oy + 1, 2, 2);
+        }
+        px(ctx, ox, oy, 7, 3, 2, 2, core);
+      }
+      break;
+    }
     case T.lampRed:
     case T.lampBlue:
     case T.lampYellow: {
@@ -851,17 +882,33 @@ function drawTile(ctx: Ctx, index: number) {
     }
     case T.netherite: {
       ctx.clearRect(ox, oy, 16, 16);
-      // jagged dark ingot
-      ctx.fillStyle = '#4a3830';
+      // ancient scrap: a chipped fragment with ember inclusions
+      ctx.fillStyle = '#281d20';
       ctx.fillRect(ox + 3, oy + 6, 10, 6);
-      ctx.fillStyle = '#6a5248';
-      ctx.fillRect(ox + 3, oy + 6, 10, 2);
-      ctx.fillStyle = '#2c201a';
-      ctx.fillRect(ox + 3, oy + 11, 10, 1);
-      px(ctx, ox, oy, 5, 8, 2, 1, '#8a6a58');
-      px(ctx, ox, oy, 10, 9, 1, 1, '#8a6a58');
-      px(ctx, ox, oy, 4, 4, 2, 2, '#4a3830'); // shard
-      px(ctx, ox, oy, 11, 4, 1, 2, '#4a3830');
+      ctx.fillStyle = '#4a383b';
+      ctx.fillRect(ox + 4, oy + 6, 8, 3);
+      ctx.fillStyle = '#241c20';
+      ctx.fillRect(ox + 4, oy + 11, 8, 1);
+      px(ctx, ox, oy, 5, 8, 2, 1, '#ff7045');
+      px(ctx, ox, oy, 10, 9, 1, 1, '#ffb05e');
+      px(ctx, ox, oy, 4, 4, 2, 2, '#34292c'); // broken shard
+      px(ctx, ox, oy, 11, 4, 1, 2, '#34292c');
+      break;
+    }
+    case T.netheriteIngot: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // Ember-forged alloy ingot: crisp bevel, dark steel body, orange rune seam.
+      px(ctx, ox, oy, 4, 4, 8, 2, '#211a20');
+      px(ctx, ox, oy, 2, 6, 12, 5, '#211a20');
+      px(ctx, ox, oy, 4, 11, 9, 2, '#211a20');
+      px(ctx, ox, oy, 4, 5, 8, 2, '#6b555b');
+      px(ctx, ox, oy, 3, 7, 10, 3, '#42363c');
+      px(ctx, ox, oy, 4, 10, 8, 2, '#30272d');
+      px(ctx, ox, oy, 5, 5, 5, 1, '#baa09a');
+      px(ctx, ox, oy, 4, 7, 2, 1, '#ff7045');
+      px(ctx, ox, oy, 6, 8, 4, 1, '#ffd06a');
+      px(ctx, ox, oy, 10, 9, 2, 1, '#ff7045');
+      px(ctx, ox, oy, 3, 6, 1, 1, '#ffb05e');
       break;
     }
     case T.wool: {
@@ -1053,6 +1100,53 @@ function drawTile(ctx: Ctx, index: number) {
       drawApple(3, 4);
       drawApple(10, 9);
       drawApple(4, 11);
+      break;
+    }
+    case T.autumnLeaves: {
+      // mottled maple canopy: gold, amber, vermilion and russet with cutout gaps
+      speckle(ctx, ox, oy, '#c65a25', 911, 28);
+      const fallColors = ['#e99b28', '#f0bd3c', '#d84926', '#9f3525', '#ef7628'];
+      for (let i = 0; i < 38; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1 + (rand() < 0.22 ? 1 : 0), 1, fallColors[Math.floor(rand() * fallColors.length)]);
+      }
+      for (const [x, y] of [[2, 3], [11, 2], [6, 8], [12, 12], [3, 13]])
+        px(ctx, ox, oy, x, y, 2, 2, '#f3cb4c');
+      const autumnHoles = mulberry32(919);
+      for (let i = 0; i < 13; i++) ctx.clearRect(ox + Math.floor(autumnHoles() * 15), oy + Math.floor(autumnHoles() * 15), 1, 1);
+      break;
+    }
+    case T.cherryLeaves: {
+      // pale sakura canopy with layered pink blossoms and a few fresh green leaves
+      speckle(ctx, ox, oy, '#e9a6be', 929, 22);
+      for (let i = 0; i < 32; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1, 1, rand() < 0.58 ? '#f7c6d7' : '#ce789b');
+      }
+      for (const [x, y] of [[2, 4], [10, 2], [6, 9], [12, 12], [3, 13]]) {
+        px(ctx, ox, oy, x, y, 2, 2, '#fff0f4');
+        px(ctx, ox, oy, x, y, 1, 1, '#ffe1a1');
+      }
+      for (const [x, y] of [[4, 8], [11, 6], [8, 13]]) px(ctx, ox, oy, x, y, 2, 1, '#82b54c');
+      const cherryHoles = mulberry32(937);
+      for (let i = 0; i < 14; i++) ctx.clearRect(ox + Math.floor(cherryHoles() * 15), oy + Math.floor(cherryHoles() * 15), 1, 1);
+      break;
+    }
+    case T.jacarandaLeaves: {
+      // jacaranda canopy: layered violet blossoms with a few dark green leaf gaps
+      speckle(ctx, ox, oy, '#8052a4', 947, 24);
+      for (let i = 0; i < 34; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1 + (rand() < 0.2 ? 1 : 0), 1,
+          rand() < 0.55 ? '#b689d2' : rand() < 0.5 ? '#603a82' : '#9563bc');
+      }
+      for (const [x, y] of [[2, 4], [10, 2], [6, 9], [12, 12], [3, 13]]) {
+        px(ctx, ox, oy, x, y, 2, 2, '#d9a9e8');
+        px(ctx, ox, oy, x, y, 1, 1, '#f0c4ef');
+      }
+      for (const [x, y] of [[4, 8], [11, 6], [8, 13]]) px(ctx, ox, oy, x, y, 2, 1, '#557d3b');
+      const jacarandaHoles = mulberry32(953);
+      for (let i = 0; i < 14; i++) ctx.clearRect(ox + Math.floor(jacarandaHoles() * 15), oy + Math.floor(jacarandaHoles() * 15), 1, 1);
       break;
     }
     case T.cactusSide: {
@@ -2155,12 +2249,31 @@ export function getBlockIcon(id: number): string {
     return url;
   }
   if (id === NETHERITE) {
-    // 9. Ancient Damascus Ingot with Glowing Lava Runes
-    p(2, 4, 12, 8, '#1f1618');
-    p(3, 5, 10, 6, '#3d2c30');
-    p(4, 5, 8, 2, '#5c4449');
-    p(5, 7, 6, 2, '#ff6a1a');
-    p(6, 7, 2, 1, '#ffd266');
+    // Ancient scrap: broken plate with tiny ember inclusions.
+    p(3, 5, 10, 8, '#21191c');
+    p(4, 6, 8, 5, '#49373b');
+    p(5, 6, 6, 2, '#665057');
+    p(5, 8, 2, 1, '#ff7045');
+    p(8, 9, 2, 1, '#ffb05e');
+    p(4, 4, 2, 2, '#31262a');
+    p(11, 4, 1, 2, '#31262a');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === NETHERITE_INGOT) {
+    // Forged netherite alloy: beveled dark metal with a bright molten rune seam.
+    p(4, 3, 8, 3, '#20191e');
+    p(2, 5, 12, 6, '#20191e');
+    p(4, 11, 9, 2, '#20191e');
+    p(4, 4, 8, 2, '#79636a');
+    p(3, 6, 10, 4, '#44373e');
+    p(4, 10, 8, 2, '#30272d');
+    p(5, 4, 5, 1, '#c4aaa0');
+    p(4, 7, 2, 1, '#ff7045');
+    p(6, 8, 4, 1, '#ffd06a');
+    p(10, 9, 2, 1, '#ff7045');
+    p(3, 5, 1, 1, '#ffb05e');
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;

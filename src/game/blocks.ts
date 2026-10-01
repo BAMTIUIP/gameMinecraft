@@ -110,6 +110,37 @@ export const REDSTONE = 99;
 export const LAPIS = 100;
 export const EMERALD = 101;
 export const QUARTZ = 102;
+/** seasonal canopy and flowering-tree foliage */
+export const AUTUMN_LEAVES = 103;
+export const CHERRY_LEAVES = 104;
+export const FLOWER_PINK = 105;
+export const FLOWER_PURPLE = 106;
+export const FLOWER_WHITE = 107;
+export const JACARANDA_LEAVES = 108;
+/** refined netherite alloy used for the final tool tier */
+export const NETHERITE_INGOT = 109;
+
+/** biome-skinned treasure chests are non-solid block entities stored in the world grid. */
+export const CHEST_PLAINS = 110;
+export const CHEST_WINTER = 111;
+export const CHEST_AUTUMN = 112;
+export const CHEST_JUNGLE = 113;
+export const CHEST_DESERT = 114;
+export const CHEST_CANYON = 115;
+export const CHEST_VOLCANIC = 116;
+export const CHEST_UNDERWATER = 117;
+export type ChestBiome = 'plains' | 'winter' | 'autumn' | 'jungle' | 'desert' | 'canyon' | 'volcanic';
+export const CHEST_BY_BIOME: Record<ChestBiome, number> = {
+  plains: CHEST_PLAINS,
+  winter: CHEST_WINTER,
+  autumn: CHEST_AUTUMN,
+  jungle: CHEST_JUNGLE,
+  desert: CHEST_DESERT,
+  canyon: CHEST_CANYON,
+  volcanic: CHEST_VOLCANIC,
+};
+export const isTreasureChest = (id: number) => id >= CHEST_PLAINS && id <= CHEST_UNDERWATER;
+export const isUnderwaterChest = (id: number) => id === CHEST_UNDERWATER;
 
 export const isOreBlock = (id: number) =>
   (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
@@ -117,15 +148,20 @@ export const isOreBlock = (id: number) =>
 export const isMineralItem = (id: number) =>
   (id >= COAL && id <= DIAMOND) ||
   (id >= REDSTONE && id <= QUARTZ) ||
-  id === NETHERITE;
+  id === NETHERITE || id === NETHERITE_INGOT;
 
 export const isFluid = (id: number) => id === WATER || id === LAVA;
-export const isFlower = (id: number) => id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === DRY_BLOOM || id === DESERT_THISTLE;
+export const isFlower = (id: number) =>
+  id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
+  id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE ||
+  id === DRY_BLOOM || id === DESERT_THISTLE;
 export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM;
 export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
-  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES || id === COCONUT_LEAVES || id === BANANA_LEAVES;
+  id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES ||
+  id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES ||
+  id === JACARANDA_LEAVES;
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 
 export const isResource = (id: number) =>
@@ -190,6 +226,9 @@ export function blockClass(id: number): BlockClass {
     case BIRCH_LEAVES:
     case APPLE_LEAVES:
     case SNOW_LEAVES:
+    case AUTUMN_LEAVES:
+    case CHERRY_LEAVES:
+    case JACARANDA_LEAVES:
     case DOOR_WOOD:
     case FENCE_WOOD:
     case CAMPFIRE:
@@ -319,6 +358,13 @@ export const T = {
   diamondGem: 113,
   emerald: 114,
   quartz: 115,
+  autumnLeaves: 116,
+  cherryLeaves: 117,
+  flowerPink: 118,
+  flowerPurple: 119,
+  flowerWhite: 120,
+  jacarandaLeaves: 121,
+  netheriteIngot: 122,
 };
 
 export type BlockDef = {
@@ -814,6 +860,22 @@ export const BLOCKS: BlockDef[] = [
     drop: 0,
     tint: [238, 230, 220],
   }),
+  // ---- seasonal foliage and extra wildflowers ----
+  d({ id: AUTUMN_LEAVES, name: 'Autumn Leaves', side: T.autumnLeaves, hardness: 0.22, score: 3, drop: LEAVES, tint: [226, 126, 43] }),
+  d({ id: CHERRY_LEAVES, name: 'Cherry Blossoms', side: T.cherryLeaves, hardness: 0.22, score: 4, drop: LEAVES, tint: [236, 154, 184] }),
+  d({ id: FLOWER_PINK, name: 'Pink Flower', side: T.flowerPink, hardness: 0.1, score: 3, solid: false, tint: [245, 132, 176] }),
+  d({ id: FLOWER_PURPLE, name: 'Purple Flower', side: T.flowerPurple, hardness: 0.1, score: 3, solid: false, tint: [161, 113, 224] }),
+  d({ id: FLOWER_WHITE, name: 'White Daisy', side: T.flowerWhite, hardness: 0.1, score: 3, solid: false, tint: [244, 240, 224] }),
+  d({ id: JACARANDA_LEAVES, name: 'Jacaranda Blossoms', side: T.jacarandaLeaves, hardness: 0.22, score: 4, drop: LEAVES, tint: [164, 114, 194] }),
+  d({ id: NETHERITE_INGOT, name: 'Netherite Ingot', side: T.netheriteIngot, hardness: 1, score: 180, solid: false, breakable: false, drop: 0, tint: [128, 81, 76] }),
+  d({ id: CHEST_PLAINS, name: 'Oak Treasure Chest', side: T.planks, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [155, 91, 43] }),
+  d({ id: CHEST_WINTER, name: 'Frostbound Treasure Chest', side: T.ice, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [104, 157, 184] }),
+  d({ id: CHEST_AUTUMN, name: 'Amber Treasure Chest', side: T.autumnLeaves, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [190, 91, 39] }),
+  d({ id: CHEST_JUNGLE, name: 'Overgrown Treasure Chest', side: T.leaves, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [71, 122, 69] }),
+  d({ id: CHEST_DESERT, name: 'Sun-baked Treasure Chest', side: T.sandstoneSide, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [204, 150, 67] }),
+  d({ id: CHEST_CANYON, name: 'Redstone Treasure Chest', side: T.sandstoneSide, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [155, 73, 48] }),
+  d({ id: CHEST_VOLCANIC, name: 'Ember Treasure Chest', side: T.volcanicStone, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [74, 59, 61] }),
+  d({ id: CHEST_UNDERWATER, name: 'Barnacled Sea Chest', side: T.netherite, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [75, 121, 107] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
@@ -826,8 +888,9 @@ export const isCutout = (id: number) =>
   id === FENCE_IRON ||
   isLeafId(id);
 
-/** door / window / workbench blocks the player can interact with E */
-export const isInteractive = (id: number) => id === DOOR_WOOD || id === DOOR_IRON || id === GLASS || id === CRAFTING_TABLE;
+/** world props the player can interact with E */
+export const isInteractive = (id: number) =>
+  id === DOOR_WOOD || id === DOOR_IRON || id === GLASS || id === CRAFTING_TABLE || isTreasureChest(id);
 
 export const isOpaque = (id: number) =>
   id !== AIR &&
@@ -838,14 +901,17 @@ export const isOpaque = (id: number) =>
     isCutout(id) ||
     isPlant(id) ||
     id === TURTLE_EGG ||
-    id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST
+    id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST ||
+    isTreasureChest(id)
   );
 export const isSolid = (id: number) => BLOCKS[id]?.solid ?? false;
 export const isBreakable = (id: number) => BLOCKS[id]?.breakable ?? false;
 
 export const PICKAXE_TIERS = [
-  { name: 'WOOD', speed: 1.0, mult: 1.0, at: 0, color: '#b98a4d' },
-  { name: 'STONE', speed: 1.7, mult: 1.15, at: 250, color: '#9aa0a6' },
-  { name: 'IRON', speed: 2.6, mult: 1.4, at: 1100, color: '#e6c39a' },
-  { name: 'DIAMOND', speed: 4.0, mult: 1.8, at: 3200, color: '#5fe8dc' },
+  { name: 'WOOD', speed: 1.0, mult: 1.0, at: 0, color: '#c28b4f' },
+  { name: 'STONE', speed: 1.7, mult: 1.15, at: 250, color: '#aeb9c0' },
+  { name: 'IRON', speed: 2.6, mult: 1.4, at: 1100, color: '#e0e5dc' },
+  { name: 'GOLD', speed: 3.3, mult: 1.3, at: 1800, color: '#f5c548' },
+  { name: 'DIAMOND', speed: 4.0, mult: 1.8, at: 3200, color: '#51e1d2' },
+  { name: 'NETHERITE', speed: 4.8, mult: 2.1, at: 5400, color: '#ff7045' },
 ] as const;

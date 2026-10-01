@@ -1,4 +1,5 @@
 import {
+  BLOCKS,
   ANVIL,
   APPLE,
   COCONUT, BANANA,
@@ -15,6 +16,9 @@ import {
   FLOWER_BLUE,
   FLOWER_RED,
   FLOWER_YELLOW,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
   LAMP_BLUE,
   LAMP_RED,
   LAMP_YELLOW,
@@ -44,6 +48,7 @@ import {
   BIRCH_LOG,
   CRAFTING_TABLE,
   NETHERITE,
+  NETHERITE_INGOT,
   MUSHROOM,
   COAL_BLOCK,
   IRON_BLOCK,
@@ -58,7 +63,44 @@ import {
   SANDSTONE,
   CHISELED_SANDSTONE,
 } from './blocks';
+import {
+  AXE_TOOLS,
+  PICK_TOOLS,
+  SHOVEL_TOOLS,
+  SWORD_TOOLS,
+  TOOL_AXE,
+  TOOL_BOW,
+  TOOL_PICK,
+  TOOL_SHOVEL,
+  TOOL_SWORD,
+  TOOL_TORCH,
+  TOOL_MATERIALS,
+  getToolSpec,
+  isAxeTool,
+  isPickTool,
+  isShovelTool,
+  isSwordTool,
+  toolIdFor,
+} from './tools';
+import { blockName, swordLabel, toolLabelForId, t } from './i18n';
 import type { Item, Material, Slot } from './items';
+
+export {
+  AXE_TOOLS,
+  PICK_TOOLS,
+  SHOVEL_TOOLS,
+  SWORD_TOOLS,
+  TOOL_AXE,
+  TOOL_BOW,
+  TOOL_PICK,
+  TOOL_SHOVEL,
+  TOOL_SWORD,
+  TOOL_TORCH,
+  isAxeTool,
+  isPickTool,
+  isShovelTool,
+  isSwordTool,
+};
 
 export type RecipeKind =
   | 'blocks'
@@ -88,6 +130,8 @@ export type Recipe = {
   material?: Material;
   /** sword tier index */
   weapon?: number;
+  /** explicit tool instance template produced by this recipe */
+  toolId?: number;
   accent: string;
   hotkey: string;
   group: 'tools' | 'gear' | 'blocks' | 'food';
@@ -96,35 +140,87 @@ export type Recipe = {
 /** bare hand pseudo-item: always occupies hotbar slot 1 */
 export const HAND = 199;
 /** hotbar ids above this range are tools, not placeable blocks */
-export const TOOL_PICK = 200; // legacy alias — wooden pick
-export const TOOL_SWORD = 201; // legacy (unused in hotbar now)
-export const TOOL_TORCH = 202;
-export const TOOL_AXE = 203;
-export const TOOL_SHOVEL = 204;
-export const TOOL_BOW = 205;
-/** per-tier tools: crafting a better one KEEPS the old — sell it or use it */
-export const PICK_TOOLS = [210, 211, 212, 213]; // wood/stone/iron/diamond
-export const SWORD_TOOLS = [220, 221, 222]; // wood/iron/diamond
-export const AXE_TOOLS = [230, 231]; // wood / stone
-export const isPickTool = (id: number) => id >= 210 && id <= 213;
-export const isSwordTool = (id: number) => id >= 220 && id <= 222;
-export const isAxeTool = (id: number) => id === TOOL_AXE || (id >= 230 && id <= 231);
 export const isToolId = (id: number) => id >= 200;
-/** rough resale value of a tool at the trader */
-export function toolSellPrice(id: number): number {
-  if (isPickTool(id)) return [30, 90, 220, 520][id - 210];
-  if (isSwordTool(id)) return [25, 140, 380][id - 220];
-  if (isAxeTool(id)) return id === AXE_TOOLS[0] ? 20 : 60;
-  return 30; // torch / shovel / bow
+
+const MATERIAL_ITEMS = [PLANKS, COBBLE, IRON, GOLD, DIAMOND, NETHERITE_INGOT] as const;
+
+function materialInputs(tier: number, materialCount: number, woodCount: number): Array<[number, number]> {
+  if (tier === 0) return [[PLANKS, woodCount + materialCount]];
+  return [[MATERIAL_ITEMS[tier], materialCount], [PLANKS, woodCount]];
 }
 
-export const SWORDS = [
-  { name: 'WOODEN SWORD', damage: 9, color: '#b98a4d', inputs: [[PLANKS, 3]] as Array<[number, number]> },
-  { name: 'IRON SWORD', damage: 17, color: '#e6c39a', inputs: [[IRON, 2], [PLANKS, 1]] as Array<[number, number]> },
-  { name: 'DIAMOND SWORD', damage: 29, color: '#5fe8dc', inputs: [[DIAMOND, 2], [PLANKS, 1]] as Array<[number, number]> },
-] as const;
+export const SWORDS = TOOL_MATERIALS.map((material, tier) => ({
+  name: swordLabel(tier),
+  damage: material.swordDamage,
+  color: material.edge,
+  inputs: materialInputs(tier, 2, 1),
+}));
+
+/** short, localized ingredient/condition hint shown on every durable-tool recipe */
+export function toolRecipeDesc(id: number): string {
+  const spec = getToolSpec(id);
+  if (!spec) return '';
+  if (spec.maxDurability <= 0) return t('indestructible');
+  const durability = String(spec.maxDurability);
+  const repair = spec.repairResource === null ? '' : blockName(spec.repairResource, BLOCKS[spec.repairResource]?.name ?? '');
+  return t('toolRecipeDesc').replace('{durability}', durability).replace('{resource}', repair);
+}
+
+/** rough resale value of a tool at the trader */
+export function toolSellPrice(id: number): number {
+  const spec = getToolSpec(id);
+  if (!spec) return 30; // torch and old non-durable utility items
+  const tables: Record<string, number[]> = {
+    pickaxe: [30, 90, 220, 330, 520, 950],
+    sword: [25, 65, 140, 210, 380, 720],
+    axe: [20, 60, 130, 190, 320, 620],
+    shovel: [15, 35, 80, 120, 210, 420],
+    bow: [30],
+  };
+  return tables[spec.kind]?.[spec.tier] ?? 30;
+}
+
+function toolInputs(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel', tier: number): Array<[number, number]> {
+  if (tier === 0) return [[PLANKS, kind === 'shovel' ? 2 : 3]];
+  const headCount = kind === 'sword' ? 2 : kind === 'shovel' ? 1 : 3;
+  const handleCount = kind === 'sword' ? 1 : 2;
+  return [[MATERIAL_ITEMS[tier], headCount], [PLANKS, handleCount]];
+}
+
+function toolRecipe(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel', tier: number, hotkey = ''): Recipe {
+  const toolId = toolIdFor(kind, tier);
+  const material = TOOL_MATERIALS[tier];
+  const prefix = kind === 'pickaxe' ? 'pick' : kind === 'sword' ? 'sword' : kind;
+  const key = kind === 'shovel' && tier === 1 ? 'shovel' : `${prefix}_${material.key}`;
+  const recipeKind: RecipeKind = kind === 'sword' ? 'weapon' : kind;
+  return {
+    key,
+    name: toolLabelForId(toolId),
+    desc: toolRecipeDesc(toolId),
+    inputs: toolInputs(kind, tier),
+    kind: recipeKind,
+    tier,
+    ...(kind === 'sword' ? { weapon: tier } : {}),
+    toolId,
+    accent: material.edge,
+    hotkey,
+    group: 'tools',
+  };
+}
+
+const TOOL_RECIPES: Recipe[] = [
+  ...TOOL_MATERIALS.flatMap((_, tier) => [
+    toolRecipe('pickaxe', tier, tier < 4 ? String(tier + 2) : ''),
+  ]),
+  ...TOOL_MATERIALS.flatMap((_, tier) => [
+    toolRecipe('sword', tier, tier < 3 ? String(tier + 6) : ''),
+  ]),
+  ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('axe', tier)]),
+  ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('shovel', tier)]),
+];
 
 export const RECIPES: Recipe[] = [
+  ...TOOL_RECIPES,
   {
     key: 'planks',
     name: 'OAK PLANKS',
@@ -173,89 +269,14 @@ export const RECIPES: Recipe[] = [
     group: 'blocks',
   },
   {
-    key: 'pick_wood',
-    name: 'WOODEN PICKAXE',
-    desc: 'Your first real tool — 3 planks + 2 sticks',
-    inputs: [[PLANKS, 3]],
-    kind: 'pickaxe',
-    tier: 0,
-    accent: '#b98a4d',
-    hotkey: '2',
-    group: 'tools',
-  },
-  {
-    key: 'pick_stone',
-    name: 'STONE PICKAXE',
-    desc: '1.7x mining speed · 1.15x score',
-    inputs: [
-      [COBBLE, 3],
-      [PLANKS, 2],
-    ],
-    kind: 'pickaxe',
-    tier: 1,
-    accent: '#9aa0a6',
-    hotkey: '3',
-    group: 'tools',
-  },
-  {
-    key: 'pick_iron',
-    name: 'IRON PICKAXE',
-    desc: '2.6x mining speed · 1.40x score',
-    inputs: [
-      [IRON, 3],
-      [PLANKS, 2],
-    ],
-    kind: 'pickaxe',
-    tier: 2,
-    accent: '#e6c39a',
-    hotkey: '4',
-    group: 'tools',
-  },
-  {
-    key: 'pick_diamond',
-    name: 'DIAMOND PICKAXE',
-    desc: '4.0x mining speed · 1.80x score',
-    inputs: [
-      [DIAMOND, 3],
-      [PLANKS, 2],
-    ],
-    kind: 'pickaxe',
-    tier: 3,
-    accent: '#5fe8dc',
-    hotkey: '5',
-    group: 'tools',
-  },
-  {
-    key: 'sword_wood',
-    name: SWORDS[0].name,
-    desc: '9 damage · slot 2 in the hotbar',
-    inputs: SWORDS[0].inputs as unknown as Array<[number, number]>,
-    kind: 'weapon',
-    weapon: 0,
-    accent: SWORDS[0].color,
-    hotkey: '6',
-    group: 'tools',
-  },
-  {
-    key: 'sword_iron',
-    name: SWORDS[1].name,
-    desc: '17 damage · cuts monsters down fast',
-    inputs: SWORDS[1].inputs as unknown as Array<[number, number]>,
-    kind: 'weapon',
-    weapon: 1,
-    accent: SWORDS[1].color,
-    hotkey: '7',
-    group: 'tools',
-  },
-  {
-    key: 'sword_diamond',
-    name: SWORDS[2].name,
-    desc: '29 damage · one-shots most of the night',
-    inputs: SWORDS[2].inputs as unknown as Array<[number, number]>,
-    kind: 'weapon',
-    weapon: 2,
-    accent: SWORDS[2].color,
-    hotkey: '8',
+    key: 'netherite_ingot',
+    name: 'NETHERITE INGOT',
+    desc: 'Forge 4 ancient scraps with 4 gold ingots',
+    inputs: [[NETHERITE, 4], [GOLD, 4]],
+    out: [NETHERITE_INGOT, 1],
+    kind: 'blocks',
+    accent: '#ff7045',
+    hotkey: '',
     group: 'tools',
   },
   {
@@ -288,54 +309,15 @@ export const RECIPES: Recipe[] = [
   },
 
   {
-    key: 'axe_wood',
-    name: 'WOODEN AXE',
-    desc: 'Crafted from planks only — chops trees 2.0x faster',
-    inputs: [
-      [PLANKS, 3],
-    ],
-    kind: 'axe',
-    tier: 0,
-    accent: '#b98a4d',
-    hotkey: '',
-    group: 'tools',
-  },
-  {
-    key: 'axe_stone',
-    name: 'STONE AXE',
-    desc: 'Crafted with cobblestone — chops trees 2.8x faster',
-    inputs: [
-      [PLANKS, 2],
-      [COBBLE, 3],
-    ],
-    kind: 'axe',
-    tier: 1,
-    accent: '#9aa0a6',
-    hotkey: '',
-    group: 'tools',
-  },
-  {
-    key: 'shovel',
-    name: 'SHOVEL',
-    desc: 'Digs earth and sand 2.6x faster',
-    inputs: [
-      [PLANKS, 2],
-      [COBBLE, 1],
-    ],
-    kind: 'shovel',
-    accent: '#9aa0a6',
-    hotkey: '',
-    group: 'tools',
-  },
-  {
     key: 'bow',
     name: 'BOW',
-    desc: 'Ranged weapon — needs arrows in the pack',
+    desc: toolRecipeDesc(TOOL_BOW),
     inputs: [
       [PLANKS, 3],
       [LEAVES, 4],
     ],
     kind: 'bow',
+    toolId: TOOL_BOW,
     accent: '#93c95d',
     hotkey: '',
     group: 'tools',
@@ -855,6 +837,9 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all'> {
     id === FLOWER_RED ||
     id === FLOWER_YELLOW ||
     id === FLOWER_BLUE ||
+    id === FLOWER_PINK ||
+    id === FLOWER_PURPLE ||
+    id === FLOWER_WHITE ||
     id === CAMPFIRE
   ) {
     return 'food';
@@ -867,29 +852,14 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all'> {
  * Returns null if the item is a non-craftable raw material.
  */
 export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: Array<[number, number]> } | null {
-  // 1. Pickaxes (crafted from 3 head material + 2 planks, or 3 planks for wood)
-  if (isPickTool(id)) {
-    const tier = id - PICK_TOOLS[0];
-    if (tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
-    if (tier === 1) return { inputsUsed: 1, outputs: [[COBBLE, 2], [PLANKS, 1]] };
-    if (tier === 2) return { inputsUsed: 1, outputs: [[IRON, 2], [PLANKS, 1]] };
-    return { inputsUsed: 1, outputs: [[DIAMOND, 2], [PLANKS, 1]] };
+  const tool = getToolSpec(id);
+  if (tool) {
+    if (tool.kind === 'bow') return { inputsUsed: 1, outputs: [[PLANKS, 2], [LEAVES, 2]] };
+    if (tool.tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
+    const materialId = MATERIAL_ITEMS[tool.tier];
+    const materialCount = tool.kind === 'pickaxe' || tool.kind === 'axe' ? 2 : 1;
+    return { inputsUsed: 1, outputs: [[materialId, materialCount], [PLANKS, 1]] };
   }
-  // 2. Swords
-  if (isSwordTool(id)) {
-    const tier = id - SWORD_TOOLS[0];
-    if (tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
-    if (tier === 1) return { inputsUsed: 1, outputs: [[IRON, 1], [PLANKS, 1]] };
-    return { inputsUsed: 1, outputs: [[DIAMOND, 1], [PLANKS, 1]] };
-  }
-  // 3. Axes
-  if (isAxeTool(id)) {
-    if (id === AXE_TOOLS[0]) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
-    return { inputsUsed: 1, outputs: [[COBBLE, 2], [PLANKS, 1]] };
-  }
-  // 4. Other tools
-  if (id === TOOL_SHOVEL) return { inputsUsed: 1, outputs: [[PLANKS, 1], [COBBLE, 1]] };
-  if (id === TOOL_BOW) return { inputsUsed: 1, outputs: [[PLANKS, 2], [LEAVES, 2]] };
   if (id === TOOL_TORCH) return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
 
   // 5. Crafted blocks & items from RECIPES
@@ -920,6 +890,8 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
       return { inputsUsed: 1, outputs: [[EMERALD, 2]] };
     case QUARTZ_BLOCK:
       return { inputsUsed: 1, outputs: [[QUARTZ, 2]] };
+    case NETHERITE_INGOT:
+      return { inputsUsed: 1, outputs: [[NETHERITE, 2], [GOLD, 2]] };
     case SANDSTONE:
       return { inputsUsed: 1, outputs: [[SAND, 2]] };
     case CHISELED_SANDSTONE:

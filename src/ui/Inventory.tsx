@@ -3,51 +3,36 @@ import type { HudState } from '../game/engine';
 import {
   RECIPES,
   HAND,
-  SWORDS,
+  TOOL_TORCH,
   PICK_TOOLS,
-  SWORD_TOOLS,
-  AXE_TOOLS,
-  isPickTool,
-  isSwordTool,
-  isAxeTool,
+  isToolId,
   toolSellPrice,
+  toolRecipeDesc,
   getItemInvCategory,
   getSalvageForItemId,
   getSalvageForGear,
   type InvCategory,
 } from '../game/recipes';
-import { BLOCKS, PICKAXE_TIERS, PICKAXE_TIERS as PT2 } from '../game/blocks';
+import { BLOCKS, PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
-import { BagIcon, CloseIcon, PickIcon, AxeIcon, BowIcon, ShovelIcon, SwordIcon } from './icons';
+import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
-import { blockName, matName, pickaxeLabel, rarName, recipeText, swordLabel, t } from '../game/i18n';
+import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
+import { getToolSpec, toolRepairCost } from '../game/tools';
+import { DurabilityBar, ToolSprite } from './ToolSprite';
 
 // ---------- helpers ----------
 
-function toolIcon(id: number, size = 24): { el: React.ReactNode; label: string } {
+function toolIcon(id: number, size = 24, durability?: number): { el: React.ReactNode; label: string } {
   if (id === HAND) return { el: <span className="text-[16px] leading-none">✊</span>, label: t('emptyHand') };
-  if (isPickTool(id)) {
-    const tierIdx = id - PICK_TOOLS[0];
-    const color = PT2[tierIdx]?.color ?? '#b98a4d';
-    return { el: <PickIcon size={size} style={{ color }} />, label: pickaxeLabel(tierIdx) };
-  }
-  if (isSwordTool(id)) {
-    const tierIdx = id - SWORD_TOOLS[0];
-    const color = SWORDS[tierIdx]?.color ?? '#d9dde2';
-    return { el: <SwordIcon size={size} style={{ color }} />, label: swordLabel(tierIdx) };
-  }
-  if (isAxeTool(id)) {
-    const isWood = id === AXE_TOOLS[0];
-    return { el: <AxeIcon size={size} style={{ color: isWood ? '#b98a4d' : '#9aa0a6' }} />, label: isWood ? t('axeWood') : t('axeStone') };
-  }
-  if (id === 202) return { el: <span className="text-torch text-[14px] leading-none">⨙</span>, label: t('handTorch') };
-  if (id === 204) return { el: <ShovelIcon size={size} style={{ color: '#b98a4d' }} />, label: t('tool_shovel') };
-  if (id === 205) return { el: <BowIcon size={size} style={{ color: '#93c95d' }} />, label: t('tool_bow') };
+  const spec = getToolSpec(id);
+  if (spec) return { el: <ToolSprite id={id} size={size} durability={durability} />, label: toolLabelForId(id) };
+  if (id === TOOL_TORCH) return { el: <span className="text-torch text-[14px] leading-none">⨙</span>, label: t('handTorch') };
   return { el: <span className="text-white/60">#{id}</span>, label: `#${id}` };
 }
 
 function toolLabel(id: number): string {
-  return toolIcon(id, 0).label;
+  return getToolSpec(id) ? toolLabelForId(id) : toolIcon(id, 0).label;
 }
 
 const SLOT_GLYPH: Record<Slot, string> = {
@@ -64,7 +49,7 @@ const SLOT_GLYPH: Record<Slot, string> = {
 type Props = {
   hud: HudState;
   onCraft: (key: string) => void;
-  onPlaceItem: (id: number, slot?: number, fromSlot?: number) => void;
+  onPlaceItem: (id: number, slot?: number, fromSlot?: number, instanceId?: number) => void;
   onRemoveSlot: (slot: number) => void;
   onSelectSlot?: (i: number) => void;
   onClose: () => void;
@@ -74,10 +59,11 @@ type Props = {
   onBuy: (i: number) => void;
   onUpgrade: (uid: string) => void;
   onReinforce: (uid: string) => void;
-  onSellTool: (id: number) => void;
+  onRepairTool: (instanceId: number) => void;
+  onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
   onSalvageGear: (uid: string) => void;
-  onSalvageItem: (id: number) => void;
+  onSalvageItem: (id: number, instanceId?: number) => void;
   isTouch?: boolean;
 };
 
@@ -97,7 +83,7 @@ const INV_CATEGORY_TABS: Array<{ id: InvCategory; key: string }> = [
   { id: 'blocks', key: 'inv_tab_blocks' },
 ];
 
-type WorkbenchTarget = { kind: 'item'; id: number } | { kind: 'gear'; uid: string } | null;
+type WorkbenchTarget = { kind: 'item'; id: number; instanceId?: number } | { kind: 'gear'; uid: string } | null;
 
 // ---------- small components ----------
 
@@ -124,6 +110,7 @@ export default function Inventory({
   onBuy,
   onUpgrade,
   onReinforce,
+  onRepairTool,
   onSellTool,
   onSellGear,
   onSalvageGear,
@@ -168,12 +155,12 @@ export default function Inventory({
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <div className="bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: PT2[hud.tier]?.color ?? '#b98a4d' }}>
-              <PickIcon size={16} style={{ color: PT2[hud.tier]?.color ?? '#b98a4d' }} />
-              <span className="font-display text-base leading-none" style={{ color: PT2[hud.tier]?.color ?? '#b98a4d' }}>
+            <div className="bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: PICKAXE_TIERS[hud.tier]?.color ?? '#b98a4d' }}>
+              <ToolSprite id={PICK_TOOLS[hud.tier] ?? PICK_TOOLS[0]} size={18} />
+              <span className="font-display text-base leading-none" style={{ color: PICKAXE_TIERS[hud.tier]?.color ?? '#b98a4d' }}>
                 {hud.tierName}
               </span>
-              <span className="font-display text-[10px] text-white/40">{PT2[hud.tier]?.speed.toFixed(1)}x</span>
+              <span className="font-display text-[10px] text-white/40">{PICKAXE_TIERS[hud.tier]?.speed.toFixed(1)}x</span>
             </div>
             <button
               onClick={onClose}
@@ -242,19 +229,21 @@ export default function Inventory({
             ) : (
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
                 {filteredStacks.map((it, i) => {
-                  const inBar = hud.hotbar.some((h) => h !== null && h.id === it.id);
-                  const isTool = it.id >= 200;
+                  const spec = getToolSpec(it.id);
+                  const isTool = isToolId(it.id);
+                  const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : blockName(it.id, BLOCKS[it.id]?.name ?? '');
+                  const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
                   return (
                     <button
-                      key={`item-${it.id}`}
-                      onClick={() => onPlaceItem(it.id)}
+                      key={`item-${it.id}-${it.instanceId ?? 'stack'}`}
+                      onClick={() => onPlaceItem(it.id, undefined, undefined, it.instanceId)}
                       draggable
                       onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', `item:${it.id}`);
+                        e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${label} — ${t('dragHint')}`}
+                      title={`${label}${condition ? ` · ${condition}` : ''} — ${t('dragHint')}`}
                       className="anim-pop notch group relative flex aspect-square items-center justify-center transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         animationDelay: `${i * 18}ms`,
@@ -267,13 +256,23 @@ export default function Inventory({
                       }}
                     >
                       {isTool ? (
-                        <span className="flex h-[62%] w-[62%] items-center justify-center">{toolIcon(it.id, 24).el}</span>
+                        <span className="flex h-[62%] w-[62%] items-center justify-center">{toolIcon(it.id, 24, it.durability).el}</span>
                       ) : (
                         <img src={getBlockIcon(it.id)} alt={label} className="pixelated h-[62%] w-[62%]" draggable={false} />
                       )}
-                      <span className="absolute bottom-0 right-0.5 font-display text-[11px] leading-none text-white text-shadow-hard">
-                        {it.count}
-                      </span>
+                      {spec && (
+                        <DurabilityBar
+                          current={it.durability ?? spec.maxDurability}
+                          max={spec.maxDurability}
+                          className="absolute bottom-1 left-1 right-1 h-[3px]"
+                          title={condition}
+                        />
+                      )}
+                      {!spec && it.count > 1 && (
+                        <span className="absolute bottom-0 right-0.5 font-display text-[11px] leading-none text-white text-shadow-hard">
+                          {it.count}
+                        </span>
+                      )}
                       <span className="pointer-events-none absolute inset-x-0 -bottom-5 z-20 hidden truncate bg-black/80 px-1 text-center font-display text-[9px] text-torch group-hover:block">
                         {label}
                       </span>
@@ -430,6 +429,7 @@ export default function Inventory({
                   {Array.from({ length: 10 }, (_, i) => hud.hotbar[i] ?? null).map((slot, i) => {
                     const active = i === hud.selected;
                     const gearInSlot = slot && isGearHotbarId(slot.id) ? hud.bagItems.find((b) => b.hid === slot.id) : undefined;
+                    const toolSpec = slot ? getToolSpec(slot.id) : null;
                     return (
                       <div
                         key={i}
@@ -447,10 +447,12 @@ export default function Inventory({
                           if (parts[0] === 'hotbar') {
                             const id = Number(parts[1]);
                             const from = Number(parts[2]);
-                            if (Number.isFinite(id) && Number.isFinite(from)) onPlaceItem(id, i, from);
+                            const instanceId = parts[3] ? Number(parts[3]) : undefined;
+                            if (Number.isFinite(id) && Number.isFinite(from)) onPlaceItem(id, i, from, instanceId);
                           } else if (parts[0] === 'item') {
                             const id = Number(parts[1]);
-                            if (Number.isFinite(id)) onPlaceItem(id, i);
+                            const instanceId = parts[2] ? Number(parts[2]) : undefined;
+                            if (Number.isFinite(id)) onPlaceItem(id, i, undefined, instanceId);
                           } else if (parts[0] === 'gear') {
                             const hid = Number(parts[2]);
                             if (Number.isFinite(hid)) onPlaceItem(hid, i);
@@ -471,7 +473,7 @@ export default function Inventory({
                           draggable={!!slot}
                           onDragStart={(e) => {
                             if (!slot) return;
-                            e.dataTransfer.setData('text/plain', `hotbar:${slot.id}:${i}`);
+                            e.dataTransfer.setData('text/plain', `hotbar:${slot.id}:${i}:${slot.instanceId ?? ''}`);
                             e.dataTransfer.effectAllowed = 'move';
                           }}
                           className="absolute inset-0 flex items-center justify-center cursor-grab active:cursor-grabbing"
@@ -481,8 +483,8 @@ export default function Inventory({
                                 ? `${t('emptyHand')} — ${t('dragHint')}`
                                 : gearInSlot
                                   ? `${t(SLOT_KEY[gearInSlot.slot])} · ${matName(MATERIALS[gearInSlot.material].label)}`
-                                  : slot.id >= 200
-                                    ? `${toolLabel(slot.id)} — ${t('dragHint')}`
+                                  : isToolId(slot.id)
+                                    ? `${toolLabel(slot.id)}${toolSpec ? ` · ${slot.durability ?? toolSpec.maxDurability}/${toolSpec.maxDurability || '∞'}` : ''} — ${t('dragHint')}`
                                     : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count} — ${t('dragHint')}`
                               : t('emptySlot')
                           }
@@ -500,25 +502,28 @@ export default function Inventory({
                                   ⛨{gearInSlot.armor}
                                 </span>
                               </span>
-                            ) : isPickTool(slot.id) ? (
-                              <PickIcon size={16} style={{ color: PICKAXE_TIERS[slot.id - PICK_TOOLS[0]]?.color ?? '#b98a4d' }} />
-                            ) : isSwordTool(slot.id) ? (
-                              <SwordIcon size={16} style={{ color: SWORDS[slot.id - SWORD_TOOLS[0]]?.color ?? '#d9dde2' }} />
-                            ) : isAxeTool(slot.id) ? (
-                              <AxeIcon size={16} style={{ color: slot.id === AXE_TOOLS[0] ? '#b98a4d' : '#9aa0a6' }} />
-                            ) : slot.id === 202 ? (
-                              <span className="text-sm text-torch">⨙</span>
-                            ) : slot.id === 204 ? (
-                              <ShovelIcon size={16} style={{ color: '#b9bec4' }} />
-                            ) : slot.id === 205 ? (
-                              <BowIcon size={16} style={{ color: '#93c95d' }} />
-                            ) : slot.id >= 200 ? (
-                              <PickIcon size={16} style={{ color: PICKAXE_TIERS[isPickTool(slot.id) ? slot.id - PICK_TOOLS[0] : 0].color }} />
+                            ) : isToolId(slot.id) ? (
+                              <span className="flex h-full w-full items-center justify-center">
+                                {toolSpec ? (
+                                  <ToolSprite id={slot.id} size={20} durability={slot.durability} />
+                                ) : slot.id === TOOL_TORCH ? (
+                                  <span className="text-sm text-torch">⨙</span>
+                                ) : (
+                                  <span className="text-[10px] text-white/60">?</span>
+                                )}
+                              </span>
                             ) : (
                               <img src={getBlockIcon(slot.id)} alt="" className="pixelated h-5 w-5 sm:h-6 sm:w-6" draggable={false} />
                             )
                           ) : (
                             <span className="font-display text-[8px] text-white/20">{i === 9 ? 0 : i + 1}</span>
+                          )}
+                          {slot && toolSpec && (
+                            <DurabilityBar
+                              current={slot.durability ?? toolSpec.maxDurability}
+                              max={toolSpec.maxDurability}
+                              className="absolute bottom-1 left-1 right-1 h-[2px]"
+                            />
                           )}
                           {slot && slot.id < 200 && slot.id !== HAND && (
                             <span className="absolute bottom-0 right-0.5 font-display text-[8px] leading-none text-white text-shadow-hard">
@@ -598,7 +603,7 @@ export default function Inventory({
               {tab === 'trade' ? (
                 <TradePanel hud={hud} onSell={onSell} onBuy={onBuy} onSellTool={onSellTool} onSellGear={onSellGear} />
               ) : tab === 'anvil' ? (
-                <AnvilPanel hud={hud} onUpgrade={onUpgrade} onReinforce={onReinforce} />
+                <AnvilPanel hud={hud} onUpgrade={onUpgrade} onReinforce={onReinforce} onRepairTool={onRepairTool} />
               ) : (
                 <Recipes recipes={shownRecipes} craftable={craftable} hud={hud} onCraft={onCraft} />
               )}
@@ -623,11 +628,14 @@ function WorkbenchDismantlePanel({
   wbTarget: WorkbenchTarget;
   setWbTarget: (t: WorkbenchTarget) => void;
   onSalvageGear: (uid: string) => void;
-  onSalvageItem: (id: number) => void;
+  onSalvageItem: (id: number, instanceId?: number) => void;
 }) {
   // Resolve the currently placed item in the workbench slot
   let resolvedGear: Item | undefined;
   let resolvedItemId: number | null = null;
+  let resolvedItemInstanceId: number | undefined;
+  let resolvedItemDurability: number | undefined;
+  let resolvedItemMaxDurability: number | undefined;
   let ownedCount = 0;
 
   if (wbTarget?.kind === 'gear') {
@@ -640,10 +648,15 @@ function WorkbenchDismantlePanel({
       resolvedGear = hud.bagItems.find((b) => b.hid === wbTarget.id);
       if (resolvedGear) ownedCount = 1;
     } else {
-      const found = hud.inventory.find((x) => x.id === wbTarget.id);
+      const found = hud.inventory.find(
+        (x) => x.id === wbTarget.id && (wbTarget.instanceId === undefined || x.instanceId === wbTarget.instanceId),
+      );
       if (found && found.count > 0) {
         resolvedItemId = found.id;
-        ownedCount = found.count;
+        resolvedItemInstanceId = found.instanceId;
+        resolvedItemDurability = found.durability;
+        resolvedItemMaxDurability = found.maxDurability;
+        ownedCount = found.instanceId === undefined ? found.count : 1;
       }
     }
   }
@@ -667,15 +680,17 @@ function WorkbenchDismantlePanel({
       if (uid) setWbTarget({ kind: 'gear', uid });
     } else if (parts[0] === 'item') {
       const id = Number(parts[1]);
-      if (Number.isFinite(id) && id !== HAND) setWbTarget({ kind: 'item', id });
+      const instanceId = parts[2] ? Number(parts[2]) : undefined;
+      if (Number.isFinite(id) && id !== HAND) setWbTarget({ kind: 'item', id, instanceId });
     } else if (parts[0] === 'hotbar') {
       const id = Number(parts[1]);
+      const instanceId = parts[3] ? Number(parts[3]) : undefined;
       if (Number.isFinite(id) && id !== HAND) {
         if (isGearHotbarId(id)) {
           const g = hud.bagItems.find((b) => b.hid === id);
           if (g) setWbTarget({ kind: 'gear', uid: g.uid });
         } else {
-          setWbTarget({ kind: 'item', id });
+          setWbTarget({ kind: 'item', id, instanceId });
         }
       }
     }
@@ -689,8 +704,8 @@ function WorkbenchDismantlePanel({
     } else if (resolvedItemId !== null) {
       const info = getSalvageForItemId(resolvedItemId);
       const consumed = info ? Math.max(1, info.inputsUsed) : 1;
-      onSalvageItem(resolvedItemId);
-      if (ownedCount - consumed <= 0) {
+      onSalvageItem(resolvedItemId, resolvedItemInstanceId);
+      if (resolvedItemInstanceId !== undefined || ownedCount - consumed <= 0) {
         setWbTarget(null);
       }
     }
@@ -755,7 +770,16 @@ function WorkbenchDismantlePanel({
             ) : resolvedItemId !== null ? (
               <>
                 {resolvedItemId >= 200 ? (
-                  <span className="flex h-12 w-12 items-center justify-center">{toolIcon(resolvedItemId, 34).el}</span>
+                  <>
+                    <span className="flex h-12 w-12 items-center justify-center">{toolIcon(resolvedItemId, 34, resolvedItemDurability).el}</span>
+                    {resolvedItemMaxDurability !== undefined && (
+                      <DurabilityBar
+                        current={resolvedItemDurability ?? resolvedItemMaxDurability}
+                        max={resolvedItemMaxDurability}
+                        className="absolute bottom-1 left-2 right-2 h-[3px]"
+                      />
+                    )}
+                  </>
                 ) : (
                   <img
                     src={getBlockIcon(resolvedItemId)}
@@ -873,7 +897,9 @@ function Recipes({
         {recipes.map((r, i) => {
           const ready = craftable.has(r.key);
           const justCrafted = hud.lastCraft === r.key;
-          const [rName, rDesc] = recipeText(r.key, r.name, r.desc);
+          const [rName, rDesc] = r.toolId
+            ? [toolLabelForId(r.toolId), toolRecipeDesc(r.toolId)]
+            : recipeText(r.key, r.name, r.desc);
           const needsFire = r.kind === 'cook' && !ready && r.inputs.every(([id, n]) => (hud.inventory.find((x) => x.id === id)?.count ?? 0) >= n);
           return (
             <div
@@ -898,20 +924,16 @@ function Recipes({
               </span>
 
               <div className="flex w-11 shrink-0 items-center justify-center">
-                {r.out ? (
+                {r.toolId ? (
+                  <ToolSprite id={r.toolId} size={36} />
+                ) : r.out ? (
                   <img src={getBlockIcon(r.out[0])} alt="" className="pixelated h-9 w-9 drop-shadow-[0_2px_0_rgba(0,0,0,.6)]" draggable={false} />
                 ) : (
                   <span
                     className="flex h-9 w-9 items-center justify-center"
                     style={{ color: r.accent }}
                   >
-                    {r.kind === 'pickaxe' ? (
-                      <PickIcon size={26} style={{ color: r.accent }} />
-                    ) : r.kind === 'time' ? (
-                      <ClockGlyph />
-                    ) : (
-                      <HeartGlyph />
-                    )}
+                    {r.kind === 'time' ? <ClockGlyph /> : <HeartGlyph />}
                   </span>
                 )}
                 {r.out && r.out[1] > 1 && (
@@ -993,11 +1015,11 @@ function TradePanel({
   hud: HudState;
   onSell: (id: number) => void;
   onBuy: (i: number) => void;
-  onSellTool: (id: number) => void;
+  onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
   const sellable = hud.inventory.filter((it) => it.count > 0 && it.id < 200);
-  const tools = hud.inventory.filter((it) => it.id >= 200);
+  const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">
       <div>
@@ -1062,22 +1084,33 @@ function TradePanel({
         <div className="border-t border-white/10 pt-2">
           <div className="mb-1.5 font-display text-xs tracking-widest text-[#d98cff]">{t('sellGear')}</div>
           <div className="flex flex-col gap-1">
-            {tools.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => onSellTool(s.id)}
-                className="notch flex items-center justify-between px-2 py-1 transition-transform duration-100 hover:-translate-y-0.5 hover:brightness-125"
-                style={{ background: 'linear-gradient(180deg,#243129,#121a16)', border: '2px solid #06090a' }}
-              >
-                <span className="font-display text-[11px] text-white/75">
-                  {toolLabel(s.id)}
-                  {s.count > 1 ? ` ×${s.count}` : ''}
-                </span>
-                <span className="font-display text-[10px] text-torch">
-                  +{toolSellPrice(s.id)} {t('pts')}
-                </span>
-              </button>
-            ))}
+            {tools.map((s) => {
+              const spec = getToolSpec(s.id);
+              return (
+                <button
+                  key={`${s.id}-${s.instanceId ?? 'stack'}`}
+                  onClick={() => onSellTool(s.id, s.instanceId)}
+                  className="notch flex items-center gap-2 px-2 py-1 transition-transform duration-100 hover:-translate-y-0.5 hover:brightness-125"
+                  style={{ background: 'linear-gradient(180deg,#243129,#121a16)', border: '2px solid #06090a' }}
+                >
+                  {spec ? <ToolSprite id={s.id} size={24} durability={s.durability} /> : toolIcon(s.id, 20).el}
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate font-display text-[11px] text-white/75">{toolLabel(s.id)}</span>
+                    {spec && (
+                      <DurabilityBar
+                        current={s.durability ?? spec.maxDurability}
+                        max={spec.maxDurability}
+                        className="mt-1 h-[3px] w-full"
+                        title={`${s.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}`}
+                      />
+                    )}
+                  </span>
+                  <span className="shrink-0 font-display text-[10px] text-torch">
+                    +{toolSellPrice(s.id)} {t('pts')}
+                  </span>
+                </button>
+              );
+            })}
             {hud.bagItems.map((it) => (
               <button
                 key={it.uid}
@@ -1131,13 +1164,16 @@ function AnvilPanel({
   hud,
   onUpgrade,
   onReinforce,
+  onRepairTool,
 }: {
   hud: HudState;
   onUpgrade: (uid: string) => void;
   onReinforce: (uid: string) => void;
+  onRepairTool: (instanceId: number) => void;
 }) {
   const netherite = hud.inventory.find((x) => x.id === 51)?.count ?? 0;
   const iron = hud.inventory.find((x) => x.id === 6)?.count ?? 0;
+  const tools = hud.inventory.filter((it) => getToolSpec(it.id) !== null);
   const allGear: Array<{ item: Item; equipped: boolean }> = [
     ...Object.values(hud.equipped)
       .filter((it): it is Item => !!it)
@@ -1154,9 +1190,58 @@ function AnvilPanel({
           <span className="text-white/50">{matName('IRON')} ×{iron}</span>
         </div>
       </div>
-      {allGear.length === 0 && (
+      {allGear.length === 0 && tools.length === 0 && (
         <div className="sunken notch px-4 py-8 text-center text-[11px] tracking-wide text-white/35">—</div>
       )}
+      {tools.map((item) => {
+        const spec = getToolSpec(item.id)!;
+        const current = item.durability ?? spec.maxDurability;
+        const repairCost = toolRepairCost(item.id, current);
+        const resourceHave = spec.repairResource === null
+          ? 0
+          : (hud.inventory.find((entry) => entry.id === spec.repairResource)?.count ?? 0);
+        const canRepair = spec.maxDurability > 0 && current < spec.maxDurability && repairCost > 0 && resourceHave >= repairCost;
+        return (
+          <div
+            key={`repair-${item.id}-${item.instanceId ?? 'stack'}`}
+            className="notch flex items-center gap-2.5 px-2.5 py-2"
+            style={{
+              background: 'linear-gradient(90deg, rgba(138,106,88,.18), rgba(255,255,255,.02) 65%)',
+              borderLeft: '4px solid #8a6a58',
+            }}
+          >
+            <ToolSprite id={item.id} size={30} durability={current} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-display text-sm text-white/80">{toolLabel(item.id)}</div>
+              <div className="mt-1 flex items-center gap-2">
+                <DurabilityBar current={current} max={spec.maxDurability} className="h-[4px] flex-1" />
+                <span className="shrink-0 font-display text-[9px] text-white/45">
+                  {spec.maxDurability > 0 ? `${current}/${spec.maxDurability}` : t('indestructible')}
+                </span>
+              </div>
+              {spec.repairResource !== null && (
+                <div className="mt-0.5 font-display text-[9px] text-white/35">
+                  {t('repairCost')}: {repairCost || '—'} {blockName(spec.repairResource, BLOCKS[spec.repairResource]?.name ?? '')} · {resourceHave}
+                </div>
+              )}
+            </div>
+            {spec.maxDurability > 0 && item.instanceId !== undefined && (
+              <button
+                disabled={!canRepair}
+                onClick={() => onRepairTool(item.instanceId!)}
+                className="btn-mc notch shrink-0 px-2.5 py-2 font-display text-[10px] leading-none"
+                style={{
+                  background: canRepair ? 'linear-gradient(180deg,#f4b942,#a96e1e)' : 'linear-gradient(180deg,#26322b,#161d19)',
+                  color: canRepair ? '#0a0e0c' : '#4c5b52',
+                }}
+                title={`${t('toolRepair')} · ${repairCost} ${spec.repairResource === null ? '' : blockName(spec.repairResource, BLOCKS[spec.repairResource]?.name ?? '')}`}
+              >
+                {t('toolRepair')} · {repairCost || '—'}
+              </button>
+            )}
+          </div>
+        );
+      })}
       {allGear.map(({ item, equipped }) => {
         const rar = RARITY[item.rarity];
         const canNeth = item.material === 'diamond' && netherite >= 1;
