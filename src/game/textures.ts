@@ -1115,6 +1115,23 @@ function drawTile(ctx: Ctx, index: number) {
       for (let i = 0; i < 14; i++) ctx.clearRect(ox + Math.floor(cherryHoles() * 15), oy + Math.floor(cherryHoles() * 15), 1, 1);
       break;
     }
+    case T.jacarandaLeaves: {
+      // jacaranda canopy: layered violet blossoms with a few dark green leaf gaps
+      speckle(ctx, ox, oy, '#8052a4', 947, 24);
+      for (let i = 0; i < 34; i++) {
+        const x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+        px(ctx, ox, oy, x, y, 1 + (rand() < 0.2 ? 1 : 0), 1,
+          rand() < 0.55 ? '#b689d2' : rand() < 0.5 ? '#603a82' : '#9563bc');
+      }
+      for (const [x, y] of [[2, 4], [10, 2], [6, 9], [12, 12], [3, 13]]) {
+        px(ctx, ox, oy, x, y, 2, 2, '#d9a9e8');
+        px(ctx, ox, oy, x, y, 1, 1, '#f0c4ef');
+      }
+      for (const [x, y] of [[4, 8], [11, 6], [8, 13]]) px(ctx, ox, oy, x, y, 2, 1, '#557d3b');
+      const jacarandaHoles = mulberry32(953);
+      for (let i = 0; i < 14; i++) ctx.clearRect(ox + Math.floor(jacarandaHoles() * 15), oy + Math.floor(jacarandaHoles() * 15), 1, 1);
+      break;
+    }
     case T.cactusSide: {
       // vertical ribbed bands with white spine clusters
       speckle(ctx, ox, oy, '#559c3c', 911, 14);

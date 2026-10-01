@@ -116,6 +116,7 @@ export const CHERRY_LEAVES = 104;
 export const FLOWER_PINK = 105;
 export const FLOWER_PURPLE = 106;
 export const FLOWER_WHITE = 107;
+export const JACARANDA_LEAVES = 108;
 
 export const isOreBlock = (id: number) =>
   (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
@@ -135,7 +136,8 @@ export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || 
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
   id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES ||
-  id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES;
+  id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES ||
+  id === JACARANDA_LEAVES;
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 
 export const isResource = (id: number) =>
@@ -202,6 +204,7 @@ export function blockClass(id: number): BlockClass {
     case SNOW_LEAVES:
     case AUTUMN_LEAVES:
     case CHERRY_LEAVES:
+    case JACARANDA_LEAVES:
     case DOOR_WOOD:
     case FENCE_WOOD:
     case CAMPFIRE:
@@ -336,6 +339,7 @@ export const T = {
   flowerPink: 118,
   flowerPurple: 119,
   flowerWhite: 120,
+  jacarandaLeaves: 121,
 };
 
 export type BlockDef = {
@@ -837,6 +841,7 @@ export const BLOCKS: BlockDef[] = [
   d({ id: FLOWER_PINK, name: 'Pink Flower', side: T.flowerPink, hardness: 0.1, score: 3, solid: false, tint: [245, 132, 176] }),
   d({ id: FLOWER_PURPLE, name: 'Purple Flower', side: T.flowerPurple, hardness: 0.1, score: 3, solid: false, tint: [161, 113, 224] }),
   d({ id: FLOWER_WHITE, name: 'White Daisy', side: T.flowerWhite, hardness: 0.1, score: 3, solid: false, tint: [244, 240, 224] }),
+  d({ id: JACARANDA_LEAVES, name: 'Jacaranda Blossoms', side: T.jacarandaLeaves, hardness: 0.22, score: 4, drop: LEAVES, tint: [164, 114, 194] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
