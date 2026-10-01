@@ -97,7 +97,10 @@ import {
   isResource,
   isSolid,
   isTreasureChest,
+  isOpenChest,
   isUnderwaterChest,
+  baseChestId,
+  CHEST_OPEN_OFFSET,
 } from './blocks';
 import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
@@ -155,7 +158,14 @@ const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
 ) as Record<AffixId, Parameters<typeof t>[0]>;
 const RARITY_COLORS = RARITY.map((r) => r.color);
-import { buildChunkGeometry } from './mesher';
+import {
+  buildChunkGeometry,
+  chestLidGeometry,
+  CHEST_LID_HINGE_Y,
+  CHEST_LID_HINGE_Z,
+  CHEST_LID_OPEN_ANGLE,
+  type ChestLidSpec,
+} from './mesher';
 import { crackTileUV, getAtlasTexture, getCloudTexture, getCrackTexture, getSkyTexture, tileUV } from './textures';
 import { mulberry32, seedNoise } from './noise';
 import { initAudio, requestMusic, resumeAudio, sfx, stopMusic, suspendAudio } from './audio';
@@ -313,6 +323,10 @@ export class Engine {
   private waterMeshes = new Map<number, THREE.Mesh>();
   private decorMat!: THREE.MeshBasicMaterial;
   private decorMeshes = new Map<number, THREE.Mesh>();
+  /** hinged chest lids, kept per chunk next to the meshes they belong to */
+  private chestLids = new Map<number, Array<{ cell: string; group: THREE.Group }>>();
+  private chestLidByCell = new Map<string, THREE.Group>();
+  private chestLidAnims: Array<{ group: THREE.Group; t: number; dur: number; keys: Array<[number, number]> }> = [];
   /** horizontal draw distance in blocks (auto-tuned by the fps watchdog) */
   private renderDist = 132;
   private maxRenderDist = 132;
@@ -1754,6 +1768,7 @@ if (tpClipActive > 0.5) {
           this.scene.remove(mesh);
           mesh.geometry.dispose();
           this.decorMeshes.delete(key);
+          this.clearChestLids(key);
         }
       }
       for (const key of this.meshedEmpty) {
@@ -1797,6 +1812,78 @@ if (tpClipActive > 0.5) {
       const [cx, cz] = keyToChunk(key);
       this.buildChunk(cx, cz);
       if (performance.now() - t0 > 4) break; // ~4ms budget per frame
+    }
+  }
+
+  private static chestCellKey(x: number, y: number, z: number) {
+    return `${x},${y},${z}`;
+  }
+
+  /** drop one chunk's lid meshes; the geometry itself is shared per chest family */
+  private clearChestLids(key: number) {
+    const list = this.chestLids.get(key);
+    if (!list) return;
+    for (const entry of list) {
+      this.scene.remove(entry.group);
+      if (this.chestLidByCell.get(entry.cell) === entry.group) this.chestLidByCell.delete(entry.cell);
+    }
+    this.chestLids.delete(key);
+  }
+
+  private clearAllChestLids() {
+    for (const key of [...this.chestLids.keys()]) this.clearChestLids(key);
+    this.chestLidByCell.clear();
+    this.chestLidAnims.length = 0;
+  }
+
+  /** build the swinging lid meshes for a freshly meshed chunk */
+  private spawnChestLids(key: number, specs: ChestLidSpec[]) {
+    this.clearChestLids(key);
+    if (!specs.length) return;
+    const list: Array<{ cell: string; group: THREE.Group }> = [];
+    for (const spec of specs) {
+      const group = new THREE.Group();
+      group.add(new THREE.Mesh(chestLidGeometry(spec.base), this.decorMat));
+      group.position.set(spec.x + 0.5, spec.y + CHEST_LID_HINGE_Y, spec.z + 0.5 + CHEST_LID_HINGE_Z);
+      group.rotation.x = spec.open ? CHEST_LID_OPEN_ANGLE : 0;
+      this.scene.add(group);
+      const cell = Engine.chestCellKey(spec.x, spec.y, spec.z);
+      this.chestLidByCell.set(cell, group);
+      list.push({ cell, group });
+    }
+    this.chestLids.set(key, list);
+  }
+
+  /** swing one chest lid; `keys` are [fraction of the swing, rotation] pairs */
+  private swingChestLid(x: number, y: number, z: number, from: number, keys: Array<[number, number]>, dur: number) {
+    const group = this.chestLidByCell.get(Engine.chestCellKey(x, y, z));
+    if (!group) return;
+    group.rotation.x = from;
+    this.chestLidAnims = this.chestLidAnims.filter((anim) => anim.group !== group);
+    this.chestLidAnims.push({ group, t: 0, dur, keys });
+  }
+
+  private updateChestLids(dt: number) {
+    if (!this.chestLidAnims.length) return;
+    for (let i = this.chestLidAnims.length - 1; i >= 0; i--) {
+      const anim = this.chestLidAnims[i];
+      anim.t += dt;
+      const k = Math.min(1, anim.t / anim.dur);
+      let from = anim.keys[0];
+      for (let s = 1; s < anim.keys.length; s++) {
+        const to = anim.keys[s];
+        if (k <= to[0]) {
+          const local = (k - from[0]) / Math.max(1e-4, to[0] - from[0]);
+          const eased = local * local * (3 - 2 * local);
+          anim.group.rotation.x = from[1] + (to[1] - from[1]) * eased;
+          break;
+        }
+        from = to;
+      }
+      if (k >= 1) {
+        anim.group.rotation.x = anim.keys[anim.keys.length - 1][1];
+        this.chestLidAnims.splice(i, 1);
+      }
     }
   }
 
@@ -1856,7 +1943,8 @@ if (tpClipActive > 0.5) {
       this.scene.add(mesh);
       this.decorMeshes.set(key, mesh);
     }
-    if (!geo.solid && !geo.cutout && !geo.water && !geo.decor) this.meshedEmpty.add(key);
+    this.spawnChestLids(key, geo.chestLids);
+    if (!geo.solid && !geo.cutout && !geo.water && !geo.decor && !geo.chestLids.length) this.meshedEmpty.add(key);
     else this.meshedEmpty.delete(key);
   }
 
@@ -1888,6 +1976,13 @@ if (tpClipActive > 0.5) {
       const dx = cx * CHUNK + CHUNK / 2 - cam.x;
       const dz = cz * CHUNK + CHUNK / 2 - cam.z;
       m.visible = dx * dx + dz * dz < far;
+    }
+    for (const [key, list] of this.chestLids) {
+      const [cx, cz] = keyToChunk(key);
+      const dx = cx * CHUNK + CHUNK / 2 - cam.x;
+      const dz = cz * CHUNK + CHUNK / 2 - cam.z;
+      const near = dx * dx + dz * dz < far;
+      for (const entry of list) entry.group.visible = near;
     }
   }
 
@@ -2523,6 +2618,7 @@ if (tpClipActive > 0.5) {
     wipe(this.cutoutMeshes);
     wipe(this.waterMeshes);
     wipe(this.decorMeshes);
+    this.clearAllChestLids();
     this.meshedEmpty.clear();
     this.dirtyChunks.clear();
   }
@@ -2702,6 +2798,7 @@ if (tpClipActive > 0.5) {
       m.geometry.dispose();
     }
     this.decorMeshes.clear();
+    this.clearAllChestLids();
     this.meshedEmpty.clear();
     this.queueWorldGen(nextSeed);
   }
@@ -2962,6 +3059,7 @@ if (tpClipActive > 0.5) {
     this.updateHiveFx(dt);
     this.updateArrows(dt);
     this.updateFallingTrees(dt);
+    this.updateChestLids(dt);
     this.updateBlockGravity();
     this.growVines(dt);
     this.updateFluids();
@@ -4580,7 +4678,22 @@ if (tpClipActive > 0.5) {
   /** Chest contents are seed-and-position deterministic, so an unopened chest needs no sidecar save data. */
   private openTreasureChest(x: number, y: number, z: number, id: number) {
     if (this.world.get(x, y, z) !== id || !isTreasureChest(id)) return false;
-    const underwater = isUnderwaterChest(id);
+    const base = baseChestId(id);
+    const [br, bg, bb] = BLOCKS[base].tint;
+    const bannerColor = `rgb(${br}, ${bg}, ${bb})`;
+    // A looted chest stays in the world: it creaks its lid and shows an empty interior.
+    if (isOpenChest(id)) {
+      this.swingChestLid(
+        x, y, z, CHEST_LID_OPEN_ANGLE,
+        [[0, CHEST_LID_OPEN_ANGLE], [0.3, CHEST_LID_OPEN_ANGLE + 0.2], [1, CHEST_LID_OPEN_ANGLE]],
+        0.5,
+      );
+      this.pushBanner(t('chestEmpty'), blockName(base, BLOCKS[base].name), bannerColor);
+      sfx.ui(false);
+      this.syncHud(true);
+      return true;
+    }
+    const underwater = isUnderwaterChest(base);
     const seed = (this.world.seed ^ Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791) ^ Math.imul(id, 2654435761)) >>> 0;
     const rand = mulberry32(seed);
     const commonPool = underwater
@@ -4644,8 +4757,10 @@ if (tpClipActive > 0.5) {
       loot.set(oreId, (loot.get(oreId) ?? 0) + oreCount);
     }
 
-    this.world.set(x, y, z, AIR);
+    // the chest survives as its opened variant, so the looted state rides along in world saves
+    this.world.set(x, y, z, base + CHEST_OPEN_OFFSET);
     this.rebuildAt(x, z);
+    this.swingChestLid(x, y, z, 0, [[0, 0], [1, CHEST_LID_OPEN_ANGLE]], 0.62);
     const summary: string[] = [];
     for (const [rewardId, count] of loot) {
       this.inventory.set(rewardId, (this.inventory.get(rewardId) ?? 0) + count);
@@ -4669,9 +4784,8 @@ if (tpClipActive > 0.5) {
       summary.push(blockName(NETHERITE_INGOT, BLOCKS[NETHERITE_INGOT].name));
     }
 
-    const [r, g, b] = BLOCKS[id].tint;
-    this.pushBanner(t('chestOpened'), summary.join(' · '), `rgb(${r}, ${g}, ${b})`);
-    this.burst(x + 0.5, y + 0.4, z + 0.5, BLOCKS[id].tint, 14, 2.2);
+    this.pushBanner(t('chestOpened'), summary.join(' · '), bannerColor);
+    this.burst(x + 0.5, y + 0.4, z + 0.5, BLOCKS[base].tint, 14, 2.2);
     this.target = null;
     sfx.upgrade();
     this.syncHotbar(true);
@@ -8459,7 +8573,9 @@ if (tpClipActive > 0.5) {
         ? {
             id: targetBlock.id,
             name: isTreasureChest(targetBlock.id)
-              ? `${blockName(targetBlock.id, BLOCKS[targetBlock.id].name)} · ${t('chestOpenHint')}`
+              ? `${blockName(baseChestId(targetBlock.id), BLOCKS[baseChestId(targetBlock.id)].name)} · ${
+                  isOpenChest(targetBlock.id) ? t('chestEmptyHint') : t('chestOpenHint')
+                }`
               : blockName(targetBlock.id, BLOCKS[targetBlock.id].name),
           }
         : null,

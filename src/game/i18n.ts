@@ -135,6 +135,8 @@ const EN = {
   looted: 'LOOTED',
   chestOpened: 'TREASURE FOUND',
   chestOpenHint: 'E · OPEN',
+  chestEmptyHint: 'E · EMPTY',
+  chestEmpty: 'ALREADY LOOTED',
   // affixes
   aff_fire: 'FLAME',
   aff_fireD: 'Ignites enemies · burn damage each second',
@@ -441,6 +443,8 @@ const RU: Dict = {
   looted: 'ДОБЫЧА',
   chestOpened: 'НАЙДЕНО СОКРОВИЩЕ',
   chestOpenHint: 'E · ОТКРЫТЬ',
+  chestEmptyHint: 'E · ПУСТО',
+  chestEmpty: 'УЖЕ РАЗГРАБЛЕНО',
   aff_fire: 'ПЛАМЯ',
   aff_fireD: 'Поджигает врагов · урон огнём каждую секунду',
   aff_frost: 'МОРОЗ',
@@ -735,6 +739,8 @@ const FR: Dict = {
   looted: 'BUTIN',
   chestOpened: 'TRÉSOR DÉCOUVERT',
   chestOpenHint: 'E · OUVRIR',
+  chestEmptyHint: 'E · VIDE',
+  chestEmpty: 'DÉJÀ PILLÉ',
   aff_fire: 'FLAMME',
   aff_fireD: 'Enflamme les ennemis · dégâts de brûlure chaque seconde',
   aff_frost: 'GIVRE',
@@ -1029,6 +1035,8 @@ const DE: Dict = {
   looted: 'GEPLÜNDERT',
   chestOpened: 'SCHATZ GEFUNDEN',
   chestOpenHint: 'E · ÖFFNEN',
+  chestEmptyHint: 'E · LEER',
+  chestEmpty: 'SCHON GEPLÜNDERT',
   aff_fire: 'FLAMME',
   aff_fireD: 'Zündet Feinde an · Verbrennungsschaden pro Sekunde',
   aff_frost: 'FROST',
@@ -1558,6 +1566,8 @@ const BLOCKS_RU: Record<number, string> = {
   103: 'Осенняя листва', 104: 'Листва сакуры', 105: 'Розовый цветок', 106: 'Сиреневый цветок', 107: 'Белая ромашка', 108: 'Листва жакаранды', 109: 'Незеритовый слиток',
   110: 'Сундук с сокровищами равнин', 111: 'Ледяной сундук с сокровищами', 112: 'Янтарный сундук с сокровищами',
   113: 'Оплетённый лианами сундук', 114: 'Пустынный сундук с сокровищами', 115: 'Сундук каньона', 116: 'Сундук с углями', 117: 'Затонувший сундук с ракушками',
+  118: 'Дубовый сундук (открыт)', 119: 'Ледяной сундук (открыт)', 120: 'Янтарный сундук (открыт)', 121: 'Сундук в лианах (открыт)',
+  122: 'Пустынный сундук (открыт)', 123: 'Сундук каньона (открыт)', 124: 'Сундук с углями (открыт)', 125: 'Затонувший сундук (открыт)',
   68: 'Верстак',
 };
 
@@ -1587,6 +1597,8 @@ const BLOCKS_FR: Record<number, string> = {
   103: 'Feuillage automnal', 104: 'Fleurs de cerisier', 105: 'Fleur rose', 106: 'Fleur violette', 107: 'Marguerite blanche', 108: 'Feuillage de jacaranda', 109: 'Lingot de netherite',
   110: 'Coffre des plaines', 111: 'Coffre givré', 112: 'Coffre ambré', 113: 'Coffre envahi de lianes',
   114: 'Coffre du désert', 115: 'Coffre du canyon', 116: 'Coffre de braises', 117: 'Coffre marin incrusté de coquillages',
+  118: 'Coffre en chêne (ouvert)', 119: 'Coffre givré (ouvert)', 120: 'Coffre ambré (ouvert)', 121: 'Coffre envahi de lianes (ouvert)',
+  122: 'Coffre du désert (ouvert)', 123: 'Coffre du canyon (ouvert)', 124: 'Coffre de braises (ouvert)', 125: 'Coffre marin (ouvert)',
   68: 'Établi',
 };
 
@@ -1616,6 +1628,8 @@ const BLOCKS_DE: Record<number, string> = {
   103: 'Herbstlaub', 104: 'Kirschblüten', 105: 'Rosa Blume', 106: 'Violette Blume', 107: 'Weiße Gänseblümchen', 108: 'Jacarandablätter', 109: 'Netheritbarren',
   110: 'Schatztruhe der Ebene', 111: 'Frostige Schatztruhe', 112: 'Bernstein-Schatztruhe', 113: 'Überwucherte Schatztruhe',
   114: 'Wüsten-Schatztruhe', 115: 'Schatztruhe des Canyons', 116: 'Glut-Schatztruhe', 117: 'Versunkene Muscheltruhe',
+  118: 'Eichentruhe (offen)', 119: 'Frostige Truhe (offen)', 120: 'Bernstein-Truhe (offen)', 121: 'Überwucherte Truhe (offen)',
+  122: 'Wüstentruhe (offen)', 123: 'Canyontruhe (offen)', 124: 'Gluttruhe (offen)', 125: 'Muscheltruhe (offen)',
   68: 'Werkbank',
 };
 

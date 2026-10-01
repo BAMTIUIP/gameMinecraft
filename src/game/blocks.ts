@@ -139,8 +139,25 @@ export const CHEST_BY_BIOME: Record<ChestBiome, number> = {
   canyon: CHEST_CANYON,
   volcanic: CHEST_VOLCANIC,
 };
-export const isTreasureChest = (id: number) => id >= CHEST_PLAINS && id <= CHEST_UNDERWATER;
-export const isUnderwaterChest = (id: number) => id === CHEST_UNDERWATER;
+/**
+ * A looted chest swaps its block id for the matching "open" variant, so the
+ * opened state lives in the chunk grid and therefore rides along in world saves.
+ */
+export const CHEST_PLAINS_OPEN = 118;
+export const CHEST_WINTER_OPEN = 119;
+export const CHEST_AUTUMN_OPEN = 120;
+export const CHEST_JUNGLE_OPEN = 121;
+export const CHEST_DESERT_OPEN = 122;
+export const CHEST_CANYON_OPEN = 123;
+export const CHEST_VOLCANIC_OPEN = 124;
+export const CHEST_UNDERWATER_OPEN = 125;
+/** distance between a closed chest id and its opened counterpart */
+export const CHEST_OPEN_OFFSET = CHEST_PLAINS_OPEN - CHEST_PLAINS;
+export const isTreasureChest = (id: number) => id >= CHEST_PLAINS && id <= CHEST_UNDERWATER_OPEN;
+export const isOpenChest = (id: number) => id >= CHEST_PLAINS_OPEN && id <= CHEST_UNDERWATER_OPEN;
+export const isUnderwaterChest = (id: number) => id === CHEST_UNDERWATER || id === CHEST_UNDERWATER_OPEN;
+/** closed ↔ open counterpart of a treasure chest id */
+export const baseChestId = (id: number) => (isOpenChest(id) ? id - CHEST_OPEN_OFFSET : id);
 
 export const isOreBlock = (id: number) =>
   (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
@@ -876,6 +893,15 @@ export const BLOCKS: BlockDef[] = [
   d({ id: CHEST_CANYON, name: 'Redstone Treasure Chest', side: T.sandstoneSide, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [155, 73, 48] }),
   d({ id: CHEST_VOLCANIC, name: 'Ember Treasure Chest', side: T.volcanicStone, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [74, 59, 61] }),
   d({ id: CHEST_UNDERWATER, name: 'Barnacled Sea Chest', side: T.netherite, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [75, 121, 107] }),
+  // ---- looted states: same chest, lid hinged open, contents gone ----
+  d({ id: CHEST_PLAINS_OPEN, name: 'Oak Treasure Chest (open)', side: T.planks, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [155, 91, 43] }),
+  d({ id: CHEST_WINTER_OPEN, name: 'Frostbound Treasure Chest (open)', side: T.ice, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [104, 157, 184] }),
+  d({ id: CHEST_AUTUMN_OPEN, name: 'Amber Treasure Chest (open)', side: T.autumnLeaves, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [190, 91, 39] }),
+  d({ id: CHEST_JUNGLE_OPEN, name: 'Overgrown Treasure Chest (open)', side: T.leaves, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [71, 122, 69] }),
+  d({ id: CHEST_DESERT_OPEN, name: 'Sun-baked Treasure Chest (open)', side: T.sandstoneSide, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [204, 150, 67] }),
+  d({ id: CHEST_CANYON_OPEN, name: 'Redstone Treasure Chest (open)', side: T.sandstoneSide, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [155, 73, 48] }),
+  d({ id: CHEST_VOLCANIC_OPEN, name: 'Ember Treasure Chest (open)', side: T.volcanicStone, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [74, 59, 61] }),
+  d({ id: CHEST_UNDERWATER_OPEN, name: 'Barnacled Sea Chest (open)', side: T.netherite, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [75, 121, 107] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
