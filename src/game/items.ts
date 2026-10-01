@@ -5,7 +5,7 @@ import { yaServerTime } from './yandex';
 export type Slot = 'head' | 'chest' | 'legs' | 'feet' | 'hands' | 'offhand';
 export const SLOTS: Slot[] = ['head', 'chest', 'legs', 'feet', 'hands', 'offhand'];
 
-export type AffixId = 'fire' | 'frost' | 'thorns' | 'vamp' | 'swift' | 'tough' | 'greed' | 'miner' | 'magnet';
+export type AffixId = 'fire' | 'frost' | 'thorns' | 'vamp' | 'swift' | 'tough' | 'greed' | 'miner' | 'magnet' | 'reach';
 
 export type Affix = {
   id: AffixId;
@@ -29,6 +29,7 @@ export const AFFIXES: Record<AffixId, Affix> = {
   greed: { id: 'greed', nameKey: 'aff_greed', descKey: 'aff_greedD', color: '#f7d34b', min: 8, max: 30, unit: '%' },
   miner: { id: 'miner', nameKey: 'aff_miner', descKey: 'aff_minerD', color: '#5fe8dc', min: 8, max: 28, unit: '%' },
   magnet: { id: 'magnet', nameKey: 'aff_magnet', descKey: 'aff_magnetD', color: '#8fb8ff', min: 3, max: 8, unit: 'm' },
+  reach: { id: 'reach', nameKey: 'aff_reach', descKey: 'aff_reachD', color: '#f0b45a', min: 0.35, max: 0.9, unit: 'm' },
 };
 
 export type Rarity = 0 | 1 | 2 | 3;
@@ -108,7 +109,9 @@ export function makeItem(slot: Slot, material: Material, rarity: Rarity, rand: (
   const affixes: Array<{ id: AffixId; value: number }> = [];
   if (!crafted) {
     const count = rarity === 0 ? (rand() < 0.4 ? 1 : 0) : rarity === 1 ? 1 : rarity === 2 ? 2 : 3;
-    const pool = Object.keys(AFFIXES) as AffixId[];
+    const basePool = (Object.keys(AFFIXES) as AffixId[]).filter((id) => id !== 'reach');
+    // Extra interaction reach is a rare armour perk, like magnetism: it only rolls on rare/mythic gear.
+    const pool = rarity >= 2 ? ([...basePool, 'reach'] as AffixId[]) : basePool;
     // gauntlets favour the offensive rolls — that's the "fire gloves" fantasy
     const weighted = slot === 'hands' ? ([...pool, 'fire', 'fire', 'frost', 'vamp'] as AffixId[]) : pool;
     const used = new Set<AffixId>();
@@ -152,6 +155,7 @@ export type Stats = {
   greed: number;
   miner: number;
   magnet: number;
+  reach: number;
 };
 
 export const EMPTY_STATS: Stats = {
@@ -165,6 +169,7 @@ export const EMPTY_STATS: Stats = {
   greed: 0,
   miner: 0,
   magnet: 0,
+  reach: 0,
 };
 
 export function computeStats(equipped: Partial<Record<Slot, Item>>): Stats {
@@ -202,6 +207,9 @@ export function computeStats(equipped: Partial<Record<Slot, Item>>): Stats {
           break;
         case 'magnet':
           s.magnet += a.value;
+          break;
+        case 'reach':
+          s.reach += a.value;
           break;
       }
     }

@@ -88,7 +88,7 @@ import {
   isResource,
   isSolid,
 } from './blocks';
-import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk } from './world';
+import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
   HAND,
   RECIPES,
@@ -186,6 +186,7 @@ export type HudState = {
   anvilNear: boolean;
   workbenchNear: boolean;
   sandbox: boolean;
+  endless: boolean;
   swordTier: number;
   equipped: Partial<Record<Slot, Item>>;
   bagItems: Item[];
@@ -225,11 +226,29 @@ const WALK = 4.6;
 const SPRINT = 7.1;
 const PLAYER_HALF = 0.3;
 const PLAYER_HEIGHT = 1.8;
+const CRAWL_HEIGHT = 0.72;
+const CRAWL_HALF_WIDTH = 0.33;
+const CRAWL_HALF_LENGTH = 0.96;
+const CRAWL_BODY_CENTER = 0.96;
 const EYE = 1.62;
-const REACH = 5.6;
+const BASE_INTERACTION_REACH = 1.5;
+const MAX_INTERACTION_REACH = 4.5;
+const CLOCK_DAWN_START = 0.22;
+const CLOCK_DAY_START = 0.34;
+const CLOCK_DUSK_START = 0.76;
+const CLOCK_NIGHT_START = 0.88;
+const MENU_SURVIVAL_CLOCK = 0.04;
+const MENU_EXPLORER_CLOCK = 0.48;
+const SURVIVAL_START_CLOCK = CLOCK_DAY_START + 0.01;
+const DAWN_SECONDS = 95;
+const DAY_SECONDS = 340;
+const FIRST_SURVIVAL_DAY_SECONDS = 480;
+const DUSK_SECONDS = 95;
+const NIGHT_SECONDS = 95;
 
 type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
-type Particle = { smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
+type WeatherKind = 'clear' | 'rain' | 'snow';
+type Particle = { weather?: Exclude<WeatherKind, 'clear'>; smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
 type Drop = {
   active: boolean;
   id: number;
@@ -263,8 +282,8 @@ export class Engine {
   private world = new World(1);
   private chunkMeshes = new Map<number, THREE.Mesh>();
   private cutoutMeshes = new Map<number, THREE.Mesh>();
-  private material!: THREE.MeshBasicMaterial;
-  private cutoutMat!: THREE.MeshBasicMaterial;
+  private material!: THREE.MeshLambertMaterial;
+  private cutoutMat!: THREE.MeshLambertMaterial;
   private waterMat!: THREE.MeshBasicMaterial;
   private waterMeshes = new Map<number, THREE.Mesh>();
   private decorMat!: THREE.MeshBasicMaterial;
@@ -283,6 +302,7 @@ export class Engine {
   }
 
   private fx!: HTMLDivElement;
+  private sunGlare!: HTMLDivElement;
   private popups: Popup[] = [];
   private particles: Particle[] = [];
   private pMesh!: THREE.InstancedMesh;
@@ -349,7 +369,6 @@ export class Engine {
   private deathCause: HudState['deathCause'] = null;
   // --- world clock / mobs / gear ---
   survival = true;
-  private dayLen = 190;
   private clock = 0.28;
   private daylight = 1;
   private mobSys!: MobSystem;
@@ -359,6 +378,8 @@ export class Engine {
   private kills = 0;
   private killedBy: string | null = null;
   private wasNight = false;
+  private survivalNight = 0;
+  private firstSurvivalDay = false;
   private swordTier = -1;
   private equipped: Partial<Record<Slot, Item>> = {};
   private bagItems: Item[] = [];
@@ -366,9 +387,58 @@ export class Engine {
   private attackCd = 0;
   private sunLight!: THREE.DirectionalLight;
   private ambLight!: THREE.AmbientLight;
+  private skyMesh!: THREE.Mesh;
   private skyMat!: THREE.MeshBasicMaterial;
+  private sunDir = new THREE.Vector3(0, 1, 0);
   private sunMesh!: THREE.Mesh;
-  private moonMesh!: THREE.Mesh;
+  private sunHaloMat!: THREE.MeshBasicMaterial;
+  private moonMesh!: THREE.Object3D;
+  private starMat!: THREE.PointsMaterial;
+  private stars!: THREE.Points;
+  private thirdPerson = false;
+  private thirdPersonCam = new THREE.Vector3();
+  private thirdPersonFocus = new THREE.Vector3();
+  private thirdPersonCamReady = false;
+  private playerAvatar!: THREE.Group;
+  private avatarHead: THREE.Object3D | null = null;
+  private avatarLeftArm: THREE.Object3D | null = null;
+  private avatarRightArm: THREE.Object3D | null = null;
+  private avatarLeftLeg: THREE.Object3D | null = null;
+  private avatarRightLeg: THREE.Object3D | null = null;
+  private avatarHeldRoot!: THREE.Group;
+  private avatarHeldPick!: THREE.Group;
+  private avatarHeldAxe!: THREE.Group;
+  private avatarHeldSword!: THREE.Group;
+  private avatarHeldShovel!: THREE.Group;
+  private avatarHeldBow!: THREE.Group;
+  private avatarHeldTorch!: THREE.Group;
+  private avatarHeldBlock!: THREE.Mesh;
+  private avatarHeldPickMats: THREE.MeshLambertMaterial[] = [];
+  private avatarHeldSwordMat!: THREE.MeshLambertMaterial;
+  private avatarHeldAxeHeadMat!: THREE.MeshLambertMaterial;
+  private avatarHeldAxeEdgeMat!: THREE.MeshLambertMaterial;
+  private avatarHeldBlockMat!: THREE.MeshLambertMaterial;
+  private avatarFadeMats: Array<{ material: THREE.Material; opacity: number; transparent: boolean; depthWrite: boolean }> = [];
+  private thirdPersonFogCap!: THREE.Mesh;
+  private thirdPersonFogMat!: THREE.MeshBasicMaterial;
+  private thirdPersonClipUniforms: Array<{
+    active: { value: number };
+    start: { value: THREE.Vector3 };
+    end: { value: THREE.Vector3 };
+    radius: { value: number };
+  }> = [];
+  private placedTorchLights: THREE.PointLight[] = [];
+  private placedTorchScanTimer = 0;
+  private weatherKind: WeatherKind = 'clear';
+  private weatherTargetKind: WeatherKind = 'clear';
+  private weatherIntensity = 0;
+  private weatherTargetIntensity = 0;
+  private weatherTimer = 0;
+  private weatherSpawnAcc = 0;
+  /** smoothed visual biome blend for global lighting; prevents one-block biome borders from popping exposure */
+  private visualDry = 0;
+  private visualWinter = 0;
+  private visualClimateReady = false;
   private banner: HudState['banner'] = null;
   private bannerTimer = 0;
   private loadTasks: (() => boolean)[] = [];
@@ -390,10 +460,12 @@ export class Engine {
   private crouchLerp = 0;
   private crawling = false;
   private crawlLerp = 0;
+  private crawlYaw = 0;
+  private swimLerp = 0;
 
   /** collision height depends on posture: crawling fits through 1-block gaps */
-  private playerHeight() {
-    return this.crawling ? 0.72 : PLAYER_HEIGHT;
+  private playerHeight(crawling = this.crawling) {
+    return crawling ? CRAWL_HEIGHT : PLAYER_HEIGHT;
   }
   private sleeping = false;
   private sleepDark = 0;
@@ -495,9 +567,10 @@ export class Engine {
     dl2.position.set(-1, -0.3, -0.6);
     this.hudScene.add(dl2);
 
-    // alphaTest lets item drops (meat etc.) use transparent pixels for free
-    this.material = new THREE.MeshBasicMaterial({ map: getAtlasTexture(), vertexColors: true, fog: true, alphaTest: 0.08 });
-    this.cutoutMat = new THREE.MeshBasicMaterial({
+    // Lambert terrain keeps baked voxel AO via vertex colours, while real PointLights
+    // from hand/placed torches can now illuminate the world locally at night.
+    this.material = new THREE.MeshLambertMaterial({ map: getAtlasTexture(), vertexColors: true, fog: true, alphaTest: 0.08 });
+    this.cutoutMat = new THREE.MeshLambertMaterial({
       map: getAtlasTexture(),
       vertexColors: true,
       fog: true,
@@ -513,6 +586,9 @@ export class Engine {
       depthWrite: false,
     });
     this.decorMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true });
+    this.installThirdPersonClip(this.material);
+    this.installThirdPersonClip(this.cutoutMat);
+    this.installThirdPersonClip(this.decorMat);
 
     this.buildSky();
     this.buildParticles();
@@ -520,42 +596,102 @@ export class Engine {
     this.buildMotes();
     this.buildHighlight();
     this.buildPickaxe();
+    this.buildPlayerAvatar();
+    this.buildThirdPersonFogCap();
     this.buildFxLayer();
     this.bindInput();
     this.layoutViewModel(w / h);
     this.setRenderDist(this.renderDist);
     this.mobSys = new MobSystem(this.scene, this.world);
 
-    this.queueWorldGen(this.pickDesertRichSeed());
+    this.queueWorldGen(this.pickBalancedSeed());
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  private pickDesertRichSeed(): number {
+  private installThirdPersonClip(mat: THREE.Material) {
+    const uniforms = {
+      active: { value: 0 },
+      start: { value: new THREE.Vector3() },
+      end: { value: new THREE.Vector3() },
+      radius: { value: 1.05 },
+    };
+    this.thirdPersonClipUniforms.push(uniforms);
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.tpClipActive = uniforms.active;
+      shader.uniforms.tpClipStart = uniforms.start;
+      shader.uniforms.tpClipEnd = uniforms.end;
+      shader.uniforms.tpClipRadius = uniforms.radius;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vTpWorldPos;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvTpWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      const header =
+        '#include <common>\nuniform float tpClipActive;\nuniform vec3 tpClipStart;\nuniform vec3 tpClipEnd;\nuniform float tpClipRadius;\nvarying vec3 vTpWorldPos;';
+      const clip = `
+if (tpClipActive > 0.5) {
+  vec3 seg = tpClipEnd - tpClipStart;
+  float len2 = max(dot(seg, seg), 0.0001);
+  float tRaw = dot(vTpWorldPos - tpClipStart, seg) / len2;
+  if (tRaw > 0.025 && tRaw < 0.985) {
+    vec3 closest = tpClipStart + seg * tRaw;
+    float taper = smoothstep(0.025, 0.16, tRaw) * (1.0 - smoothstep(0.88, 0.985, tRaw));
+    if (length(vTpWorldPos - closest) < tpClipRadius * taper) discard;
+  }
+}
+`;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', header);
+      if (shader.fragmentShader.includes('#include <clipping_planes_fragment>')) {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' + clip);
+      } else {
+        shader.fragmentShader = shader.fragmentShader.replace('void main() {', 'void main() {\n' + clip);
+      }
+    };
+    mat.needsUpdate = true;
+  }
+
+  private pickBalancedSeed(): number {
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
-    let bestSeed = 2674;
-    let bestScore = -1;
-    for (let i = 0; i < 48; i++) {
+    let bestSeed = Math.floor(Math.random() * 1e9);
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < 56; i++) {
       const candidate = Math.floor(Math.random() * 1e9);
       seedNoise(candidate);
       this.world.reset(candidate);
-      let desertCount = 0;
-      let coreDesert = 0;
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          if (this.world.biomeAt((c0x + dx) * CHUNK + 8, (c0z + dz) * CHUNK + 8) === 'desert') {
-            desertCount++;
-            if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) coreDesert++;
-          }
+
+      const counts: Record<'plains' | 'winter' | 'jungle' | 'dry' | 'volcanic', number> = {
+        plains: 0,
+        winter: 0,
+        jungle: 0,
+        dry: 0,
+        volcanic: 0,
+      };
+      let coreDry = 0;
+      for (let dz = -3; dz <= 3; dz++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const biome = this.world.biomeAt((c0x + dx) * CHUNK + 8, (c0z + dz) * CHUNK + 8);
+          const key = biome === 'desert' || biome === 'canyon' ? 'dry' : biome;
+          counts[key]++;
+          if (key === 'dry' && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) coreDry++;
         }
       }
-      const score = coreDesert * 3 + desertCount;
+
+      const values = Object.values(counts);
+      const dominant = Math.max(...values);
+      const diversity = values.filter((v) => v > 0).length;
+      const hasGreenSpawn = counts.plains + counts.jungle + counts.winter;
+      const target = 49 / 4;
+      const balancePenalty = values.reduce((sum, v) => sum + Math.abs(v - target), 0);
+      const dryPenalty = Math.max(0, counts.dry - 15) * 4 + coreDry * 3;
+      const score = diversity * 26 + hasGreenSpawn * 0.35 - balancePenalty - dryPenalty - Math.max(0, dominant - 19) * 6;
+
       if (score > bestScore) {
         bestScore = score;
         bestSeed = candidate;
       }
-      if (coreDesert >= 8 && desertCount >= 15) return candidate;
+      // Good enough: no biome dominates the starting area and dry biomes are not the core default.
+      if (diversity >= 3 && dominant <= 18 && counts.dry <= 15 && coreDry <= 3 && hasGreenSpawn >= 18) return candidate;
     }
     return bestSeed;
   }
@@ -566,32 +702,47 @@ export class Engine {
 
   private buildSky() {
     const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(300, 20, 14),
+      new THREE.SphereGeometry(360, 28, 18),
       new THREE.MeshBasicMaterial({ map: getSkyTexture(), side: THREE.BackSide, fog: false, depthWrite: false }),
     );
     sky.frustumCulled = false;
+    sky.renderOrder = -100;
     this.scene.add(sky);
-
+    this.skyMesh = sky;
     this.skyMat = sky.material as THREE.MeshBasicMaterial;
 
     const sun = new THREE.Mesh(
-      new THREE.CircleGeometry(16, 20),
-      new THREE.MeshBasicMaterial({ color: 0xfff4d0, fog: false, transparent: true, opacity: 0.95, depthWrite: false }),
+      new THREE.CircleGeometry(18, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffd24a, fog: false, transparent: true, opacity: 0.98, depthWrite: false, side: THREE.DoubleSide }),
     );
-    sun.position.set(-140, 130, -190);
-    sun.lookAt(0, 40, 0);
+    const sunHalo = new THREE.Mesh(
+      new THREE.CircleGeometry(46, 40),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd36a,
+        fog: false,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    sunHalo.position.z = -0.6;
+    sun.add(sunHalo);
+    this.sunHaloMat = sunHalo.material as THREE.MeshBasicMaterial;
+    sun.frustumCulled = false;
     this.scene.add(sun);
     this.sunMesh = sun;
 
     // a proper round moon: soft halo + bright disc + a few dark craters
-    const moon = new THREE.Group() as unknown as THREE.Mesh;
+    const moon = new THREE.Group();
     const halo = new THREE.Mesh(
-      new THREE.CircleGeometry(16, 32),
-      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.22, depthWrite: false }),
+      new THREE.CircleGeometry(11, 32),
+      new THREE.MeshBasicMaterial({ color: 0xaebfe8, fog: false, transparent: true, opacity: 0.018, depthWrite: false, side: THREE.DoubleSide }),
     );
     const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(10, 32),
-      new THREE.MeshBasicMaterial({ color: 0xe8eeff, fog: false, transparent: true, opacity: 0.96, depthWrite: false }),
+      new THREE.CircleGeometry(8, 32),
+      new THREE.MeshBasicMaterial({ color: 0xd6def4, fog: false, transparent: true, opacity: 0.66, depthWrite: false, side: THREE.DoubleSide }),
     );
     disc.position.z = 0.5;
     moon.add(halo);
@@ -602,38 +753,82 @@ export class Engine {
       transparent: true,
       opacity: 0.85,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
     for (const [cx2, cy2, r2] of [
       [-3.2, 2.4, 1.9],
       [2.8, -1.6, 1.4],
       [0.6, 3.6, 1.0],
       [-1.8, -3.0, 1.2],
-    ]) {
+    ] as const) {
       const crater = new THREE.Mesh(new THREE.CircleGeometry(r2, 20), craterMat);
       crater.position.set(cx2, cy2, 1);
       moon.add(crater);
     }
-    moon.position.set(150, 120, 180);
-    moon.lookAt(0, 40, 0);
+    moon.frustumCulled = false;
     this.scene.add(moon);
     this.moonMesh = moon;
 
-    // lights only touch the mobs (terrain is MeshBasic with baked AO)
-    this.ambLight = new THREE.AmbientLight(0xffffff, 0.8);
+    const starCount = this.isCoarse() ? 160 : 260;
+    const starPos = new Float32Array(starCount * 3);
+    const rand = mulberry32(7301);
+    for (let i = 0; i < starCount; i++) {
+      const a = rand() * Math.PI * 2;
+      const y = 0.08 + rand() * 0.9;
+      const r = Math.sqrt(Math.max(0, 1 - y * y)) * 330;
+      starPos[i * 3] = Math.cos(a) * r;
+      starPos[i * 3 + 1] = y * 330;
+      starPos[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starCanvas = document.createElement('canvas');
+    starCanvas.width = starCanvas.height = 16;
+    const starCtx = starCanvas.getContext('2d')!;
+    const sg = starCtx.createRadialGradient(8, 8, 0, 8, 8, 8);
+    sg.addColorStop(0, 'rgba(255,255,255,1)');
+    sg.addColorStop(0.35, 'rgba(210,230,255,.85)');
+    sg.addColorStop(1, 'rgba(210,230,255,0)');
+    starCtx.fillStyle = sg;
+    starCtx.fillRect(0, 0, 16, 16);
+    const starTex = new THREE.CanvasTexture(starCanvas);
+    this.starMat = new THREE.PointsMaterial({
+      size: 1.7,
+      map: starTex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0,
+      fog: false,
+      sizeAttenuation: true,
+    });
+    this.stars = new THREE.Points(starGeo, this.starMat);
+    this.stars.frustumCulled = false;
+    this.scene.add(this.stars);
+
+    this.ambLight = new THREE.AmbientLight(0xdfe8ff, 0.55);
     this.scene.add(this.ambLight);
     this.sunLight = new THREE.DirectionalLight(0xfff0d0, 1);
     this.sunLight.position.set(-0.5, 1, 0.35);
     this.scene.add(this.sunLight);
 
     const cloudTex = getCloudTexture();
-    cloudTex.repeat.set(5, 5);
+    cloudTex.repeat.set(3, 3);
     this.clouds = new THREE.Mesh(
-      new THREE.PlaneGeometry(700, 700),
-      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0.82, depthWrite: false, fog: false }),
+      new THREE.PlaneGeometry(760, 760),
+      new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0.58, depthWrite: false, fog: false, side: THREE.DoubleSide }),
     );
     this.clouds.rotation.x = -Math.PI / 2;
-    this.clouds.position.y = 74;
+    this.clouds.position.y = 118;
+    this.clouds.frustumCulled = false;
     this.scene.add(this.clouds);
+
+    for (let i = 0; i < 4; i++) {
+      const light = new THREE.PointLight(0xffb15a, 0, 15, 1.55);
+      light.visible = false;
+      this.placedTorchLights.push(light);
+      this.scene.add(light);
+    }
   }
 
   private buildParticles() {
@@ -1007,6 +1202,176 @@ export class Engine {
     this.hudScene.add(this.pickGroup);
   }
 
+  private buildThirdPersonFogCap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    const grad = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(13,11,8,0.96)');
+    grad.addColorStop(0.62, 'rgba(17,14,9,0.88)');
+    grad.addColorStop(0.86, 'rgba(22,18,12,0.62)');
+    grad.addColorStop(1, 'rgba(22,18,12,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.thirdPersonFogMat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0.92,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
+    this.thirdPersonFogCap = new THREE.Mesh(new THREE.CircleGeometry(1, 64), this.thirdPersonFogMat);
+    this.thirdPersonFogCap.visible = false;
+    this.thirdPersonFogCap.frustumCulled = false;
+    this.thirdPersonFogCap.renderOrder = 60;
+    this.scene.add(this.thirdPersonFogCap);
+  }
+
+  private buildPlayerAvatar() {
+    const g = new THREE.Group();
+    // YXZ makes yaw apply around world-up before the prone/swim pitch.  With the
+    // default XYZ order, a -90° swim pitch locked the body direction, so the
+    // puppet looked like it was sliding sideways instead of following the crosshair.
+    g.rotation.order = 'YXZ';
+    const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
+    const shirt = new THREE.MeshLambertMaterial({ color: 0x4a7a52 });
+    const shirtDark = new THREE.MeshLambertMaterial({ color: 0x335c3d });
+    const pants = new THREE.MeshLambertMaterial({ color: 0x2f4f7a });
+    const boots = new THREE.MeshLambertMaterial({ color: 0x2a221c });
+    const hair = new THREE.MeshLambertMaterial({ color: 0x4a2d1b });
+    const eye = new THREE.MeshBasicMaterial({ color: 0x182018 });
+
+    const addBox = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, parent = g) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, y, z);
+      parent.add(mesh);
+      return mesh;
+    };
+
+    addBox(0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
+    addBox(0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.62, -0.02);
+    addBox(0.46, 0.46, 0.46, skin, 0, 0, 0, headGroup);
+    addBox(0.48, 0.14, 0.48, hair, 0, 0.23, 0, headGroup);
+    addBox(0.48, 0.2, 0.08, hair, 0, 0.1, -0.25, headGroup);
+    addBox(0.055, 0.055, 0.03, eye, -0.11, 0.04, -0.245, headGroup);
+    addBox(0.055, 0.055, 0.03, eye, 0.11, 0.04, -0.245, headGroup);
+    g.add(headGroup);
+    this.avatarHead = headGroup;
+
+    const leftArm = new THREE.Group();
+    leftArm.position.set(-0.43, 1.34, 0);
+    addBox(0.18, 0.62, 0.2, shirt, 0, -0.28, 0, leftArm);
+    addBox(0.18, 0.18, 0.2, skin, 0, -0.68, 0, leftArm);
+    g.add(leftArm);
+    this.avatarLeftArm = leftArm;
+
+    const rightArm = new THREE.Group();
+    rightArm.position.set(0.43, 1.34, 0);
+    addBox(0.18, 0.62, 0.2, shirt, 0, -0.28, 0, rightArm);
+    addBox(0.18, 0.18, 0.2, skin, 0, -0.68, 0, rightArm);
+    g.add(rightArm);
+    this.avatarRightArm = rightArm;
+
+    const heldRoot = new THREE.Group();
+    heldRoot.position.set(0.02, -0.78, -0.14);
+    heldRoot.rotation.set(-0.72, 0.08, -0.18);
+    rightArm.add(heldRoot);
+    this.avatarHeldRoot = heldRoot;
+
+    const makeHeldGroup = () => {
+      const group = new THREE.Group();
+      group.visible = false;
+      heldRoot.add(group);
+      return group;
+    };
+    const woodHeld = new THREE.MeshLambertMaterial({ color: 0x9c7743 });
+    const ironHeld = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
+    const darkHeld = new THREE.MeshLambertMaterial({ color: 0x262423 });
+
+    this.avatarHeldPick = makeHeldGroup();
+    this.avatarHeldPickMats = [new THREE.MeshLambertMaterial({ color: PICKAXE_TIERS[0].color })];
+    addBox(0.07, 0.62, 0.07, woodHeld, 0, -0.02, 0, this.avatarHeldPick);
+    addBox(0.12, 0.12, 0.46, this.avatarHeldPickMats[0], 0, 0.34, 0, this.avatarHeldPick);
+    addBox(0.11, 0.11, 0.2, this.avatarHeldPickMats[0], 0, 0.32, -0.28, this.avatarHeldPick).rotation.x = -0.48;
+    addBox(0.11, 0.11, 0.2, this.avatarHeldPickMats[0], 0, 0.32, 0.28, this.avatarHeldPick).rotation.x = 0.48;
+    this.avatarHeldPick.rotation.set(0.18, 0, 0.68);
+
+    this.avatarHeldAxe = makeHeldGroup();
+    this.avatarHeldAxeHeadMat = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
+    this.avatarHeldAxeEdgeMat = new THREE.MeshLambertMaterial({ color: 0xd6d9dd });
+    addBox(0.07, 0.6, 0.07, woodHeld, 0, 0, 0, this.avatarHeldAxe);
+    addBox(0.24, 0.22, 0.1, this.avatarHeldAxeHeadMat, 0.12, 0.28, 0, this.avatarHeldAxe);
+    addBox(0.07, 0.28, 0.11, this.avatarHeldAxeEdgeMat, 0.28, 0.28, 0, this.avatarHeldAxe);
+    this.avatarHeldAxe.rotation.set(0.08, 0, 0.55);
+
+    this.avatarHeldSword = makeHeldGroup();
+    this.avatarHeldSwordMat = new THREE.MeshLambertMaterial({ color: 0xd9dde2 });
+    addBox(0.07, 0.68, 0.045, this.avatarHeldSwordMat, 0, 0.28, 0, this.avatarHeldSword);
+    addBox(0.25, 0.07, 0.07, woodHeld, 0, -0.08, 0, this.avatarHeldSword);
+    addBox(0.08, 0.22, 0.07, darkHeld, 0, -0.22, 0, this.avatarHeldSword);
+    this.avatarHeldSword.rotation.set(0.05, 0, 0.25);
+
+    this.avatarHeldShovel = makeHeldGroup();
+    addBox(0.06, 0.6, 0.06, woodHeld, 0, 0, 0, this.avatarHeldShovel);
+    addBox(0.17, 0.24, 0.055, ironHeld, 0, 0.36, 0, this.avatarHeldShovel);
+    this.avatarHeldShovel.rotation.set(0.1, 0, 0.32);
+
+    this.avatarHeldBow = makeHeldGroup();
+    addBox(0.055, 0.42, 0.07, woodHeld, 0.05, 0.22, 0, this.avatarHeldBow).rotation.z = -0.38;
+    addBox(0.055, 0.42, 0.07, woodHeld, 0.05, -0.22, 0, this.avatarHeldBow).rotation.z = 0.38;
+    addBox(0.018, 0.78, 0.018, new THREE.MeshBasicMaterial({ color: 0xe8e2d2 }), 0.2, 0, 0, this.avatarHeldBow);
+    this.avatarHeldBow.rotation.set(0, 0.15, 0.25);
+
+    this.avatarHeldTorch = makeHeldGroup();
+    addBox(0.07, 0.45, 0.07, woodHeld, 0, 0, 0, this.avatarHeldTorch);
+    addBox(0.12, 0.13, 0.12, new THREE.MeshBasicMaterial({ color: 0xffc84a }), 0, 0.28, 0, this.avatarHeldTorch);
+    addBox(0.09, 0.12, 0.09, new THREE.MeshBasicMaterial({ color: 0xffec8c, transparent: true, opacity: 0.9 }), 0, 0.42, 0, this.avatarHeldTorch);
+    this.avatarHeldTorch.rotation.set(0.05, 0, 0.2);
+
+    this.avatarHeldBlockMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    this.avatarHeldBlock = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), this.avatarHeldBlockMat);
+    this.avatarHeldBlock.position.set(0, 0.08, -0.02);
+    this.avatarHeldBlock.rotation.set(0.25, 0.55, 0.1);
+    this.avatarHeldBlock.visible = false;
+    heldRoot.add(this.avatarHeldBlock);
+
+    const leftLeg = new THREE.Group();
+    leftLeg.position.set(-0.15, 0.7, 0);
+    addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, leftLeg);
+    addBox(0.24, 0.12, 0.25, boots, 0, -0.62, -0.02, leftLeg);
+    g.add(leftLeg);
+    this.avatarLeftLeg = leftLeg;
+
+    const rightLeg = new THREE.Group();
+    rightLeg.position.set(0.15, 0.7, 0);
+    addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, rightLeg);
+    addBox(0.24, 0.12, 0.25, boots, 0, -0.62, -0.02, rightLeg);
+    g.add(rightLeg);
+    this.avatarRightLeg = rightLeg;
+
+    g.visible = false;
+    this.avatarFadeMats = [];
+    const avatarMats = new Set<THREE.Material>();
+    g.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      const mat = mesh.material;
+      if (!mat) return;
+      if (Array.isArray(mat)) mat.forEach((m) => avatarMats.add(m));
+      else avatarMats.add(mat);
+    });
+    avatarMats.forEach((material) => {
+      this.avatarFadeMats.push({ material, opacity: material.opacity, transparent: material.transparent, depthWrite: material.depthWrite });
+    });
+    this.scene.add(g);
+    this.playerAvatar = g;
+  }
+
   /** swap the first-person model to match the selected hotbar slot */
   private syncViewModel() {
     if (!this.toolPick) return;
@@ -1052,12 +1417,15 @@ export class Engine {
         this.torchFlame.scale.set(f, 1.1 + (f - 0.85) * 1.6, f);
         this.torchFlameMat.opacity = 0.72 + f * 0.2;
       }
-      this.torchLight.intensity = 22 * (0.85 + (1 - this.daylight) * 0.6);
-      this.torchLight.position.set(this.pos.x, this.pos.y + 1.7, this.pos.z);
+      this.torchLight.visible = true;
+      this.torchLight.intensity = 3.1 + (1 - this.daylight) * 2.3;
+      this.torchLight.distance = 15 + (1 - this.daylight) * 3;
+      this.torchLight.position.set(this.pos.x, this.pos.y + 1.55, this.pos.z);
       if (kind === 'torch' && Math.random() < 0.06) {
         this.burst(this.pos.x + (Math.random() - 0.5) * 0.3, this.pos.y + 1.75, this.pos.z + (Math.random() - 0.5) * 0.3, [255, 176, 58], 1, 0.7);
       }
     } else {
+      this.torchLight.visible = false;
       this.torchLight.intensity = 0;
     }
     if (kind === 'sword' && this.swordMat) {
@@ -1095,11 +1463,57 @@ export class Engine {
         uv.needsUpdate = true;
       }
     }
+    this.syncThirdPersonHeldItem();
+  }
+
+  private syncThirdPersonHeldItem() {
+    if (!this.avatarHeldRoot) return;
+    const all = [
+      this.avatarHeldPick,
+      this.avatarHeldAxe,
+      this.avatarHeldSword,
+      this.avatarHeldShovel,
+      this.avatarHeldBow,
+      this.avatarHeldTorch,
+    ];
+    for (const g of all) if (g) g.visible = false;
+    if (this.avatarHeldBlock) this.avatarHeldBlock.visible = false;
+    const kind = this.heldKind();
+    const heldId = this.hotbar[this.selected];
+    if (kind === 'pick') {
+      this.avatarHeldPick.visible = true;
+      const c = PICKAXE_TIERS[this.heldPickTier()].color;
+      this.avatarHeldPickMats.forEach((m) => m.color.set(c));
+    } else if (kind === 'axe') {
+      this.avatarHeldAxe.visible = true;
+      const tier = this.heldAxeTier();
+      if (tier === 0) {
+        this.avatarHeldAxeHeadMat.color.set('#b98a4d');
+        this.avatarHeldAxeEdgeMat.color.set('#c09a61');
+      } else {
+        this.avatarHeldAxeHeadMat.color.set('#a8aeb4');
+        this.avatarHeldAxeEdgeMat.color.set('#d6d9dd');
+      }
+    } else if (kind === 'sword') {
+      this.avatarHeldSword.visible = true;
+      this.avatarHeldSwordMat.color.set(SWORDS[Math.max(0, this.heldSwordTier())].color);
+    } else if (kind === 'shovel') this.avatarHeldShovel.visible = true;
+    else if (kind === 'bow') this.avatarHeldBow.visible = true;
+    else if (kind === 'torch' || heldId === TORCH) this.avatarHeldTorch.visible = true;
+    else if ((kind === 'block' || kind === 'gear') && heldId !== undefined) {
+      this.avatarHeldBlock.visible = true;
+      const tint = BLOCKS[heldId]?.tint ?? [210, 210, 210];
+      this.avatarHeldBlockMat.color.setRGB(tint[0] / 255, tint[1] / 255, tint[2] / 255, THREE.SRGBColorSpace);
+    }
   }
 
   private buildFxLayer() {
     this.fx = document.createElement('div');
     this.fx.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;';
+    this.sunGlare = document.createElement('div');
+    this.sunGlare.style.cssText =
+      'position:absolute;inset:-14%;pointer-events:none;opacity:0;transition:opacity 70ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,255,235,.82) 0%, rgba(255,224,90,.36) 7%, rgba(255,178,42,.12) 19%, rgba(255,190,30,0) 38%),linear-gradient(90deg, rgba(255,230,110,0) 0%, rgba(255,230,110,.24) 48%, rgba(255,248,196,.36) 50%, rgba(255,230,110,.24) 52%, rgba(255,230,110,0) 100%),linear-gradient(0deg, rgba(255,230,110,0) 0%, rgba(255,230,110,.11) 49%, rgba(255,248,196,.22) 50%, rgba(255,230,110,.11) 51%, rgba(255,230,110,0) 100%);';
+    this.fx.appendChild(this.sunGlare);
     this.container.appendChild(this.fx);
     for (let i = 0; i < 16; i++) {
       const el = document.createElement('div');
@@ -1111,12 +1525,30 @@ export class Engine {
   }
 
   // ================= WORLD GEN QUEUE =================
+  private menuClockForMode() {
+    return this.survival ? MENU_SURVIVAL_CLOCK : MENU_EXPLORER_CLOCK;
+  }
+
+  private setMenuClockForMode() {
+    this.clock = this.menuClockForMode();
+    this.updateClock(0);
+    this.wasNight = this.isNightClock();
+  }
+
   private queueWorldGen(seed: number) {
     this.loadTasks = [];
     this.loadProgress = 0;
+    this.weatherKind = 'clear';
+    this.weatherTargetKind = 'clear';
+    this.weatherIntensity = 0;
+    this.weatherTargetIntensity = 0;
+    this.weatherTimer = 6;
+    this.weatherSpawnAcc = 0;
+    this.visualClimateReady = false;
     seedNoise(seed);
     this.world.reset(seed);
     this.rand = mulberry32(seed);
+    this.setMenuClockForMode();
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
     const R = 4; // starter area: 9×9 chunk terrain, 7×7 decorated+meshed
@@ -1146,7 +1578,9 @@ export class Engine {
       this.pos.set(x, y, z);
       this.yaw = this.world.spawnYawFor(x, z);
       this.pitch = -0.14;
-      this.seedStarterDesertLife(x, z, this.yaw);
+      this.visualClimateReady = false;
+      this.setMenuClockForMode();
+      this.seedStarterWildlife(x, z, this.yaw);
       return true;
     });
     this.loadTotal = this.loadTasks.length;
@@ -1158,7 +1592,22 @@ export class Engine {
   private ensureDecorated(cx: number, cz: number) {
     for (let dz = -1; dz <= 1; dz++)
       for (let dx = -1; dx <= 1; dx++) this.world.genTerrain(cx + dx, cz + dz);
+    const wasDecorated = this.world.isDecorated(cx, cz);
     this.world.decorate(cx, cz);
+    // Decoration can spill structures, trees and lamps into neighbouring chunks.
+    // If those neighbours were already meshed, rebuild them lazily to avoid
+    // persistent see-through holes around large desert/jungle structures.
+    if (!wasDecorated) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dz === 0) continue;
+          const key = chunkKey(cx + dx, cz + dz);
+          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key)) {
+            this.dirtyChunks.add(key);
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1183,7 +1632,7 @@ export class Engine {
           const cx = pcx + dx;
           const cz = pcz + dz;
           const key = chunkKey(cx, cz);
-          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key)) continue;
+          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key)) continue;
           if (this.meshedEmpty.has(key)) continue;
           this.ensureDecorated(cx, cz);
           this.buildChunk(cx, cz);
@@ -1414,6 +1863,13 @@ export class Engine {
       return;
     }
     if (this.phase !== 'playing') return;
+    if (c === 'KeyV') {
+      this.thirdPerson = !this.thirdPerson;
+      this.thirdPersonCamReady = false;
+      if (!this.thirdPerson) this.restoreThirdPersonOccluders();
+      sfx.ui(true);
+      return;
+    }
     if (c === 'KeyF') this.tryPlace();
     if (c === 'KeyG') {
       this.dropHeldItem();
@@ -1720,6 +2176,7 @@ export class Engine {
 
   // ================= SANDBOX: MY WORLD (save / load, no timer) =================
   sandbox = false;
+  private endlessRun = false;
   private static SAVE_KEY = 'orerush.myworld.v1';
 
   static hasSavedWorld(): boolean {
@@ -1781,6 +2238,8 @@ export class Engine {
         vineTips: Array.from(this.vineTips.entries()),
         kills: this.kills,
         blocksMined: this.blocksMined,
+        survivalNight: this.survivalNight,
+        firstSurvivalDay: this.firstSurvivalDay,
         chunks,
       };
       localStorage.setItem(Engine.SAVE_KEY, JSON.stringify(data));
@@ -1845,8 +2304,12 @@ export class Engine {
     this.vineTips = new Map((Array.isArray(data.vineTips) ? data.vineTips : []).slice(0, 128));
     this.kills = data.kills ?? 0;
     this.blocksMined = data.blocksMined ?? 0;
+    this.survivalNight = data.survivalNight ?? 0;
+    this.firstSurvivalDay = data.firstSurvivalDay ?? false;
     this.clock = data.clock ?? 0.3;
+    this.visualClimateReady = false;
     this.updateClock(0);
+    this.wasNight = this.isNightClock();
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -1870,10 +2333,13 @@ export class Engine {
 
   // ================= PHASE CONTROL =================
   startRun(seconds?: number, sandbox = false) {
+    const survivalRun = this.survival;
     this.sandbox = sandbox;
+    this.endlessRun = sandbox || survivalRun;
     initAudio();
     stopMusic(0.4);
-    if (seconds && seconds > 0) this.runTime = seconds;
+    if (survivalRun) this.runTime = 0;
+    else if (seconds && seconds > 0) this.runTime = seconds;
     this.score = 0;
     this.timeLeft = this.runTime;
     this.health = 100;
@@ -1927,15 +2393,19 @@ export class Engine {
     this.kills = 0;
     this.killedBy = null;
     this.attackCd = 0;
-    this.clock = 0.3;
-    this.daylight = 1;
-    this.wasNight = false;
+    this.survivalNight = 0;
+    this.firstSurvivalDay = survivalRun;
+    if (survivalRun) this.clock = SURVIVAL_START_CLOCK;
+    else if (sandbox) this.clock = MENU_EXPLORER_CLOCK;
+    this.visualClimateReady = false;
     this.sleeping = false;
     this.sleepDark = 0;
     this.crouching = false;
     this.crouchLerp = 0;
     this.crawling = false;
     this.crawlLerp = 0;
+    this.crawlYaw = this.yaw;
+    this.swimLerp = 0;
     this.spawnTimer = 3;
     this.animalTimer = 1;
     this.ambientTimer = 1.5;
@@ -1974,7 +2444,9 @@ export class Engine {
     this.fallStart = y;
     this.yaw = this.world.spawnYawFor(x, z);
     this.pitch = -0.1;
-    this.seedStarterDesertLife(x, z, this.yaw);
+    this.updateClock(0);
+    this.wasNight = this.isNightClock();
+    this.seedStarterWildlife(x, z, this.yaw);
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
@@ -1986,17 +2458,27 @@ export class Engine {
     this.syncHud(true);
   }
 
-  private seedStarterDesertLife(x: number, z: number, yaw: number) {
+  private seedStarterWildlife(x: number, z: number, yaw: number) {
     const fwdAngle = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
-    const species: MobId[] = ['tumbleweed', 'tumbleweed', 'tumbleweed', 'camel', 'lizard'];
+    const biome = this.world.biomeAt(Math.floor(x), Math.floor(z));
+    const isDry = biome === 'desert' || biome === 'canyon';
+    const species: MobId[] =
+      biome === 'winter'
+        ? ['penguin', 'seal', 'rabbit', 'fawn']
+        : isDry
+          ? ['tumbleweed', 'tumbleweed', 'camel', 'camel_calf', 'lizard']
+          : biome === 'jungle'
+            ? ['bird', 'monkey', 'bee', 'frog', 'rabbit']
+            : ['cow', 'sheep', 'chicken', 'rabbit', 'cat', 'deer'];
+    const preferredGround = isDry ? [SAND] : biome === 'winter' ? [SNOW_GRASS] : [GRASS];
     for (const id of species) {
-      const spot = this.mobSys.findSpawnPoint(x, z, 6, 20, fwdAngle, [SAND]);
+      const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround);
       if (spot) this.mobSys.spawn(id, spot[0], spot[1], spot[2]);
     }
   }
 
   regenerate(seed?: number) {
-    const nextSeed = seed ?? this.pickDesertRichSeed();
+    const nextSeed = seed ?? this.pickBalancedSeed();
     this.mobSys?.clear();
     this.clearFallingTrees();
     this.clearDoors();
@@ -2068,14 +2550,18 @@ export class Engine {
   toMenu() {
     this.phase = 'menu';
     this.inventoryOpen = false;
+    this.sandbox = false;
+    this.endlessRun = false;
     if (document.pointerLockElement) document.exitPointerLock();
     this.mining = false;
+    this.setMenuClockForMode();
     requestMusic();
     this.syncHud(true);
   }
 
   setSurvival(v: boolean) {
     this.survival = v;
+    if (this.phase === 'menu' || this.phase === 'loading') this.setMenuClockForMode();
     if (!v) {
       // explorer mode clears anything hostile already walking around
       for (let i = this.mobSys.mobs.length - 1; i >= 0; i--) {
@@ -2234,8 +2720,8 @@ export class Engine {
     // ---- sleeping: cinematic time-lapse to dawn ----
     if (this.sleeping) {
       this.sleepDark = Math.min(1, this.sleepDark + dt * 2.2);
-      // the shift clock keeps ticking — sleep isn't free time (sandbox: no clock)
-      if (!this.sandbox) {
+      // the shift clock keeps ticking — sleep isn't free time (endless modes have no shift clock)
+      if (!this.endlessRun) {
         this.timeLeft -= dt;
         if (this.timeLeft <= 0) {
           this.timeLeft = 0;
@@ -2282,12 +2768,17 @@ export class Engine {
     this.updateMining(dt);
 
     // night / dawn announcements
-    const isNight = this.daylight < 0.35;
+    const isNight = this.isNightClock();
     if (isNight !== this.wasNight) {
       this.wasNight = isNight;
       if (this.survival) {
-        if (isNight) this.pushBanner(t('nightFalls'), t('nightFallsSub'), '#6f8bd8');
-        else this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
+        if (isNight) {
+          this.survivalNight += 1;
+          this.firstSurvivalDay = false;
+          this.pushBanner(t('nightFalls'), t('nightFallsSub'), '#6f8bd8');
+        } else {
+          this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
+        }
       }
     }
     this.updateDrops(dt, false);
@@ -2296,8 +2787,8 @@ export class Engine {
     this.updateShake(dt);
     this.updateCamera(dt);
 
-    // sandbox worlds have no shift clock — stay as long as you like
-    if (!this.sandbox) {
+    // endless modes have no shift clock — stay as long as you like
+    if (!this.endlessRun) {
       this.timeLeft -= dt;
       if (this.timeLeft <= 10.5) {
         this.warnTick -= dt;
@@ -2342,13 +2833,31 @@ export class Engine {
   }
 
   // ================= PLAYER =================
-  private collides(px: number, py: number, pz: number) {
-    const minX = Math.floor(px - PLAYER_HALF),
-      maxX = Math.floor(px + PLAYER_HALF);
+  private angleDelta(to: number, from: number) {
+    return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  }
+
+  private playerHalfExtents(crawling = this.crawling, yaw = this.crawlYaw) {
+    if (!crawling) return { halfX: PLAYER_HALF, halfZ: PLAYER_HALF };
+    const sin = Math.sin(yaw);
+    const cos = Math.cos(yaw);
+    // The prone third-person body is long in the facing direction.  Use the
+    // oriented body's AABB for physics too, otherwise the visual avatar can
+    // slide through walls while the tiny standing footprint still fits.
+    return {
+      halfX: Math.abs(sin) * CRAWL_HALF_LENGTH + Math.abs(cos) * CRAWL_HALF_WIDTH,
+      halfZ: Math.abs(cos) * CRAWL_HALF_LENGTH + Math.abs(sin) * CRAWL_HALF_WIDTH,
+    };
+  }
+
+  private collides(px: number, py: number, pz: number, crawling = this.crawling, yaw = this.crawlYaw) {
+    const { halfX, halfZ } = this.playerHalfExtents(crawling, yaw);
+    const minX = Math.floor(px - halfX),
+      maxX = Math.floor(px + halfX);
     const minY = Math.floor(py),
-      maxY = Math.floor(py + this.playerHeight() - 0.001);
-    const minZ = Math.floor(pz - PLAYER_HALF),
-      maxZ = Math.floor(pz + PLAYER_HALF);
+      maxY = Math.floor(py + this.playerHeight(crawling) - 0.001);
+    const minZ = Math.floor(pz - halfZ),
+      maxZ = Math.floor(pz + halfZ);
     for (let y = minY; y <= maxY; y++)
       for (let z = minZ; z <= maxZ; z++)
         for (let x = minX; x <= maxX; x++) if (isSolid(this.world.get(x, y, z))) return true;
@@ -2359,12 +2868,13 @@ export class Engine {
     if (amount === 0) return { blocked: false, top: 0 };
     const p = this.pos;
     p[axis] += amount;
-    const minX = Math.floor(p.x - PLAYER_HALF),
-      maxX = Math.floor(p.x + PLAYER_HALF);
+    const { halfX, halfZ } = this.playerHalfExtents();
+    const minX = Math.floor(p.x - halfX),
+      maxX = Math.floor(p.x + halfX);
     const minY = Math.floor(p.y),
       maxY = Math.floor(p.y + this.playerHeight() - 0.001);
-    const minZ = Math.floor(p.z - PLAYER_HALF),
-      maxZ = Math.floor(p.z + PLAYER_HALF);
+    const minZ = Math.floor(p.z - halfZ),
+      maxZ = Math.floor(p.z + halfZ);
     let blocked = false;
     let top = 0;
     let best = amount > 0 ? Infinity : -Infinity;
@@ -2382,16 +2892,40 @@ export class Engine {
     if (blocked) {
       const eps = 0.0005;
       if (axis === 'y') p.y = amount > 0 ? best - this.playerHeight() - eps : best + 1 + eps;
-      else if (axis === 'x') p.x = amount > 0 ? best - PLAYER_HALF - eps : best + 1 + PLAYER_HALF + eps;
-      else p.z = amount > 0 ? best - PLAYER_HALF - eps : best + 1 + PLAYER_HALF + eps;
+      else if (axis === 'x') p.x = amount > 0 ? best - halfX - eps : best + 1 + halfX + eps;
+      else p.z = amount > 0 ? best - halfZ - eps : best + 1 + halfZ + eps;
       this.vel[axis] = 0;
       if (axis === 'y' && amount < 0) this.onGround = true;
     }
     return { blocked, top };
   }
 
+  private nearWaterExitLedge(dirX: number, dirZ: number) {
+    const len = Math.hypot(dirX, dirZ);
+    if (len < 0.05) return false;
+    dirX /= len;
+    dirZ /= len;
+    const sideX = dirZ;
+    const sideZ = -dirX;
+    const front = PLAYER_HALF + 0.52;
+    const baseY = Math.floor(this.pos.y + 0.08);
+    for (const side of [-0.24, 0, 0.24]) {
+      const x = Math.floor(this.pos.x + dirX * front + sideX * side);
+      const z = Math.floor(this.pos.z + dirZ * front + sideZ * side);
+      // A shore block at the swimmer's chest/feet with free cells above: give
+      // a small mantle boost so holding forward + jump climbs out of water.
+      for (let y = baseY - 1; y <= baseY + 1; y++) {
+        const solid = isSolid(this.world.get(x, y, z));
+        if (!solid) continue;
+        if (!isSolid(this.world.get(x, y + 1, z)) && !isSolid(this.world.get(x, y + 2, z))) return true;
+      }
+    }
+    return false;
+  }
+
   private updatePlayer(dt: number) {
     const k = this.keys;
+    const wasInWater = this.inWater;
     let fx = 0,
       fz = 0;
     if (k['KeyW'] || k['ArrowUp']) fz += 1;
@@ -2402,11 +2936,35 @@ export class Engine {
     fz += -this.touchMove.y;
     // C = crawl (prone, fits 1-block gaps); CTRL = crouch; SHIFT = sprint
     const wantCrawl = !!k['KeyC'];
-    if (wantCrawl) this.crawling = true;
-    else if (this.crawling) {
+    if (wantCrawl && !this.crawling) {
+      // Lie down in the direction the player is facing; do not pick a sideways
+      // fallback, because that makes the avatar appear to clip through walls.
+      if (!this.collides(this.pos.x, this.pos.y, this.pos.z, true, this.yaw)) {
+        this.crawlYaw = this.yaw;
+        this.crawling = true;
+      }
+    } else if (!wantCrawl && this.crawling) {
       // stand up only if there is headroom for the full-height box
       this.crawling = false;
-      if (this.collides(this.pos.x, this.pos.y, this.pos.z)) this.crawling = true; // stuck in a tunnel — stay prone
+      if (this.collides(this.pos.x, this.pos.y, this.pos.z, false, this.yaw)) this.crawling = true; // stuck in a tunnel — stay prone
+    }
+    if (this.crawling) {
+      // While prone, rotate the body only as far as the elongated crawl
+      // footprint still fits.  This prevents a lying avatar from sweeping
+      // through nearby blocks just because the camera was turned.
+      const delta = this.angleDelta(this.yaw, this.crawlYaw);
+      const maxTurn = dt * 5.6;
+      const step = Math.max(-maxTurn, Math.min(maxTurn, delta));
+      if (Math.abs(step) > 0.0001) {
+        const candidate = this.crawlYaw + step;
+        if (!this.collides(this.pos.x, this.pos.y, this.pos.z, true, candidate)) this.crawlYaw = candidate;
+        else {
+          const smaller = this.crawlYaw + step * 0.35;
+          if (!this.collides(this.pos.x, this.pos.y, this.pos.z, true, smaller)) this.crawlYaw = smaller;
+        }
+      }
+    } else {
+      this.crawlYaw = this.yaw;
     }
     this.crouching = !this.crawling && !!(k['ControlLeft'] || k['ControlRight']);
     const sprint =
@@ -2423,8 +2981,9 @@ export class Engine {
     const wx = fx * cos - fz * sin;
     const wz = -fx * sin - fz * cos;
 
-    const speed = this.crawling ? WALK * 0.3 : this.crouching ? WALK * 0.45 : sprint ? SPRINT : WALK;
-    const accel = this.onGround ? 58 : 16;
+    const swimmingMove = wasInWater && !this.crawling;
+    const speed = this.crawling ? WALK * 0.3 : this.crouching ? WALK * 0.45 : swimmingMove ? WALK * 0.78 : sprint ? SPRINT : WALK;
+    const accel = swimmingMove ? 28 : this.onGround ? 58 : 16;
     const targetVX = wx * speed;
     const targetVZ = wz * speed;
     const maxD = accel * dt;
@@ -2440,7 +2999,7 @@ export class Engine {
 
     // jump — with coyote time so edge-of-a-ledge jumps still feel fair
     const jumpHeld = (k['Space'] || this.touchJump) && !this.crouching && !this.crawling;
-    if (jumpHeld && (this.onGround || this.coyote > 0)) {
+    if (jumpHeld && !wasInWater && (this.onGround || this.coyote > 0)) {
       this.vel.y = JUMP_V;
       this.onGround = false;
       this.coyote = 0;
@@ -2526,14 +3085,32 @@ export class Engine {
     this.inWater = false;
     {
       const bx = Math.floor(this.pos.x);
-      const by = Math.floor(this.pos.y + 0.6);
       const bz = Math.floor(this.pos.z);
-      if (this.world.get(bx, by, bz) === WATER) this.inWater = true;
+      for (const probe of [0.25, 0.62, 1.02]) {
+        if (this.world.get(bx, Math.floor(this.pos.y + probe), bz) === WATER) {
+          this.inWater = true;
+          break;
+        }
+      }
     }
     if (this.inWater) {
-      this.vel.y = jumpHeld ? Math.max(this.vel.y, 3.4) : Math.max(this.vel.y * Math.pow(0.2, dt), -2.6);
-      this.vel.x *= Math.pow(0.25, dt);
-      this.vel.z *= Math.pow(0.25, dt);
+      const forwardIntent = fz > 0.12;
+      let targetVy = -0.55;
+      if (forwardIntent && Math.abs(this.pitch) > 0.16) {
+        // Looking down while swimming dives head-first; looking up rises without
+        // turning the body into a standing/walking pose.
+        targetVy = Math.max(-2.9, Math.min(2.55, Math.sin(this.pitch) * 3.9));
+      }
+      if (jumpHeld) targetVy = Math.max(targetVy, 3.7);
+      const vyBlend = Math.min(1, dt * (jumpHeld ? 10 : 4.6));
+      this.vel.y += (targetVy - this.vel.y) * vyBlend;
+      this.vel.x *= Math.pow(0.38, dt);
+      this.vel.z *= Math.pow(0.38, dt);
+      if (jumpHeld && forwardIntent && this.nearWaterExitLedge(wx, wz)) {
+        this.vel.y = Math.max(this.vel.y, 5.15);
+        this.vel.x += wx * 1.15;
+        this.vel.z += wz * 1.15;
+      }
       this.fallStart = this.pos.y; // water breaks any fall
     }
 
@@ -2588,7 +3165,8 @@ export class Engine {
 
     this.deepest = Math.max(this.deepest, Math.round(this.spawnY - this.pos.y));
     this.coyote = this.onGround ? 0.11 : Math.max(0, this.coyote - dt);
-    this.bob += dt * (this.onGround ? Math.hypot(this.vel.x, this.vel.z) * 1.55 : 3.2);
+    const planar = Math.hypot(this.vel.x, this.vel.z);
+    this.bob += dt * (this.inWater ? 1.9 + planar * 1.75 + (jumpHeld ? 1.25 : 0) : this.onGround ? planar * 1.55 : 3.2);
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
     this.fovTarget = sprint && len > 0.2 ? 82 : 72;
   }
@@ -2610,6 +3188,213 @@ export class Engine {
     }
   }
 
+  private setPlayerAvatarOpacity(opacity: number) {
+    const o = Math.max(0.05, Math.min(1, opacity));
+    const fading = o < 0.985;
+    for (const rec of this.avatarFadeMats) {
+      const m = rec.material;
+      m.opacity = rec.opacity * o;
+      const targetTransparent = rec.transparent || fading;
+      const targetDepthWrite = fading ? false : rec.depthWrite;
+      if (m.transparent !== targetTransparent || m.depthWrite !== targetDepthWrite) {
+        m.transparent = targetTransparent;
+        m.depthWrite = targetDepthWrite;
+        m.needsUpdate = true;
+      }
+    }
+  }
+
+  private updatePlayerAvatarOpacity(cameraDist: number) {
+    if (!this.thirdPerson || !this.playerAvatar?.visible) {
+      this.setPlayerAvatarOpacity(1);
+      return;
+    }
+    const near = 0.85;
+    const far = 2.35;
+    const t2 = Math.max(0, Math.min(1, (cameraDist - near) / (far - near)));
+    const smooth = t2 * t2 * (3 - 2 * t2);
+    this.setPlayerAvatarOpacity(0.18 + 0.82 * smooth);
+  }
+
+  private visualWaterSurfaceY() {
+    const x = Math.floor(this.pos.x);
+    const z = Math.floor(this.pos.z);
+    const top = Math.floor(this.pos.y + 2.4);
+    const bottom = Math.floor(this.pos.y - 1.4);
+    for (let y = top; y >= bottom; y--) {
+      if (this.world.get(x, y, z) === WATER && this.world.get(x, y + 1, z) !== WATER) return y + 1;
+    }
+    return null;
+  }
+
+  private updatePlayerAvatar() {
+    if (!this.playerAvatar) return;
+    const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
+    this.playerAvatar.visible = visible;
+    if (!visible) return;
+
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+    const crawl = clamp01(this.crawlLerp);
+    const swim = clamp01(this.swimLerp) * (1 - crawl * 0.85);
+    const yawBlend = this.yaw + this.angleDelta(this.crawlYaw, this.yaw) * crawl;
+    const forwardX = -Math.sin(yawBlend);
+    const forwardZ = -Math.cos(yawBlend);
+    const waterSurface = swim > 0.01 ? this.visualWaterSurfaceY() : null;
+    const nearSurface = waterSurface !== null && this.pos.y + 1.12 > waterSurface - 0.38;
+    const underWater = swim > 0.01 && !nearSurface;
+    const crawlShift = CRAWL_BODY_CENTER * crawl;
+    const swimShift = CRAWL_BODY_CENTER * swim;
+    const bodyShift = Math.max(crawlShift, swimShift);
+    let avatarY = this.pos.y + crawl * 0.44;
+    if (swim > 0.01) {
+      // Visual-only water clamp: physics stays untouched, but the third-person
+      // puppet no longer rises high above the water when Space is held.  Near
+      // the surface the body stays submerged, leaving mostly head and arms visible.
+      const followPhysicsY = this.pos.y + 0.52;
+      const surfaceY = waterSurface !== null ? waterSurface - 0.14 : followPhysicsY;
+      const swimY = nearSurface ? Math.min(followPhysicsY, surfaceY) : followPhysicsY;
+      avatarY = mix(avatarY, swimY, swim);
+    }
+    this.playerAvatar.position.set(this.pos.x - forwardX * bodyShift, avatarY, this.pos.z - forwardZ * bodyShift);
+
+    const crawlSpeed = WALK * 0.3;
+    const swimSpeed = WALK * 0.78;
+    const planarSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const uprightMove = Math.min(1, planarSpeed / WALK);
+    const crawlMove = Math.min(1, planarSpeed / Math.max(0.01, crawlSpeed));
+    const swimMove = Math.min(1, (planarSpeed + Math.abs(this.vel.y) * 0.45) / Math.max(0.01, swimSpeed));
+    const surfaceSwimPitch = -Math.PI * 0.5 + Math.sin(this.bob * 2.15) * 0.025;
+    const underwaterSwimPitch = -Math.PI * 0.5 + Math.max(-0.72, Math.min(0.62, this.pitch * 0.62));
+    // On the surface, looking above the character means “swim forward”, not
+    // “stand up out of the water”.  Only underwater does the puppet pitch fully
+    // with the crosshair.
+    const swimPitch = underWater ? underwaterSwimPitch : surfaceSwimPitch;
+    const bodyPitch = mix(-Math.PI * 0.5 * crawl, swimPitch, swim);
+    const crawlRoll = crawl * Math.min(0.14, crawlMove * 0.07) * Math.sin(this.bob * 4.2);
+    const swimRoll = swim * Math.sin(this.bob * 2.8) * 0.025;
+    this.playerAvatar.rotation.set(bodyPitch, yawBlend, mix(crawlRoll, swimRoll, swim));
+
+    const squat = 1 - this.crouchLerp * 0.16;
+    this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
+
+    const uprightSwing = Math.sin(this.bob * 2.35) * 0.55 * uprightMove;
+    const miningSwing = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT) * Math.PI) * 0.95 : 0;
+
+    const rightX = Math.cos(yawBlend);
+    const rightZ = -Math.sin(yawBlend);
+    const localForward = this.vel.x * forwardX + this.vel.z * forwardZ;
+    const localSide = this.vel.x * rightX + this.vel.z * rightZ;
+    const forwardAmt = Math.min(1, Math.abs(localForward) / Math.max(0.01, crawlSpeed));
+    const sideAmt = Math.min(1, Math.abs(localSide) / Math.max(0.01, crawlSpeed));
+    const fSign = localForward < -0.04 ? -1 : 1;
+    const sSign = localSide < -0.04 ? -1 : 1;
+    const wave = Math.sin(this.bob * 4.15);
+    const wave2 = Math.cos(this.bob * 4.15);
+    const activeCrawl = Math.min(1, forwardAmt + sideAmt);
+
+    const crawlLeftArmX = -0.42 + fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt;
+    const crawlRightArmX = -0.42 - fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt - miningSwing * 0.22;
+    const crawlLeftLegX = 0.26 - fSign * wave * 0.32 * forwardAmt + 0.12 * sideAmt;
+    const crawlRightLegX = 0.26 + fSign * wave * 0.32 * forwardAmt + 0.12 * sideAmt;
+    const crawlLeftArmZ = sSign * (0.28 + wave2 * 0.24) * sideAmt + 0.1 * (1 - activeCrawl);
+    const crawlRightArmZ = sSign * (-0.28 + wave2 * 0.24) * sideAmt - 0.1 * (1 - activeCrawl);
+    const crawlLeftLegZ = sSign * (-0.18 + wave * 0.16) * sideAmt;
+    const crawlRightLegZ = sSign * (0.18 + wave * 0.16) * sideAmt;
+
+    const swimStroke = Math.sin(this.bob * 3.35);
+    const swimKick = Math.sin(this.bob * 6.25);
+    const swimSide = Math.min(1, Math.abs(localSide) / Math.max(0.01, swimSpeed));
+    const swimForward = Math.min(1, Math.max(Math.abs(localForward), planarSpeed * 0.55) / Math.max(0.01, swimSpeed));
+    const swimActive = Math.min(1, swimMove + (this.keys['Space'] || this.touchJump ? 0.45 : 0));
+    // In swim pose the spine (+Y) points toward the crosshair.  Arms rotate
+    // toward +Y too, so the silhouette reads as head + hands first and legs behind.
+    const swimLeftArmX = 2.46 + swimStroke * 0.34 * swimForward - 0.08 * swimSide;
+    const swimRightArmX = 2.46 - swimStroke * 0.34 * swimForward - 0.08 * swimSide - miningSwing * 0.08;
+    const swimLeftLegX = 0.22 + swimKick * 0.24 * swimActive;
+    const swimRightLegX = 0.22 - swimKick * 0.24 * swimActive;
+    const swimLeftArmZ = sSign * (0.1 + Math.cos(this.bob * 3.35) * 0.18) * swimSide - 0.08 * swimForward;
+    const swimRightArmZ = sSign * (-0.1 + Math.cos(this.bob * 3.35) * 0.18) * swimSide + 0.08 * swimForward;
+    const swimLeftLegZ = sSign * -0.08 * swimSide;
+    const swimRightLegZ = sSign * 0.08 * swimSide;
+
+    let leftLegX = mix(uprightSwing, crawlLeftLegX, crawl);
+    let rightLegX = mix(-uprightSwing, crawlRightLegX, crawl);
+    let leftArmX = mix(-uprightSwing * 0.7, crawlLeftArmX, crawl);
+    let rightArmX = mix(uprightSwing * 0.7 - miningSwing * (1 - crawl * 0.45), crawlRightArmX, crawl);
+    let leftLegZ = crawlLeftLegZ * crawl;
+    let rightLegZ = crawlRightLegZ * crawl;
+    let leftArmZ = crawlLeftArmZ * crawl;
+    let rightArmZ = crawlRightArmZ * crawl;
+    leftLegX = mix(leftLegX, swimLeftLegX, swim);
+    rightLegX = mix(rightLegX, swimRightLegX, swim);
+    leftArmX = mix(leftArmX, swimLeftArmX, swim);
+    rightArmX = mix(rightArmX, swimRightArmX, swim);
+    leftLegZ = mix(leftLegZ, swimLeftLegZ, swim);
+    rightLegZ = mix(rightLegZ, swimRightLegZ, swim);
+    leftArmZ = mix(leftArmZ, swimLeftArmZ, swim);
+    rightArmZ = mix(rightArmZ, swimRightArmZ, swim);
+
+    if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.set(leftLegX, 0, leftLegZ);
+    if (this.avatarRightLeg) this.avatarRightLeg.rotation.set(rightLegX, 0, rightLegZ);
+    if (this.avatarLeftArm) this.avatarLeftArm.rotation.set(leftArmX, 0, leftArmZ);
+    if (this.avatarRightArm) this.avatarRightArm.rotation.set(rightArmX, 0, rightArmZ);
+    if (this.avatarHead) {
+      const uprightHead = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45));
+      const crawlHead = Math.max(-0.25, Math.min(0.58, this.pitch * 0.22 + 0.26));
+      const swimHead = underWater ? Math.max(-0.36, Math.min(0.48, this.pitch * 0.18)) : 0.16;
+      this.avatarHead.rotation.set(mix(mix(uprightHead, crawlHead, crawl), swimHead, swim), 0, 0);
+    }
+  }
+
+  private restoreThirdPersonOccluders() {
+    for (const u of this.thirdPersonClipUniforms) u.active.value = 0;
+    if (this.thirdPersonFogCap) this.thirdPersonFogCap.visible = false;
+  }
+
+  private isCameraObstacle(x: number, y: number, z: number) {
+    return this.world.inBounds(x, y, z) && isSolid(this.world.get(x, y, z));
+  }
+
+  private resolveThirdPersonCamera(focus: THREE.Vector3, desired: THREE.Vector3) {
+    const seg = new THREE.Vector3().subVectors(desired, focus);
+    const dist = seg.length();
+    if (dist < 0.35) return desired.clone();
+    const dir = seg.multiplyScalar(1 / dist);
+    const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+    if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+    else right.normalize();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    const offsets: Array<[number, number]> = [
+      [0, 0],
+      [0.24, 0],
+      [-0.24, 0],
+      [0, 0.24],
+      [0, -0.18],
+      [0.17, 0.17],
+      [-0.17, 0.17],
+    ];
+    const p = new THREE.Vector3();
+    const step = 0.14;
+    let hitT = Infinity;
+    scan: for (let t = 0.42; t <= dist; t += step) {
+      for (const [ox, oy] of offsets) {
+        p.copy(focus).addScaledVector(dir, t).addScaledVector(right, ox).addScaledVector(up, oy);
+        if (this.isCameraObstacle(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))) {
+          hitT = t;
+          break scan;
+        }
+      }
+    }
+    if (hitT !== Infinity) {
+      // Same idea as the referenced CameraCorrection: shorten the camera arm to
+      // just before the hit point instead of carving a see-through hole in walls.
+      const safeDist = Math.max(0.58, hitT - 0.34);
+      return focus.clone().addScaledVector(dir, safeDist);
+    }
+    return desired.clone();
+  }
+
   private updateCamera(dt: number) {
     const bobAmt = this.onGround ? Math.min(1, Math.hypot(this.vel.x, this.vel.z) / WALK) : 0;
     const bobY = Math.sin(this.bob * 2.2) * 0.055 * bobAmt;
@@ -2617,15 +3402,58 @@ export class Engine {
     // smooth crouch dip + crawl drop (eye down to ~0.55 over the feet)
     this.crouchLerp += ((this.crouching ? 1 : 0) - this.crouchLerp) * Math.min(1, dt * 11);
     this.crawlLerp += ((this.crawling ? 1 : 0) - this.crawlLerp) * Math.min(1, dt * 9);
-    const eyeDrop = this.crouchLerp * 0.42 + this.crawlLerp * (EYE - 0.52);
+    this.swimLerp += ((this.inWater && !this.crawling ? 1 : 0) - this.swimLerp) * Math.min(1, dt * 7.5);
+    const eyeDrop = this.crouchLerp * 0.42 + this.crawlLerp * (EYE - 0.52) + this.swimLerp * 0.5;
     const targetY = this.pos.y + EYE - eyeDrop - this.landDip + this.stepSmooth * 0.35 + bobY;
+    // Third-person should not inherit the first-person head-bob/step bounce:
+    // it made normal walking and sprinting feel like the camera was shaking.
+    const thirdPersonTargetY = this.pos.y + EYE - eyeDrop - this.landDip * 0.16 + this.stepSmooth * 0.08;
     this.landDip = Math.max(0, this.landDip - dt * 1.6);
-    this.camera.position.set(this.pos.x + bobX * 0.35, targetY, this.pos.z);
-    this.camera.rotation.set(this.pitch, this.yaw, Math.sin(this.bob * 1.1) * 0.012 * bobAmt);
-    this.camera.fov += (this.fovTarget - this.camera.fov) * Math.min(1, dt * 8);
-    this.camera.updateProjectionMatrix();
+    this.updatePlayerAvatar();
 
-    const sh = this.shakeMag * this.shake;
+    if (this.thirdPerson && this.phase === 'playing') {
+      const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+      const forward = new THREE.Vector3(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp).normalize();
+      const rawFocus = new THREE.Vector3(this.pos.x, thirdPersonTargetY + 0.05, this.pos.z);
+      if (!this.thirdPersonCamReady) this.thirdPersonFocus.copy(rawFocus);
+      else this.thirdPersonFocus.lerp(rawFocus, 1 - Math.pow(0.0004, dt));
+      const focus = this.thirdPersonFocus;
+      const dist = this.crawling ? 3.6 : this.crouching ? 4.3 : 5.3;
+      const desired = focus.clone().addScaledVector(forward, -dist);
+      desired.y += 0.48;
+      desired.y = Math.max(desired.y, this.pos.y + 0.58);
+      const corrected = this.resolveThirdPersonCamera(focus, desired);
+      if (!this.thirdPersonCamReady) {
+        this.thirdPersonCam.copy(corrected);
+        this.thirdPersonCamReady = true;
+      } else {
+        const currentDist = this.thirdPersonCam.distanceTo(focus);
+        const correctedDist = corrected.distanceTo(focus);
+        // Move inward fast, but no longer instantly.  If the camera itself ends
+        // up inside a block, only then snap to the safe correction point.
+        const inward = correctedDist < currentDist - 0.12;
+        const alpha = inward ? 1 - Math.pow(0.00002, dt) : 1 - Math.pow(0.003, dt);
+        const candidate = this.thirdPersonCam.clone().lerp(corrected, alpha);
+        if (this.isCameraObstacle(Math.floor(candidate.x), Math.floor(candidate.y), Math.floor(candidate.z))) this.thirdPersonCam.copy(corrected);
+        else this.thirdPersonCam.copy(candidate);
+      }
+      this.camera.position.copy(this.thirdPersonCam);
+      this.updatePlayerAvatarOpacity(this.camera.position.distanceTo(focus));
+      this.camera.lookAt(focus.clone().addScaledVector(forward, 9));
+      this.camera.fov += ((this.fovTarget + 4) - this.camera.fov) * Math.min(1, dt * 8);
+      this.camera.updateProjectionMatrix();
+      this.restoreThirdPersonOccluders();
+    } else {
+      this.thirdPersonCamReady = false;
+      this.restoreThirdPersonOccluders();
+      this.updatePlayerAvatarOpacity(Infinity);
+      this.camera.position.set(this.pos.x + bobX * 0.35, targetY, this.pos.z);
+      this.camera.rotation.set(this.pitch, this.yaw, Math.sin(this.bob * 1.1) * 0.012 * bobAmt);
+      this.camera.fov += (this.fovTarget - this.camera.fov) * Math.min(1, dt * 8);
+      this.camera.updateProjectionMatrix();
+    }
+
+    const sh = this.shakeMag * this.shake * (this.thirdPerson ? 0.32 : 1);
     if (sh > 0.0001) {
       this.camera.position.x += (Math.random() - 0.5) * sh * 0.55;
       this.camera.position.y += (Math.random() - 0.5) * sh * 0.55;
@@ -2648,7 +3476,145 @@ export class Engine {
     this.shake = 1;
   }
 
+  private chooseWeather(biome: Biome) {
+    const dry = biome === 'desert' || biome === 'canyon' || biome === 'volcanic';
+    if (dry) {
+      this.weatherTargetKind = 'clear';
+      this.weatherTargetIntensity = 0;
+      this.weatherTimer = 8 + this.rand() * 14;
+      return;
+    }
+    const roll = this.rand();
+    if (biome === 'winter') {
+      this.weatherTargetKind = roll < 0.34 ? 'snow' : 'clear';
+      this.weatherTargetIntensity = this.weatherTargetKind === 'snow' ? 0.45 + this.rand() * 0.45 : 0;
+    } else {
+      const rainChance = biome === 'jungle' ? 0.34 : 0.2;
+      this.weatherTargetKind = roll < rainChance ? 'rain' : 'clear';
+      this.weatherTargetIntensity = this.weatherTargetKind === 'rain' ? 0.35 + this.rand() * (biome === 'jungle' ? 0.55 : 0.42) : 0;
+    }
+    this.weatherTimer = this.weatherTargetKind === 'clear' ? 18 + this.rand() * 34 : 28 + this.rand() * 58;
+  }
+
+  private updateWeather(dt: number, biome: Biome) {
+    const dry = biome === 'desert' || biome === 'canyon' || biome === 'volcanic';
+    this.weatherTimer -= dt;
+    if (dry || this.weatherTimer <= 0 || (biome === 'winter' && this.weatherKind === 'rain') || (biome !== 'winter' && this.weatherKind === 'snow')) {
+      this.chooseWeather(biome);
+    }
+    if (this.weatherTargetKind !== 'clear') this.weatherKind = this.weatherTargetKind;
+    const k = 1 - Math.pow(0.001, dt / (this.weatherTargetKind === 'clear' ? 4.5 : 6.5));
+    this.weatherIntensity += (this.weatherTargetIntensity - this.weatherIntensity) * k;
+    if (this.weatherIntensity < 0.035 && this.weatherTargetKind === 'clear') this.weatherKind = 'clear';
+    this.spawnWeatherParticles(dt, biome);
+  }
+
+  private spawnWeatherParticles(dt: number, biome: Biome) {
+    if (this.weatherKind === 'clear' || this.weatherIntensity <= 0.05) return;
+    const dry = biome === 'desert' || biome === 'canyon' || biome === 'volcanic';
+    if (dry) return;
+    const surface = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    if (this.pos.y < surface - 1) return;
+    const rain = this.weatherKind === 'rain';
+    const rate = (rain ? 46 : 22) * this.weatherIntensity * (this.isCoarse() ? 0.55 : 1);
+    this.weatherSpawnAcc += dt * rate;
+    while (this.weatherSpawnAcc >= 1 && this.particles.length < MAX_PARTICLES - 32) {
+      this.weatherSpawnAcc -= 1;
+      const a = this.rand() * Math.PI * 2;
+      const r = 4 + this.rand() * 25;
+      const x = this.camera.position.x + Math.cos(a) * r;
+      const z = this.camera.position.z + Math.sin(a) * r;
+      const y = this.camera.position.y + 12 + this.rand() * 16;
+      if (rain) {
+        this.particles.push({
+          weather: 'rain',
+          x,
+          y,
+          z,
+          vx: -2.3 - this.rand() * 1.6,
+          vy: -18 - this.rand() * 8,
+          vz: 0.6 + (this.rand() - 0.5) * 1.2,
+          life: 1.2,
+          max: 1.2,
+          size: 0.045 + this.rand() * 0.02,
+          r: 0.55,
+          g: 0.72,
+          b: 1,
+        });
+      } else {
+        this.particles.push({
+          weather: 'snow',
+          x,
+          y,
+          z,
+          vx: -0.35 + (this.rand() - 0.5) * 0.45,
+          vy: -0.8 - this.rand() * 0.9,
+          vz: (this.rand() - 0.5) * 0.55,
+          life: 8.5,
+          max: 8.5,
+          size: 0.055 + this.rand() * 0.045,
+          r: 0.9,
+          g: 0.96,
+          b: 1,
+        });
+      }
+    }
+  }
+
+  private updatePlacedTorchLights(dt: number) {
+    this.placedTorchScanTimer -= dt;
+    if (this.placedTorchScanTimer > 0) return;
+    this.placedTorchScanTimer = 0.85;
+    if (!this.placedTorchLights.length) return;
+
+    const px = Math.floor(this.pos.x);
+    const py = Math.floor(this.pos.y + 1);
+    const pz = Math.floor(this.pos.z);
+    const underground = this.pos.y < this.world.getHeight(px, pz) - 2;
+    if (this.daylight > 0.78 && !underground) {
+      for (const light of this.placedTorchLights) {
+        light.visible = false;
+        light.intensity = 0;
+      }
+      return;
+    }
+    const radius = 16;
+    const y0 = Math.max(1, py - 8);
+    const y1 = Math.min(WY - 1, py + 8);
+    const found: Array<{ x: number; y: number; z: number; d2: number }> = [];
+    for (let z = pz - radius; z <= pz + radius; z++) {
+      for (let x = px - radius; x <= px + radius; x++) {
+        const dx = x + 0.5 - this.pos.x;
+        const dz = z + 0.5 - this.pos.z;
+        const flat = dx * dx + dz * dz;
+        if (flat > radius * radius) continue;
+        for (let y = y0; y <= y1; y++) {
+          if (this.world.get(x, y, z) !== TORCH) continue;
+          const dy = y + 0.5 - (this.pos.y + 1.1);
+          found.push({ x, y, z, d2: flat + dy * dy });
+        }
+      }
+    }
+    found.sort((a, b) => a.d2 - b.d2);
+    for (let i = 0; i < this.placedTorchLights.length; i++) {
+      const light = this.placedTorchLights[i];
+      const f = found[i];
+      if (!f) {
+        light.visible = false;
+        light.intensity = 0;
+        continue;
+      }
+      light.visible = true;
+      light.position.set(f.x + 0.5, f.y + 0.55, f.z + 0.5);
+      light.distance = 15 + (1 - this.daylight) * 3;
+      light.intensity = 2.2 + (1 - this.daylight) * 1.5;
+    }
+  }
+
   private updateAmbient(dt: number) {
+    const biomeHere = this.world.biomeAt(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    this.updateWeather(dt, biomeHere);
+    this.updatePlacedTorchLights(dt);
     // Grey smoke rises only from active volcanic craters within sight.
     this.volcanoSmokeTimer -= dt;
     if (this.volcanoSmokeTimer <= 0) {
@@ -2676,12 +3642,17 @@ export class Engine {
           life:1.1+Math.random()*0.8,max:1.8,size:0.025+Math.random()*0.025,r:0.72,g:0.62,b:0.43});
       }
     }
-    // clouds drift
+    // clouds drift: deserts stay cloudless and harsh; rain/snow thickens the ceiling.
     const mat = this.clouds.material as THREE.MeshBasicMaterial;
     (mat.map as THREE.Texture).offset.x = (this.time * 0.0035) % 1;
     (mat.map as THREE.Texture).offset.y = (this.time * 0.0012) % 1;
     this.clouds.position.x = this.camera.position.x;
     this.clouds.position.z = this.camera.position.z;
+    this.clouds.position.y = this.camera.position.y + 112;
+    const drySky = biomeHere === 'desert' || biomeHere === 'canyon' || biomeHere === 'volcanic';
+    const cloudTarget = drySky ? 0 : Math.min(0.46, 0.04 + this.daylight * 0.24 + this.weatherIntensity * 0.28);
+    mat.opacity += (cloudTarget - mat.opacity) * Math.min(1, dt * 1.7);
+    this.clouds.visible = mat.opacity > 0.025;
 
     // motes wrap around the camera (updated at half rate — they drift slowly)
     if ((this.frameNo & 1) === 0) {
@@ -2759,16 +3730,66 @@ export class Engine {
   // ================= MINING =================
   private eyeV = new THREE.Vector3();
   private dirV = new THREE.Vector3();
+
+  private interactionReach() {
+    return Math.min(MAX_INTERACTION_REACH, BASE_INTERACTION_REACH + this.stats.reach);
+  }
+
+  private playerAabb() {
+    const { halfX, halfZ } = this.playerHalfExtents();
+    return {
+      minX: this.pos.x - halfX,
+      maxX: this.pos.x + halfX,
+      minY: this.pos.y,
+      maxY: this.pos.y + this.playerHeight(),
+      minZ: this.pos.z - halfZ,
+      maxZ: this.pos.z + halfZ,
+    };
+  }
+
+  private distanceFromPlayerAabb(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number) {
+    const p = this.playerAabb();
+    const dx = minX > p.maxX ? minX - p.maxX : p.minX > maxX ? p.minX - maxX : 0;
+    const dy = minY > p.maxY ? minY - p.maxY : p.minY > maxY ? p.minY - maxY : 0;
+    const dz = minZ > p.maxZ ? minZ - p.maxZ : p.minZ > maxZ ? p.minZ - maxZ : 0;
+    return Math.hypot(dx, dy, dz);
+  }
+
+  private blockReachDistance(x: number, y: number, z: number) {
+    return this.distanceFromPlayerAabb(x, y, z, x + 1, y + 1, z + 1);
+  }
+
+  private mobReachDistance(m: Mob) {
+    const half = (m.id === 'spider' || m.id === 'spiderling' ? 0.55 : 0.45) * m.def.scale;
+    const h = (m.def.hostile ? (m.id === 'spider' || m.id === 'spiderling' ? 0.95 : 1.95) : 1.35) * m.def.scale;
+    return this.distanceFromPlayerAabb(m.x - half, m.y, m.z - half, m.x + half, m.y + h, m.z + half);
+  }
+
   private updateTarget() {
-    // analytic view vector — immune to screen shake / camera smoothing
+    // First-person mines from the eyes. Third-person uses the screen-centre
+    // camera ray but ignores the transparent camera→avatar corridor, so the
+    // highlighted block is exactly what the crosshair sits on.
     const cp = Math.cos(this.pitch),
       sp = Math.sin(this.pitch);
     this.dirV.set(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp);
     this.eyeV.set(this.pos.x, this.pos.y + EYE, this.pos.z);
-    this.target = this.raycast(this.eyeV, this.dirV, REACH);
+    const reach = this.interactionReach();
+    if (this.thirdPerson && this.phase === 'playing') {
+      const camDir = new THREE.Vector3();
+      this.camera.getWorldDirection(camDir);
+      const focus = new THREE.Vector3(this.pos.x, this.pos.y + EYE - this.crawlLerp * (EYE - 0.52) + 0.05, this.pos.z);
+      const skip = Math.max(0, this.camera.position.distanceTo(focus) - 0.35);
+      const hit = this.raycast(this.camera.position, camDir, skip + reach + EYE + 0.25, skip);
+      if (hit && this.blockReachDistance(hit.x, hit.y, hit.z) <= reach + 0.02) {
+        this.target = hit;
+        return;
+      }
+    }
+    const hit = this.raycast(this.eyeV, this.dirV, reach + EYE);
+    this.target = hit && this.blockReachDistance(hit.x, hit.y, hit.z) <= reach + 0.02 ? hit : null;
   }
 
-  private raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number) {
+  private raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, minDist = 0) {
     let x = Math.floor(origin.x),
       y = Math.floor(origin.y),
       z = Math.floor(origin.z);
@@ -2791,7 +3812,7 @@ export class Engine {
     for (let i = 0; i < 128; i++) {
       const id = this.world.get(x, y, z);
       // the crosshair ray passes straight through water — you can mine underwater
-      if (id !== AIR && id !== WATER && this.world.inBounds(x, y, z)) {
+      if (t >= minDist && id !== AIR && id !== WATER && this.world.inBounds(x, y, z)) {
         return { x, y, z, nx, ny, nz, id };
       }
       if (tMaxX < tMaxY && tMaxX < tMaxZ) {
@@ -3067,14 +4088,14 @@ export class Engine {
   private fellTree(x: number, y: number, z: number) {
     // 1. collect the trunk going up (allowing 1-block lean / branches for giant trees)
     const logs: Array<{ pos: [number, number, number]; id: number }> = [];
-    const seen = new Set<string>();
+    const logSeen = new Set<string>();
     const key = (px: number, py: number, pz: number) => `${px},${py},${pz}`;
     const stack: Array<[number, number, number]> = [[x, y + 1, z]];
-    while (stack.length && logs.length < 48) {
+    while (stack.length && logs.length < 96) {
       const [cx, cy, cz] = stack.pop()!;
       const k = key(cx, cy, cz);
-      if (seen.has(k)) continue;
-      seen.add(k);
+      if (logSeen.has(k)) continue;
+      logSeen.add(k);
       const bid = this.world.get(cx, cy, cz);
       if (!isLogId(bid)) continue;
       logs.push({ pos: [cx, cy, cz], id: bid });
@@ -3088,44 +4109,48 @@ export class Engine {
     if (!logs.length) return;
 
     // 2. gather the whole leaf canopy — wide first ring around the logs, then
-    //    flood through connected leaves so nothing is left hovering
+    //    flood through connected leaves so nothing is left hovering.  Keep a
+    //    separate leaf-seen set: the trunk search probes neighbouring leaves,
+    //    and reusing that set made some canopy blocks get skipped and float.
     const leaves: Array<{ pos: [number, number, number]; id: number }> = [];
+    const seen = new Set<string>(logs.map((l) => key(l.pos[0], l.pos[1], l.pos[2])));
+    const xs = logs.map((l) => l.pos[0]);
+    const ys = logs.map((l) => l.pos[1]);
+    const zs = logs.map((l) => l.pos[2]);
+    const minLeafX = Math.min(...xs) - 6;
+    const maxLeafX = Math.max(...xs) + 6;
+    const minLeafY = Math.min(...ys) - 2;
+    const maxLeafY = Math.min(WY - 1, Math.max(...ys) + 8);
+    const minLeafZ = Math.min(...zs) - 6;
+    const maxLeafZ = Math.max(...zs) + 6;
+    const leafLimit = 900;
+    const addLeaf = (px: number, py: number, pz: number, out: Array<[number, number, number]>) => {
+      if (leaves.length >= leafLimit) return;
+      if (px < minLeafX || px > maxLeafX || py < minLeafY || py > maxLeafY || pz < minLeafZ || pz > maxLeafZ) return;
+      const k = key(px, py, pz);
+      if (seen.has(k)) return;
+      seen.add(k);
+      const bid = this.world.get(px, py, pz);
+      if (isLeafId(bid)) {
+        leaves.push({ pos: [px, py, pz], id: bid });
+        out.push([px, py, pz]);
+      }
+    };
     let frontier: Array<[number, number, number]> = [];
     for (const l of logs) {
       const [cx, cy, cz] = l.pos;
-      for (let dy = -1; dy <= 2; dy++)
-        for (let dz2 = -2; dz2 <= 2; dz2++)
-          for (let dx2 = -2; dx2 <= 2; dx2++) {
-            const px = cx + dx2,
-              py = cy + dy,
-              pz = cz + dz2;
-            const k = key(px, py, pz);
-            if (seen.has(k)) continue;
-            seen.add(k);
-            const bid = this.world.get(px, py, pz);
-            if (isLeafId(bid)) {
-              leaves.push({ pos: [px, py, pz], id: bid });
-              frontier.push([px, py, pz]);
-            }
-          }
+      for (let dy = -2; dy <= 3; dy++)
+        for (let dz2 = -3; dz2 <= 3; dz2++)
+          for (let dx2 = -3; dx2 <= 3; dx2++) addLeaf(cx + dx2, cy + dy, cz + dz2, frontier);
     }
-    for (let pass = 0; pass < 5 && leaves.length < 220; pass++) {
+    for (let pass = 0; pass < 12 && frontier.length && leaves.length < leafLimit; pass++) {
       const next: Array<[number, number, number]> = [];
       for (const [cx, cy, cz] of frontier) {
         for (let dy = -1; dy <= 1; dy++)
           for (let dz2 = -1; dz2 <= 1; dz2++)
             for (let dx2 = -1; dx2 <= 1; dx2++) {
-              const px = cx + dx2,
-                py = cy + dy,
-                pz = cz + dz2;
-              const k = key(px, py, pz);
-              if (seen.has(k)) continue;
-              seen.add(k);
-              const bid = this.world.get(px, py, pz);
-              if (isLeafId(bid)) {
-                leaves.push({ pos: [px, py, pz], id: bid });
-                next.push([px, py, pz]);
-              }
+              if (leaves.length >= leafLimit) break;
+              addLeaf(cx + dx2, cy + dy, cz + dz2, next);
             }
       }
       frontier = next;
@@ -3513,7 +4538,7 @@ export class Engine {
   }
 
   // ================= TURTLE/PENGUIN EGGS, BEES, PREDATION =================
-  private birdNests: Array<{ x: number; y: number; z: number; kind: 'bird' | 'chicken'; t: number }> = [];
+  private birdNests: Array<{ x: number; y: number; z: number; kind: 'bird' | 'chicken'; t: number; brooding?: boolean }> = [];
   private birdNestTimer = 10;
   private turtleEggs: Array<{
     x: number;
@@ -3616,7 +4641,7 @@ export class Engine {
       this.birdNestTimer = 10 + Math.random() * 6;
       if (this.daylight > 0.35 && this.birdNests.length < 6) {
         for (const parent of this.mobSys.mobs) {
-          if (!parent.alive || parent.grow > 0 || !parent.onGround ||
+          if (!parent.alive || parent.grow > 0 || parent.task === 6 || !parent.onGround ||
             (parent.id !== 'bird' && parent.id !== 'chicken') ||
             Math.hypot(parent.x - this.pos.x, parent.z - this.pos.z) > 42) continue;
           const x = Math.floor(parent.x), z = Math.floor(parent.z);
@@ -3641,7 +4666,17 @@ export class Engine {
           }
           const kind = parent.id;
           this.world.set(x, y, z, kind === 'bird' ? BIRD_NEST : CHICKEN_NEST);
-          this.birdNests.push({ x, y, z, kind, t: 32 + Math.random() * 18 });
+          this.birdNests.push({ x, y, z, kind, t: 32 + Math.random() * 18, brooding: true });
+          // Parent settles onto the nest; the hatch timer only runs while a
+          // matching adult is actually brooding nearby.
+          parent.task = 6;
+          parent.taskX = x + 0.5;
+          parent.taskY = y;
+          parent.taskZ = z + 0.5;
+          parent.taskT = 999;
+          parent.tx = x + 0.5;
+          parent.tz = z + 0.5;
+          parent.think = 2;
           this.markDirtyAt(x, z);
           this.burst(x + 0.5, y + 0.3, z + 0.5, kind === 'bird' ? [100, 69, 42] : [211, 177, 92], 4, 0.8);
           break;
@@ -3657,16 +4692,55 @@ export class Engine {
         if (this.world.get(nest.x, nest.y, nest.z) === expected) {
           this.world.set(nest.x, nest.y, nest.z, AIR); this.markDirtyAt(nest.x, nest.z);
         }
+        for (const parent of this.mobSys.mobs) {
+          if (parent.alive && parent.id === nest.kind && parent.task === 6 &&
+              Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5)) < 2.5) {
+            parent.task = 0; parent.think = 0.5;
+          }
+        }
         this.birdNests.splice(i, 1);
         continue;
       }
       // Don't spawn chicks far outside the active wildlife area.
       if (Math.hypot(nest.x - this.pos.x, nest.z - this.pos.z) > 48) continue;
+      nest.brooding = this.mobSys.mobs.some((parent) =>
+        parent.alive && parent.id === nest.kind && parent.grow <= 0 && parent.task === 6 &&
+        Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5)) < 1.45 &&
+        Math.abs(parent.y - nest.y) < 1.4,
+      );
+      if (!nest.brooding) {
+        let closest: Mob | null = null;
+        let best = 10;
+        for (const parent of this.mobSys.mobs) {
+          if (!parent.alive || parent.id !== nest.kind || parent.grow > 0 || parent.task === 6) continue;
+          const d = Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5));
+          if (d < best && Math.abs(parent.y - nest.y) < 4) { best = d; closest = parent; }
+        }
+        if (closest) {
+          closest.task = 6;
+          closest.taskX = nest.x + 0.5;
+          closest.taskY = nest.y;
+          closest.taskZ = nest.z + 0.5;
+          closest.taskT = 999;
+          closest.tx = closest.taskX;
+          closest.tz = closest.taskZ;
+          closest.think = 2;
+        }
+        continue; // eggs stay cold: no progress without a brooding parent
+      }
       nest.t -= dt;
       if (nest.t > 0 || this.mobSys.mobs.length >= this.mobSys.maxMobs - 2) continue;
       this.world.set(nest.x, nest.y, nest.z, AIR);
       this.markDirtyAt(nest.x, nest.z);
       this.birdNests.splice(i, 1);
+      for (const parent of this.mobSys.mobs) {
+        if (parent.alive && parent.id === nest.kind && parent.task === 6 &&
+            Math.hypot(parent.x - (nest.x + 0.5), parent.z - (nest.z + 0.5)) < 2.5) {
+          parent.task = 0;
+          parent.think = 0.6;
+          parent.jumpCd = 1.2;
+        }
+      }
       for (let b = 0; b < 2; b++) {
         const baby = this.mobSys.spawn(nest.kind, nest.x + 0.35 + b * 0.3, nest.y + 0.05, nest.z + 0.5);
         if (baby) {
@@ -3695,9 +4769,10 @@ export class Engine {
         this.world.set(x, fy, z, AIR);
         this.birdNests = this.birdNests.filter((n) => n.x !== x || n.y !== fy || n.z !== z);
         this.turtleEggs = this.turtleEggs.filter((n) => n.x !== x || n.y !== fy || n.z !== z);
-        if (id === PENGUIN_EGG) for (const parent of this.mobSys.mobs) {
-          if (parent.id === 'penguin' && parent.task === 6 &&
-              Math.hypot(parent.x - x - 0.5, parent.z - z - 0.5) < 2) {
+        if (id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST) for (const parent of this.mobSys.mobs) {
+          const expectedParent = id === PENGUIN_EGG ? 'penguin' : id === BIRD_NEST ? 'bird' : 'chicken';
+          if (parent.id === expectedParent && parent.task === 6 &&
+              Math.hypot(parent.x - x - 0.5, parent.z - z - 0.5) < 2.5) {
             parent.task = 0;
             parent.think = 0;
           }
@@ -5151,69 +6226,213 @@ export class Engine {
 
   // ================= DAY / NIGHT =================
   /** 0 = midnight, 0.5 = noon */
-  private updateClock(dt: number) {
-    this.clock = (this.clock + dt / this.dayLen) % 1;
-    // smooth sun curve with long day, shorter night
-    const s = Math.sin(this.clock * Math.PI * 2 - Math.PI / 2);
-    this.daylight = Math.max(0, Math.min(1, s * 1.35 + 0.42));
+  private clockPhase(clock = this.clock): HudState['phaseName'] {
+    if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return 'dawn';
+    if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return 'day';
+    if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return 'dusk';
+    return 'night';
+  }
 
-    const d = this.daylight;
-    // sky + fog shift from night blue to day blue
-    const night = new THREE.Color(0x0a1424);
-    const dawn = new THREE.Color(0xd98a5a);
-    const day = new THREE.Color(0xbcd7e8);
-    const c = new THREE.Color();
-    if (d < 0.45) c.copy(night).lerp(dawn, d / 0.45);
-    else c.copy(dawn).lerp(day, (d - 0.45) / 0.55);
-    (this.scene.fog as THREE.Fog).color.copy(c);
-    this.scene.background = c;
-    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.55 + d * 0.75);
+  private clockPhaseProgress(clock = this.clock) {
+    if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return (clock - CLOCK_DAWN_START) / (CLOCK_DAY_START - CLOCK_DAWN_START);
+    if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return (clock - CLOCK_DAY_START) / (CLOCK_DUSK_START - CLOCK_DAY_START);
+    if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return (clock - CLOCK_DUSK_START) / (CLOCK_NIGHT_START - CLOCK_DUSK_START);
+    if (clock >= CLOCK_NIGHT_START) return (clock - CLOCK_NIGHT_START) / (1 - CLOCK_NIGHT_START + CLOCK_DAWN_START);
+    return (clock + 1 - CLOCK_NIGHT_START) / (1 - CLOCK_NIGHT_START + CLOCK_DAWN_START);
+  }
 
-    // terrain brightness follows the sun (baked AO stays intact);
-    // a hand torch lifts the floor brightness so caves & night stay readable
-    let lit = 0.3 + d * 0.7;
-    if (this.heldKind() === 'torch') {
-      const warm = 0.62 + Math.sin(this.time * 9) * 0.03;
-      lit = Math.max(lit, warm);
-      this.material.color.setRGB(lit, lit * 0.96, lit * 0.82);
-      if (this.cutoutMat) this.cutoutMat.color.copy(this.material.color);
-      if (this.decorMat) this.decorMat.color.copy(this.material.color);
-      if (this.sunLight) this.sunLight.intensity = 0.25 + d * 0.85;
-      if (this.ambLight) this.ambLight.intensity = Math.max(0.32 + d * 0.5, 0.55);
-      if (this.moonMesh) this.moonMesh.visible = d < 0.5;
-      if (this.sunMesh) this.sunMesh.visible = d > 0.25;
+  private phaseSeconds(phase: HudState['phaseName']) {
+    if (phase === 'dawn') return DAWN_SECONDS;
+    if (phase === 'day') return this.firstSurvivalDay ? FIRST_SURVIVAL_DAY_SECONDS : DAY_SECONDS;
+    if (phase === 'dusk') return DUSK_SECONDS;
+    return NIGHT_SECONDS;
+  }
+
+  private phaseSpan(phase: HudState['phaseName']) {
+    if (phase === 'dawn') return CLOCK_DAY_START - CLOCK_DAWN_START;
+    if (phase === 'day') return CLOCK_DUSK_START - CLOCK_DAY_START;
+    if (phase === 'dusk') return CLOCK_NIGHT_START - CLOCK_DUSK_START;
+    return 1 - CLOCK_NIGHT_START + CLOCK_DAWN_START;
+  }
+
+  private isNightClock(clock = this.clock) {
+    return this.clockPhase(clock) === 'night';
+  }
+
+  private sampleVisualClimate() {
+    const px = Math.floor(this.pos.x);
+    const pz = Math.floor(this.pos.z);
+    // Blend a small neighbourhood instead of using the exact block under the player.
+    // Desert/plains/canyon borders often run through villages and tree lines, so a
+    // single-step biome flip used to change the whole scene exposure instantly.
+    const samples: Array<[number, number, number]> = [
+      [0, 0, 1.8],
+      [14, 0, 1],
+      [-14, 0, 1],
+      [0, 14, 1],
+      [0, -14, 1],
+      [10, 10, 0.7],
+      [-10, 10, 0.7],
+      [10, -10, 0.7],
+      [-10, -10, 0.7],
+    ];
+    let dry = 0;
+    let winter = 0;
+    let total = 0;
+    for (const [dx, dz, w] of samples) {
+      const b = this.world.biomeAt(px + dx, pz + dz);
+      if (b === 'desert' || b === 'canyon' || b === 'volcanic') dry += w;
+      else if (b === 'winter') winter += w;
+      total += w;
+    }
+    return { dry: dry / total, winter: winter / total };
+  }
+
+  private updateVisualClimate(dt: number) {
+    const target = this.sampleVisualClimate();
+    if (!this.visualClimateReady || (dt <= 0 && this.phase !== 'playing' && this.phase !== 'paused')) {
+      this.visualDry = target.dry;
+      this.visualWinter = target.winter;
+      this.visualClimateReady = true;
       return;
     }
-    if (this.cutoutMat) this.cutoutMat.color.setRGB(lit, lit, lit * (0.94 + d * 0.06));
-    if (this.decorMat) this.decorMat.color.setRGB(lit, lit, lit * (0.94 + d * 0.06));
-    this.material.color.setRGB(lit, lit, lit * (0.94 + d * 0.06));
-    if (this.sunLight) this.sunLight.intensity = 0.25 + d * 0.85;
-    if (this.ambLight) this.ambLight.intensity = 0.32 + d * 0.5;
-    if (this.moonMesh) this.moonMesh.visible = d < 0.5;
-    if (this.sunMesh) this.sunMesh.visible = d > 0.25;
+    if (dt <= 0) return;
+    const k = 1 - Math.pow(0.001, dt / 7.5);
+    this.visualDry += (target.dry - this.visualDry) * k;
+    this.visualWinter += (target.winter - this.visualWinter) * k;
+  }
+
+  private updateClock(dt: number) {
+    if (dt > 0) {
+      const phase = this.clockPhase();
+      this.clock = (this.clock + (dt * this.phaseSpan(phase)) / this.phaseSeconds(phase)) % 1;
+    }
+    const smooth01 = (v: number) => {
+      const t2 = Math.max(0, Math.min(1, v));
+      return t2 * t2 * (3 - 2 * t2);
+    };
+
+    const phase = this.clockPhase();
+    const prog = this.clockPhaseProgress();
+    const sunAngle = this.clock * Math.PI * 2 - Math.PI / 2;
+    const sunHeight = Math.sin(sunAngle);
+    if (phase === 'dawn') this.daylight = 0.06 + 0.94 * smooth01(prog);
+    else if (phase === 'day') this.daylight = 1;
+    else if (phase === 'dusk') this.daylight = 1 - 0.94 * smooth01(prog);
+    else this.daylight = 0.06;
+
+    const d = this.daylight;
+    if (this.skyMesh) this.skyMesh.position.copy(this.camera.position);
+    if (this.stars) this.stars.position.copy(this.camera.position);
+    this.updateVisualClimate(dt);
+    const dry = Math.max(0, Math.min(1, this.visualDry));
+    const winter = Math.max(0, Math.min(1, this.visualWinter * (1 - dry)));
+    const weather = this.weatherIntensity * (1 - dry * 0.85);
+
+    const night = new THREE.Color(0x050914);
+    const dawn = new THREE.Color(0xff9c66).lerp(new THREE.Color(0xffba72), dry).lerp(new THREE.Color(0xffaa82), winter);
+    const day = new THREE.Color(0xe8f8ff).lerp(new THREE.Color(0xf0fbff), dry).lerp(new THREE.Color(0xe5f5ff), winter);
+    const storm = new THREE.Color(0x8799a8).lerp(new THREE.Color(0xbcc9d8), winter);
+    const c = new THREE.Color();
+    if (phase === 'night') c.copy(night);
+    else if (phase === 'dawn') c.copy(night).lerp(dawn, smooth01(prog)).lerp(day, smooth01(Math.max(0, prog - 0.45) / 0.55) * 0.55);
+    else if (phase === 'dusk') c.copy(day).lerp(dawn, smooth01(prog) * 0.72).lerp(night, smooth01(Math.max(0, prog - 0.38) / 0.62));
+    else c.copy(day);
+    if (weather > 0) c.lerp(storm, Math.min(0.72, weather * 0.62));
+
+    const fog = this.scene.fog as THREE.Fog;
+    fog.color.copy(c);
+    const nightHaze = 0.66 + d * 0.54;
+    const weatherHaze = 1 - weather * 0.16;
+    fog.far = this.renderDist * nightHaze * weatherHaze;
+    fog.near = fog.far * (0.34 + weather * 0.07);
+    this.scene.background = c;
+    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+
+    const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();
+    this.sunDir.copy(sunDir);
+    const moonDir = sunDir.clone().multiplyScalar(-1);
+    const celestialR = 255;
+    if (this.sunMesh) {
+      this.sunMesh.position.copy(this.camera.position).addScaledVector(sunDir, celestialR);
+      this.sunMesh.lookAt(this.camera.position);
+      this.sunMesh.visible = sunDir.y > 0.02 && d > 0.18;
+      const mat = this.sunMesh.material as THREE.MeshBasicMaterial;
+      const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.32)) * (1 - weather * 0.5);
+      mat.opacity = sunOpacity;
+      mat.color.copy(new THREE.Color(d < 0.45 ? 0xffa347 : 0xffd24a).lerp(new THREE.Color(0xffc933), dry));
+      if (this.sunHaloMat) {
+        const dayHalo = d > 0.84 && sunDir.y > 0.52 ? Math.min(1, (d - 0.84) / 0.16) : 0;
+        this.sunHaloMat.opacity = sunOpacity * dayHalo * (0.2 + dry * 0.1) * (1 - weather * 0.45);
+      }
+      const sc = 1 + (d > 0.65 ? dry * 0.18 : 0);
+      this.sunMesh.scale.setScalar(sc);
+    }
+    if (this.moonMesh) {
+      this.moonMesh.position.copy(this.camera.position).addScaledVector(moonDir, celestialR);
+      this.moonMesh.lookAt(this.camera.position);
+      this.moonMesh.visible = moonDir.y > -0.03 && d < 0.72;
+    }
+    if (this.starMat) {
+      this.starMat.opacity = smooth01((0.48 - d) / 0.48) * (1 - Math.min(0.85, weather * 0.85));
+    }
+
+    const lightDir = sunDir.y > -0.04 ? sunDir : moonDir;
+    if (this.sunLight) {
+      this.sunLight.position.copy(lightDir);
+      const dayLightColor = new THREE.Color(0xfff2cf).lerp(new THREE.Color(0xffdfa0), dry).lerp(new THREE.Color(0xeaf6ff), winter * 0.25);
+      this.sunLight.color.copy(sunDir.y > -0.04 ? dayLightColor : new THREE.Color(0x88a6d8));
+      const sunPower = sunDir.y > -0.04 ? 0.22 + d * (1.14 + dry * 0.08 - winter * 0.04) : 0.04 + (1 - d) * 0.065;
+      this.sunLight.intensity = sunPower * (1 - weather * 0.32);
+    }
+    if (this.ambLight) {
+      const ambient = (0.09 + d * (0.58 + dry * 0.08 - winter * 0.03)) * (1 - weather * 0.22) + dry * (d > 0.5 ? 0.09 : 0);
+      this.ambLight.intensity = ambient;
+      const ambientColor = new THREE.Color(d < 0.25 ? 0x9fb8ff : 0xf0f6ff).lerp(new THREE.Color(0xffedc8), dry).lerp(new THREE.Color(0xe8f5ff), winter * 0.35);
+      this.ambLight.color.copy(ambientColor);
+    }
+
+    const tint = new THREE.Color();
+    if (d < 0.22) tint.setRGB(0.58 + d * 1.35, 0.64 + d * 1.12, 0.86 + d * 0.62);
+    else tint.setRGB(1.055 + dry * 0.005 - winter * 0.02, 1.045 - dry * 0.015, 1.0 - dry * 0.08 + winter * 0.04);
+    if (weather > 0) tint.lerp(new THREE.Color(0xb7c1ca), weather * 0.24);
+    this.material.color.copy(tint);
+    if (this.cutoutMat) this.cutoutMat.color.copy(tint);
+    if (this.decorMat) this.decorMat.color.copy(tint);
+    if (this.waterMat) this.waterMat.color.copy(new THREE.Color(d < 0.22 ? 0x8aa7d8 : 0xffffff).lerp(storm, weather * 0.18));
   }
 
   phaseName(): HudState['phaseName'] {
-    const d = this.daylight;
-    if (d > 0.82) return 'day';
-    if (d < 0.2) return 'night';
-    return this.clock < 0.5 ? 'dawn' : 'dusk';
+    return this.clockPhase();
   }
 
   // ================= MOBS =================
+  private survivalThreatLevel() {
+    return Math.max(0, this.survivalNight - 1);
+  }
+
+  private hostileHpScale() {
+    return 1 + this.survivalThreatLevel() * 0.22;
+  }
+
+  private hostileDamageScale() {
+    return 1 + this.survivalThreatLevel() * 0.16;
+  }
+
   private updateMobs(dt: number) {
-    const night = this.daylight < 0.42;
+    const night = this.isNightClock();
+    const threat = this.survivalThreatLevel();
 
     // hostile spawning
     if (this.survival) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = night ? 1.4 : 6;
+        this.spawnTimer = night ? Math.max(0.55, 1.4 - threat * 0.1) : 6;
         // caves are dark at any hour: when the player is underground, monsters
         // keep coming even at noon (and never burn down there — no open sky)
         const surfaceH = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
         const underground = this.pos.y < surfaceH - 4;
-        const cap = night ? 12 : underground ? 7 : 3;
+        const cap = night ? Math.min(34, 12 + this.survivalNight * 3) : underground ? Math.min(15, 7 + threat) : 3;
         if (this.mobSys.count(true) < cap) {
           const p = underground
             ? this.findCaveSpawn()
@@ -5224,7 +6443,14 @@ export class Engine {
             const id: MobId =
               roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
             const m = this.mobSys.spawn(id, p[0], p[1], p[2]);
-            if (m && !night) m.burn = 0.4;
+            if (m) {
+              if (threat > 0) {
+                const hpMul = this.hostileHpScale();
+                m.maxHp = Math.ceil(m.maxHp * hpMul);
+                m.hp = m.maxHp;
+              }
+              if (!night) m.burn = 0.4;
+            }
           }
         }
       }
@@ -5258,14 +6484,15 @@ export class Engine {
       this.animalTimer = (this.survival ? 2.8 : 2.1) * (moving ? 0.6 : 1);
       if (landCount < (this.survival ? 6 : 8) && this.mobSys.count(false) < budget) {
         const water = this.world.findWaterNear(this.pos.x, this.pos.z, 26);
-        const shoreCount = nearby.filter((m) => ['crab', 'turtle', 'penguin', 'seal'].includes(m.id)).length;
+        const shoreCount = nearby.filter((m) => ['crab', 'turtle', 'penguin', 'seal', 'frog'].includes(m.id)).length;
         if (water && shoreCount < 3 && Math.random() < 0.35) {
           const winterShore = this.world.isWinter(Math.floor(water[0]), Math.floor(water[2]));
+          const shoreBiome = this.world.biomeAt(Math.floor(water[0]), Math.floor(water[2]));
           const p = this.mobSys.findSpawnPoint(water[0], water[2], 1, 6, null,
             winterShore ? [ICE, SNOW_GRASS] : [SAND, GRASS]);
           if (p && Math.hypot(p[0] - water[0], p[2] - water[2]) < 6) {
             const id: MobId = winterShore ? (Math.random() < 0.55 ? 'penguin' : 'seal') :
-              (Math.random() < 0.55 ? 'crab' : 'turtle');
+              shoreBiome === 'jungle' || Math.random() < 0.42 ? 'frog' : (Math.random() < 0.55 ? 'crab' : 'turtle');
             this.mobSys.spawn(id, p[0], p[1], p[2]);
           }
         } else {
@@ -5280,15 +6507,15 @@ export class Engine {
             const ground = this.world.get(Math.floor(p[0]), Math.floor(p[1] - 1), Math.floor(p[2]));
             const pasture = ground === GRASS;
             const list: MobId[] = biome === 'winter'
-              ? ['rabbit', 'deer', 'roe_deer', 'moose', 'hedgehog']
+              ? ['rabbit', 'deer', 'roe_deer', 'fawn', 'moose', 'hedgehog']
               : biome === 'desert' || biome === 'canyon'
-                ? ['lizard', 'lizard', 'camel', 'tumbleweed', 'tumbleweed', 'tumbleweed']
+                ? ['lizard', 'lizard', 'camel', 'camel', 'camel_calf', 'tumbleweed', 'tumbleweed', 'tumbleweed']
                 : biome === 'jungle'
-                  ? ['monkey', 'monkey', 'monkey', 'lizard', 'pig', 'rabbit', 'hedgehog']
+                  ? ['monkey', 'monkey', 'monkey', 'frog', 'frog', 'lizard', 'pig', 'rabbit', 'hedgehog']
                   : biome === 'volcanic'
                     ? ['lizard', 'lizard', 'rabbit']
-                    : high ? (pasture ? ['sheep', 'sheep', 'rabbit'] : ['rabbit'])
-                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat', 'deer', 'roe_deer', 'hedgehog'] : ['rabbit'];
+                    : high ? (pasture ? ['sheep', 'sheep', 'rabbit', 'deer'] : ['rabbit'])
+                      : pasture ? ['pig', 'sheep', 'cow', 'chicken', 'rabbit', 'cat', 'deer', 'roe_deer', 'fawn', 'hedgehog'] : ['rabbit'];
             const spawnedId = list[Math.floor(Math.random() * list.length)];
             const spawned = this.mobSys.spawn(spawnedId, p[0], p[1], p[2]);
             if (spawnedId === 'cow' && Math.random() < 0.55 && spawned) {
@@ -5297,6 +6524,20 @@ export class Engine {
               if (calf) {
                 calf.grow = 60;
                 calf.group.scale.setScalar(calf.def.scale * 0.65);
+              }
+            } else if ((spawnedId === 'deer' || spawnedId === 'roe_deer') && Math.random() < 0.48 && spawned) {
+              const a = Math.random() * Math.PI * 2;
+              const fawn = this.mobSys.spawn('fawn', p[0] + Math.cos(a) * 1.35, p[1], p[2] + Math.sin(a) * 1.35);
+              if (fawn) {
+                fawn.grow = 70;
+                fawn.group.scale.setScalar(fawn.def.scale * 0.78);
+              }
+            } else if (spawnedId === 'camel' && Math.random() < 0.48 && spawned) {
+              const a = Math.random() * Math.PI * 2;
+              const camelCalf = this.mobSys.spawn('camel_calf', p[0] + Math.cos(a) * 1.8, p[1], p[2] + Math.sin(a) * 1.8);
+              if (camelCalf) {
+                camelCalf.grow = 80;
+                camelCalf.group.scale.setScalar(camelCalf.def.scale * 0.78);
               }
             }
           }
@@ -5396,6 +6637,7 @@ export class Engine {
 
   private mobHit(m: Mob, dmg: number) {
     if (this.phase !== 'playing') return;
+    if (this.survival && m.def.hostile) dmg *= this.hostileDamageScale();
     const red = damageReduction(this.stats.armor);
     let taken = dmg * (1 - red);
     if (m.def.explodes) {
@@ -5425,9 +6667,9 @@ export class Engine {
   /** player swings at whatever the crosshair is on */
   private tryAttack() {
     if (this.attackCd > 0) return false;
-    const reach = this.heldKind() === 'sword' ? 4.2 : 3.4;
-    const m = this.mobSys.raycast(this.eyeV.x, this.eyeV.y, this.eyeV.z, this.dirV.x, this.dirV.y, this.dirV.z, reach);
-    if (!m) return false;
+    const reach = this.interactionReach();
+    const m = this.mobSys.raycast(this.eyeV.x, this.eyeV.y, this.eyeV.z, this.dirV.x, this.dirV.y, this.dirV.z, reach + EYE);
+    if (!m || this.mobReachDistance(m) > reach + 0.02) return false;
     if (m.id === 'trader') return true; // he's a merchant, not target practice
 
     const swift = 1 - Math.min(0.4, this.stats.swift / 100);
@@ -5648,7 +6890,7 @@ export class Engine {
     this.kills++;
     const def = m.def;
     // animals & birds drop meat — cooked straight away if they burned
-    if (!def.hostile && def.id !== 'jellyfish') {
+    if (!def.hostile && def.id !== 'jellyfish' && def.id !== 'frog') {
       const meat = burned ? COOKED_MEAT : RAW_MEAT;
       const small =
         def.id === 'chicken' ||
@@ -5656,6 +6898,8 @@ export class Engine {
         def.id === 'fish' ||
         def.id === 'bird' ||
         def.id === 'calf' ||
+        def.id === 'fawn' ||
+        def.id === 'camel_calf' ||
         def.id === 'lizard' ||
         def.id === 'monkey';
       const n = small ? 1 : 2;
@@ -6267,6 +7511,23 @@ export class Engine {
         arr.pop();
         continue;
       }
+      if (p.weather) {
+        if (p.weather === 'snow') {
+          p.vx += Math.sin(this.time * 1.7 + p.x * 0.31) * dt * 0.08;
+          p.vz += Math.cos(this.time * 1.3 + p.z * 0.27) * dt * 0.08;
+        } else {
+          p.vy -= 3.2 * dt;
+        }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        const ground = this.world.getHeight(Math.floor(p.x), Math.floor(p.z)) + 0.08;
+        if (p.y <= ground || Math.abs(p.x - this.pos.x) > 34 || Math.abs(p.z - this.pos.z) > 34) {
+          arr[i] = arr[arr.length - 1];
+          arr.pop();
+        }
+        continue;
+      }
       if (!p.smoke) p.vy -= GRAVITY * 0.72 * dt;
       else { p.vx += (Math.random() - 0.5) * dt; p.vz += (Math.random() - 0.5) * dt; }
       const nx = p.x + p.vx * dt,
@@ -6291,14 +7552,23 @@ export class Engine {
     this.pMesh.count = n;
     for (let i = 0; i < n; i++) {
       const p = arr[i];
-      const k = Math.min(1, p.life / 0.42);
+      const k = Math.min(1, p.life / (p.weather ? p.max : 0.42));
       const s = p.size * (0.45 + k * 0.75);
       this.pDummy.position.set(p.x, p.y, p.z);
-      this.pDummy.rotation.set(p.x * 3 + this.time, p.y * 3, p.z * 3);
-      this.pDummy.scale.setScalar(s);
+      if (p.weather === 'rain') {
+        this.pDummy.rotation.set(0.2, 0, -0.16);
+        this.pDummy.scale.set(s * 0.34, s * 5.8, s * 0.34);
+      } else if (p.weather === 'snow') {
+        this.pDummy.rotation.set(p.x * 1.7 + this.time, p.y * 1.3, p.z * 1.7);
+        this.pDummy.scale.set(s * 1.15, s * 0.32, s * 1.15);
+      } else {
+        this.pDummy.rotation.set(p.x * 3 + this.time, p.y * 3, p.z * 3);
+        this.pDummy.scale.setScalar(s);
+      }
       this.pDummy.updateMatrix();
       this.pMesh.setMatrixAt(i, this.pDummy.matrix);
-      this.pColor.setRGB(p.r, p.g, p.b, THREE.SRGBColorSpace);
+      const nightWeatherDim = p.weather ? (0.2 + Math.min(1, this.daylight) * 0.72) : 1;
+      this.pColor.setRGB(p.r * nightWeatherDim, p.g * nightWeatherDim, p.b * nightWeatherDim, THREE.SRGBColorSpace);
       this.pMesh.setColorAt(i, this.pColor);
     }
     if (n > 0) {
@@ -6513,6 +7783,7 @@ export class Engine {
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,
       workbenchNear: this.phase === 'playing' || this.inventoryOpen ? this.workbenchNear() : false,
       sandbox: this.sandbox,
+      endless: this.endlessRun,
       inventoryOpen: this.inventoryOpen,
       craftHint: this.craftHint(),
       inventory: this.inventoryList(),
@@ -6522,13 +7793,34 @@ export class Engine {
     this.writeDom();
   }
 
+  private updateSunGlare() {
+    // Completely off at night/dawn/dusk: no moon or evening halo. The flare is
+    // allowed only in bright daytime and only when looking almost exactly at the sun.
+    if (!this.sunGlare || this.daylight < 0.88 || this.sunDir.y < 0.58 || this.weatherIntensity > 0.45) {
+      if (this.sunGlare) {
+        this.sunGlare.style.opacity = '0';
+        this.sunGlare.style.display = 'none';
+      }
+      return;
+    }
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    const dot = forward.dot(this.sunDir);
+    const t2 = Math.max(0, Math.min(1, (dot - 0.993) / 0.007));
+    const glare = 0.62 * t2 * t2 * (3 - 2 * t2) * Math.min(1, (this.daylight - 0.88) / 0.12) * (1 - this.weatherIntensity);
+    this.sunGlare.style.display = glare > 0.002 ? 'block' : 'none';
+    this.sunGlare.style.opacity = glare.toFixed(3);
+  }
+
   // ================= RENDER =================
   private render() {
     this.updateChunkVisibility();
+    this.updateClock(0);
+    this.updateSunGlare();
     const cur = this.phase === 'playing' ? (this.locked ? 'none' : 'crosshair') : 'default';
     if (this.renderer.domElement.style.cursor !== cur) this.renderer.domElement.style.cursor = cur;
     const mining = this.mining || this.touchMine;
-    this.pickGroup.visible = this.phase === 'playing' || this.phase === 'paused';
+    this.pickGroup.visible = (this.phase === 'playing' || this.phase === 'paused') && !this.thirdPerson;
     this.highlight.visible = this.highlight.visible && this.phase === 'playing';
     this.crackMesh.visible = this.crackMesh.visible && this.phase === 'playing' && mining;
     if (this.phase !== 'playing') {
@@ -6554,6 +7846,7 @@ export class Engine {
     window.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('mousemove', this.onMouseMove);
     const el = this.renderer?.domElement;
+    this.restoreThirdPersonOccluders();
     if (el) {
       el.removeEventListener('mousedown', this.onMouseDown);
       el.removeEventListener('wheel', this.onWheel);

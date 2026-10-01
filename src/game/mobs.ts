@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { World } from './world';
 import { WY } from './world';
-import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
+import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
 import type { TKey } from './i18n';
 
 export type MobId =
@@ -25,8 +25,11 @@ export type MobId =
   | 'archer'
   | 'spiderling'
   | 'calf'
+  | 'fawn'
   | 'lizard'
+  | 'frog'
   | 'camel'
+  | 'camel_calf'
   | 'seal'
   | 'monkey'
   | 'jellyfish'
@@ -68,7 +71,9 @@ export const MOBS: Record<MobId, MobDef> = {
   sheep: { id: 'sheep', nameKey: 'mob_sheep', hostile: false, hp: 10, speed: 1.4, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.95, score: 20, level: 0, body: '#e9e6dd', accent: '#d8c8b4', legs: '#5a4c42' },
   cow: { id: 'cow', nameKey: 'mob_cow', hostile: false, hp: 18, speed: 1.25, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.25, score: 26, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
   calf: { id: 'calf', nameKey: 'mob_calf', hostile: false, hp: 8, speed: 1.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.82, score: 14, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
+  fawn: { id: 'fawn', nameKey: 'mob_fawn', hostile: false, hp: 8, speed: 3.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 18, level: 0, body: '#b9854f', accent: '#f2d8ae', legs: '#604230' },
   lizard: { id: 'lizard', nameKey: 'mob_lizard', hostile: false, hp: 4, speed: 3.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.65, score: 12, level: 0, body: '#74a95e', accent: '#b5cb7b', legs: '#4b7a43' },
+  frog: { id: 'frog', nameKey: 'mob_frog', hostile: false, hp: 5, speed: 2.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.58, score: 14, level: 0, body: '#5f9c3f', accent: '#e5c878', legs: '#3d6c2e' },
   chicken: { id: 'chicken', nameKey: 'mob_chicken', hostile: false, hp: 6, speed: 1.7, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.6, score: 12, level: 0, body: '#f2efe6', accent: '#e2483a', legs: '#f3b942' },
   zombie: { id: 'zombie', nameKey: 'mob_zombie', hostile: true, hp: 22, speed: 2.25, damage: 7, cooldown: 1.1, reach: 1.5, burns: true, scale: 1, score: 120, level: 1, body: '#4a8a4a', accent: '#3d6fa8', legs: '#2f4f7a' },
   skeleton: { id: 'skeleton', nameKey: 'mob_skeleton', hostile: true, hp: 18, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: true, scale: 1, score: 150, level: 2, body: '#d8d6cc', accent: '#b6b3a8', legs: '#c2bfb4' },
@@ -77,6 +82,7 @@ export const MOBS: Record<MobId, MobDef> = {
   creeper: { id: 'creeper', nameKey: 'mob_creeper', hostile: true, hp: 20, speed: 2.45, damage: 26, cooldown: 3, reach: 2.2, burns: true, scale: 1, score: 220, level: 3, body: '#5ac45a', accent: '#2f6b2f', legs: '#4aa84a', explodes: true },
   trader: { id: 'trader', nameKey: 'mob_trader', hostile: false, hp: 9999, speed: 1.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1, score: 0, level: 0, body: '#7a4bb8', accent: '#c9a24a', legs: '#4a2c80' },
   camel: { id: 'camel', nameKey: 'mob_camel', hostile: false, hp: 24, speed: 1.3, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 34, level: 0, body: '#c9a26a', accent: '#e3bb82', legs: '#9c764b' },
+  camel_calf: { id: 'camel_calf', nameKey: 'mob_camel_calf', hostile: false, hp: 12, speed: 1.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 18, level: 0, body: '#d8ad6a', accent: '#f0cf91', legs: '#a47743' },
   seal: { id: 'seal', nameKey: 'mob_seal', hostile: false, hp: 16, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.9, score: 28, level: 0, body: '#83949a', accent: '#b9c8c9', legs: '#596972', aquatic: true },
   monkey: { id: 'monkey', nameKey: 'mob_monkey', hostile: false, hp: 10, speed: 2.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 23, level: 0, body: '#8b6444', accent: '#d3a97c', legs: '#674729' },
   deer: { id: 'deer', nameKey: 'mob_deer', hostile: false, hp: 14, speed: 2.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.05, score: 30, level: 0, body: '#a8794f', accent: '#d7bd91', legs: '#594332' },
@@ -181,6 +187,33 @@ function px2(g: THREE.Group, mats: THREE.MeshLambertMaterial[], x: number, y: nu
   const m = box(0.06, 0.06, 0.05, color, mats);
   m.position.set(x, y, z);
   g.add(m);
+}
+
+type PatchFace = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
+
+/** flat coat markings: visually texture-like, not chunky raised cubes */
+function coatPatch(
+  g: THREE.Group,
+  mats: THREE.MeshLambertMaterial[],
+  face: PatchFace,
+  x: number,
+  y: number,
+  z: number,
+  w: number,
+  h: number,
+  color: string,
+  tag?: string,
+) {
+  const mat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 });
+  mats.push(mat);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  if (face === 'left' || face === 'right') mesh.rotation.y = Math.PI / 2;
+  else if (face === 'top' || face === 'bottom') mesh.rotation.x = Math.PI / 2;
+  mesh.position.set(x, y, z);
+  if (tag) mesh.userData[tag] = true;
+  mesh.userData.coatPatch = true;
+  g.add(mesh);
+  return mesh;
 }
 
 /** Proportions distinguish clownfish, pike, crucian carp, minnows and tiny fry. */
@@ -352,43 +385,68 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
   }
 
   if (def.id === 'bird') {
-    // Songbirds have different body lengths and tail feathers per colour variant.
-    const body = box(0.3, 0.26, 0.4, def.body, mats);
-    body.position.y = 0.3;
+    // Jungle birds are Minecraft-like parrots: blocky head, hooked beak, crest and long tail.
+    const body = box(0.32, 0.3, 0.42, def.body, mats);
+    body.position.y = 0.32;
     body.userData.birdBody = true;
     g.add(body);
-    const chest = box(0.2, 0.18, 0.08, def.accent, mats);
-    chest.position.set(0, 0.26, -0.22);
+    const chest = box(0.22, 0.22, 0.035, def.accent, mats);
+    chest.position.set(0, 0.31, -0.225);
+    chest.userData.birdChest = true;
     g.add(chest);
-    const hd = box(0.22, 0.2, 0.2, def.body, mats);
-    hd.position.set(0, 0.48, -0.18);
+    const hd = box(0.25, 0.24, 0.23, def.body, mats);
+    hd.position.set(0, 0.54, -0.2);
+    hd.userData.birdBody = true;
     g.add(hd);
     head = hd;
-    const beak = box(0.06, 0.05, 0.1, '#f4a83a', mats);
-    beak.position.set(0, 0.46, -0.32);
-    g.add(beak);
-    const tail = box(0.14, 0.05, 0.2, def.legs, mats);
-    tail.position.set(0, 0.34, 0.28);
-    tail.rotation.x = 0.35;
+    const face = box(0.18, 0.12, 0.035, '#f3e6c6', mats);
+    face.position.set(0, 0.53, -0.335);
+    face.userData.parrotFace = true;
+    g.add(face);
+    const upperBeak = box(0.075, 0.06, 0.13, '#f4a83a', mats);
+    upperBeak.position.set(0, 0.51, -0.42);
+    upperBeak.rotation.x = -0.08;
+    g.add(upperBeak);
+    const lowerBeak = box(0.055, 0.035, 0.07, '#5c3a2a', mats);
+    lowerBeak.position.set(0, 0.465, -0.39);
+    g.add(lowerBeak);
+    const crest = box(0.08, 0.18, 0.07, def.legs, mats);
+    crest.position.set(0, 0.72, -0.18);
+    crest.rotation.x = -0.35;
+    crest.userData.parrotCrest = true;
+    g.add(crest);
+    const tail = box(0.16, 0.06, 0.38, def.legs, mats);
+    tail.position.set(0, 0.33, 0.42);
+    tail.rotation.x = 0.52;
     tail.userData.birdTail = true;
     g.add(tail);
+    const tail2 = box(0.1, 0.045, 0.32, def.accent, mats);
+    tail2.position.set(0, 0.3, 0.5);
+    tail2.rotation.x = 0.52;
+    tail2.userData.birdChest = true;
+    g.add(tail2);
     for (const s of [-1, 1]) {
       // Pivot at the shoulder, not at the centre of the feather: the whole
       // wing lifts and lowers instead of spinning in place like a leg.
       const shoulder = new THREE.Group();
-      shoulder.position.set(s * 0.14, 0.37, 0);
-      const wing = box(0.3, 0.045, 0.24, def.legs, mats);
-      wing.position.x = s * 0.14;
+      shoulder.position.set(s * 0.15, 0.38, 0);
+      const wing = box(0.32, 0.05, 0.28, def.legs, mats);
+      wing.position.x = s * 0.15;
+      wing.userData.birdWing = true;
       shoulder.add(wing);
       g.add(shoulder);
       legs.push(shoulder);
-      px2(g, mats, s * 0.07, 0.52, -0.26, '#20301f');
+      px2(g, mats, s * 0.075, 0.57, -0.335, '#20301f');
+      const cheek = box(0.055, 0.055, 0.02, def.accent, mats);
+      cheek.position.set(s * 0.085, 0.5, -0.36);
+      cheek.userData.birdChest = true;
+      g.add(cheek);
     }
     return { group: g, head, legs, mats };
   }
 
   if (def.id === 'cat') {
-    // lynx: sleek body, tufted ears, short bobbed tail, spotted coat
+    // domestic Minecraft-like cat: sleek body, pointed ears, raised tail, flat coat pattern
     const body = box(0.4, 0.36, 0.86, def.body, mats);
     body.position.y = 0.5;
     g.add(body);
@@ -421,13 +479,11 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     tailTip.position.set(0, 0.76, 0.95);
     tailTip.rotation.x = -0.8;
     g.add(tailTip);
-    // spots
-    for (const [sx2, sy2, sz2] of [
-      [0.16, 0.6, -0.1],
-      [-0.14, 0.56, 0.15],
-      [0.1, 0.64, 0.28],
-    ])
-      px2(g, mats, sx2, sy2, sz2, '#8a6a3a');
+    // flat coat markings on the flanks/back — reads like texture, not armour plates
+    coatPatch(g, mats, 'right', 0.205, 0.58, -0.12, 0.24, 0.18, '#8a6a3a', 'catPatch');
+    coatPatch(g, mats, 'left', -0.205, 0.55, 0.16, 0.28, 0.16, '#8a6a3a', 'catPatch');
+    coatPatch(g, mats, 'top', 0.04, 0.685, 0.22, 0.18, 0.24, '#8a6a3a', 'catPatch');
+    coatPatch(g, mats, 'front', 0.1, 0.82, -0.69, 0.09, 0.1, '#8a6a3a', 'catPatch');
     for (const sx of [-1, 1])
       for (const sz of [-1, 1]) {
         const leg = box(0.13, 0.36, 0.13, def.legs, mats);
@@ -485,6 +541,10 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     const tail = box(0.12, 0.12, 0.12, def.accent, mats);
     tail.position.set(0, 0.3, 0.3);
     g.add(tail);
+    // flat side markings support spotted, Dutch and hare colour variants
+    coatPatch(g, mats, 'right', 0.195, 0.34, 0.02, 0.18, 0.12, '#8a6a48', 'rabbitPatch');
+    coatPatch(g, mats, 'left', -0.195, 0.31, 0.16, 0.16, 0.11, '#8a6a48', 'rabbitPatch');
+    coatPatch(g, mats, 'front', 0.08, 0.52, -0.463, 0.08, 0.07, '#8a6a48', 'rabbitPatch');
     // nose + eyes
     px2(g, mats, 0, 0.46, -0.48, '#3a2a20');
     for (const s of [-1, 1]) px2(g, mats, s * 0.1, 0.54, -0.44, '#20301f');
@@ -495,6 +555,36 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
         g.add(leg);
         legs.push(leg);
       }
+    return { group: g, head, legs, mats };
+  }
+
+  if (def.id === 'frog') {
+    const body = box(0.52, 0.28, 0.62, def.body, mats);
+    body.position.y = 0.22; body.userData.frogBody = true; g.add(body);
+    const belly = box(0.36, 0.08, 0.42, def.accent, mats);
+    belly.position.set(0, 0.12, -0.04); g.add(belly);
+    const hd = box(0.48, 0.26, 0.36, def.body, mats);
+    hd.position.set(0, 0.36, -0.38); hd.userData.frogBody = true; g.add(hd); head = hd;
+    const mouth = box(0.34, 0.035, 0.04, '#2e3b24', mats);
+    mouth.position.set(0, 0.31, -0.58); g.add(mouth);
+    for (const side of [-1, 1]) {
+      const eyeBase = box(0.16, 0.13, 0.14, def.body, mats);
+      eyeBase.position.set(side * 0.17, 0.54, -0.42); g.add(eyeBase);
+      const eyeWhite = box(0.11, 0.09, 0.035, '#f4f1d8', mats);
+      eyeWhite.position.set(side * 0.17, 0.55, -0.5); g.add(eyeWhite);
+      const pupil = box(0.07, 0.07, 0.04, '#1a1820', mats);
+      pupil.position.set(side * 0.17, 0.55, -0.525); g.add(pupil);
+      const fore = box(0.12, 0.14, 0.18, def.legs, mats);
+      fore.position.set(side * 0.2, 0.08, -0.25); g.add(fore); legs.push(fore);
+      const hind = box(0.18, 0.13, 0.28, def.legs, mats);
+      hind.position.set(side * 0.22, 0.07, 0.22); g.add(hind); legs.push(hind);
+      const foot = box(0.24, 0.04, 0.18, def.legs, mats);
+      foot.position.set(side * 0.26, 0.02, -0.37); g.add(foot);
+      const rearFoot = box(0.28, 0.04, 0.2, def.legs, mats);
+      rearFoot.position.set(side * 0.27, 0.02, 0.38); g.add(rearFoot);
+    }
+    coatPatch(g, mats, 'top', -0.12, 0.365, 0.08, 0.18, 0.22, '#3f7830', 'frogPatch');
+    coatPatch(g, mats, 'top', 0.13, 0.365, -0.08, 0.16, 0.18, '#78b857', 'frogPatch');
     return { group: g, head, legs, mats };
   }
 
@@ -528,26 +618,35 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     return { group: g, head, legs, mats };
   }
 
-  if (def.id === 'camel') {
-    const torso = box(0.68, 0.56, 1.15, def.body, mats);
-    torso.position.y = 1.08; g.add(torso);
-    for (const z of [-0.22, 0.25]) {
-      const hump = box(0.53, 0.29, 0.38, def.accent, mats);
-      hump.position.set(0, 1.48, z); g.add(hump);
-    }
-    const neck = box(0.24, 0.9, 0.27, def.body, mats);
-    neck.position.set(0, 1.64, -0.48); g.add(neck);
-    const hd = box(0.38, 0.29, 0.46, def.body, mats);
-    hd.position.set(0, 2.11, -0.67); g.add(hd); head = hd;
-    const muzzle = box(0.27, 0.15, 0.25, def.accent, mats);
-    muzzle.position.set(0, 2.01, -0.94); g.add(muzzle);
+  if (def.id === 'camel' || def.id === 'camel_calf') {
+    const baby = def.id === 'camel_calf';
+    const torso = box(baby ? 0.58 : 0.76, baby ? 0.48 : 0.64, baby ? 0.92 : 1.26, def.body, mats);
+    torso.userData.grazeBody = true;
+    torso.position.y = baby ? 0.82 : 1.06; g.add(torso);
+    const frontHump = box(baby ? 0.32 : 0.42, baby ? 0.18 : 0.34, baby ? 0.24 : 0.34, def.accent, mats);
+    frontHump.position.set(0, baby ? 1.13 : 1.47, baby ? -0.05 : -0.16); frontHump.userData.camelHump = true; g.add(frontHump);
+    const rearHump = box(baby ? 0.3 : 0.42, baby ? 0.15 : 0.34, baby ? 0.22 : 0.34, def.accent, mats);
+    rearHump.position.set(0, baby ? 1.12 : 1.47, baby ? 0.2 : 0.24); rearHump.userData.camelRearHump = true; rearHump.userData.camelHump = true; g.add(rearHump);
+    // lighter, flat coat accents on neck/flank like pixel texture patches
+    coatPatch(g, mats, 'right', baby ? 0.292 : 0.382, baby ? 0.88 : 1.12, -0.18, baby ? 0.32 : 0.46, baby ? 0.18 : 0.24, '#e6c184', 'camelPatch');
+    coatPatch(g, mats, 'left', baby ? -0.292 : -0.382, baby ? 0.8 : 1.02, 0.28, baby ? 0.28 : 0.42, baby ? 0.16 : 0.22, '#b9854b', 'camelPatch');
+    const neck = box(baby ? 0.2 : 0.25, baby ? 0.62 : 0.92, baby ? 0.22 : 0.27, def.body, mats);
+    neck.position.set(0, baby ? 1.22 : 1.62, baby ? -0.42 : -0.54); g.add(neck);
+    const hd = box(baby ? 0.31 : 0.4, baby ? 0.25 : 0.32, baby ? 0.38 : 0.48, def.body, mats);
+    hd.position.set(0, baby ? 1.58 : 2.1, baby ? -0.58 : -0.74); g.add(hd); head = hd;
+    const muzzle = box(baby ? 0.23 : 0.29, baby ? 0.13 : 0.16, baby ? 0.22 : 0.27, def.accent, mats);
+    muzzle.position.set(0, baby ? 1.49 : 1.98, baby ? -0.81 : -1.02); g.add(muzzle);
+    const lip = box(baby ? 0.2 : 0.24, 0.05, 0.08, def.legs, mats);
+    lip.position.set(0, baby ? 1.43 : 1.91, baby ? -0.93 : -1.16); g.add(lip);
     for (const side of [-1, 1]) {
-      px2(g, mats, side * 0.17, 2.17, -0.88, '#38281c');
-      const ear = box(0.09, 0.19, 0.1, def.body, mats);
-      ear.position.set(side * 0.19, 2.31, -0.54); g.add(ear);
-      for (const z of [-0.38, 0.38]) {
-        const leg = box(0.17, 0.8, 0.18, def.legs, mats);
-        leg.position.set(side * 0.22, 0.4, z); g.add(leg); legs.push(leg);
+      px2(g, mats, side * (baby ? 0.13 : 0.18), baby ? 1.62 : 2.17, baby ? -0.8 : -0.94, '#38281c');
+      const ear = box(baby ? 0.075 : 0.09, baby ? 0.15 : 0.21, 0.08, def.body, mats);
+      ear.position.set(side * (baby ? 0.16 : 0.22), baby ? 1.79 : 2.33, baby ? -0.47 : -0.56); ear.rotation.z = side * 0.18; g.add(ear);
+      for (const z of [baby ? -0.28 : -0.42, baby ? 0.28 : 0.42]) {
+        const leg = box(baby ? 0.13 : 0.17, baby ? 0.58 : 0.82, baby ? 0.14 : 0.18, def.legs, mats);
+        leg.position.set(side * (baby ? 0.19 : 0.25), baby ? 0.29 : 0.41, z); g.add(leg); legs.push(leg);
+        const hoof = box(baby ? 0.15 : 0.2, 0.06, baby ? 0.16 : 0.21, '#6f4a2b', mats);
+        hoof.position.set(side * (baby ? 0.19 : 0.25), 0.035, z - 0.02); g.add(hoof);
       }
     }
     return { group: g, head, legs, mats };
@@ -667,49 +766,177 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     return { group: g, head: null, legs, mats };
   }
 
-  if (['deer', 'roe_deer', 'moose', 'hedgehog'].includes(def.id)) {
+  if (['deer', 'roe_deer', 'moose', 'fawn', 'hedgehog'].includes(def.id)) {
     const hedgehog = def.id === 'hedgehog';
-    const moose = def.id === 'moose';
-    const body = box(hedgehog ? 0.42 : moose ? 0.78 : 0.58, hedgehog ? 0.35 : moose ? 0.78 : 0.62, hedgehog ? 0.58 : moose ? 1.35 : 1.02, def.body, mats);
-    body.position.y = hedgehog ? 0.4 : moose ? 1.0 : 0.82; g.add(body);
-    const neck = box(hedgehog ? 0.26 : moose ? 0.38 : 0.3, hedgehog ? 0.22 : moose ? 0.75 : 0.62, hedgehog ? 0.25 : 0.34, def.body, mats);
-    neck.position.set(0, hedgehog ? 0.4 : moose ? 1.2 : 1.08, -0.48); g.add(neck);
-    const hd = box(hedgehog ? 0.28 : 0.38, hedgehog ? 0.22 : 0.34, 0.38, def.accent, mats);
-    hd.position.set(0, hedgehog ? 0.44 : moose ? 1.48 : 1.34, -0.68); g.add(hd); head = hd;
-    if (!hedgehog) {
-      const muzzle = box(moose ? 0.30 : 0.25, moose ? 0.28 : 0.2, moose ? 0.62 : 0.48, def.accent, mats);
-      muzzle.position.set(0, moose ? 1.34 : 1.24, moose ? -0.98 : -0.96); g.add(muzzle);
-      const nose = box(moose ? 0.22 : 0.18, 0.12, 0.1, '#49372c', mats);
-      nose.position.set(0, moose ? 1.34 : 1.24, moose ? -1.29 : -1.22); g.add(nose);
-      for (const side of [-1,1]) {
-        const eye = box(0.075,0.075,0.045,'#27231f',mats);
-        eye.position.set(side*0.17, moose?1.55:1.39,-0.88); g.add(eye);
-        const ear = box(0.14,0.09,0.22,def.body,mats);
-        ear.position.set(side*(moose?0.3:0.27),moose?1.62:1.48,-0.51); ear.rotation.z=side*0.24; g.add(ear);
-      }
-    }
     if (hedgehog) {
-      for (let i=0;i<8;i++) for (const side of [-1,1]) {
-        const spine=box(0.045,0.18,0.045,'#554436',mats);
-        spine.position.set(side*(0.08+(i%3)*0.07),0.58,0.24-i*0.07); spine.rotation.z=side*0.28; g.add(spine);
+      const body = box(0.42, 0.35, 0.58, def.body, mats);
+      body.position.y = 0.4; g.add(body);
+      const neck = box(0.26, 0.22, 0.25, def.body, mats);
+      neck.position.set(0, 0.4, -0.48); g.add(neck);
+      const hd = box(0.28, 0.22, 0.38, def.accent, mats);
+      hd.position.set(0, 0.44, -0.68); g.add(hd); head = hd;
+      for (let i = 0; i < 8; i++) for (const side of [-1, 1]) {
+        const spine = box(0.045, 0.18, 0.045, '#554436', mats);
+        spine.position.set(side * (0.08 + (i % 3) * 0.07), 0.58, 0.24 - i * 0.07);
+        spine.rotation.z = side * 0.28; g.add(spine);
+      }
+      for (const side of [-1, 1]) for (const z of [-0.32, 0.34]) {
+        const leg = box(0.12, 0.2, 0.13, def.legs, mats);
+        leg.position.set(side * 0.14, 0.12, z); g.add(leg); legs.push(leg);
+      }
+      return { group: g, head, legs, mats };
+    }
+
+    const moose = def.id === 'moose';
+    const roe = def.id === 'roe_deer';
+    const fawn = def.id === 'fawn';
+    const body = box(fawn ? 0.46 : moose ? 0.84 : roe ? 0.52 : 0.62, fawn ? 0.44 : moose ? 0.78 : roe ? 0.56 : 0.64, fawn ? 0.78 : moose ? 1.42 : roe ? 0.9 : 1.06, def.body, mats);
+    body.position.y = fawn ? 0.56 : moose ? 1.02 : roe ? 0.76 : 0.84;
+    body.userData.grazeBody = true;
+    body.userData.deerBody = true;
+    g.add(body);
+
+    const chest = box(fawn ? 0.38 : moose ? 0.62 : 0.45, fawn ? 0.32 : moose ? 0.58 : 0.46, fawn ? 0.28 : moose ? 0.46 : 0.34, fawn ? def.accent : def.body, mats);
+    chest.position.set(0, fawn ? 0.66 : moose ? 1.08 : 0.9, fawn ? -0.44 : moose ? -0.62 : -0.48);
+    chest.userData.deerBody = true;
+    g.add(chest);
+
+    const neck = box(fawn ? 0.22 : moose ? 0.36 : 0.28, fawn ? 0.44 : moose ? 0.78 : 0.62, fawn ? 0.23 : moose ? 0.34 : 0.29, def.body, mats);
+    neck.position.set(0, fawn ? 0.84 : moose ? 1.28 : 1.08, fawn ? -0.56 : moose ? -0.68 : -0.58);
+    neck.rotation.x = fawn ? -0.2 : -0.08;
+    neck.userData.deerBody = true;
+    g.add(neck);
+
+    const headW = moose ? 0.44 : fawn ? 0.27 : roe ? 0.3 : 0.32;
+    const headH = moose ? 0.36 : fawn ? 0.32 : roe ? 0.38 : 0.4;
+    const headD = moose ? 0.5 : fawn ? 0.29 : roe ? 0.31 : 0.33;
+    const headY = moose ? 1.57 : fawn ? 1.08 : roe ? 1.31 : 1.37;
+    const headZ = moose ? -0.92 : fawn ? -0.72 : -0.78;
+    const hd = box(headW, headH, headD, moose ? def.accent : def.body, mats);
+    hd.position.set(0, headY, headZ);
+    hd.userData.deerHead = true;
+    g.add(hd); head = hd;
+
+    if (moose) {
+      // Moose face intentionally stays heavy and broad — user liked this one.
+      const muzzle = box(0.33, 0.24, 0.5, def.accent, mats);
+      muzzle.position.set(0, 1.43, -1.23);
+      g.add(muzzle);
+      const nose = box(0.24, 0.1, 0.08, '#49372c', mats);
+      nose.position.set(0, 1.43, -1.52);
+      g.add(nose);
+      const throat = box(0.3, 0.34, 0.04, '#f0ddbd', mats);
+      throat.position.set(0, 1.03, -0.86);
+      g.add(throat);
+      for (const side of [-1, 1]) {
+        const eye = box(0.075, 0.075, 0.045, '#27231f', mats);
+        eye.position.set(side * 0.19, 1.62, -1.13);
+        g.add(eye);
+        const ear = box(0.16, 0.18, 0.18, def.body, mats);
+        ear.position.set(side * 0.33, 1.68, -0.75);
+        ear.rotation.z = side * 0.34;
+        ear.rotation.y = side * 0.1;
+        g.add(ear);
       }
     } else {
-      // Branching antlers; moose have broad palmate-like beams, deer narrow forks.
-      const baseY=moose?1.67:1.46, spread=moose?0.48:0.27;
-      for(const side of [-1,1]) {
-        const beam=box(moose?0.13:0.075,moose?0.65:0.48,0.09,'#d5c5a1',mats);
-        beam.position.set(side*spread,baseY,-0.68); beam.rotation.z=side*(moose?0.38:0.2); g.add(beam);
-        for(let fork=0;fork<(moose?3:2);fork++) {
-          const tine=box(0.065,moose?0.3:0.24,0.07,'#d5c5a1',mats);
-          tine.position.set(side*(spread+(fork-1)*(moose?0.16:0.1)),baseY+0.16,-0.68); tine.rotation.z=side*(fork===0?-0.5:0.5); g.add(tine);
+      // Deer faces: narrow skull, short tapering muzzle, side-set eyes and tall leaf ears.
+      // This removes the square, dog-like snout while staying blocky/Minecraft-like.
+      const faceFront = headZ - headD / 2;
+      coatPatch(g, mats, 'front', 0, headY - (fawn ? 0.02 : 0.03), faceFront - 0.004, fawn ? 0.13 : 0.15, fawn ? 0.22 : 0.27, def.accent, 'deerPatch');
+
+      const snoutW = fawn ? 0.14 : roe ? 0.16 : 0.17;
+      const snoutH = fawn ? 0.095 : roe ? 0.115 : 0.12;
+      const snoutD = fawn ? 0.16 : roe ? 0.19 : 0.2;
+      const muzzle = box(snoutW, snoutH, snoutD, def.accent, mats);
+      muzzle.position.set(0, headY - (fawn ? 0.13 : 0.17), faceFront - snoutD * 0.5 + 0.01);
+      muzzle.userData.deerHead = true;
+      g.add(muzzle);
+
+      const muzzleFront = muzzle.position.z - snoutD * 0.5 - 0.004;
+      coatPatch(g, mats, 'front', 0, muzzle.position.y - snoutH * 0.24, muzzleFront, snoutW * 0.78, snoutH * 0.56, '#f0ddbd', 'deerPatch');
+      coatPatch(g, mats, 'front', 0, muzzle.position.y + snoutH * 0.1, muzzleFront - 0.002, snoutW * 0.64, fawn ? 0.04 : 0.05, '#33231b', 'deerPatch');
+
+      const neckFront = fawn ? -0.676 : -0.726;
+      coatPatch(g, mats, 'front', 0, fawn ? 0.79 : roe ? 0.93 : 0.98, neckFront - 0.004, fawn ? 0.13 : 0.16, fawn ? 0.18 : 0.23, '#f0ddbd', 'deerPatch');
+
+      for (const side of [-1, 1]) {
+        const face: PatchFace = side < 0 ? 'left' : 'right';
+        coatPatch(g, mats, face, side * (headW / 2 + 0.004), headY + (fawn ? 0.025 : 0.04), headZ - 0.055, fawn ? 0.055 : 0.065, fawn ? 0.07 : 0.078, '#231b16', 'deerEye');
+        coatPatch(g, mats, face, side * (headW / 2 + 0.006), headY - (fawn ? 0.03 : 0.02), headZ - 0.1, 0.032, fawn ? 0.055 : 0.065, '#e7d4b5', 'deerPatch');
+
+        const earH = fawn ? 0.31 : roe ? 0.34 : 0.36;
+        const ear = box(fawn ? 0.07 : 0.08, earH, fawn ? 0.075 : 0.085, def.body, mats);
+        ear.position.set(side * (headW * 0.62 + 0.1), headY + earH * 0.58, headZ + (fawn ? 0.02 : 0.01));
+        ear.rotation.z = side * 0.28;
+        ear.rotation.y = side * 0.18;
+        ear.userData.deerHead = true;
+        g.add(ear);
+        const inner = box(fawn ? 0.034 : 0.04, earH * 0.58, 0.018, def.accent, mats);
+        inner.position.set(side * (headW * 0.62 + 0.1), headY + earH * 0.58, headZ - 0.04);
+        inner.rotation.z = side * 0.28;
+        inner.rotation.y = side * 0.18;
+        inner.userData.deerHead = true;
+        g.add(inner);
+      }
+    }
+
+    if (!fawn && !roe) {
+      // Males get blocky Minecraft-like antlers: slim deer forks, broad moose paddles.
+      // Roe deer are used as antlerless does to add the requested deer-family variety.
+      const baseY = moose ? 1.76 : 1.62;
+      const spread = moose ? 0.45 : 0.22;
+      for (const side of [-1, 1]) {
+        const beam = box(moose ? 0.12 : 0.065, moose ? 0.58 : 0.44, 0.075, '#d5c5a1', mats);
+        beam.position.set(side * spread, baseY, moose ? -0.9 : -0.78);
+        beam.rotation.z = side * (moose ? 0.42 : 0.24);
+        g.add(beam);
+        if (moose) {
+          const palm = box(0.22, 0.36, 0.055, '#d5c5a1', mats);
+          palm.position.set(side * (spread + 0.08), baseY + 0.12, -0.9);
+          palm.rotation.z = side * 0.26;
+          g.add(palm);
+        }
+        const tineCount = moose ? 3 : roe ? 1 : 3;
+        for (let fork = 0; fork < tineCount; fork++) {
+          const tine = box(moose ? 0.06 : 0.05, moose ? 0.28 : 0.22, 0.055, '#d5c5a1', mats);
+          tine.position.set(side * (spread + (fork - 1) * (moose ? 0.1 : 0.08)), baseY + 0.17 + fork * 0.035, moose ? -0.88 : -0.76);
+          tine.rotation.z = side * (fork === 0 ? -0.45 : 0.45);
+          g.add(tine);
         }
       }
     }
-    for(const side of [-1,1]) for(const z of [-0.32,0.34]) {
-      const leg=box(0.12,hedgehog?0.2:moose?0.72:0.58,0.13,def.legs,mats);
-      leg.position.set(side*(hedgehog?0.14:0.2),hedgehog?0.12:moose?0.36:0.29,z); g.add(leg); legs.push(leg);
+
+    // Flat coat markings: white rump, fawn dots and flank patches are decals.
+    coatPatch(g, mats, 'back', 0, fawn ? 0.66 : moose ? 1.12 : 0.86, fawn ? 0.392 : moose ? 0.71 : roe ? 0.45 : 0.53, fawn ? 0.28 : moose ? 0.38 : 0.3, fawn ? 0.22 : moose ? 0.28 : 0.24, '#f2e3c8', 'deerPatch');
+    if (fawn) {
+      const dot = '#f4e1bd';
+      for (const face of ['left', 'right'] as PatchFace[]) {
+        const sx = face === 'left' ? -0.232 : 0.232;
+        coatPatch(g, mats, face, sx, 0.67, -0.1, 0.09, 0.08, dot, 'deerPatch');
+        coatPatch(g, mats, face, sx, 0.62, 0.12, 0.08, 0.07, dot, 'deerPatch');
+        coatPatch(g, mats, face, sx, 0.74, 0.24, 0.07, 0.07, dot, 'deerPatch');
+      }
+      coatPatch(g, mats, 'top', -0.1, 0.785, 0.04, 0.06, 0.08, dot, 'deerPatch');
+      coatPatch(g, mats, 'top', 0.11, 0.785, 0.22, 0.07, 0.08, dot, 'deerPatch');
+    } else if (!moose) {
+      coatPatch(g, mats, 'right', 0.312, roe ? 0.8 : 0.89, -0.06, roe ? 0.22 : 0.26, 0.15, '#7b5337', 'deerPatch');
+      coatPatch(g, mats, 'left', -0.312, roe ? 0.72 : 0.84, 0.18, roe ? 0.2 : 0.24, 0.14, '#c99b62', 'deerPatch');
     }
-    return { group:g, head, legs, mats };
+
+    const tail = box(fawn ? 0.1 : moose ? 0.16 : 0.12, fawn ? 0.12 : 0.16, fawn ? 0.12 : 0.14, '#f2e3c8', mats);
+    tail.position.set(0, fawn ? 0.72 : moose ? 1.16 : 0.94, fawn ? 0.48 : moose ? 0.78 : 0.6);
+    tail.rotation.x = -0.25;
+    g.add(tail);
+
+    for (const side of [-1, 1]) for (const z of [fawn ? -0.22 : moose ? -0.44 : -0.34, fawn ? 0.24 : moose ? 0.42 : 0.34]) {
+      const leg = box(fawn ? 0.1 : moose ? 0.15 : 0.11, fawn ? 0.42 : moose ? 0.76 : 0.58, fawn ? 0.1 : moose ? 0.15 : 0.12, def.legs, mats);
+      leg.position.set(side * (fawn ? 0.15 : moose ? 0.25 : 0.19), fawn ? 0.21 : moose ? 0.38 : 0.29, z);
+      g.add(leg); legs.push(leg);
+      const hoof = box(fawn ? 0.12 : moose ? 0.18 : 0.13, 0.055, fawn ? 0.12 : moose ? 0.17 : 0.13, '#2f251f', mats);
+      hoof.position.set(side * (fawn ? 0.15 : moose ? 0.25 : 0.19), 0.03, z - 0.02);
+      g.add(hoof);
+    }
+    return { group: g, head, legs, mats };
   }
 
   const quad = def.id === 'pig' || def.id === 'sheep' || def.id === 'cow' || def.id === 'calf';
@@ -761,20 +988,12 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
         ear.rotation.z = s * 0.35;
         g.add(ear);
       }
-      // cute muddy/brownish body spots & patches across back & flanks
+      // muddy/brownish coat markings across back & flanks — flat decals, not raised blocks
       const patchCol = '#6e4432';
-      const p1 = box(0.24, 0.22, 0.3, patchCol, mats);
-      p1.position.set(0.24, 0.84, -0.12);
-      g.add(p1);
-      const p2 = box(0.26, 0.26, 0.34, patchCol, mats);
-      p2.position.set(-0.24, 0.8, 0.2);
-      g.add(p2);
-      const p3 = box(0.28, 0.14, 0.24, patchCol, mats);
-      p3.position.set(0.04, 1.08, 0.3);
-      g.add(p3);
-      const p4 = box(0.16, 0.16, 0.06, patchCol, mats);
-      p4.position.set(0.12, 1.04, -0.99); // spot over eye
-      g.add(p4);
+      coatPatch(g, mats, 'right', 0.334, 0.84, -0.12, 0.3, 0.22, patchCol, 'pigPatch');
+      coatPatch(g, mats, 'left', -0.334, 0.8, 0.2, 0.34, 0.26, patchCol, 'pigPatch');
+      coatPatch(g, mats, 'top', 0.04, 1.072, 0.3, 0.28, 0.24, patchCol, 'pigPatch');
+      coatPatch(g, mats, 'front', 0.12, 1.04, -1.004, 0.16, 0.16, patchCol, 'pigPatch');
       // curly tail
       const tail = box(0.08, 0.1, 0.12, def.accent, mats);
       tail.position.set(0, 0.84, 0.58);
@@ -821,23 +1040,21 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
         g.add(nos);
       }
 
-      // 3D patches/spots across the body & flanks!
+      // Flat coat patches across body & flanks: texture-like markings, not chunky raised plates.
       const sScale = isCow ? 1 : 0.65;
       const spotMat = new THREE.MeshLambertMaterial({ color: def.accent });
       mats.push(spotMat);
 
-      const addSpot = (x: number, y: number, z: number, w: number, h: number, d: number) => {
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * sScale, h * sScale, d * sScale), spotMat);
-        mesh.position.set(x * sScale, y * sScale, z * sScale);
-        mesh.userData.cattleSpot = true;
-        g.add(mesh);
+      const addSpotPatch = (face: PatchFace, x: number, y: number, z: number, w: number, h: number) => {
+        const mesh = coatPatch(g, mats, face, x * sScale, y * sScale, z * sScale, w * sScale, h * sScale, def.accent, 'cattleSpot');
+        mesh.material = spotMat;
       };
 
-      addSpot(-0.32, isCow ? 0.88 : 0.62, 0.15, 0.18, 0.38, 0.48); // left flank
-      addSpot(0.32, isCow ? 0.86 : 0.6, -0.25, 0.18, 0.36, 0.42); // right shoulder
-      addSpot(0, isCow ? 1.2 : 0.84, 0.3, 0.44, 0.16, 0.38); // back rump
-      addSpot(0, isCow ? 0.52 : 0.36, -0.05, 0.48, 0.12, 0.42); // belly
-      addSpot(0.14, isCow ? 1.15 : 0.86, isCow ? -0.86 : -0.58, 0.22, 0.22, 0.04); // head spot
+      addSpotPatch('left', -0.374, isCow ? 0.88 : 0.62, 0.15, 0.46, 0.32); // left flank
+      addSpotPatch('right', 0.374, isCow ? 0.86 : 0.6, -0.25, 0.42, 0.3); // right shoulder
+      addSpotPatch('top', 0, isCow ? 1.192 : 0.84, 0.3, 0.44, 0.38); // back rump
+      addSpotPatch('bottom', 0, isCow ? 0.49 : 0.34, -0.05, 0.48, 0.34); // belly
+      addSpotPatch('front', 0.14, isCow ? 1.15 : 0.86, isCow ? -1.105 : -0.77, 0.22, 0.22); // head spot
 
       if (isCow) {
         // adult cow pink udder
@@ -1010,16 +1227,18 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
 
 /** Rotate the whole face (eyes, muzzle and ears included), not just the head
  * cube. The neck is included on camels so they can reach down to eat. */
-function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId) {
-  const camel = id === 'camel';
+function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId): { pivot: THREE.Group; mouth: THREE.Object3D | null } {
+  const camel = id === 'camel' || id === 'camel_calf';
+  const camelCalf = id === 'camel_calf';
+  const deerLike = id === 'deer' || id === 'roe_deer' || id === 'fawn';
   const pivot = new THREE.Group();
-  const hingeY = camel ? 1.04 : head.position.y + 0.08;
-  const hingeZ = camel ? -0.22 : head.position.z + 0.22;
+  const hingeY = camel ? (camelCalf ? 0.78 : 1.04) : head.position.y + 0.08;
+  const hingeZ = camel ? (camelCalf ? -0.18 : -0.22) : head.position.z + 0.22;
   const headY = head.position.y, headZ = head.position.z;
   pivot.position.set(0, hingeY, hingeZ);
   for (const part of [...group.children]) {
     if (part === head || (camel
-      ? part.position.z < -0.38 && part.position.y > 0.95
+      ? part.position.z < (camelCalf ? -0.28 : -0.38) && part.position.y > (camelCalf ? 0.72 : 0.95)
       : part.position.z < headZ + 0.07 && part.position.y > headY - 0.32)) {
       // Preserve the previous local coordinates while changing parents.
       group.remove(part);
@@ -1028,9 +1247,16 @@ function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.M
     }
   }
   group.add(pivot);
-  const mouth = box(camel ? 0.22 : 0.2, 0.07, 0.14, camel ? '#9c764b' : '#675543', mats);
-  const muzzleY = camel ? 2.01 : headY - 0.13;
-  const muzzleZ = camel ? -1.02 : headZ - 0.33;
+  if (deerLike) return { pivot, mouth: null };
+  const mouth = box(
+    camelCalf ? 0.17 : camel ? 0.22 : deerLike ? (id === 'fawn' ? 0.11 : 0.14) : 0.2,
+    deerLike ? 0.045 : 0.07,
+    camelCalf ? 0.1 : camel ? 0.14 : deerLike ? 0.075 : 0.14,
+    camel ? '#9c764b' : deerLike ? '#4a3527' : '#675543',
+    mats,
+  );
+  const muzzleY = camel ? (camelCalf ? 1.49 : 2.01) : deerLike ? headY - (id === 'fawn' ? 0.16 : 0.2) : headY - 0.13;
+  const muzzleZ = camel ? (camelCalf ? -0.81 : -1.02) : deerLike ? headZ - (id === 'fawn' ? 0.3 : 0.32) : headZ - 0.33;
   mouth.position.set(0, muzzleY - hingeY - 0.1, muzzleZ - hingeZ);
   mouth.userData.restY = mouth.position.y;
   pivot.add(mouth);
@@ -1078,9 +1304,6 @@ export class MobSystem {
     } else if (this.mobs.length >= this.maxMobs) return null;
     const def = MOBS[id];
     let { group, head, legs, mats } = buildBody(def);
-    if (['deer','roe_deer','moose'].includes(id) && this.world.isWinter(Math.floor(x), Math.floor(z))) {
-      for (const mat of mats) mat.color.lerp(new THREE.Color('#d9d4c9'), 0.16);
-    }
     if (id === 'jellyfish') for (const mat of mats) { mat.transparent = true; mat.opacity = 0.78; mat.depthWrite = false; }
     if (id === 'fish') {
       const vi = fishVariant === undefined ? Math.floor(Math.random() * (FISH_VARIANTS.length - 1)) :
@@ -1126,16 +1349,15 @@ export class MobSystem {
       // stash on the mob after creation (see below)
       (group.userData as { retract?: THREE.Object3D[] }).retract = retract;
     }
-    // Birds vary in silhouette as well as colour: tiny finches, medium
-    // songbirds, long-tailed parrots and a noticeably larger dove.
+    // Birds now render as parrot-style variants: macaw, cockatiel, grey parrot, budgie.
     if (id === 'bird') {
       const variants: Array<{ colors: [string, string, string]; size: number; length: number; tail: number }> = [
-        { colors: ['#4d7dd8', '#f4c842', '#3a5ca8'], size: 0.95, length: 1, tail: 1 }, // bluebird
-        { colors: ['#d84d4d', '#f4e8d8', '#a83a3a'], size: 1.2, length: 1.15, tail: 0.85 }, // robin
-        { colors: ['#f4c832', '#2a2a30', '#c89a20'], size: 0.85, length: 0.9, tail: 0.8 }, // goldfinch
-        { colors: ['#58b858', '#f45858', '#3a8a3a'], size: 1.5, length: 1.3, tail: 2.3 }, // green parrot
-        { colors: ['#e858a8', '#58d8e8', '#b83a80'], size: 1.35, length: 1.2, tail: 2 }, // tropical parrot
-        { colors: ['#8a8a92', '#f4f4f8', '#5a5a64'], size: 1.7, length: 1.5, tail: 1.2 }, // dove
+        { colors: ['#d83b2f', '#ffe15c', '#255bc2'], size: 1.35, length: 1.12, tail: 2.2 }, // red/blue macaw
+        { colors: ['#2ebd52', '#f45858', '#1f7c40'], size: 1.28, length: 1.08, tail: 2.1 }, // green parrot
+        { colors: ['#1e8eea', '#ffd24a', '#1455a8'], size: 1.22, length: 1.06, tail: 1.9 }, // blue parrot
+        { colors: ['#f0de72', '#ff8b3d', '#d0b24a'], size: 1.15, length: 1.0, tail: 1.55 }, // cockatiel
+        { colors: ['#6c6d78', '#f2f0e6', '#484a56'], size: 1.25, length: 1.05, tail: 1.45 }, // grey parrot
+        { colors: ['#5ec7ec', '#f5f1dc', '#2f8e4a'], size: 1.05, length: 0.95, tail: 1.65 }, // budgie
       ];
       const vi = Math.floor(Math.random() * variants.length);
       const { colors: [b, a, l], size, length, tail: tailLength } = variants[vi];
@@ -1161,13 +1383,153 @@ export class MobSystem {
       }
       for (const shoulder of legs) shoulder.position.z += 0.2 * (length - 1);
     }
-    // cow and calf: color variants (Holstein spotted, brown/cream, ginger, dark chocolate)
+    // domestic / ocelot cat coats inspired by Minecraft cats. Markings are flat coat patches.
+    if (id === 'cat') {
+      const CAT_VARIANTS = [
+        { body: '#c99556', accent: '#f3dcc0', legs: '#855931', patch: '#3a2a20' }, // tabby ginger
+        { body: '#1d1d22', accent: '#f4efe4', legs: '#121216', patch: '#f4efe4' }, // tuxedo
+        { body: '#f0e8d8', accent: '#efe3d0', legs: '#d0b58c', patch: '#c58b45' }, // calico base
+        { body: '#d09a5a', accent: '#f2e0bb', legs: '#9b6f3a', patch: '#6c4d2e' }, // ocelot-like
+        { body: '#b8a08a', accent: '#f4eadb', legs: '#5c4638', patch: '#3f3026' }, // Siamese points
+        { body: '#d86d34', accent: '#f6e4ce', legs: '#944425', patch: '#f3f0e4' }, // red with white
+      ];
+      const vi = Math.floor(Math.random() * CAT_VARIANTS.length);
+      const cv = CAT_VARIANTS[vi];
+      (group.userData as { variant?: number }).variant = vi;
+      for (const mat of mats) {
+        const hex = `#${mat.color.getHexString()}`;
+        if (hex === MOBS.cat.body) mat.color.set(cv.body);
+        else if (hex === MOBS.cat.accent) mat.color.set(cv.accent);
+        else if (hex === MOBS.cat.legs) mat.color.set(cv.legs);
+        else if (hex === '#8a6a3a') mat.color.set(cv.patch);
+        else if (hex === '#2a2a30' && vi !== 1) mat.color.set(cv.legs);
+      }
+    }
+    // Rabbits vary between wild hares, Dutch markings, desert cottontails and snowy coats.
+    if (id === 'rabbit') {
+      const winter = this.world.isWinter(Math.floor(x), Math.floor(z));
+      const dry = ['desert', 'canyon'].includes(this.world.biomeAt(Math.floor(x), Math.floor(z)));
+      const RABBIT_VARIANTS = winter
+        ? [{ body: '#f2f4f6', accent: '#ffffff', legs: '#d7dbe0', patch: '#d9dde2' }, { body: '#dad2c4', accent: '#ffffff', legs: '#9b8364', patch: '#806a52' }]
+        : dry
+          ? [{ body: '#caa46c', accent: '#f0dfbf', legs: '#8c623e', patch: '#e4c48f' }, { body: '#9e764f', accent: '#e7d0aa', legs: '#6b4b32', patch: '#4a372a' }]
+          : [
+              { body: '#9a7a5a', accent: '#eadac1', legs: '#604b36', patch: '#4c392a' },
+              { body: '#ffffff', accent: '#f5d6d9', legs: '#d5d5dc', patch: '#2f2f35' },
+              { body: '#62443a', accent: '#e8d4ba', legs: '#3a2a24', patch: '#d8c7ac' },
+              { body: '#d0a26d', accent: '#f0dcc0', legs: '#7a5638', patch: '#f2efe8' },
+            ];
+      const vi = Math.floor(Math.random() * RABBIT_VARIANTS.length);
+      const rv = RABBIT_VARIANTS[vi];
+      (group.userData as { variant?: number }).variant = vi;
+      for (const mat of mats) {
+        const hex = `#${mat.color.getHexString()}`;
+        if (hex === MOBS.rabbit.body) mat.color.set(rv.body);
+        else if (hex === MOBS.rabbit.accent) mat.color.set(rv.accent);
+        else if (hex === MOBS.rabbit.legs) mat.color.set(rv.legs);
+        else if (hex === '#8a6a48') mat.color.set(rv.patch);
+      }
+    }
+    // Deer family: several woodland coats plus spotted fawns and pale winter morphs.
+    if (id === 'deer' || id === 'roe_deer' || id === 'moose' || id === 'fawn') {
+      const winter = this.world.isWinter(Math.floor(x), Math.floor(z));
+      if (id !== 'moose') {
+        const DEER_VARIANTS = id === 'fawn'
+          ? [
+              { body: '#b8834f', accent: '#f0d5ad', legs: '#5a3c2d', patch: '#f7e6c8' },
+              { body: '#8e6541', accent: '#ead0a5', legs: '#493225', patch: '#fff0cf' },
+              { body: '#c18f56', accent: '#f5dfb7', legs: '#64422e', patch: '#f4e9d6' },
+            ]
+          : [
+              { body: '#a8794f', accent: '#d7bd91', legs: '#594332', patch: '#f2e3c8' },
+              { body: '#7e5638', accent: '#dfc39a', legs: '#3f2e25', patch: '#f1e2c4' },
+              { body: '#b78355', accent: '#e2c897', legs: '#654733', patch: '#fff0d5' },
+            ];
+        const vi = Math.floor(Math.random() * DEER_VARIANTS.length);
+        const dv = DEER_VARIANTS[vi];
+        (group.userData as { variant?: number }).variant = vi;
+        for (const mat of mats) {
+          const hex = `#${mat.color.getHexString()}`;
+          if (hex === def.body) mat.color.set(winter ? new THREE.Color(dv.body).lerp(new THREE.Color('#d9d4c9'), 0.16) : dv.body);
+          else if (hex === def.accent) mat.color.set(winter ? new THREE.Color(dv.accent).lerp(new THREE.Color('#d9d4c9'), 0.12) : dv.accent);
+          else if (hex === def.legs) mat.color.set(dv.legs);
+          else if (hex === '#f2e3c8' || hex === '#f4e1bd') mat.color.set(dv.patch);
+        }
+      } else {
+        const MOOSE_VARIANTS = [
+          { body: '#70513d', accent: '#ad8968', legs: '#49392e', patch: '#ead8bd' },
+          { body: '#5b4635', accent: '#9e7758', legs: '#392d25', patch: '#d8c3a4' },
+          { body: '#806248', accent: '#c49a6b', legs: '#4a372b', patch: '#f0ddc0' },
+        ];
+        const vi = Math.floor(Math.random() * MOOSE_VARIANTS.length);
+        const mv = MOOSE_VARIANTS[vi];
+        (group.userData as { variant?: number }).variant = vi;
+        for (const mat of mats) {
+          const hex = `#${mat.color.getHexString()}`;
+          if (hex === MOBS.moose.body) mat.color.set(winter ? new THREE.Color(mv.body).lerp(new THREE.Color('#d9d4c9'), 0.12) : mv.body);
+          else if (hex === MOBS.moose.accent) mat.color.set(winter ? new THREE.Color(mv.accent).lerp(new THREE.Color('#d9d4c9'), 0.1) : mv.accent);
+          else if (hex === MOBS.moose.legs) mat.color.set(mv.legs);
+          else if (hex === '#f2e3c8') mat.color.set(mv.patch);
+        }
+      }
+    }
+    // frogs use the Minecraft warm/temperate/cold palette variants.
+    if (id === 'frog') {
+      const biome = this.world.biomeAt(Math.floor(x), Math.floor(z));
+      const FROG_VARIANTS = ['desert', 'canyon'].includes(biome)
+        ? [{ body: '#d99d44', accent: '#f3d781', legs: '#9c6c28', patch: '#a75f24' }]
+        : this.world.isWinter(Math.floor(x), Math.floor(z))
+          ? [{ body: '#5e9ab8', accent: '#d8edf2', legs: '#3f718b', patch: '#2e596d' }]
+          : [
+              { body: '#5f9c3f', accent: '#e5c878', legs: '#3d6c2e', patch: '#2f5d29' },
+              { body: '#7aa33b', accent: '#f0cf8a', legs: '#526d2b', patch: '#3e5b20' },
+              { body: '#6b9a61', accent: '#e8d3a3', legs: '#4b6d45', patch: '#38502e' },
+            ];
+      const vi = Math.floor(Math.random() * FROG_VARIANTS.length);
+      const fv = FROG_VARIANTS[vi];
+      (group.userData as { variant?: number }).variant = vi;
+      for (const mat of mats) {
+        const hex = `#${mat.color.getHexString()}`;
+        if (hex === MOBS.frog.body) mat.color.set(fv.body);
+        else if (hex === MOBS.frog.accent) mat.color.set(fv.accent);
+        else if (hex === MOBS.frog.legs) mat.color.set(fv.legs);
+        else if (hex === '#3f7830' || hex === '#78b857') mat.color.set(fv.patch);
+      }
+    }
+    // Camels vary between one and two humps; calves share the same palette at smaller scale.
+    if (id === 'camel' || id === 'camel_calf') {
+      const CAMEL_VARIANTS = [
+        { body: '#c9a26a', accent: '#e3bb82', legs: '#9c764b', patches: ['#e6c184', '#b9854b'], twoHumps: true },
+        { body: '#b88950', accent: '#d8aa6e', legs: '#7a5632', patches: ['#d5ad72', '#8e6139'], twoHumps: false },
+        { body: '#d8ad6a', accent: '#f0cf91', legs: '#a47743', patches: ['#f1d49a', '#b9874f'], twoHumps: Math.random() < 0.45 },
+      ];
+      const vi = Math.floor(Math.random() * CAMEL_VARIANTS.length);
+      const cv = CAMEL_VARIANTS[vi];
+      (group.userData as { variant?: number }).variant = vi;
+      let patchIndex = 0;
+      group.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.material) return;
+        const mat = mesh.material as THREE.MeshLambertMaterial;
+        const hex = `#${mat.color.getHexString()}`;
+        if (mesh.userData?.camelRearHump && !cv.twoHumps) mesh.visible = false;
+        if (hex === def.body) mat.color.set(cv.body);
+        else if (hex === def.accent) mat.color.set(cv.accent);
+        else if (hex === def.legs || hex === '#6f4a2b') mat.color.set(cv.legs);
+        else if (hex === '#e6c184' || hex === '#b9854b') mat.color.set(cv.patches[(patchIndex++) % cv.patches.length]);
+      });
+    }
+    // cow and calf: colour variants (Holstein, brown/cream, ginger, black, highland-inspired)
     if (id === 'cow' || id === 'calf') {
       const COW_VARIANTS = [
-        { body: '#f4f5f8', spot: '#222226', legs: '#1c1c20' }, // 0: Holstein black & white
-        { body: '#6d4c33', spot: '#eddcc9', legs: '#482f1b' }, // 1: Brown with cream patches
-        { body: '#9e4e26', spot: '#faecd8', legs: '#6c3014' }, // 2: Ginger / Reddish-brown with light spots
-        { body: '#241e1b', spot: '#f2ece4', legs: '#161210' }, // 3: Dark chocolate with white patches
+        { body: '#f4f5f8', spot: '#222226', legs: '#1c1c20' }, // Holstein black & white
+        { body: '#6d4c33', spot: '#eddcc9', legs: '#482f1b' }, // brown with cream patches
+        { body: '#9e4e26', spot: '#faecd8', legs: '#6c3014' }, // ginger / reddish-brown with light spots
+        { body: '#241e1b', spot: '#f2ece4', legs: '#161210' }, // dark chocolate with white patches
+        { body: '#d7b07a', spot: '#fff2d0', legs: '#8b6439' }, // tan highland-inspired
+        { body: '#ead7b9', spot: '#7b4b2b', legs: '#6a4428' }, // cream with chestnut markings
+        { body: '#3a312b', spot: '#a56f43', legs: '#211b18' }, // black-brown belted feel
+        { body: '#b77b4a', spot: '#ffffff', legs: '#75492d' }, // Hereford-like red with white
       ];
       const vi = Math.floor(Math.random() * COW_VARIANTS.length);
       const cv = COW_VARIANTS[vi];
@@ -1228,7 +1590,7 @@ export class MobSystem {
     let feedJaw: THREE.Object3D | null = null;
     let feedBody: THREE.Object3D | null = null;
     group.traverse((part) => { if (part.userData.grazeBody) feedBody = part; });
-    if (head && (id === 'cow' || id === 'calf' || id === 'sheep' || id === 'pig' || id === 'camel')) {
+    if (head && (id === 'cow' || id === 'calf' || id === 'sheep' || id === 'pig' || id === 'camel' || id === 'camel_calf' || id === 'deer' || id === 'roe_deer' || id === 'moose' || id === 'fawn')) {
       const rig = makeFeedingHead(group, head, mats, id);
       head = rig.pivot;
       feedJaw = rig.mouth;
@@ -1324,7 +1686,7 @@ export class MobSystem {
     return (m.id === 'spider' || m.id === 'spiderling' ? 0.45 : 0.32) * m.def.scale * m.modelSize;
   }
   mobHeight(m: Mob) {
-    return (m.id === 'fish' || m.id === 'jellyfish' ? 0.75 : m.id === 'spider' || m.id === 'spiderling' || m.id === 'chicken' ? 0.9 : m.def.hostile ? 1.85 : m.id === 'camel' ? 2.4 : 1.3) * m.def.scale * m.modelSize;
+    return (m.id === 'fish' || m.id === 'jellyfish' ? 0.75 : m.id === 'frog' ? 0.55 : m.id === 'spider' || m.id === 'spiderling' || m.id === 'chicken' ? 0.9 : m.def.hostile ? 1.85 : m.id === 'camel' ? 2.4 : m.id === 'camel_calf' ? 1.75 : 1.3) * m.def.scale * m.modelSize;
   }
 
   /** true when the mob's body is submerged */
@@ -1585,7 +1947,7 @@ export class MobSystem {
       let mx = 0;
       let mz = 0;
 
-      // creepers & spiders flee from lynxes instead of attacking
+      // creepers & spiders flee from cats instead of attacking
       let fleeCat: Mob | null = null;
       if ((def.id === 'creeper' || def.id === 'spider') && cats.length) {
         for (const c of cats) {
@@ -1738,22 +2100,23 @@ export class MobSystem {
           }
         }
 
-        // brooding penguins sit tight on the nest (engine releases them at hatch)
-        if (m.id === 'penguin' && m.task === 6) {
+        // Brooding birds sit tight on their eggs (engine releases them at hatch).
+        // Chickens still cannot fly; this only pins them gently to the nest.
+        if ((m.id === 'penguin' || m.id === 'bird' || m.id === 'chicken') && m.task === 6) {
           m.tx = m.taskX;
           m.tz = m.taskZ;
           m.think = 2;
           const nd = Math.hypot(m.x - m.taskX, m.z - m.taskZ);
           if (nd < 0.5) {
-            // settled: waddle in place, no wandering off
-            m.vx *= 0.5;
-            m.vz *= 0.5;
+            // settled: waddle/perch in place, no wandering off
+            m.vx *= 0.45;
+            m.vz *= 0.45;
           }
         }
 
         // Grazers deliberately visit plants and water, rather than just
         // wandering over them. Keep food and drink cooldowns separate.
-        const grazer = ['cow', 'calf', 'sheep', 'pig', 'camel', 'deer', 'roe_deer', 'moose'].includes(m.id);
+        const grazer = ['cow', 'calf', 'sheep', 'pig', 'camel', 'camel_calf', 'deer', 'roe_deer', 'moose', 'fawn'].includes(m.id);
         if (grazer) {
           m.forageCd -= mdt;
           m.drinkCd -= mdt;
@@ -1787,7 +2150,7 @@ export class MobSystem {
               m.task = 0; // the player or another animal took the food
               m.feedClock = 0;
             } else if (m.taskT <= 0) {
-              if (m.id === 'camel' ? isFlower(food) || food === CACTUS || food === CACTUS_PALE :
+              if ((m.id === 'camel' || m.id === 'camel_calf') ? isFlower(food) || food === CACTUS || food === CACTUS_PALE :
                 isFlower(food) || food === TALL_GRASS || food === FERN) {
                 // Eat a cactus from its tip, never leave a floating stalk.
                 let fy = m.taskY;
@@ -1816,7 +2179,7 @@ export class MobSystem {
               if (!this.world.hasColumn(bx, bz)) continue;
               const h = this.world.getHeight(bx, bz);
               const ground = this.world.get(bx, h, bz);
-              const desert = m.id === 'camel';
+              const desert = m.id === 'camel' || m.id === 'camel_calf';
               if (desert ? ground !== SAND : ground !== GRASS) continue;
               const plant = this.world.get(bx, h + 1, bz);
               if (drinking) {
@@ -1880,54 +2243,117 @@ export class MobSystem {
           m.think = 0.6;
         }
 
-        // Birds take off from the ground and cruise above the terrain, rather
-        // than getting a new upward impulse every time they flap their wings.
-        if (m.id === 'bird') {
-          if (m.task !== 9 && m.task !== 12 && m.grow <= 0 && m.onGround && m.jumpCd <= 0 && Math.random() < mdt * 0.35) {
-            const ground = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
-            const ceiling = WY - 2 - this.mobHeight(m);
-            if (ground + 4 < ceiling) {
+        // Birds can perch, hop on ground/canopy, then use explicit takeoff
+        // and landing phases. Chickens are separate mobs and never enter this path.
+        if (m.id === 'bird' && m.task !== 6) {
+          const takingOff = m.task === 15;
+          const flying = m.task === 9;
+          const landing = m.task === 12;
+          const touchdown = m.task === 16;
+          const perched = m.onGround && !takingOff && !flying && !landing && !touchdown;
+
+          if (touchdown) {
+            m.taskT -= mdt;
+            m.tx = m.x;
+            m.tz = m.z;
+            m.vx *= 0.72;
+            m.vz *= 0.72;
+            if (m.taskT <= 0) {
+              m.task = 0;
+              m.think = 0.8 + Math.random() * 1.8;
+              m.jumpCd = 0.45;
+            }
+          }
+
+          if (perched && m.grow <= 0 && m.jumpCd <= 0) {
+            const scared = dist < 5.2;
+            const wantsFlight = scared || Math.random() < mdt * 0.055;
+            if (wantsFlight) {
+              const ground = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
+              const ceiling = WY - 2 - this.mobHeight(m);
+              if (ground + 4 < ceiling) {
+                m.task = 15; // crouch + wingbeat wind-up
+                m.taskT = 0.48;
+                m.taskY = Math.min(ceiling, ground + 4 + Math.random() * 3);
+                const a = scared ? Math.atan2(m.z - pz, m.x - px) + (Math.random() - 0.5) * 0.6 : Math.random() * Math.PI * 2;
+                const flyDist = scared ? 20 : 14 + Math.random() * 8;
+                m.tx = m.x + Math.cos(a) * flyDist;
+                m.tz = m.z + Math.sin(a) * flyDist;
+                m.think = 1;
+              }
+            }
+          }
+
+          if (m.task === 15) {
+            m.taskT -= mdt;
+            m.think = 1;
+            m.vx *= Math.max(0, 1 - mdt * 5);
+            m.vz *= Math.max(0, 1 - mdt * 5);
+            if (m.taskT < 0.25) m.vy = Math.max(m.vy, 1.6 + (0.25 - m.taskT) * 4.5);
+            if (m.taskT <= 0) {
               m.task = 9;
-              m.taskT = 7 + Math.random() * 5;
-              m.taskY = Math.min(ceiling, ground + 4 + Math.random() * 3);
-              m.vy = 2.5;
-              const a = Math.random() * Math.PI * 2;
-              m.tx = m.x + Math.cos(a) * 18;
-              m.tz = m.z + Math.sin(a) * 18;
+              m.taskT = 6 + Math.random() * 5;
+              m.vy = Math.max(m.vy, 2.8);
+              m.onGround = false;
+              m.jumpCd = 0.8;
               m.think = m.taskT;
             }
           }
-          if (m.task === 9 && m.grow <= 0 && ((this.tick + i) % 40 === 0)) {
-            // Look for an exposed leaf top to land on, never in mid-air.
-            for (let attempt = 0; attempt < 10; attempt++) {
-              const bx = Math.floor(m.x + (Math.random() - 0.5) * 14);
-              const bz = Math.floor(m.z + (Math.random() - 0.5) * 14);
-              if (!this.world.hasColumn(bx, bz)) continue;
-              const canopy = this.world.topSolidY(bx, bz);
-              if (canopy >= WY - 3 || !isLeafId(this.world.get(bx, canopy, bz)) ||
-                this.world.get(bx, canopy + 1, bz) !== 0) continue;
-              m.task = 12; m.taskT = 7;
-              m.taskY = canopy + 1.05;
-              m.tx = bx + 0.5; m.tz = bz + 0.5; m.think = 8;
-              break;
+
+          if (m.task === 9 && m.grow <= 0 && (((this.tick + i) % 34 === 0) || m.taskT < 2.2)) {
+            // Prefer exposed leaf tops, but allow landing on open ground too.
+            let landed = false;
+            for (const pass of [0, 1]) {
+              const needLeaf = pass === 0;
+              const tries = needLeaf ? 12 : 10;
+              for (let attempt = 0; attempt < tries; attempt++) {
+                const radius = needLeaf ? 15 : 12;
+                const bx = Math.floor(m.x + (Math.random() - 0.5) * radius);
+                const bz = Math.floor(m.z + (Math.random() - 0.5) * radius);
+                if (!this.world.hasColumn(bx, bz)) continue;
+                const h = this.world.topSolidY(bx, bz);
+                if (h >= WY - 3 || this.world.get(bx, h + 1, bz) !== 0) continue;
+                const ground = this.world.get(bx, h, bz);
+                const leaf = isLeafId(ground);
+                const openGround = ground === GRASS || ground === SAND || ground === SNOW_GRASS || ground === STONE || ground === VOLCANIC_STONE;
+                if (needLeaf ? !leaf : (!leaf && !openGround)) continue;
+                m.task = 12;
+                m.taskT = 5.5;
+                m.taskY = h + 1.05;
+                m.tx = bx + 0.5;
+                m.tz = bz + 0.5;
+                m.think = 6;
+                landed = true;
+                break;
+              }
+              if (landed) break;
             }
           }
           if (m.task === 12) {
             m.taskT -= mdt;
-            if (m.taskT <= 0 || (Math.hypot(m.tx - m.x, m.tz - m.z) < 0.55 && Math.abs(m.y - m.taskY) < 0.65)) {
-              m.task = 0;
-              m.vy = -0.5; m.think = 3.5; m.jumpCd = 3;
+            const horizontal = Math.hypot(m.tx - m.x, m.tz - m.z);
+            if (m.taskT <= 0 || (horizontal < 0.52 && Math.abs(m.y - m.taskY) < 0.55)) {
+              m.task = 16; // touchdown: wings fold before hopping again
+              m.taskT = 0.58;
+              m.vy = Math.min(m.vy, -0.25);
+              m.tx = m.x;
+              m.tz = m.z;
+              m.think = 1;
             } else {
-              const desired = Math.max(-2.5, Math.min(3, (m.taskY + 0.3 - m.y) * 2));
+              const desired = Math.max(-2.2, Math.min(2.6, (m.taskY + 0.25 - m.y) * 1.9));
               m.vy += (desired - m.vy) * Math.min(1, mdt * 4);
             }
           }
           if (m.task === 9) {
             m.taskT -= mdt;
             if (m.taskT <= 0) {
-              m.task = 0; // glide down with gravity, flapping until touchdown
-              m.vy = Math.min(m.vy, 0);
-              m.jumpCd = 2.5;
+              m.task = 12; // tired: settle near the current spot
+              m.taskT = 4.5;
+              m.taskY = Math.max(1, this.world.topSolidY(Math.floor(m.x), Math.floor(m.z)) + 1.05);
+              m.tx = m.x;
+              m.tz = m.z;
+              m.vy = Math.min(m.vy, -0.35);
+              m.jumpCd = 2.0;
             } else {
               if (Math.hypot(m.tx - m.x, m.tz - m.z) < 2) {
                 const a = Math.random() * Math.PI * 2;
@@ -1978,7 +2404,7 @@ export class MobSystem {
 
         // --- wander ---
         m.think -= mdt;
-        if (m.think <= 0 && m.task !== 10 && m.task !== 11 && m.task !== 12 && m.task !== 14) {
+        if (m.think <= 0 && m.task !== 9 && m.task !== 10 && m.task !== 11 && m.task !== 12 && m.task !== 14 && m.task !== 15 && m.task !== 16) {
           m.think = 2 + Math.random() * 4;
           if (Math.random() < 0.62) {
             const a = Math.random() * Math.PI * 2;
@@ -2002,6 +2428,32 @@ export class MobSystem {
                 if (ds < nearest) { nearest = ds; nx = bx + 0.5; nz = bz + 0.5; }
               }
             }
+            if (m.id === 'bird') {
+              // Short hops only: on the ground they peck around, on trees they
+              // hop between nearby leaf tops instead of instantly flying away.
+              m.think = 0.55 + Math.random() * 1.35;
+              const currentH = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z));
+              const currentGround = this.world.get(Math.floor(m.x), currentH, Math.floor(m.z));
+              const preferLeaves = isLeafId(currentGround);
+              let foundHop = false;
+              for (let attempt = 0; attempt < 18; attempt++) {
+                const bx = Math.floor(m.x + (Math.random() - 0.5) * 5.5);
+                const bz = Math.floor(m.z + (Math.random() - 0.5) * 5.5);
+                if (!this.world.hasColumn(bx, bz)) continue;
+                const h = this.world.topSolidY(bx, bz);
+                if (Math.abs(h + 1.05 - m.y) > 1.25 || this.world.get(bx, h + 1, bz) !== 0) continue;
+                const ground = this.world.get(bx, h, bz);
+                const leaf = isLeafId(ground);
+                const walkable = leaf || ground === GRASS || ground === SAND || ground === SNOW_GRASS || ground === STONE || ground === VOLCANIC_STONE;
+                if (!walkable) continue;
+                if (preferLeaves && !leaf && Math.random() < 0.75) continue;
+                nx = bx + 0.5;
+                nz = bz + 0.5;
+                foundHop = true;
+                break;
+              }
+              if (!foundHop) { nx = m.x; nz = m.z; }
+            }
             if (m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'pig') {
               // The upper ground block must actually be grass, not ice, water or leaves.
               if (this.world.get(Math.floor(nx), this.world.topSolidY(Math.floor(nx), Math.floor(nz)), Math.floor(nz)) !== GRASS) {
@@ -2011,7 +2463,7 @@ export class MobSystem {
             if (m.id === 'seal' && this.world.biomeAt(Math.floor(nx), Math.floor(nz)) !== 'winter') {
               nx = m.x; nz = m.z;
             }
-            if (m.id === 'camel' && !['desert', 'canyon'].includes(this.world.biomeAt(Math.floor(nx), Math.floor(nz)))) {
+            if ((m.id === 'camel' || m.id === 'camel_calf') && !['desert', 'canyon'].includes(this.world.biomeAt(Math.floor(nx), Math.floor(nz)))) {
               nx = m.x; nz = m.z;
             }
             if (m.id === 'monkey' && this.world.biomeAt(Math.floor(nx), Math.floor(nz)) !== 'jungle') {
@@ -2082,14 +2534,15 @@ export class MobSystem {
           if (wd > 1.0) {
             // dead-zone widened: a target under the feet no longer whips the yaw around
             m.yaw = Math.atan2(-wx, -wz);
-            const pace = m.id === 'bird' && (m.task === 9 || m.task === 12) ? 1.5 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
+            const birdAir = m.id === 'bird' && (m.task === 9 || m.task === 12);
+            const pace = birdAir ? 1.5 : m.id === 'bird' ? 0.48 : m.id === 'lizard' && dist < 6 ? 1.15 : 0.6;
             mx = (wx / wd) * def.speed * pace * speedMul;
             mz = (wz / wd) * def.speed * pace * speedMul;
-            // Birds fly rather than repeatedly hopping across the ground.
-            const hopChance = m.id === 'rabbit' ? 6 : m.id === 'bee' ? 8 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' ? 0 : 0.8;
+            const birdCanHop = m.id === 'bird' && !birdAir && m.task !== 15 && m.task !== 16;
+            const hopChance = m.id === 'rabbit' ? 6 : m.id === 'frog' ? 5.2 : m.id === 'bee' ? 8 : birdCanHop ? 3.4 : m.id === 'bird' || m.id === 'lizard' || m.id === 'cow' || m.id === 'calf' || m.id === 'sheep' || m.id === 'camel' || m.id === 'camel_calf' ? 0 : m.id === 'fawn' ? 1.4 : 0.8;
             if (m.onGround && m.jumpCd <= 0 && Math.random() < mdt * hopChance) {
-              m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
-              m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'bee' ? 0.3 : 1.2;
+              m.vy = m.id === 'rabbit' ? 5.8 : m.id === 'frog' ? 4.8 : m.id === 'bird' ? 3.0 : m.id === 'bee' ? 4.6 : m.id === 'chicken' ? 5.3 : 7.6;
+              m.jumpCd = m.id === 'rabbit' ? 0.25 : m.id === 'frog' ? 0.35 : m.id === 'bird' ? 0.32 : m.id === 'bee' ? 0.3 : 1.2;
             }
             if (m.id === 'bee' && m.vy < -1.2) m.vy = -1.2;
           }
@@ -2099,7 +2552,17 @@ export class MobSystem {
       // ================= WATER BEHAVIOUR BY SPECIES =================
       if (!m.def.aquatic && this.mobInWater(m)) {
         const bottomWalker = m.id === 'turtle' || m.id === 'crab' || m.id === 'penguin';
-        if (bottomWalker) {
+        if (m.id === 'frog') {
+          // frogs happily bob and swim instead of drowning
+          m.drown = 0;
+          m.vy = Math.max(m.vy, 1.7);
+          mx *= 1.25;
+          mz *= 1.25;
+          if (Math.random() < mdt * 0.9) {
+            const water = this.world.findWaterNear(m.x, m.z, 7);
+            if (water) { m.tx = water[0] + 0.5; m.tz = water[2] + 0.5; }
+          }
+        } else if (bottomWalker) {
           // turtles/crabs stroll along the lake bed; turtles can also swim up
           m.vy = Math.max(m.vy - 6 * mdt, -1.4); // gentle sinking
           if (m.id === 'turtle' && Math.random() < mdt * 0.5) m.vy = 3.2; // paddle up now and then
@@ -2171,12 +2634,19 @@ export class MobSystem {
         else if (m.id === 'jellyfish') leg.rotation.x = Math.sin(m.walkPhase * 3 + li) * 0.28;
         else if (m.id === 'bird') {
           const side = li % 2 === 0 ? -1 : 1;
-          if (m.task === 9 || m.task === 12 || !m.onGround) {
-            // Both shoulder joints beat together; the feather tips travel up
-            // and down even while cruising at a steady altitude.
-            leg.rotation.z = side * (0.05 + Math.sin(m.walkPhase * 2.6) * 1.05);
+          const folded = -side * 1.15;
+          if (m.task === 9 || m.task === 12 || m.task === 15) {
+            // Full wingbeats only during real takeoff/flight/landing.
+            const takeoffWarmup = m.task === 15 ? Math.max(0, Math.min(1, (0.48 - m.taskT) / 0.48)) : 1;
+            const landingEase = m.task === 12 ? 0.55 : 1;
+            const amp = (m.task === 15 ? 0.28 + takeoffWarmup * 0.72 : 1.05) * landingEase;
+            leg.rotation.z = side * (0.05 + Math.sin(m.walkPhase * 2.6) * amp);
+          } else if (!m.onGround) {
+            // Ground/tree hops get only a small balancing wing flick, not full flight.
+            const target = folded + side * Math.sin(m.walkPhase * 2.4) * 0.18;
+            leg.rotation.z += (target - leg.rotation.z) * Math.min(1, mdt * 12);
           } else {
-            leg.rotation.z += (-side * 1.15 - leg.rotation.z) * Math.min(1, mdt * 10);
+            leg.rotation.z += (folded - leg.rotation.z) * Math.min(1, mdt * 10);
           }
         } else leg.rotation.x = swing * (li % 2 === 0 ? 1 : -1);
       }

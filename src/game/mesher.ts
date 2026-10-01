@@ -848,16 +848,19 @@ function addBed(P: number[], C: number[], I: number[], x: number, y: number, z: 
 
 export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkGeometry {
   const positions: number[] = [];
+  const normals: number[] = [];
   const colors: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
   // separate buffers for alpha-tested blocks (glass / doors / fences)
   const cPositions: number[] = [];
+  const cNormals: number[] = [];
   const cColors: number[] = [];
   const cUvs: number[] = [];
   const cIndices: number[] = [];
   // translucent water pass
   const wPositions: number[] = [];
+  const wNormals: number[] = [];
   const wColors: number[] = [];
   const wUvs: number[] = [];
   const wIndices: number[] = [];
@@ -990,6 +993,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           }
           const [u0, v0, u1, v1] = tileUV(tile);
           const P = wat ? wPositions : cut ? cPositions : positions;
+          const N = wat ? wNormals : cut ? cNormals : normals;
           const C = wat ? wColors : cut ? cColors : colors;
           const U = wat ? wUvs : cut ? cUvs : uvs;
           const I = wat ? wIndices : cut ? cIndices : indices;
@@ -1030,6 +1034,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
             }
 
             P.push(x + vx, y + vy, z + vz);
+            N.push(face.dir[0], face.dir[1], face.dir[2]);
             U.push(u0 + (u1 - u0) * corner.uv[0], v0 + (v1 - v0) * corner.uv[1]);
             // authored in sRGB, stored in three's linear working space
             const light = glow || cut || wat ? Math.pow(face.shade, 1.4) : Math.pow(AO_LEVELS[ao] * face.shade, 2.2);
@@ -1046,10 +1051,11 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
     }
   }
 
-  const make = (p: number[], c: number[], u: number[], idx: number[]) => {
+  const make = (p: number[], n: number[], c: number[], u: number[], idx: number[]) => {
     if (!p.length) return null;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(n, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
     geo.setIndex(idx);
@@ -1067,9 +1073,9 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
   }
 
   return {
-    solid: make(positions, colors, uvs, indices),
-    cutout: make(cPositions, cColors, cUvs, cIndices),
-    water: make(wPositions, wColors, wUvs, wIndices),
+    solid: make(positions, normals, colors, uvs, indices),
+    cutout: make(cPositions, cNormals, cColors, cUvs, cIndices),
+    water: make(wPositions, wNormals, wColors, wUvs, wIndices),
     decor,
   };
 }

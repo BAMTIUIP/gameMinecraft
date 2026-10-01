@@ -1860,16 +1860,23 @@ export function getCloudTexture(): THREE.Texture {
   const ctx = c.getContext('2d')!;
   const rand = mulberry32(4242);
   ctx.clearRect(0, 0, 128, 128);
-  for (let i = 0; i < 46; i++) {
-    const cx = Math.floor(rand() * 16) * 8;
-    const cy = Math.floor(rand() * 16) * 8;
-    const w = (2 + Math.floor(rand() * 5)) * 8;
-    const h = (2 + Math.floor(rand() * 4)) * 8;
-    const a = 0.55 + rand() * 0.35;
-    ctx.fillStyle = `rgba(255,255,255,${a})`;
-    ctx.fillRect(cx, cy, w, h);
-    ctx.fillStyle = `rgba(226,236,246,${a * 0.8})`;
-    ctx.fillRect(cx, cy + h - 2, w, 2);
+  // Sparse blocky cloud islands. Keep most texels transparent so the sky and sun
+  // stay visible, especially when the player looks straight up.
+  for (let island = 0; island < 12; island++) {
+    const baseX = Math.floor(rand() * 16) * 8;
+    const baseY = Math.floor(rand() * 16) * 8;
+    const puffs = 2 + Math.floor(rand() * 4);
+    for (let p = 0; p < puffs; p++) {
+      const cx = (baseX + (Math.floor(rand() * 7) - 3) * 8 + 128) % 128;
+      const cy = (baseY + (Math.floor(rand() * 5) - 2) * 8 + 128) % 128;
+      const w = (2 + Math.floor(rand() * 4)) * 8;
+      const h = (1 + Math.floor(rand() * 3)) * 8;
+      const a = 0.34 + rand() * 0.24;
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.fillRect(cx, cy, w, h);
+      ctx.fillStyle = `rgba(210,228,246,${a * 0.55})`;
+      ctx.fillRect(cx, cy + h - 3, w, 3);
+    }
   }
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter;
