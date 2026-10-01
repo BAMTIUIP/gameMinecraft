@@ -1,14 +1,18 @@
 import type { CSSProperties } from 'react';
+import { TOOL_AXE, TOOL_BOW, TOOL_HOE, TOOL_PICK, TOOL_SHOVEL, TOOL_SWORD } from '../game/tools';
+import { ToolSprite } from './ToolSprite';
 
 type P = { className?: string; size?: number; style?: CSSProperties };
 
-export const PickIcon = ({ className = '', size = 24, style }: P) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none">
-    <path d="M3 8.5c3.6-3.4 8-4.6 12-3.4l-1.9 1.9 2.6 2.6 1.9-1.9c1.2 4 0 8.4-3.4 12" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M11.4 12.6 4.2 19.8" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-    <path d="M3 21l1.6-1.6" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" />
-  </svg>
+type ToolIconProps = P;
+
+// HUD/stat icons deliberately reuse the same pixel silhouettes as inventory;
+// this prevents a second, mismatched set of pickaxe/sword drawings.
+const SharedToolIcon = ({ id, className = '', size = 24, style }: ToolIconProps & { id: number }) => (
+  <ToolSprite id={id} size={size} className={className} style={style} monochrome />
 );
+
+export const PickIcon = (props: P) => <SharedToolIcon {...props} id={TOOL_PICK} />;
 
 export const HeartIcon = ({ className = '', size = 20 }: P) => (
   <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="currentColor">
@@ -57,37 +61,11 @@ export const DepthIcon = ({ className = '', size = 20 }: P) => (
   </svg>
 );
 
-export const SwordIcon = ({ className = '', size = 24, style }: P) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M20 3l-9.5 9.5M20 3v4.5L15.5 12" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M6.5 13.5L3 17l4 4 3.5-3.5" strokeLinejoin="round" />
-    <path d="M10.5 12.5l1 1" />
-    <path d="M4.5 18.5L2 21" strokeLinecap="round" strokeWidth="2.6" />
-  </svg>
-);
-
-export const AxeIcon = ({ className = '', size = 24, style }: P) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M14 4c3 0 6 2 6 5-2-1-4-1-5.5.5L13 11 11 9l1.5-2.5C13.5 5 13 4 14 4z" fill="currentColor" strokeLinejoin="round" />
-    <path d="M12 10L4 20" strokeWidth="2.4" strokeLinecap="round" />
-  </svg>
-);
-
-export const ShovelIcon = ({ className = '', size = 24, style }: P) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M15.5 8.5L6 18" strokeWidth="2.2" strokeLinecap="round" />
-    <path d="M15 3l6 6-2.5 2.5c-1.5 1.5-4 1.5-5.5 0s-1.5-4 0-5.5z" fill="currentColor" strokeLinejoin="round" />
-    <path d="M4 20l2-2" strokeWidth="2.6" strokeLinecap="round" />
-  </svg>
-);
-
-export const BowIcon = ({ className = '', size = 24, style }: P) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} className={className} style={style} fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M5 3c8 1 15 8 16 16-3 1-6 .5-8-1L7 12C5.5 10 5 6 5 3z" strokeLinejoin="round" />
-    <path d="M5 3l16 16" strokeWidth="1.4" />
-    <path d="M3 15l6 6" strokeWidth="2.2" strokeLinecap="round" />
-  </svg>
-);
+export const SwordIcon = (props: P) => <SharedToolIcon {...props} id={TOOL_SWORD} />;
+export const AxeIcon = (props: P) => <SharedToolIcon {...props} id={TOOL_AXE} />;
+export const HoeIcon = (props: P) => <SharedToolIcon {...props} id={TOOL_HOE} />;
+export const ShovelIcon = (props: P) => <SharedToolIcon {...props} id={TOOL_SHOVEL} />;
+export const BowIcon = (props: P) => <SharedToolIcon {...props} id={TOOL_BOW} />;
 
 export const SkullIcon = ({ className = '', size = 20 }: P) => (
   <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="currentColor">
