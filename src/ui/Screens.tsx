@@ -9,8 +9,13 @@ import type { LeaderboardView } from '../game/leaderboard';
 import { SHORTCUT_REWARD } from '../game/shortcut';
 import { FitBox } from './FitBox';
 import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
+import { developerShopClaims } from '../game/devShop';
 import type { DailyView } from '../game/daily';
+import { CHARACTER_COLORS, CHARACTER_EXPRESSIONS, CHARACTER_GLASSES, CHARACTER_HAIRSTYLES as SUPPORTED_HAIRSTYLES, type CharacterCustomization, type CharacterExpression, type CharacterGender, type CharacterGlasses, type CharacterHairstyle, type CharacterShoeType } from '../game/character';
+import { characterFacePixels } from '../game/characterVisuals';
 import { fullscreenAvailable } from '../game/params';
+import { BLOCKS } from '../game/blocks';
+import { isRewardedDrop, rewardedDropStatuses, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
 import {
   BagIcon,
   ClockIcon,
@@ -83,6 +88,7 @@ const Row = ({ k, v, accent }: { k: React.ReactNode; v: React.ReactNode; accent?
 
 type ShopCategory = 'diamonds' | 'pets' | 'gear' | 'drops' | 'boosters' | 'skins';
 type ShopFilter = 'all' | ShopCategory;
+type ShopMode = 'store' | 'developer';
 type ShopProduct = {
   id: string;
   category: ShopCategory;
@@ -451,10 +457,14 @@ export function StartScreen({
   onSignIn,
   cloudSavedAt,
   shopEnabled,
+  developerShopEnabled,
   diamonds,
   shopPrices,
   paymentsAvailable,
+  rewardedAdsEnabled,
   onBuyPack,
+  onClaimRewardedDrop,
+  onDeveloperClaim,
   leaderboard,
   leaderboardBusy,
   leaderboardAvailable,
@@ -469,6 +479,8 @@ export function StartScreen({
   dailyNote,
   fullscreen,
   onFullscreen,
+  character,
+  onSaveCharacter,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -494,14 +506,22 @@ export function StartScreen({
   cloudSavedAt: number;
   /** remote-config flag shop.enabled: the shop button disappears when the flag turns it off */
   shopEnabled: boolean;
+  /** visible only in Vite development mode and never on a TV */
+  developerShopEnabled: boolean;
   /** in-game currency balance (bought with real money, spent on rewards) */
   diamonds: number;
   /** prices from the Yandex Console catalogue, keyed by product id */
   shopPrices: ShopCatalog;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
   paymentsAvailable: boolean;
+  /** true only when rewarded ads are enabled and the SDK exposes a rewarded-video method */
+  rewardedAdsEnabled: boolean;
   /** opens the payment frame; the promise resolves when it closes */
   onBuyPack: (productId: string) => Promise<BuyResult>;
+  /** asks for a rewarded video, then commits the drop only when its reward callback was counted */
+  onClaimRewardedDrop: (dropId: RewardedDropId) => Promise<RewardedDropClaimResult>;
+  /** grant one local free test entitlement; no platform payment or purchase is made */
+  onDeveloperClaim: (productId: string) => Promise<boolean>;
   /** world ranking from ysdk.leaderboards, null until the first successful request */
   leaderboard: LeaderboardView | null;
   leaderboardBusy: boolean;
@@ -524,10 +544,17 @@ export function StartScreen({
   /** is the browser in fullscreen right now (sdk-params); the toggle lives in the settings dialog */
   fullscreen: boolean;
   onFullscreen: () => void;
+  /** current avatar choices, loaded from local/cloud profile */
+  character: CharacterCustomization;
+  /** commits the look to local storage and the player's cloud profile */
+  onSaveCharacter: (next: CharacterCustomization) => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showCharacterCreator, setShowCharacterCreator] = useState(false);
   const [showShop, setShowShop] = useState(false);
+  const [shopMode, setShopMode] = useState<ShopMode>('store');
   const [shopTab, setShopTab] = useState<ShopFilter>('all');
+  const [devClaims, setDevClaims] = useState<string[]>(() => developerShopClaims());
   const [promoProductId, setPromoProductId] = useState<string | null>(null);
 
   // A promo banner in the catalogue opens the game with `referrer=promo`: take the player straight
@@ -536,6 +563,7 @@ export function StartScreen({
     if (!promo) return;
     setShopTab(promo.productId ? (SHOP_PRODUCTS.find((product) => product.id === promo.productId)?.category ?? 'diamonds') : 'diamonds');
     setPromoProductId(promo.productId);
+    setShopMode('store');
     setShowShop(true);
   }, [promo]);
   const [buying, setBuying] = useState<string | null>(null);
@@ -543,6 +571,7 @@ export function StartScreen({
   const filteredShopProducts = shopTab === 'all'
     ? SHOP_PRODUCTS
     : SHOP_PRODUCTS.filter((product) => product.category === shopTab);
+  const rewardedDrops = rewardedDropStatuses();
   const modes = [
     { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
     { id: 'explorer', on: false, label: t('explorer'), sub: t('explorerSub'), accent: '#5fe8dc', icon: '✦' },
@@ -678,6 +707,7 @@ export function StartScreen({
                 <button
                   type="button"
                   onClick={() => {
+                    setShopMode('store');
                     setShopTab('all');
                     setShowShop(true);
                   }}
@@ -702,6 +732,32 @@ export function StartScreen({
                 <span aria-hidden="true" className="text-base leading-none sm:text-lg">⚙</span> {t('settings')}
               </button>
             </div>
+            <button
+              type="button"
+              data-character-creator="1"
+              onClick={() => setShowCharacterCreator(true)}
+              className="mt-2 flex w-full max-w-[900px] items-center justify-center gap-2 border border-[#8c58bd]/45 bg-gradient-to-r from-[#38264a]/70 via-[#1a1d20]/90 to-[#263846]/70 px-3 py-2.5 font-display text-[10px] tracking-[0.16em] text-[#d7bcff] transition-all hover:border-[#c49aff]/75 hover:brightness-125 sm:mt-3 sm:text-xs"
+            >
+              <span aria-hidden="true" className="text-lg">🧍</span>
+              {t('characterCreator')}
+              <span className="text-white/35">·</span>
+              <span className="text-white/55">{t(character.gender === 'girl' ? 'characterGirl' : 'characterBoy')}</span>
+            </button>
+            {developerShopEnabled && (
+              <button
+                type="button"
+                data-developer-shop="1"
+                onClick={() => {
+                  setShopMode('developer');
+                  setShopTab('all');
+                  setShopNotice(null);
+                  setShowShop(true);
+                }}
+                className="mt-2 flex w-full max-w-[900px] items-center justify-center gap-2 border border-[#f4b942]/45 bg-[#f4b942]/[0.08] px-3 py-2 font-display text-[9px] tracking-[0.18em] text-[#f4d283] transition-colors hover:bg-[#f4b942]/15 sm:text-[10px]"
+              >
+                <span aria-hidden="true">⚒</span>{t('devShopButton')}<span aria-hidden="true" className="text-white/30">·</span>{t('devShopFreeBadge')}
+              </button>
+            )}
           </main>
 
           {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
@@ -783,8 +839,8 @@ export function StartScreen({
                 ◆
               </div>
               <div className="min-w-0 flex-1">
-                <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{t('shop')}</h2>
-                <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{t('shopSubtitle')}</p>
+                <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{shopMode === 'developer' ? t('devShopTitle') : t('shop')}</h2>
+                <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{shopMode === 'developer' ? t('devShopSubtitle') : t('shopSubtitle')}</p>
               </div>
               <div className="hidden min-w-28 border border-[#62e8dc]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
                 <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopBalance')}</div>
@@ -807,13 +863,13 @@ export function StartScreen({
             <div className="shop-currency-note mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
               <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
               <div className="min-w-0 flex-1">
-                <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
+                <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{shopMode === 'developer' ? t('devShopTitle') : t('shopPortalCurrency')}</div>
                 <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">
-                  {paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
+                  {shopMode === 'developer' ? t('devShopNotice') : paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
                 </p>
               </div>
               <span className="shrink-0 border border-white/10 bg-black/20 px-1.5 py-1 font-display text-[8px] tracking-widest text-white/45 sm:px-2 sm:text-[9px]">
-                {paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
+                {shopMode === 'developer' ? t('devShopFreeBadge') : paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
               </span>
             </div>
 
@@ -854,23 +910,37 @@ export function StartScreen({
             <div className="shop-catalog min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
                 {filteredShopProducts.map((product) => {
-                  // packs are real purchases: the price comes from the Console catalogue, together
-                  // with the portal-currency icon (requirement 1.13.2 forbids hardcoding it)
+                  // Real packs use the Console price; the temporary developer catalogue makes every
+                  // card claimable without a payment frame and remembers local test entitlements.
                   const catalogPrice = shopPrices.get(product.id);
                   const promoted = promoProductId === product.id;
-                  const purchasable = paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined;
-                  const priceLabel = catalogPrice
-                    ? catalogPrice.label
-                    : product.diamondAmount !== undefined
-                      ? `${product.diamondAmount.toLocaleString()} ◆`
-                      : product.diamondCost !== undefined
-                        ? `${product.diamondCost.toLocaleString()} ◆`
-                        : product.freeDrop
-                          ? t('shopFree')
-                          : t('shopPriceSoon');
+                  const developerMode = shopMode === 'developer';
+                  const rewardedDrop = isRewardedDrop(product.id);
+                  const dropStatus = rewardedDrop ? rewardedDrops[product.id as RewardedDropId] : null;
+                  const devAlreadyClaimed = DIAMOND_PACKS[product.id] === undefined && devClaims.includes(product.id);
+                  const dropAlreadyClaimed = Boolean(rewardedDrop && dropStatus && !dropStatus.available);
+                  const purchasable = developerMode
+                    ? !devAlreadyClaimed
+                    : rewardedDrop
+                      ? rewardedAdsEnabled && Boolean(dropStatus?.available)
+                      : paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined;
+                  const priceLabel = developerMode
+                    ? t('devShopPrice')
+                    : rewardedDrop
+                      ? rewardedAdsEnabled ? t('shopRewardedPrice') : t('shopAdUnavailable')
+                      : catalogPrice
+                        ? catalogPrice.label
+                        : product.diamondAmount !== undefined
+                          ? `${product.diamondAmount.toLocaleString()} ◆`
+                          : product.diamondCost !== undefined
+                            ? `${product.diamondCost.toLocaleString()} ◆`
+                            : product.freeDrop
+                              ? t('shopFree')
+                              : t('shopPriceSoon');
                   return (
                     <article
                       key={product.id}
+                      data-shop-product={product.id}
                       className="flex min-h-[220px] flex-col border bg-gradient-to-b from-[#172126] to-[#0c1215] p-2.5 shadow-[0_6px_18px_rgba(0,0,0,.24)] sm:min-h-[235px] sm:p-3"
                       style={{
                         borderColor: promoted ? '#f4b942' : `${product.accent}45`,
@@ -921,23 +991,58 @@ export function StartScreen({
                       <div className="mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
                         <div>
                           <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }}>
-                            {catalogPrice?.currencyIcon && (
+                            {!developerMode && catalogPrice?.currencyIcon && (
                               <img src={catalogPrice.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
                             )}
                             {priceLabel}
                           </div>
-                          {catalogPrice && product.diamondAmount !== undefined && (
+                          {!developerMode && catalogPrice && product.diamondAmount !== undefined && (
                             <div className="mt-0.5 text-[10px] text-white/55">{product.diamondAmount.toLocaleString()} ◆</div>
                           )}
                         </div>
                         <button
                           type="button"
                           disabled={!purchasable || buying !== null}
-                          title={purchasable ? t('shopBuy') : t('shopSoonHint')}
+                          title={developerMode
+                            ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
+                            : rewardedDrop
+                              ? dropAlreadyClaimed ? t('shopClaimed') : rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
+                              : purchasable ? t('shopBuy') : t('shopSoonHint')}
                           onClick={async () => {
-                            if (!purchasable) return;
+                            if (!purchasable || buying !== null) return;
                             setBuying(product.id);
                             setShopNotice(null);
+                            if (developerMode) {
+                              const granted = await onDeveloperClaim(product.id);
+                              setBuying(null);
+                              if (granted) {
+                                setDevClaims(developerShopClaims());
+                                setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                              } else {
+                                setShopNotice(t('devShopGrantFailed'));
+                              }
+                              return;
+                            }
+                            if (rewardedDrop) {
+                              const result = await onClaimRewardedDrop(product.id as RewardedDropId);
+                              setBuying(null);
+                              if (result.ok) {
+                                const rewardParts = [
+                                  ...(result.diamonds > 0 ? [`${result.diamonds} ◆`] : []),
+                                  ...result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`),
+                                ];
+                                const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                                const deliveryNote = result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
+                                setShopNotice(result.items.length ? `${notice} · ${deliveryNote}` : notice);
+                              } else if (result.reason === 'ad') {
+                                setShopNotice(t('shopDropAdFailed'));
+                              } else if (result.reason === 'claimed') {
+                                setShopNotice(t('shopDropAlreadyClaimed'));
+                              } else {
+                                setShopNotice(t('shopDropSaveFailed'));
+                              }
+                              return;
+                            }
                             const result = await onBuyPack(product.id);
                             setBuying(null);
                             setShopNotice(
@@ -954,7 +1059,25 @@ export function StartScreen({
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {purchasable ? (buying === product.id ? t('shopBuying') : t('shopBuy')) : t('shopSoon')}
+                          {developerMode
+                            ? devAlreadyClaimed
+                              ? t('devShopTaken')
+                              : buying === product.id
+                                ? t('devShopTaking')
+                                : t('devShopTake')
+                            : rewardedDrop
+                              ? dropAlreadyClaimed
+                                ? t('shopClaimed')
+                                : !rewardedAdsEnabled
+                                  ? t('shopAdUnavailable')
+                                  : buying === product.id
+                                    ? t('shopBuying')
+                                    : t('shopWatchAd')
+                              : purchasable
+                                ? buying === product.id
+                                  ? t('shopBuying')
+                                  : t('shopBuy')
+                                : t('shopSoon')}
                         </button>
                       </div>
                     </article>
@@ -964,10 +1087,25 @@ export function StartScreen({
             </div>
 
             <footer className="shrink-0 border-t border-white/10 bg-black/25 px-3 py-2 text-center text-[9px] leading-snug text-white/35 sm:px-4 sm:py-2.5 sm:text-[10px]">
-              {shopNotice ?? (paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice'))}
+              {shopNotice ?? (shopMode === 'developer'
+                ? t('devShopNotice')
+                : paymentsAvailable
+                  ? t('shopRealNotice')
+                  : rewardedAdsEnabled ? t('shopRewardedNotice') : t('shopMockNotice'))}
             </footer>
           </section>
         </div>
+      )}
+
+      {showCharacterCreator && (
+        <CharacterCreatorDialog
+          character={character}
+          onCancel={() => setShowCharacterCreator(false)}
+          onSave={(next) => {
+            onSaveCharacter(next);
+            setShowCharacterCreator(false);
+          }}
+        />
       )}
 
       {showSettings && (
@@ -1106,6 +1244,326 @@ export function StartScreen({
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+const CHARACTER_HAIRSTYLE_LABELS: Record<CharacterHairstyle, TKey> = {
+  short: 'characterHairShort',
+  long: 'characterHairLong',
+  ponytail: 'characterHairPonytail',
+  spiky: 'characterHairSpiky',
+  bob: 'characterHairBob',
+  curly: 'characterHairCurly',
+  braids: 'characterHairBraids',
+  bun: 'characterHairBun',
+  sidePart: 'characterHairSidePart',
+  twinTails: 'characterHairTwinTails',
+};
+const CHARACTER_HAIRSTYLES = SUPPORTED_HAIRSTYLES.map((id) => ({ id, key: CHARACTER_HAIRSTYLE_LABELS[id] }));
+const CHARACTER_SHOES: ReadonlyArray<{ id: CharacterShoeType; key: TKey }> = [
+  { id: 'sneakers', key: 'characterShoesSneakers' },
+  { id: 'boots', key: 'characterShoesBoots' },
+  { id: 'sandals', key: 'characterShoesSandals' },
+];
+const CHARACTER_FACE_LABELS: Record<CharacterExpression, TKey> = {
+  smile: 'characterFaceSmile',
+  happy: 'characterFaceHappy',
+  cool: 'characterFaceCool',
+  surprised: 'characterFaceSurprised',
+  wink: 'characterFaceWink',
+  neutral: 'characterFaceNeutral',
+  sad: 'characterFaceSad',
+  thoughtful: 'characterFaceThoughtful',
+  scared: 'characterFaceScared',
+  angry: 'characterFaceAngry',
+};
+const CHARACTER_GLASSES_LABELS: Record<CharacterGlasses, TKey> = {
+  none: 'characterGlassesNone',
+  round: 'characterGlassesRound',
+  square: 'characterGlassesSquare',
+  sunglasses: 'characterGlassesSunglasses',
+};
+
+function CharacterCreatorDialog({
+  character,
+  onCancel,
+  onSave,
+}: {
+  character: CharacterCustomization;
+  onCancel: () => void;
+  onSave: (next: CharacterCustomization) => void;
+}) {
+  const [draft, setDraft] = useState<CharacterCustomization>(() => ({ ...character }));
+  const update = <K extends keyof CharacterCustomization>(key: K, value: CharacterCustomization[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+  const selectedButton = (selected: boolean) =>
+    `notch border-[3px] px-2.5 py-2 font-display text-[10px] transition-all ${selected ? 'border-[#d7bcff] bg-[#8c58bd]/30 text-white shadow-[0_0_12px_rgba(185,139,255,.2)]' : 'border-black/70 bg-[#151d21] text-white/55 hover:text-white/85'}`;
+
+  return (
+    <div className="absolute inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-[#03070a]/90 px-2 py-3 backdrop-blur-md sm:px-5 sm:py-5">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-title"
+        className="my-auto flex max-h-[95vh] w-[min(98vw,940px)] flex-col overflow-hidden border border-[#a275d0]/55 bg-[#0b1015] shadow-[0_22px_90px_rgba(0,0,0,.85)]"
+      >
+        <header className="flex shrink-0 items-center gap-3 border-b border-white/10 bg-gradient-to-r from-[#261d35] via-[#182027] to-[#142c34] p-3 sm:p-5">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#c49aff]/45 bg-[#8c58bd]/15 text-2xl">🧍</div>
+          <div className="min-w-0 flex-1">
+            <h2 id="character-title" className="font-display text-lg leading-tight text-[#e0c9ff] sm:text-2xl">{t('characterCreatorTitle')}</h2>
+            <p className="mt-1 text-[10px] leading-snug text-white/50 sm:text-xs">{t('characterCreatorSubtitle')}</p>
+          </div>
+          <button type="button" aria-label={t('close')} onClick={onCancel} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2 text-white/80">×</button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid items-start gap-3 p-3 sm:gap-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_200px]">
+            <div className="grid min-w-0 gap-2.5 sm:grid-cols-2 sm:gap-3">
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterGender')}</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['boy', 'girl'] as const).map((gender: CharacterGender) => {
+                    const selected = draft.gender === gender;
+                    return (
+                      <button key={gender} type="button" aria-pressed={selected} onClick={() => update('gender', gender)} className={selectedButton(selected)}>
+                        <span className="mr-1.5" aria-hidden="true">{gender === 'boy' ? '👦' : '👧'}</span>{t(gender === 'boy' ? 'characterBoy' : 'characterGirl')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterHairstyle')}</legend>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                  {CHARACTER_HAIRSTYLES.map((style) => (
+                    <button key={style.id} type="button" data-character-hairstyle={style.id} aria-pressed={draft.hairstyle === style.id} onClick={() => update('hairstyle', style.id)} className={`${selectedButton(draft.hairstyle === style.id)} flex min-h-[48px] flex-col items-center justify-center gap-1 px-1 py-1.5`}>
+                      <HairStyleGlyph hairstyle={style.id} color={draft.hairColor} />
+                      <span className="text-[7px] sm:text-[8px]">{t(style.key)}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <ColorPaletteField label={t('characterHairColor')} colors={CHARACTER_COLORS.hair} value={draft.hairColor} onChange={(color) => update('hairColor', color)} />
+              <ColorPaletteField label={t('characterShirt')} colors={CHARACTER_COLORS.shirt} value={draft.shirtColor} onChange={(color) => update('shirtColor', color)} />
+              <ColorPaletteField label={t(draft.gender === 'girl' ? 'characterSkirtColor' : 'characterPants')} colors={CHARACTER_COLORS.pants} value={draft.pantsColor} onChange={(color) => update('pantsColor', color)} />
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterShoeType')}</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {CHARACTER_SHOES.map((shoe) => (
+                    <button key={shoe.id} type="button" aria-pressed={draft.shoeType === shoe.id} onClick={() => update('shoeType', shoe.id)} className={selectedButton(draft.shoeType === shoe.id)}>
+                      {t(shoe.key)}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <ColorPaletteField label={t('characterShoeColor')} colors={CHARACTER_COLORS.shoes} value={draft.shoeColor} onChange={(color) => update('shoeColor', color)} />
+              <ColorPaletteField label={t('characterSkin')} colors={CHARACTER_COLORS.skin} value={draft.skinColor} onChange={(color) => update('skinColor', color)} />
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:col-span-2 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterGlasses')}</legend>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {CHARACTER_GLASSES.map((glasses) => (
+                    <button key={glasses} type="button" data-character-glasses={glasses} aria-label={t(CHARACTER_GLASSES_LABELS[glasses])} aria-pressed={draft.glasses === glasses} onClick={() => update('glasses', glasses)} className={`${selectedButton(draft.glasses === glasses)} flex items-center justify-center gap-1.5 px-1.5 py-2`}>
+                      <GlassesGlyph glasses={glasses} />
+                      <span className="text-[8px]">{t(CHARACTER_GLASSES_LABELS[glasses])}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:col-span-2 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterExpression')}</legend>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                  {CHARACTER_EXPRESSIONS.map(({ id }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      data-character-expression={id}
+                      aria-label={t(CHARACTER_FACE_LABELS[id])}
+                      aria-pressed={draft.expression === id}
+                      title={t(CHARACTER_FACE_LABELS[id])}
+                      onClick={() => update('expression', id)}
+                      className={`flex min-h-[60px] flex-col items-center justify-center gap-1 border px-1 py-1.5 transition-all ${draft.expression === id ? 'border-[#d7bcff] bg-[#8c58bd]/30 shadow-[0_0_12px_rgba(185,139,255,.25)]' : 'border-white/10 bg-black/25 hover:border-white/35'}`}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center border border-black/70" style={{ backgroundColor: draft.skinColor }}>
+                        <CharacterFaceGlyph expression={id} glasses="none" />
+                      </span>
+                      <span className="text-[7px] leading-tight text-white/80 sm:text-[8px]">{t(CHARACTER_FACE_LABELS[id])}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            <aside className="flex flex-col items-center border border-[#8c58bd]/25 bg-[radial-gradient(ellipse_at_50%_20%,rgba(140,88,189,.18),rgba(0,0,0,.16)_70%)] p-3">
+              <div className="mb-2 w-full text-center font-display text-[9px] tracking-[0.2em] text-white/40">{t('characterPreview')}</div>
+              <CharacterAvatarPreview character={draft} />
+              <div className="mt-2 text-center font-display text-[10px] tracking-wide text-[#d7bcff]">{t(draft.gender === 'girl' ? 'characterGirl' : 'characterBoy')}</div>
+            </aside>
+          </div>
+        </div>
+
+        <footer className="flex shrink-0 justify-end gap-2 border-t border-white/10 bg-black/25 p-3 sm:px-5 sm:py-4">
+          <button type="button" onClick={onCancel} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-4 py-2.5 font-display text-xs text-white/75">{t('characterCancel')}</button>
+          <button type="button" onClick={() => onSave(draft)} className="btn-mc notch bg-gradient-to-b from-[#aa7be3] to-[#6e42a1] px-5 py-2.5 font-display text-xs text-white shadow-[0_0_18px_rgba(170,123,227,.25)]">{t('characterSave')}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function ColorPaletteField({ label, colors, value, onChange }: { label: string; colors: readonly string[]; value: string; onChange: (color: string) => void }) {
+  return (
+    <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+      <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{label}</legend>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
+        {colors.map((color) => (
+          <button
+            key={color}
+            type="button"
+            aria-label={`${label}: ${color}`}
+            aria-pressed={value === color}
+            title={color}
+            onClick={() => onChange(color)}
+            className={`relative h-7 w-7 border-2 transition-transform hover:scale-110 ${value === color ? 'border-white shadow-[0_0_9px_rgba(255,255,255,.55)]' : 'border-black/60'}`}
+            style={{ backgroundColor: color }}
+          >
+            {value === color && <span className="absolute inset-0 flex items-center justify-center font-display text-[11px] text-white" style={{ textShadow: '0 1px 3px #000' }}>✓</span>}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function HairStyleGlyph({ hairstyle, color }: { hairstyle: CharacterHairstyle; color: string }) {
+  const blocks: Array<[number, number, number, number]> = [[6, 6, 20, 8], [7, 4, 18, 4], [5, 9, 22, 3]];
+  if (hairstyle === 'long' || hairstyle === 'bob') blocks.push([5, 11, 4, hairstyle === 'bob' ? 9 : 11], [23, 11, 4, hairstyle === 'bob' ? 9 : 11], [8, 19, 16, 3]);
+  if (hairstyle === 'ponytail') blocks.push([25, 10, 4, 5], [28, 14, 3, 7]);
+  if (hairstyle === 'spiky') blocks.push([7, 2, 4, 7], [14, 0, 4, 8], [21, 2, 4, 7]);
+  if (hairstyle === 'curly') blocks.push([3, 6, 5, 5], [8, 1, 5, 6], [18, 1, 5, 6], [24, 6, 5, 5], [5, 10, 4, 5], [23, 10, 4, 5]);
+  if (hairstyle === 'braids') blocks.push([4, 10, 4, 5], [5, 14, 3, 5], [24, 10, 4, 5], [24, 14, 3, 5]);
+  if (hairstyle === 'bun') blocks.push([12, 1, 8, 5], [13, 0, 6, 3]);
+  if (hairstyle === 'sidePart') blocks.push([8, 3, 14, 4], [5, 7, 9, 4]);
+  if (hairstyle === 'twinTails') blocks.push([2, 10, 5, 6], [3, 14, 4, 7], [25, 10, 5, 6], [25, 14, 4, 7]);
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 23" className="h-5 w-7" style={{ imageRendering: 'pixelated' }}>
+      {blocks.map(([x, y, width, height], index) => <rect key={index} x={x} y={y} width={width} height={height} fill={color} />)}
+    </svg>
+  );
+}
+
+function GlassesGlyph({ glasses }: { glasses: CharacterGlasses }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 16" className="h-4 w-8" style={{ imageRendering: 'pixelated' }}>
+      {glasses === 'none' ? (
+        <path d="M4 8h24" stroke="#9aa6ac" strokeWidth="2" strokeDasharray="3 3" />
+      ) : (
+        <>
+          {glasses === 'sunglasses' && <><rect x="4" y="4" width="10" height="8" fill="#263847" /><rect x="18" y="4" width="10" height="8" fill="#263847" /><rect x="6" y="5" width="4" height="2" fill="#8cb8c1" /><rect x="20" y="5" width="4" height="2" fill="#8cb8c1" /></>}
+          <path d="M3 5h11v7H3zM18 5h11v7H18zM14 7h4" fill="none" stroke="#191d22" strokeWidth="2" strokeLinejoin={glasses === 'round' ? 'round' : 'miter'} />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function CharacterFaceGlyph({ expression, glasses }: { expression: CharacterExpression; glasses: CharacterGlasses }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 32" className="h-full w-full" style={{ imageRendering: 'pixelated' }}>
+      {characterFacePixels(expression, glasses).map((pixel, index) => (
+        <rect key={index} x={pixel.x} y={pixel.y} width={pixel.width} height={pixel.height} fill={pixel.color} />
+      ))}
+    </svg>
+  );
+}
+
+function CharacterAvatarPreview({ character }: { character: CharacterCustomization }) {
+  const [backView, setBackView] = useState(false);
+  const isGirl = character.gender === 'girl';
+  const hair = character.hairColor;
+  const block = (style: React.CSSProperties) => ({ position: 'absolute' as const, imageRendering: 'pixelated' as const, ...style });
+  const hairstyleHasLongSides = ['long', 'ponytail', 'bob', 'braids'].includes(character.hairstyle);
+  const upper = (
+    <>
+      {(character.hairstyle === 'long' || character.hairstyle === 'bob' || character.hairstyle === 'braids') && <>
+        <span style={block({ left: 40, top: 31, width: 13, height: character.hairstyle === 'bob' ? 65 : 81, background: hair, zIndex: 1 })} />
+        <span style={block({ left: 89, top: 31, width: 13, height: character.hairstyle === 'bob' ? 65 : 81, background: hair, zIndex: 1 })} />
+      </>}
+      {character.hairstyle === 'ponytail' && <>
+        <span style={block({ left: 88, top: 43, width: 14, height: 29, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 93, top: 68, width: 12, height: 41, background: hair, zIndex: 0 })} />
+      </>}
+      {character.hairstyle === 'twinTails' && <>
+        <span style={block({ left: 34, top: 42, width: 13, height: 27, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 35, top: 63, width: 12, height: 45, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 95, top: 42, width: 13, height: 27, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 95, top: 63, width: 12, height: 45, background: hair, zIndex: 0 })} />
+      </>}
+      {character.hairstyle === 'bun' && <span style={block({ left: 61, top: 9, width: 23, height: 18, background: hair, zIndex: 2 })} />}
+      {character.hairstyle === 'curly' && <>
+        <span style={block({ left: 40, top: 20, width: 20, height: 24, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 56, top: 9, width: 30, height: 21, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 81, top: 19, width: 21, height: 26, background: hair, zIndex: 3 })} />
+      </>}
+      {character.hairstyle === 'short' && <>
+        <span style={block({ left: 47, top: 31, width: 11, height: 28, background: hair, zIndex: 1 })} />
+        <span style={block({ left: 85, top: 31, width: 11, height: 28, background: hair, zIndex: 1 })} />
+      </>}
+      {character.hairstyle === 'spiky' && <>
+        <span style={block({ left: 52, top: 2, width: 13, height: 23, background: hair, transform: 'rotate(-12deg)', zIndex: 3 })} />
+        <span style={block({ left: 66, top: 0, width: 13, height: 25, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 81, top: 3, width: 13, height: 21, background: hair, transform: 'rotate(12deg)', zIndex: 3 })} />
+      </>}
+      <span style={block({ left: 48, top: 16, width: 46, height: 22, background: hair, zIndex: 2 })} />
+      {character.hairstyle === 'sidePart' && <>
+        <span style={block({ left: 48, top: 28, width: 44, height: 12, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 54, top: 20, width: 28, height: 11, background: hair, zIndex: 3 })} />
+      </>}
+      {!['spiky', 'sidePart', 'curly'].includes(character.hairstyle) && <span style={block({ left: 47, top: 31, width: 48, height: 11, background: hair, zIndex: 3 })} />}
+    </>
+  );
+  return (
+    <div className="flex flex-col items-center">
+      <div role="group" aria-label={t('characterView')} className="mb-2 grid w-full grid-cols-2 gap-1">
+        <button type="button" aria-pressed={!backView} onClick={() => setBackView(false)} className={`border px-2 py-1 font-display text-[8px] ${!backView ? 'border-[#d7bcff] bg-[#8c58bd]/30 text-white' : 'border-white/10 text-white/45'}`}>{t('characterViewFront')}</button>
+        <button type="button" aria-pressed={backView} onClick={() => setBackView(true)} className={`border px-2 py-1 font-display text-[8px] ${backView ? 'border-[#d7bcff] bg-[#8c58bd]/30 text-white' : 'border-white/10 text-white/45'}`}>{t('characterViewBack')}</button>
+      </div>
+      <div data-character-preview-view={backView ? 'back' : 'front'} data-character-preview-skirt={isGirl ? 'true' : 'false'} role="img" aria-label={`${t(character.gender === 'girl' ? 'characterGirl' : 'characterBoy')}, ${t(backView ? 'characterViewBack' : 'characterViewFront')}`} className="relative h-[205px] w-[142px] overflow-hidden border border-white/10 bg-[#111920]/75">
+        {upper}
+        <span style={block({ left: 51, top: 39, width: 40, height: 39, background: character.skinColor, zIndex: 2 })} />
+        {backView && <span style={block({ left: 49, top: 31, width: 44, height: 47, background: hair, zIndex: 4 })} />}
+        {backView && hairstyleHasLongSides && <span style={block({ left: 47, top: 31, width: 48, height: 62, background: hair, zIndex: 4 })} />}
+        {backView && character.hairstyle === 'bun' && <span style={block({ left: 51, top: 21, width: 43, height: 27, background: hair, zIndex: 4 })} />}
+        {!backView && <span style={block({ left: 51, top: 39, width: 40, height: 39, background: character.skinColor, zIndex: 4 })}>
+          <CharacterFaceGlyph expression={character.expression} glasses={character.glasses} />
+        </span>}
+        <span style={block({ left: isGirl ? 41 : 34, top: 80, width: isGirl ? 60 : 74, height: 57, background: character.shirtColor, zIndex: 2 })} />
+        <span style={block({ left: 24, top: 82, width: 15, height: 47, background: character.shirtColor, zIndex: 1 })} />
+        <span style={block({ left: 103, top: 82, width: 15, height: 47, background: character.shirtColor, zIndex: 1 })} />
+        {backView && <span style={block({ left: 70, top: 90, width: 3, height: 32, background: 'rgba(255,255,255,.22)', zIndex: 3 })} />}
+        {isGirl ? <>
+          <span style={block({ left: 41, top: 130, width: 60, height: 14, background: character.pantsColor, zIndex: 3 })} />
+          <span style={block({ left: 35, top: 141, width: 72, height: 15, background: character.pantsColor, zIndex: 3 })} />
+          <span style={block({ left: 28, top: 153, width: 86, height: 15, background: character.pantsColor, borderBottom: '4px solid rgba(0,0,0,.28)', zIndex: 3 })} />
+          <span style={block({ left: 49, top: 164, width: 16, height: 17, background: character.skinColor, zIndex: 1 })} />
+          <span style={block({ left: 77, top: 164, width: 16, height: 17, background: character.skinColor, zIndex: 1 })} />
+        </> : <>
+          <span style={block({ left: 40, top: 137, width: 25, height: 45, background: character.pantsColor, zIndex: 1 })} />
+          <span style={block({ left: 77, top: 137, width: 25, height: 45, background: character.pantsColor, zIndex: 1 })} />
+        </>}
+        <span style={block({ left: 39, top: 180, width: 31, height: 13, background: character.shoeColor, zIndex: 2, borderBottom: character.shoeType === 'sneakers' ? '4px solid #f1f2ed' : undefined })} />
+        <span style={block({ left: 72, top: 180, width: 31, height: 13, background: character.shoeColor, zIndex: 2, borderBottom: character.shoeType === 'sneakers' ? '4px solid #f1f2ed' : undefined })} />
+        {character.shoeType === 'sandals' && <>
+          <span style={block({ left: 42, top: 180, width: 25, height: 4, background: '#202124', zIndex: 3 })} />
+          <span style={block({ left: 75, top: 180, width: 25, height: 4, background: '#202124', zIndex: 3 })} />
+        </>}
+      </div>
     </div>
   );
 }

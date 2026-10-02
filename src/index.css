@@ -415,6 +415,7 @@ input[type='text'] {
 
 .hud-touch .hud-information--top-left,
 .hud-touch .hud-information--top-right { --hud-information-scale: 0.7; }
+.hud-touch .hud-information--top-left { --hud-information-scale: 0.64; }
 .hud-touch .hud-information--top-center { --hud-information-scale: 0.74; }
 .hud-touch .hud-information--center { --hud-information-scale: 0.82; }
 .hud-touch .hud-information--banner { --hud-information-scale: 0.82; }
@@ -553,7 +554,7 @@ input[type='text'] {
     height: min(calc((100vw - 23rem - 1.5rem) / 10), calc((32rem - 1.5rem) / 10)) !important;
     aspect-ratio: 1;
   }
-  .hud-breath { bottom: max(4.6rem, calc(env(safe-area-inset-bottom) + 4.1rem)); }
+  .hud-breath { bottom: max(4.55rem, calc(env(safe-area-inset-bottom) + 4.05rem)); }
 }
 .hud-touch .hud-hotbar .hotbar-slot.active { transform: none; }
 .hud-touch .hud-hotbar .hotbar-slot > span {

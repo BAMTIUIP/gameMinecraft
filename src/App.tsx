@@ -31,15 +31,17 @@ import {
   yaServerTime,
   type YaProfile,
 } from './game/yandex';
-import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { addDiamonds, addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { claimDailyReward, dailyReward, type DailyView } from './game/daily';
 import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformEvents } from './game/platform';
 import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
 import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
-import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
-import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
+import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
+import { completePendingRewardedDropItems, pendingRewardedDropItems, watchAndClaimRewardedDrop, type RewardedDropId } from './game/adDrops';
+import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, DIAMOND_PACKS, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
+import { grantDeveloperShopProduct } from './game/devShop';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -50,6 +52,7 @@ import {
   type LeaderboardView,
 } from './game/leaderboard';
 import { storageGet, storageSet } from './game/storage';
+import { getCharacterCustomization, saveCharacterCustomization, type CharacterCustomization } from './game/character';
 
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
 const REVIVE_SECONDS = 60;
@@ -65,6 +68,14 @@ function coopSink(engine: Engine): CoopSink {
   };
 }
 
+/** Shop items are queued outside a run because startRun deliberately clears the engine inventory. */
+function deliverPendingShopDropItems(engine: Engine | null | undefined) {
+  if (!engine) return;
+  const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
+  if (!pending) return;
+  if (engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
+}
+
 const INITIAL_HUD: HudState = {
   phase: 'loading',
   squad: [],
@@ -72,6 +83,7 @@ const INITIAL_HUD: HudState = {
   score: 0,
   timeLeft: EXPLORATION_RUN_TIME,
   health: 100,
+  stamina: 100,
   airBubbles: 6,
   inWater: false,
   breathVisible: false,
@@ -143,6 +155,7 @@ export default function App() {
   const [hasSave, setHasSave] = useState(false);
   const [lang, setLangUi] = useState<Lang>('en');
   const [survival, setSurvivalUi] = useState<boolean>(() => storageGet('orerush.mode') !== 'explorer');
+  const [characterCustomization, setCharacterCustomization] = useState<CharacterCustomization>(() => getCharacterCustomization());
   // Yandex profile: avatar/nick in the menu, cloud-progress notice, sign-in button
   const [profile, setProfile] = useState<YaProfile | null>(null);
   const [cloudSavedAt, setCloudSavedAt] = useState(0);
@@ -210,6 +223,7 @@ export default function App() {
       // Outside Yandex this resolves immediately with platform: null.
       const snapshot = await startProfileSync();
       setProfile(snapshot.platform);
+      setCharacterCustomization(getCharacterCustomization());
       if (snapshot.cloudApplied) {
         setScores(loadScores());
         setName(loadPlayerName());
@@ -257,6 +271,7 @@ export default function App() {
     setHasSave(Engine.hasSavedWorld());
 
     const eng = new Engine(hostRef.current, setHud);
+    eng.setCharacterCustomization(characterCustomization);
     engineRef.current = eng;
     eng.mount();
     eng.setDom(domRef.current);
@@ -340,6 +355,7 @@ export default function App() {
       }
       pauseProfileSync(false);
       void resyncProfile().then(() => {
+        setCharacterCustomization(getCharacterCustomization());
         setScores(loadScores());
         setName(loadPlayerName());
         setDiamonds(diamondsBalance());
@@ -361,6 +377,10 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setCharacterCustomization(characterCustomization);
+  }, [characterCustomization]);
 
   /**
    * Shift length of explore mode: a remote-config knob (flag game.exploreMinutes). The floor keeps a
@@ -391,6 +411,11 @@ export default function App() {
     setLangUi(l);
     markProfileDirty({ lang: l });
     saveProgressNow(); // requirement 1.9: the choice is progress, it goes out right away
+  }, []);
+
+  const saveCharacter = useCallback((next: CharacterCustomization) => {
+    const saved = saveCharacterCustomization(next);
+    setCharacterCustomization(saved);
   }, []);
 
   const pickMode = useCallback((s: boolean) => {
@@ -535,7 +560,9 @@ export default function App() {
 
   const play = useCallback(() => {
     setRevivesUsed(0);
-    engineRef.current?.startRun(survival ? undefined : exploreSeconds);
+    const engine = engineRef.current;
+    engine?.startRun(survival ? undefined : exploreSeconds);
+    deliverPendingShopDropItems(engine);
     void beginCoop();
   }, [survival, exploreSeconds, beginCoop]);
 
@@ -554,6 +581,7 @@ export default function App() {
     setRevivesUsed(0);
     // restarting a sandbox stays a sandbox; survival itself is endless too
     engine.startRun(survival ? undefined : exploreSeconds, engine.sandbox);
+    deliverPendingShopDropItems(engine);
     void beginCoop();
   }, [survival, exploreSeconds, beginCoop]);
 
@@ -577,12 +605,16 @@ export default function App() {
     setAdNotice(t('adNotShown'));
   }, [adBusy]);
   const createWorld = useCallback(() => {
-    engineRef.current?.startRun(undefined, true);
+    const engine = engineRef.current;
+    engine?.startRun(undefined, true);
+    deliverPendingShopDropItems(engine);
     setHasSave(Engine.hasSavedWorld());
     void beginCoop();
   }, [beginCoop]);
   const continueWorld = useCallback(() => {
-    if (engineRef.current?.loadWorld()) {
+    const engine = engineRef.current;
+    if (engine?.loadWorld()) {
+      deliverPendingShopDropItems(engine);
       setHasSave(true);
       void beginCoop();
     }
@@ -733,6 +765,23 @@ export default function App() {
     return result;
   }, []);
 
+  /** A shop drop is committed only after the SDK confirms the rewarded video was counted. */
+  const claimShopDrop = useCallback(async (dropId: RewardedDropId) => {
+    const result = await watchAndClaimRewardedDrop(dropId);
+    if (result.ok && result.diamonds > 0) setDiamonds(diamondsBalance());
+    return result;
+  }, []);
+
+  /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
+  const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
+    if (!import.meta.env.DEV || isTvRef.current) return false;
+    const diamonds = DIAMOND_PACKS[productId];
+    if (!grantDeveloperShopProduct(productId, diamonds !== undefined)) return false;
+    if (diamonds) addDiamonds(diamonds, 'grant');
+    setDiamonds(diamondsBalance());
+    return true;
+  }, []);
+
   /** Paid alternative to the rewarded video: same revive, paid with diamonds. */
   const reviveWithDiamonds = useCallback(() => {
     const engine = engineRef.current;
@@ -804,10 +853,14 @@ export default function App() {
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
           shopEnabled={flags['shop.enabled'] !== 'false' && !isTv && !tvMode()}
+          developerShopEnabled={import.meta.env.DEV && !isTv && !tvMode()}
           diamonds={diamonds}
           shopPrices={shopPrices}
           paymentsAvailable={canPay}
+          rewardedAdsEnabled={rewardedAdsAvailable()}
           onBuyPack={buyPack}
+          onClaimRewardedDrop={claimShopDrop}
+          onDeveloperClaim={grantDeveloperProduct}
           leaderboard={leaderboard}
           leaderboardBusy={lbBusy}
           leaderboardAvailable={lbAvailable}
@@ -822,6 +875,8 @@ export default function App() {
           dailyNote={dailyNote}
           fullscreen={fullscreen}
           onFullscreen={toggleFull}
+          character={characterCustomization}
+          onSaveCharacter={saveCharacter}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (

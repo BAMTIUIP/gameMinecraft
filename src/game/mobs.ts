@@ -3,6 +3,7 @@ import type { World } from './world';
 import { WY } from './world';
 import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
 import type { TKey } from './i18n';
+import { shouldDieInDaylight } from './survival';
 
 export type MobId =
   | 'pig'
@@ -38,6 +39,18 @@ export type MobId =
   | 'moose'
   | 'hedgehog'
   | 'tumbleweed';
+
+/**
+ * Baby scale factors are relative to each species' full model size. Fawns now start at 70% (twice
+ * the former 35% minimum), and growth progress is clamped so no fawn can render below that floor.
+ */
+export const FAWN_NEWBORN_SCALE = 0.7;
+export function babyGrowthScale(id: MobId, progress: number): number {
+  const newbornScale = id === 'calf' ? 0.65 : id === 'fawn' ? FAWN_NEWBORN_SCALE : 0.35;
+  // Only fawns need the new lower bound; leave other species' existing growth curve unchanged.
+  const normalizedProgress = id === 'fawn' ? Math.max(0, Math.min(1, progress)) : progress;
+  return newbornScale + (1 - newbornScale) * normalizedProgress;
+}
 
 export type MobDef = {
   id: MobId;
@@ -123,6 +136,9 @@ export type Mob = {
   yaw: number;
   hp: number;
   maxHp: number;
+  healthBarBack: THREE.Sprite | null;
+  healthBarFill: THREE.Sprite | null;
+  healthBarTimer: number;
   onGround: boolean;
   /** wander target */
   tx: number;
@@ -1283,6 +1299,7 @@ export class MobSystem {
       this.scene.remove(m.group);
       m.group.traverse((o) => {
         if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose();
+        if ((o as THREE.Sprite).isSprite) (o as THREE.Sprite).material.dispose();
       });
     }
     this.mobs.length = 0;
@@ -1617,6 +1634,9 @@ export class MobSystem {
       yaw: Math.random() * Math.PI * 2,
       hp: def.hp,
       maxHp: def.hp,
+      healthBarBack: null,
+      healthBarFill: null,
+      healthBarTimer: 0,
       onGround: false,
       tx: x,
       tz: z,
@@ -1658,12 +1678,58 @@ export class MobSystem {
     return mob;
   }
 
+  /** Show a compact world-space HP bar after the player damages a monster or an animal. */
+  showHealthBar(mob: Mob) {
+    mob.healthBarTimer = 3.2;
+    const rootScale = Math.max(0.25, mob.def.scale * mob.modelSize);
+    const width = 0.9;
+    const y = 1.42 / rootScale;
+    if (!mob.healthBarBack || !mob.healthBarFill) {
+      mob.healthBarBack = new THREE.Sprite(new THREE.SpriteMaterial({
+        color: 0x171a1c,
+        depthTest: true,
+        depthWrite: false,
+        toneMapped: false,
+      }));
+      mob.healthBarBack.scale.set(width / rootScale, 0.115 / rootScale, 1);
+      mob.healthBarBack.position.set(0, y, 0);
+      mob.healthBarBack.renderOrder = 20;
+      mob.group.add(mob.healthBarBack);
+
+      mob.healthBarFill = new THREE.Sprite(new THREE.SpriteMaterial({
+        color: 0x68d36a,
+        depthTest: true,
+        depthWrite: false,
+        toneMapped: false,
+      }));
+      mob.healthBarFill.center.set(0, 0.5);
+      mob.healthBarFill.scale.set((width - 0.08) / rootScale, 0.055 / rootScale, 1);
+      mob.healthBarFill.position.set(-(width - 0.08) / (2 * rootScale), y, 0.012 / rootScale);
+      mob.healthBarFill.renderOrder = 21;
+      mob.group.add(mob.healthBarFill);
+    }
+    mob.healthBarBack.visible = true;
+    mob.healthBarFill.visible = true;
+    this.updateHealthBar(mob);
+  }
+
+  private updateHealthBar(mob: Mob) {
+    if (!mob.healthBarFill) return;
+    const rootScale = Math.max(0.25, mob.def.scale * mob.modelSize);
+    const width = 0.82 / rootScale;
+    const fraction = Math.max(0, Math.min(1, mob.hp / Math.max(1, mob.maxHp)));
+    mob.healthBarFill.scale.x = width * fraction;
+    const material = mob.healthBarFill.material as THREE.SpriteMaterial;
+    material.color.set(fraction > 0.55 ? '#68d36a' : fraction > 0.25 ? '#f2c14e' : '#e95c55');
+  }
+
   remove(mob: Mob) {
     mob.alive = false;
     this.scene.remove(mob.group);
     mob.group.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
+      if ((o as THREE.Sprite).isSprite) (o as THREE.Sprite).material.dispose();
     });
     const i = this.mobs.indexOf(mob);
     if (i >= 0) this.mobs.splice(i, 1);
@@ -1861,6 +1927,23 @@ export class MobSystem {
       if (m.hidden) {
         m.group.visible = false;
         continue;
+      }
+      if (m.healthBarTimer > 0) {
+        this.updateHealthBar(m);
+        m.healthBarTimer = Math.max(0, m.healthBarTimer - dt);
+        if (m.healthBarTimer === 0) {
+          if (m.healthBarBack) m.healthBarBack.visible = false;
+          if (m.healthBarFill) m.healthBarFill.visible = false;
+        }
+      }
+      if (def.hostile && daylight > 0.55) {
+        const exposedToSun = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z)) <= Math.floor(m.y);
+        if (shouldDieInDaylight(true, daylight, exposedToSun)) {
+          // No fleeing exception: every hostile left in direct daylight on an open surface dies.
+          onBurnDeath(m);
+          if (m.alive) this.remove(m);
+          continue;
+        }
       }
 
       // --- LOD: far mobs think in slow-motion and skip animation ---
@@ -2631,8 +2714,7 @@ export class MobSystem {
       if (m.grow > 0) {
         m.grow = Math.max(0, m.grow - mdt);
         const t01 = 1 - m.grow / 60;
-        const newbornSize = m.id === 'calf' ? 0.65 : 0.35;
-        m.group.scale.setScalar(m.def.scale * m.modelSize * (newbornSize + (1 - newbornSize) * t01));
+        m.group.scale.setScalar(m.def.scale * m.modelSize * babyGrowthScale(m.id, t01));
       }
 
       // --- animation --- (skipped entirely for hidden far mobs)

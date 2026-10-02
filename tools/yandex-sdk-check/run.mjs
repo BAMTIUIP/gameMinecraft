@@ -807,6 +807,64 @@ async function scenarioShop() {
 
   const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(shopOpened, 'Магазин открывается при включённом флаге');
+
+  // Ordinary-store drops are an ad gate: a shown-but-unrewarded video must leave the claim untouched.
+  const dailyAdBefore = game.count(await game.calls(), 'adv.showRewardedVideo');
+  await game.page.evaluate(() => { window.__yaMockSeed.rewarded = false; });
+  const dailyClickedWithoutReward = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="drop-daily"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(dailyClickedWithoutReward, 'Ежедневный дроп предлагает rewarded-видео');
+  const failedDropAd = await game.waitFor(
+    'Rewarded-видео ежедневного дропа',
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'adv.showRewardedVideo').length > before,
+    10_000,
+    dailyAdBefore,
+  );
+  check(failedDropAd, 'Нажатие ежедневного дропа запрашивает rewarded-видео');
+  const failedDropSettled = await game.waitFor(
+    'Отказ от награды',
+    () => /Награда не выдана|No reward was granted|Aucune récompense accordée|Keine Belohnung erhalten/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(failedDropSettled, 'После просмотра без reward-callback игроку сообщают, что награда не выдана');
+  const failedDropState = JSON.parse((await game.storageValue('orerush.rewarded-drops.v1')) ?? '{}');
+  check(!failedDropState.claims?.['drop-daily'] && Object.keys(failedDropState.pending ?? {}).length === 0, 'Просмотр без награды не отмечает claim и не создаёт припасы');
+
+  await game.page.evaluate(() => { window.__yaMockSeed.rewarded = true; });
+  const dailyAdCountBeforeReward = game.count(await game.calls(), 'adv.showRewardedVideo');
+  const dailyClickedForReward = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="drop-daily"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(dailyClickedForReward, 'Ежедневный дроп можно повторно запросить после незасчитанного видео');
+  const dailyGranted = await game.waitFor(
+    'Сохранённые припасы daily-дропа',
+    () => {
+      const raw = window.localStorage.getItem('orerush.rewarded-drops.v1');
+      if (!raw) return false;
+      try {
+        const state = JSON.parse(raw);
+        return typeof state.claims?.['drop-daily'] === 'string'
+          && Object.values(state.pending ?? {}).some((grant) => Array.isArray(grant?.items) && grant.items.length === 4);
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(dailyGranted, 'Только подтверждённый rewarded-callback сохраняет daily claim и набор припасов');
+  const dailyButtonDisabled = await game.page.evaluate(() =>
+    document.querySelector('[data-shop-product="drop-daily"] button')?.disabled === true,
+  );
+  check(dailyButtonDisabled, 'После успешной выдачи ежедневная кнопка блокируется до нового периода');
+  check(game.count(await game.calls(), 'adv.showRewardedVideo') === dailyAdCountBeforeReward + 1, 'Повторный запрос после отказа действительно открыл ещё одно видео');
+
   await game.page.setViewport({ width: 360, height: 640 });
   await wait(400);
   const shopScroll = await game.page.evaluate(() => {
@@ -944,6 +1002,22 @@ async function scenarioShop() {
   await game.clickByText(/ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/); // the shop overlay, if it is still open
   const runStarted = await game.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/);
   check(runStarted, 'Смена выживания запускается для проверки кооператива');
+  const dailySuppliesDelivered = await game.waitFor(
+    'Ежедневные припасы перенесены в активный инвентарь',
+    () => {
+      const raw = window.localStorage.getItem('orerush.rewarded-drops.v1');
+      if (!raw) return false;
+      try {
+        const state = JSON.parse(raw);
+        return Object.keys(state.pending ?? {}).length === 0
+          && state.delivered?.some((key) => key.startsWith('drop-daily:'));
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(dailySuppliesDelivered, 'После старта смены дневные припасы подтверждены как добавленные в инвентарь');
 
   const sessionsLoaded = await game.waitFor(
     'Загрузка сессий оппонентов',
@@ -1422,6 +1496,19 @@ async function layoutReport(page) {
         if (w > 1 && h > 1) hotbarControlOverlaps.push(`${hotbar.className} × ${control.className}`);
       }
     }
+    const breathPanel = document.querySelector('.hud-breath');
+    const breathBubbles = breathPanel?.lastElementChild;
+    const breathRect = breathBubbles?.getBoundingClientRect();
+    const breathPanelRect = breathPanel?.getBoundingClientRect();
+    const breathCenterOffset = breathRect ? (breathRect.left + breathRect.right) * 0.5 - vw * 0.5 : null;
+    let breathHotbarOverlap = null;
+    if (breathPanelRect && hotbar) {
+      const hotbarRect = hotbar.getBoundingClientRect();
+      const overlapWidth = Math.min(breathPanelRect.right, hotbarRect.right) - Math.max(breathPanelRect.left, hotbarRect.left);
+      const overlapHeight = Math.min(breathPanelRect.bottom, hotbarRect.bottom) - Math.max(breathPanelRect.top, hotbarRect.top);
+      if (overlapWidth > 1 && overlapHeight > 1) breathHotbarOverlap = `${Math.round(overlapWidth)}×${Math.round(overlapHeight)} px`;
+    }
+
     const topLeftInfo = document.querySelector('.hud-information--top-left');
     if (hotbar && topLeftInfo) {
       const a = topLeftInfo.getBoundingClientRect();
@@ -1458,6 +1545,8 @@ async function layoutReport(page) {
       hotbarControlOverlaps,
       hotbarSlots,
       hotbarStyle,
+      breathCenterOffset,
+      breathHotbarOverlap,
       swipeBlocked,
     };
   });
@@ -1472,6 +1561,78 @@ async function scenarioLayout() {
   const game = await openGame({ lang: 'ru', deviceType: 'mobile', flags: { 'game.exploreMinutes': '2' } });
   const menu = await game.waitFor('Меню для проверки вёрстки', () => /НАЧАТЬ ДОБЫЧУ/.test(document.body.innerText ?? ''), 30_000);
   check(menu, 'Игра открылась для проверки вёрстки');
+  check(!await game.page.$('[data-developer-shop="1"]'), 'В production-сборке временная кнопка dev-магазина скрыта');
+
+  const characterButton = await game.page.$('[data-character-creator="1"]');
+  check(Boolean(characterButton), 'В главном меню есть отдельный конструктор персонажа');
+  const creatorOpened = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-character-creator="1"]');
+    button?.click();
+    return Boolean(button);
+  });
+  const creatorVisible = await game.waitFor('Окно конструктора персонажа', () => !!document.querySelector('[role="dialog"] #character-title'), 5_000);
+  check(creatorOpened && creatorVisible, 'Конструктор открывается из главного меню');
+  const creatorVariants = await game.page.evaluate(async () => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="character-title"]');
+    if (!dialog) return null;
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(true)));
+    [...dialog.querySelectorAll('button')].find((button) => button.textContent?.includes('ДЕВОЧКА'))?.click();
+    await nextFrame();
+    [...dialog.querySelectorAll('button')].find((button) => button.textContent?.includes('СЗАДИ'))?.click();
+    await nextFrame();
+    const preview = dialog.querySelector('[data-character-preview-view]');
+    return {
+      hairstyles: dialog.querySelectorAll('[data-character-hairstyle]').length,
+      expressions: dialog.querySelectorAll('[data-character-expression]').length,
+      glasses: dialog.querySelectorAll('[data-character-glasses]').length,
+      view: preview?.getAttribute('data-character-preview-view'),
+      skirt: preview?.getAttribute('data-character-preview-skirt'),
+    };
+  });
+  check(!!creatorVariants && creatorVariants.hairstyles >= 9 && creatorVariants.expressions >= 9 && creatorVariants.glasses === 4, 'Конструктор предлагает много стрижек, текстурных лиц и очков', JSON.stringify(creatorVariants));
+  check(creatorVariants?.view === 'back' && creatorVariants.skirt === 'true', 'Задний ракурс девочки показывает отдельный силуэт юбки', JSON.stringify(creatorVariants));
+  const selectionsApplied = await game.page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="character-title"]');
+    if (!dialog) return false;
+    const clickText = (text) => {
+      const button = [...dialog.querySelectorAll('button')].find((item) => (item.textContent ?? '').includes(text));
+      button?.click();
+      return Boolean(button);
+    };
+    const clickColor = (label) => {
+      const button = [...dialog.querySelectorAll('button')].find((item) => item.getAttribute('aria-label') === label);
+      button?.click();
+      return Boolean(button);
+    };
+    return clickText('ДЕВОЧКА') && clickText('ДЛИННАЯ') && clickText('САНДАЛИИ') && clickText('КРУГЛЫЕ') &&
+      clickColor('ЦВЕТ ФУТБОЛКИ: #e2564a') && clickColor('ЦВЕТ ВОЛОС: #b83f35') && clickColor('ЦВЕТ КОЖИ: #8d563d') &&
+      clickColor('Подмигивание');
+  });
+  check(selectionsApplied, 'Конструктор позволяет выбрать пол, причёску, обувь, цвета и эмоцию');
+  const characterSaved = await game.page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="character-title"]');
+    const save = [...(dialog?.querySelectorAll('button') ?? [])].find((item) => /СОХРАНИТЬ ОБЛИК/.test(item.textContent ?? ''));
+    save?.click();
+    const raw = localStorage.getItem('orerush.character.v1');
+    if (!raw) return false;
+    const character = JSON.parse(raw);
+    return character.gender === 'girl' && character.hairstyle === 'long' && character.shoeType === 'sandals' &&
+      character.shirtColor === '#e2564a' && character.hairColor === '#b83f35' && character.skinColor === '#8d563d' &&
+      character.expression === 'wink' && character.glasses === 'round';
+  });
+  check(characterSaved, 'Выбранный облик сохраняется в локальном профиле');
+  const profileWrite = await game.waitFor(
+    'Облачное сохранение персонажа',
+    () => (window.__yaCalls ?? []).some((call) =>
+      call.name === 'player.setData' && call.arg?.character?.gender === 'girl' &&
+      call.arg?.character?.hairstyle === 'long' && call.arg?.character?.shoeType === 'sandals' &&
+      call.arg?.character?.hairColor === '#b83f35' && call.arg?.character?.glasses === 'round',
+    ),
+    15_000,
+  );
+  check(profileWrite, 'Выбранные настройки персонажа доходят до облачного профиля игрока');
+  const savedGenderShown = await game.page.evaluate(() => /ДЕВОЧКА/.test(document.querySelector('[data-character-creator="1"]')?.textContent ?? ''));
+  check(savedGenderShown, 'Главное меню отражает выбранного персонажа после сохранения');
 
   let swipeChecked = false;
   for (const vp of LAYOUT_VIEWPORTS) {
@@ -1537,6 +1698,12 @@ async function scenarioLayout() {
     check(report.overlaps.length === 0, `Забег: элементы не накладываются (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
     check(report.hudControlOverlaps.length === 0, `Забег: HUD не перекрывает сенсорные органы (${vp.name})`, report.hudControlOverlaps.slice(0, 4).join(' | '));
     check(report.hudHotbarOverlaps.length === 0, `Забег: левая информационная панель не перекрывает хотбар (${vp.name})`, report.hudHotbarOverlaps.join(' | '));
+    check(
+      typeof report.breathCenterOffset === 'number' && Math.abs(report.breathCenterOffset) <= 1,
+      `Забег: пузырьки воздуха центрированы между третьим и четвёртым (${vp.name})`,
+      report.breathCenterOffset === null ? 'индикатор не найден' : `${report.breathCenterOffset.toFixed(1)} px от центра`,
+    );
+    check(report.breathHotbarOverlap === null, `Забег: шкала воздуха не перекрывает хотбар (${vp.name})`, report.breathHotbarOverlap ?? 'пересечений нет');
     check(report.hotbarControlOverlaps.length === 0, `Забег: хотбар не перекрывает сенсорные зоны (${vp.name})`, report.hotbarControlOverlaps.join(' | '));
     const slots = report.hotbarSlots.sort((a, b) => a.index - b.index);
     if (vp.height > vp.width && slots.length === 10) {

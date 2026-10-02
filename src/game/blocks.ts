@@ -236,14 +236,13 @@ export const isFlower = (id: number) =>
   id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE ||
   id === DRY_BLOOM || id === DESERT_THISTLE;
 export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM;
-export const isInstaBreak = (id: number) => isPlant(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
+export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
+export const isInstaBreak = (id: number) => isPlant(id) || isCactus(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
   id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES ||
   id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES ||
   id === JACARANDA_LEAVES;
-export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
-
 export const isResource = (id: number) =>
   isMineralItem(id) ||
   (id >= RAW_MEAT && id <= LOOT_BAG) ||
@@ -334,10 +333,10 @@ export function blockClass(id: number): BlockClass {
   }
 }
 
-/** The deliberately small hand-mining whitelist; every other solid block needs a tool. */
+/** Soil, organic plants and wood can be broken by hand; mineral blocks still require tools. */
 export const canBreakByHand = (id: number) =>
   id === DIRT || id === GRASS || id === SNOW_GRASS || id === FARMLAND || id === SAND ||
-  id === CACTUS || id === CACTUS_PALE || isFlower(id) || blockClass(id) === 'wood';
+  isPlant(id) || isCactus(id) || blockClass(id) === 'wood';
 
 export const T = {
   grassTop: 0,

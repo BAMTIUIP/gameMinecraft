@@ -1,0 +1,27 @@
+import { storageGet, storageSet } from './storage';
+
+const DEV_SHOP_KEY = 'orerush.dev-shop.claims.v1';
+const PRODUCT_ID = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+
+/** Developer-only test entitlements live on this device and are intentionally not added to the cloud profile. */
+export function developerShopClaims(): string[] {
+  const raw = storageGet(DEV_SHOP_KEY);
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value)
+      ? [...new Set(value.filter((id): id is string => typeof id === 'string' && PRODUCT_ID.test(id)))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Grant a catalogue product locally; owned items are one-time, while diamond packs are reusable. */
+export function grantDeveloperShopProduct(productId: string, repeatable = false): boolean {
+  if (!PRODUCT_ID.test(productId)) return false;
+  if (repeatable) return true;
+  const claims = developerShopClaims();
+  if (claims.includes(productId)) return false;
+  return storageSet(DEV_SHOP_KEY, JSON.stringify([...claims, productId]));
+}

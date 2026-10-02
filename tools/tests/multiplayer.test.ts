@@ -275,13 +275,15 @@ ok(squadMembers().length === MAX_SQUAD - 1, 'Состав отряда оста�
 resetCoopState();
 initShouldFail = true;
 const noSquad = await startCoopRound(typeCheck);
-ok(noSquad.length === 0, 'Недоступный мультиплеер не ломает забег (пустой отряд, без исключения)', String(noSquad.length));
+ok(noSquad.length === MAX_SQUAD - 1 && noSquad.every((mate) => mate.kind === 'bot'), 'При ошибке мультиплеера пустые места заполняют локальные боты', JSON.stringify(noSquad.map((mate) => mate.kind)));
+const fallbackSeeds = last('sink.spawn') as Array<{ localBot?: boolean; appearanceSeed?: number }> | undefined;
+ok(fallbackSeeds?.length === MAX_SQUAD - 1 && fallbackSeeds.every((seed) => seed.localBot && Number.isInteger(seed.appearanceSeed)), 'Визуальные скины ботов получают отдельные случайные зерна');
 initShouldFail = false;
 
 resetCoopState();
 sessionSeeds = [{ id: 'opp-9', player: { name: 'SOLO' } }];
 const soloSquad = await startCoopRound(typeCheck);
-ok(soloSquad.length === 1, 'Сессия без таймлайна всё равно даёт напарника');
+ok(soloSquad.length === MAX_SQUAD - 1 && soloSquad.filter((mate) => mate.kind === 'remote').length === 1 && soloSquad.filter((mate) => mate.kind === 'bot').length === MAX_SQUAD - 2, 'Редкий реальный напарник сохраняется, а свободные места заполняют боты', JSON.stringify(soloSquad.map((mate) => mate.kind)));
 stopCoopRound();
 
 Date.now = realNow;

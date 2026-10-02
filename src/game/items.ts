@@ -132,15 +132,45 @@ export function makeItem(slot: Slot, material: Material, rarity: Rarity, rand: (
   return { uid: newUid(), hid: gearHidCounter++, slot, material, rarity, armor, damage, affixes, crafted };
 }
 
-/** loot table used when a monster dies */
+/**
+ * Drop odds rise gently with enemy strength. The weakest zombie has a 5.5% gear chance
+ * (about one item per 18 kills), rather than flooding the inventory with armor.
+ */
+export function gearDropChance(level: number): number {
+  const tier = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+  return Math.min(0.0925, 0.055 + (tier - 1) * 0.0075);
+}
+
+function rollGearMaterial(level: number, rand: () => number): Material {
+  const tier = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+  const roll = rand();
+  if (tier <= 1) return roll < 0.78 ? 'leather' : 'iron';
+  if (tier === 2) return roll < 0.72 ? 'leather' : 'iron';
+  if (tier === 3) return roll < 0.58 ? 'leather' : roll < 0.95 ? 'iron' : 'gold';
+  if (tier === 4) return roll < 0.4 ? 'leather' : roll < 0.84 ? 'iron' : roll < 0.99 ? 'gold' : 'diamond';
+  if (tier === 5) return roll < 0.28 ? 'leather' : roll < 0.7 ? 'iron' : roll < 0.95 ? 'gold' : 'diamond';
+  return roll < 0.18 ? 'leather' : roll < 0.56 ? 'iron' : roll < 0.83 ? 'gold' : roll < 0.98 ? 'diamond' : 'netherite';
+}
+
+function rollGearRarity(level: number, rand: () => number): Rarity {
+  const tier = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+  const roll = rand();
+  // Green is the entry drop. Better rarities are locked behind stronger monsters / later nights.
+  if (tier <= 1) return 1;
+  if (tier === 2) return roll < 0.92 ? 1 : 2;
+  if (tier === 3) return roll < 0.85 ? 1 : roll < 0.99 ? 2 : 3;
+  if (tier === 4) return roll < 0.78 ? 1 : roll < 0.97 ? 2 : 3;
+  if (tier === 5) return roll < 0.68 ? 1 : roll < 0.93 ? 2 : 3;
+  return roll < 0.58 ? 1 : roll < 0.88 ? 2 : 3;
+}
+
+/** Loot table used when a monster dies; higher-tier gear only comes from stronger monsters. */
 export function rollLoot(level: number, seed: number): Item | null {
   const rand = mulberry32(seed);
-  if (rand() > 0.42 + level * 0.06) return null;
+  if (rand() >= gearDropChance(level)) return null;
   const slot = SLOTS[Math.floor(rand() * SLOTS.length)];
-  const r = rand();
-  const material: Material = r < 0.46 ? 'leather' : r < 0.78 ? 'iron' : r < 0.94 ? 'gold' : 'diamond';
-  const rr = rand() + level * 0.1;
-  const rarity: Rarity = rr < 0.5 ? 0 : rr < 0.8 ? 1 : rr < 0.96 ? 2 : 3;
+  const material = rollGearMaterial(level, rand);
+  const rarity = rollGearRarity(level, rand);
   return makeItem(slot, material, rarity, rand);
 }
 

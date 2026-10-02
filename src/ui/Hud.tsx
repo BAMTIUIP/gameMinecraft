@@ -104,6 +104,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       : hud.health > 30
         ? 'from-[#c9761f] to-torch'
         : 'from-[#8f1c14] to-blood';
+  const staminaColor =
+    hud.stamina > 60
+      ? 'from-[#5f9c33] to-moss'
+      : hud.stamina > 30
+        ? 'from-[#c9761f] to-torch'
+        : 'from-[#8f1c14] to-blood';
 
   return (
     <div className={`pointer-events-none absolute inset-0 z-20 select-none font-body ${isTouch ? 'hud-touch' : ''}`}>
@@ -133,6 +139,37 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             />
           </div>
           <span className="font-display text-sm leading-none text-white/85 sm:text-base">{hud.health}</span>
+        </div>
+
+        <div
+          className="hud-stamina-panel bevel-flat notch -mt-1 flex h-5 items-center gap-2 px-2 sm:h-6 sm:gap-3 sm:px-3"
+          role="progressbar"
+          aria-label={t('stamina')}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(hud.stamina)}
+          aria-valuetext={`${Math.round(hud.stamina)}%`}
+          title={`${t('stamina')}: ${Math.round(hud.stamina)}%`}
+        >
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[#62e8dc]" aria-hidden="true">
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5">
+              <path d="M9.4 1.2 3.2 8.7h4L6.5 14.8l6.3-8.1H8.6z" fill="currentColor" />
+            </svg>
+          </span>
+          <div className="sunken relative h-2 w-28 shrink-0 overflow-hidden sm:h-2.5 sm:w-44">
+            <div
+              ref={(el) => {
+                dom.staminaBar = el;
+              }}
+              className={`absolute inset-y-0 left-0 bg-gradient-to-r ${staminaColor}`}
+              style={{ width: `${Math.max(0, Math.min(100, hud.stamina))}%` }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{ background: 'repeating-linear-gradient(90deg, transparent 0 15px, rgba(0,0,0,.5) 15px 17px)' }}
+            />
+          </div>
+          <span className="shrink-0 font-display text-[10px] leading-none tabular-nums text-white/65 sm:text-[9px]">{Math.round(hud.stamina)}%</span>
         </div>
 
         {/* position + a compass needle that points home */}
@@ -465,7 +502,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
 
       {/* ---------------- BREATH ---------------- */}
       <div
-        className={`hud-breath absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 bevel-flat notch bg-[#07151c]/90 px-2 py-1 ${hud.breathVisible ? 'hud-breath--visible' : ''} ${hud.airBubbles === 0 ? 'hud-breath--critical' : ''}`}
+        className={`hud-breath absolute left-1/2 flex flex-col items-center gap-0.5 bevel-flat notch bg-[#07151c]/90 px-2 py-1 ${hud.breathVisible ? 'hud-breath--visible' : ''} ${hud.airBubbles === 0 ? 'hud-breath--critical' : ''}`}
         role={hud.breathVisible ? 'status' : undefined}
         aria-hidden={!hud.breathVisible}
         aria-label={`${t('air')}: ${hud.airBubbles} / 6`}
