@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createBreathState, stepBreath, type BreathState } from './breath';
 import { storageGet, storageSet } from './storage';
 import {
   AIR,
@@ -140,7 +141,7 @@ import {
   toolRepairCost,
   toolWearStage,
 } from './tools';
-import { MobSystem, type Mob, type MobId } from './mobs';
+import { MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import {
   AFFIXES,
   computeStats,
@@ -198,10 +199,12 @@ export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
  * other players, the engine draws them as ghost miners in the same world so a survival shift can be
  * played by a squad of up to five.
  */
-export type CompanionSeed = { id: string; name: string; color?: string };
+export type CompanionSeed = { id: string; name: string; color?: string; /** local fallback only; never a live network player */ localBot?: boolean };
+
+export type CompanionActivity = 'walking' | 'mining' | 'fighting';
 
 /** A single recorded moment of a teammate (`multiplayer-sessions-transaction` payload). */
-export type CompanionPose = { x: number; y: number; z: number; yaw?: number; health?: number; blocks?: number };
+export type CompanionPose = { x: number; y: number; z: number; yaw?: number; health?: number; blocks?: number; activity?: CompanionActivity };
 
 /** What the engine reports into the recorder each tick: enough to replay the run later. */
 export type PlayerPose = { x: number; y: number; z: number; yaw: number; health: number; blocks: number };
@@ -216,6 +219,9 @@ export type CompanionStatus = {
   distance: number;
   /** the recorded session of this teammate ended */
   finished: boolean;
+  dead: boolean;
+  kind: 'bot' | 'replay';
+  activity: CompanionActivity;
 };
 
 export type TutorialIcon = 'pickaxe' | 'sword' | 'bow' | 'axe' | 'shovel' | 'hoe' | 'anvil' | 'ladder' | 'trader' | 'workbench';
@@ -298,6 +304,9 @@ export type HudState = {
   score: number;
   timeLeft: number;
   health: number;
+  airBubbles: number;
+  inWater: boolean;
+  breathVisible: boolean;
   combo: number;
   comboMult: number;
   tier: number;
@@ -456,6 +465,8 @@ function idHue(id: string) {
 }
 
 /** one teammate: a blocky miner with a name tag and a health bar, walked by updateCompanions() */
+type CompanionMineTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number };
+
 type CompanionRig = {
   name: string;
   group: THREE.Group;
@@ -468,6 +479,14 @@ type CompanionRig = {
   health: number;
   blocks: number;
   finished: boolean;
+  localBot: boolean;
+  dead: boolean;
+  activity: CompanionActivity;
+  attackTimer: number;
+  mineTimer: number;
+  mineScanCooldown: number;
+  mineTarget: CompanionMineTarget | null;
+  swingTimer: number;
   moving: boolean;
   target: THREE.Vector3;
   yawTarget: number;
@@ -563,6 +582,14 @@ function buildCompanionRig(seed: CompanionSeed): CompanionRig {
     health: 100,
     blocks: 0,
     finished: false,
+    localBot: seed.localBot === true,
+    dead: false,
+    activity: 'walking',
+    attackTimer: 0.8,
+    mineTimer: 0,
+    mineScanCooldown: 0,
+    mineTarget: null,
+    swingTimer: 0,
     moving: false,
     target: new THREE.Vector3(),
     yawTarget: 0,
@@ -575,6 +602,7 @@ function buildCompanionRig(seed: CompanionSeed): CompanionRig {
   rig.setHealth = (hp: number) => {
     const clamped = Math.max(0, Math.min(100, Math.round(hp)));
     rig.health = clamped;
+    rig.dead = clamped <= 0;
     if (clamped === lastDrawn) return;
     lastDrawn = clamped;
     bctx.clearRect(0, 0, 128, 20);
@@ -587,6 +615,44 @@ function buildCompanionRig(seed: CompanionSeed): CompanionRig {
   rig.setHealth(100);
 
   return rig;
+}
+
+/** Small, animated orange/yellow flames used for the armour's FIRE affix. */
+function buildEnchantedFlames(depthTest = true) {
+  const group = new THREE.Group();
+  group.name = 'fire-affix-hand-flames';
+  const orange = new THREE.MeshBasicMaterial({ color: 0xff6b22, transparent: true, opacity: 0.86, depthTest, depthWrite: false, toneMapped: false });
+  const gold = new THREE.MeshBasicMaterial({ color: 0xffc34d, transparent: true, opacity: 0.92, depthTest, depthWrite: false, toneMapped: false });
+  const specs = [
+    { x: -0.14, y: -0.2, z: 0.03, size: 0.82, phase: 0.1, color: orange },
+    { x: 0.02, y: -0.1, z: -0.03, size: 1, phase: 1.7, color: gold },
+    { x: 0.16, y: -0.19, z: 0.02, size: 0.74, phase: 2.9, color: orange },
+    { x: -0.04, y: 0.06, z: 0.05, size: 0.68, phase: 4.1, color: gold },
+    { x: 0.11, y: 0.12, z: -0.02, size: 0.58, phase: 5.3, color: orange },
+  ];
+  specs.forEach((spec, index) => {
+    const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.072, 0.3, 5), spec.color);
+    mesh.position.set(spec.x, spec.y, spec.z);
+    mesh.rotation.z = (index % 2 ? -1 : 1) * 0.16;
+    mesh.renderOrder = 8;
+    mesh.userData.flame = { x: spec.x, y: spec.y, z: spec.z, size: spec.size, phase: spec.phase };
+    group.add(mesh);
+  });
+  group.visible = false;
+  return group;
+}
+
+function animateEnchantedFlames(group: THREE.Group, time: number) {
+  for (const child of group.children) {
+    const mesh = child as THREE.Mesh;
+    const base = mesh.userData.flame as { x: number; y: number; z: number; size: number; phase: number } | undefined;
+    if (!base) continue;
+    const pulse = 0.8 + Math.sin(time * 15 + base.phase) * 0.16 + Math.sin(time * 27 + base.phase * 1.6) * 0.07;
+    mesh.scale.set(base.size * pulse, base.size * (0.82 + pulse * 0.32), base.size * pulse);
+    mesh.position.set(base.x + Math.sin(time * 7 + base.phase) * 0.018, base.y + pulse * 0.035, base.z);
+    mesh.rotation.z = Math.sin(time * 8 + base.phase) * 0.2;
+    mesh.rotation.y = Math.cos(time * 6 + base.phase) * 0.18;
+  }
 }
 
 export class Engine {
@@ -640,6 +706,7 @@ export class Engine {
   private crackUVBase = new Float32Array(48);
   private crackStage = -1;
   private pickGroup!: THREE.Group;
+  private viewFireFx!: THREE.Group;
   private pickHeadMats: THREE.MeshLambertMaterial[] = [];
   private pickBaseX = 0.44;
   private toolPick!: THREE.Group;
@@ -751,6 +818,7 @@ export class Engine {
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
   private avatarHeldRoot!: THREE.Group;
+  private avatarFireFx!: THREE.Group;
   private avatarHeldTool!: THREE.Group;
   private avatarHeldToolKey = '';
   private avatarHeldPick!: THREE.Group;
@@ -837,6 +905,7 @@ export class Engine {
   private sleepDark = 0;
   private inLava = false;
   private inWater = false;
+  private breathState: BreathState = createBreathState();
   private cactusCooldown = 0;
   private volcanoSmokeTimer = 0;
   private desertWindTimer = 0;
@@ -1613,6 +1682,9 @@ if (tpClipActive > 0.5) {
     this.toolItem.visible = false;
     this.pickGroup.add(this.toolItem);
 
+    this.viewFireFx = buildEnchantedFlames(false);
+    this.pickGroup.add(this.viewFireFx);
+
     this.pickGroup.position.set(0.44, -0.4, -0.72);
     this.pickGroup.rotation.set(0.35, -0.5, 0.22);
     this.hudScene.add(this.pickGroup);
@@ -1766,6 +1838,8 @@ if (tpClipActive > 0.5) {
     this.avatarHeldBlock.rotation.set(0.25, 0.55, 0.1);
     this.avatarHeldBlock.visible = false;
     heldRoot.add(this.avatarHeldBlock);
+    this.avatarFireFx = buildEnchantedFlames(true);
+    heldRoot.add(this.avatarFireFx);
 
     const leftLeg = new THREE.Group();
     leftLeg.position.set(-0.15, 0.7, 0);
@@ -1931,6 +2005,10 @@ if (tpClipActive > 0.5) {
         }
         uv.needsUpdate = true;
       }
+    }
+    if (this.viewFireFx) {
+      this.viewFireFx.visible = this.stats.fire > 0;
+      animateEnchantedFlames(this.viewFireFx, this.time);
     }
     this.syncThirdPersonHeldItem();
   }
@@ -3099,6 +3177,7 @@ if (tpClipActive > 0.5) {
       : [];
     this.objectiveIndex = 0;
     this.health = 100;
+    this.breathState = createBreathState();
     this.combo = 0;
     this.comboTimer = 0;
     this.bestCombo = 0;
@@ -3940,6 +4019,13 @@ if (tpClipActive > 0.5) {
       this.fallStart = this.pos.y; // water breaks any fall
     }
 
+    const breath = stepBreath(this.breathState, this.headUnderwater(), dt);
+    this.breathState = breath.state;
+    if (breath.damage > 0) {
+      this.killedBy = t('drowning');
+      this.damage(breath.damage, 'mob');
+    }
+
     // lava / void hazard
     this.inLava = false;
     const fx0 = Math.floor(this.pos.x - PLAYER_HALF),
@@ -4060,6 +4146,10 @@ if (tpClipActive > 0.5) {
     if (!this.playerAvatar) return;
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
+    if (this.avatarFireFx) {
+      this.avatarFireFx.visible = visible && this.stats.fire > 0;
+      animateEnchantedFlames(this.avatarFireFx, this.time);
+    }
     if (!visible) return;
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -8017,7 +8107,7 @@ if (tpClipActive > 0.5) {
       this.pos.y,
       this.pos.z,
       this.daylight,
-      (m, dmg) => this.mobHit(m, dmg),
+      (m, dmg, targetId) => targetId ? this.companionHit(targetId, m, dmg) : this.mobHit(m, dmg),
       (m) => this.mobDied(m, true),
       (m) => this.mobShoot(m),
       (x, y, z) => { this.markDirtyAt(x, z); this.enqueueSupportCheck(x, y, z); },
@@ -8026,6 +8116,7 @@ if (tpClipActive > 0.5) {
         const particles = tint[0] > tint[1] * 1.25 && tint[0] > tint[2] * 1.25 ? [245, 190, 80] : tint;
         this.burst(x, y, z, particles, 2, 0.35, 0.25);
       },
+      this.localBotThreatTargets(),
     );
 
     this.updateCreatureVoices(dt);
@@ -9365,6 +9456,9 @@ if (tpClipActive > 0.5) {
       this.score,
       Math.ceil(this.timeLeft),
       Math.ceil(this.health),
+      this.breathState.bubbles,
+      this.inWater ? 1 : 0,
+      this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6) ? 1 : 0,
       this.combo,
       this.tier,
       this.blocksMined,
@@ -9387,7 +9481,7 @@ if (tpClipActive > 0.5) {
       // the squad panel has to react to teammate health / blocks moving, not just to own stats
       this.companions.size
         ? [...this.companions]
-            .map(([id, rig]) => `${id}:${Math.round(rig.health)}:${rig.blocks}:${rig.finished ? 1 : 0}:${Math.round(rig.group.position.distanceTo(this.pos))}`)
+            .map(([id, rig]) => `${id}:${Math.round(rig.health)}:${rig.blocks}:${rig.finished ? 1 : 0}:${rig.dead ? 1 : 0}:${rig.activity}:${Math.round(rig.group.position.distanceTo(this.pos))}`)
             .join('|')
         : '-',
     ].join('~');
@@ -9402,6 +9496,9 @@ if (tpClipActive > 0.5) {
       score: this.score,
       timeLeft: this.timeLeft,
       health: Math.max(0, Math.ceil(this.health)),
+      airBubbles: this.breathState.bubbles,
+      inWater: this.inWater,
+      breathVisible: this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6),
       combo: this.combo,
       comboMult: this.comboMult(),
       tier: this.tier,
@@ -9532,7 +9629,19 @@ if (tpClipActive > 0.5) {
     for (const seed of seeds) {
       if (this.companions.has(seed.id)) continue;
       const rig = buildCompanionRig(seed);
-      rig.group.position.set(this.pos.x + 1.5, this.pos.y, this.pos.z + 1.5);
+      const angle = idHue(seed.id) * Math.PI * 2;
+      let spawnX = this.pos.x + Math.cos(angle) * 2.5;
+      let spawnZ = this.pos.z + Math.sin(angle) * 2.5;
+      let spawnY = rig.localBot ? this.companionGroundY(spawnX, spawnZ, this.pos.y, 4) : null;
+      if (rig.localBot && spawnY === null) {
+        for (let ring = 1; ring <= 5 && spawnY === null; ring++) {
+          const radius = 2.5 + ring * 0.8;
+          spawnX = this.pos.x + Math.cos(angle + ring * 0.7) * radius;
+          spawnZ = this.pos.z + Math.sin(angle + ring * 0.7) * radius;
+          spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 4);
+        }
+      }
+      rig.group.position.set(spawnX, spawnY ?? this.pos.y, spawnZ);
       rig.target.copy(rig.group.position);
       this.companions.set(seed.id, rig);
       this.companionLayer.add(rig.group);
@@ -9542,8 +9651,19 @@ if (tpClipActive > 0.5) {
   /** Move a teammate to a recorded position; the rig walks there instead of teleporting. */
   moveCompanion(id: string, pose: CompanionPose) {
     const rig = this.companions.get(id);
-    if (!rig) return;
-    rig.target.set(pose.x, pose.y, pose.z);
+    if (!rig || ![pose.x, pose.y, pose.z].every(Number.isFinite)) return;
+    if (pose.activity && pose.activity !== rig.activity) {
+      rig.activity = pose.activity;
+      rig.mineTarget = null;
+      rig.mineTimer = 0;
+      rig.mineScanCooldown = 0;
+    }
+    if (rig.localBot) {
+      const groundY = this.companionGroundY(pose.x, pose.z, rig.group.position.y, 3.5);
+      rig.target.set(pose.x, groundY ?? rig.group.position.y, pose.z);
+    } else {
+      rig.target.set(pose.x, pose.y, pose.z);
+    }
     if (typeof pose.yaw === 'number' && Number.isFinite(pose.yaw)) rig.yawTarget = pose.yaw;
     if (typeof pose.health === 'number') rig.setHealth(pose.health);
     if (typeof pose.blocks === 'number') rig.blocks = pose.blocks;
@@ -9573,6 +9693,9 @@ if (tpClipActive > 0.5) {
         blocks: rig.blocks,
         distance: Math.round(rig.group.position.distanceTo(this.pos)),
         finished: rig.finished,
+        dead: rig.dead,
+        kind: rig.localBot ? 'bot' : 'replay',
+        activity: rig.activity,
       });
     }
     return out.sort((a, b) => a.distance - b.distance);
@@ -9584,20 +9707,261 @@ if (tpClipActive > 0.5) {
     if (rig) rig.finished = true;
   }
 
+  /** Find safe surface ground for a local companion. A bot never interpolates through terrain or hovers. */
+  private companionGroundY(x: number, z: number, referenceY: number | null, maxDelta = 1.35): number | null {
+    const bx = Math.floor(x);
+    const bz = Math.floor(z);
+    if (!this.world.hasColumn(bx, bz)) return null;
+    const surfaceY = this.world.topSolidY(bx, bz);
+    const surfaceBlock = this.world.get(bx, surfaceY, bz);
+    if (surfaceBlock === WATER || surfaceBlock === LAVA || surfaceY <= 0) return null;
+    const groundY = surfaceY + 1.001;
+    if (referenceY !== null && Math.abs(groundY - referenceY) > maxDelta) return null;
+    // Keep a two-block-tall body clear of ceilings and branches.
+    for (let y = Math.floor(groundY + 0.02); y <= Math.floor(groundY + 1.78); y++) {
+      if (isSolid(this.world.get(bx, y, bz))) return null;
+    }
+    return groundY;
+  }
+
+  private botMinePriority(id: number): number {
+    if (isLogId(id)) return 8;
+    if (id === DIAMOND_ORE || id === EMERALD_ORE || id === GOLD_ORE || id === NETHERITE_ORE) return 6;
+    if (id === IRON_ORE || id === COAL_ORE || id === REDSTONE_ORE || id === LAPIS_ORE || id === QUARTZ_ORE) return 5;
+    if (id === STONE || id === COBBLE || id === VOLCANIC_STONE) return 3;
+    if (id === DIRT || id === GRASS || id === SAND) return 1;
+    return 0;
+  }
+
+  /** Pick an exposed, reachable tree/stone/ore block instead of inventing a resource count. */
+  private findLocalBotMineTarget(rig: CompanionRig): CompanionMineTarget | null {
+    const bx = Math.floor(rig.group.position.x);
+    const by = Math.floor(rig.group.position.y);
+    const bz = Math.floor(rig.group.position.z);
+    const faces = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+    let best: { target: CompanionMineTarget; score: number } | null = null;
+    for (let y = Math.max(1, by - 1); y <= by + 3; y++) {
+      for (let z = bz - 4; z <= bz + 4; z++) {
+        for (let x = bx - 4; x <= bx + 4; x++) {
+          const id = this.world.get(x, y, z);
+          const priority = this.botMinePriority(id);
+          if (!priority || !isBreakable(id) || !BLOCKS[id]) continue;
+          const blockCenterDistance = Math.hypot(x + 0.5 - rig.group.position.x, z + 0.5 - rig.group.position.z);
+          if (blockCenterDistance > 4.8) continue;
+          let bestFace: CompanionMineTarget | null = null;
+          let faceDistance = Infinity;
+          for (const [dx, dz] of faces) {
+            const sx = x + dx;
+            const sz = z + dz;
+            if (this.world.get(sx, y, sz) !== AIR) continue;
+            if (isSolid(this.world.get(sx, y + 1, sz)) || isSolid(this.world.get(sx, y + 2, sz))) continue;
+            const standX = sx + 0.5;
+            const standZ = sz + 0.5;
+            const standY = this.companionGroundY(standX, standZ, rig.group.position.y, 2.1);
+            if (standY === null) continue;
+            const d = Math.hypot(standX - rig.group.position.x, standZ - rig.group.position.z);
+            if (d < faceDistance) {
+              faceDistance = d;
+              bestFace = { x, y, z, id, standX, standY, standZ };
+            }
+          }
+          if (!bestFace) continue;
+          const verticalPenalty = Math.abs(y + 0.5 - (rig.group.position.y + 1.05));
+          const score = priority * 2.2 - faceDistance * 1.25 - verticalPenalty * 0.9;
+          if (!best || score > best.score) best = { target: bestFace, score };
+        }
+      }
+    }
+    return best?.target ?? null;
+  }
+
+  private moveLocalBot(rig: CompanionRig, dt: number) {
+    rig.moving = false;
+    const pos = rig.group.position;
+    const dx = rig.target.x - pos.x;
+    const dz = rig.target.z - pos.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 0.12) return;
+    const stride = Math.min(distance, (rig.activity === 'fighting' ? 2.05 : rig.activity === 'mining' ? 1.05 : 1.5) * dt);
+    const angle = Math.atan2(dz, dx);
+    // If a tree or a one-block ridge blocks the straight line, walk around it rather than popping through.
+    for (const turn of [0, 0.48, -0.48, 0.92, -0.92, 1.38, -1.38, Math.PI]) {
+      const moveAngle = angle + turn;
+      const stepX = Math.cos(moveAngle) * stride;
+      const stepZ = Math.sin(moveAngle) * stride;
+      const nextX = pos.x + stepX;
+      const nextZ = pos.z + stepZ;
+      const groundY = this.companionGroundY(nextX, nextZ, pos.y, 1.28);
+      if (groundY === null) continue;
+      pos.set(nextX, groundY, nextZ);
+      rig.yawTarget = Math.atan2(-stepX, -stepZ);
+      rig.moving = true;
+      return;
+    }
+  }
+
+  private updateLocalBotCombat(rig: CompanionRig, dt: number) {
+    let target: Mob | null = null;
+    let bestDistance = 16;
+    for (const mob of this.mobSys.mobs) {
+      if (!mob.alive || mob.hidden || !mob.def.hostile) continue;
+      const d = Math.hypot(mob.x - rig.group.position.x, mob.z - rig.group.position.z);
+      if (d < bestDistance && Math.abs(mob.y - rig.group.position.y) < 5) {
+        target = mob;
+        bestDistance = d;
+      }
+    }
+    if (!target) {
+      rig.attackTimer = Math.min(rig.attackTimer, 0.35);
+      this.moveLocalBot(rig, dt);
+      return;
+    }
+
+    const dx = target.x - rig.group.position.x;
+    const dz = target.z - rig.group.position.z;
+    const distance = Math.hypot(dx, dz) || 1;
+    rig.yawTarget = Math.atan2(-dx, -dz);
+    if (distance > 1.55) {
+      const standX = target.x - (dx / distance) * 1.25;
+      const standZ = target.z - (dz / distance) * 1.25;
+      const groundY = this.companionGroundY(standX, standZ, rig.group.position.y, 4);
+      if (groundY !== null) rig.target.set(standX, groundY, standZ);
+      this.moveLocalBot(rig, dt);
+      return;
+    }
+
+    rig.target.copy(rig.group.position);
+    rig.attackTimer -= dt;
+    if (rig.attackTimer > 0) return;
+    rig.attackTimer = 1.08;
+    rig.swingTimer = 0.38;
+    target.hp -= 2.8;
+    target.hurtFlash = 0.18;
+    target.vx += (target.x - rig.group.position.x) / distance * 1.4;
+    target.vz += (target.z - rig.group.position.z) / distance * 1.4;
+    if (target.hp <= 0) this.mobDied(target, false);
+  }
+
+  private mineLocalBotBlock(rig: CompanionRig, target: CompanionMineTarget) {
+    if (this.world.get(target.x, target.y, target.z) !== target.id) return false;
+    this.world.set(target.x, target.y, target.z, AIR);
+    const extraLogs = isLogId(target.id) && isLogId(this.world.get(target.x, target.y + 1, target.z))
+      ? this.fellTree(target.x, target.y, target.z)
+      : 0;
+    if (extraLogs === 0) {
+      this.rebuildAt(target.x, target.z);
+      const drop = BLOCKS[target.id]?.drop ?? 0;
+      if (drop > 0) this.spawnDrop(target.x + 0.5, target.y + 0.5, target.z + 0.5, drop);
+    }
+    this.enqueueSupportCheck(target.x, target.y, target.z);
+    this.enqueueFluid(target.x, target.y, target.z);
+    this.burst(target.x + 0.5, target.y + 0.5, target.z + 0.5, BLOCKS[target.id]?.tint ?? [170, 170, 170], 7, 1.2);
+    rig.blocks += 1 + extraLogs;
+    rig.mineTarget = null;
+    rig.mineTimer = 0;
+    rig.mineScanCooldown = 0.55;
+    this.syncHud(true);
+    return true;
+  }
+
+  private updateLocalBot(rig: CompanionRig, dt: number) {
+    rig.swingTimer = Math.max(0, rig.swingTimer - dt);
+    if (rig.dead || this.phase !== 'playing') {
+      rig.moving = false;
+      return;
+    }
+
+    if (rig.activity === 'fighting') {
+      this.updateLocalBotCombat(rig, dt);
+      return;
+    }
+
+    if (rig.activity === 'mining') {
+      rig.mineScanCooldown = Math.max(0, rig.mineScanCooldown - dt);
+      if (rig.mineTarget && this.world.get(rig.mineTarget.x, rig.mineTarget.y, rig.mineTarget.z) !== rig.mineTarget.id) {
+        rig.mineTarget = null;
+        rig.mineTimer = 0;
+      }
+      if (!rig.mineTarget && rig.mineScanCooldown <= 0) {
+        rig.mineTarget = this.findLocalBotMineTarget(rig);
+        rig.mineScanCooldown = rig.mineTarget ? 0.6 : 1.1;
+        if (rig.mineTarget) rig.target.set(rig.mineTarget.standX, rig.mineTarget.standY, rig.mineTarget.standZ);
+      }
+      if (rig.mineTarget) {
+        const target = rig.mineTarget;
+        const dist = Math.hypot(target.standX - rig.group.position.x, target.standZ - rig.group.position.z);
+        if (dist > 0.4) {
+          this.moveLocalBot(rig, dt);
+          return;
+        }
+        rig.target.copy(rig.group.position);
+        rig.yawTarget = Math.atan2(-(target.x + 0.5 - rig.group.position.x), -(target.z + 0.5 - rig.group.position.z));
+        const previousPulse = Math.floor(rig.mineTimer / 0.52);
+        rig.mineTimer += dt;
+        if (Math.floor(rig.mineTimer / 0.52) > previousPulse) rig.swingTimer = 0.3;
+        const hardness = BLOCKS[target.id]?.hardness ?? 1;
+        const workSeconds = Math.max(1.3, Math.min(5.5, 1.05 + hardness * 0.72));
+        if (rig.mineTimer >= workSeconds) this.mineLocalBotBlock(rig, target);
+        return;
+      }
+    }
+
+    this.moveLocalBot(rig, dt);
+  }
+
+  /** Melee mobs may attack only local fallback bots; replayed Yandex sessions are never live targets. */
+  private localBotThreatTargets(): MobThreatTarget[] {
+    const targets: MobThreatTarget[] = [];
+    if (this.phase !== 'playing') return targets;
+    for (const [id, rig] of this.companions) {
+      if (!rig.localBot || rig.dead) continue;
+      targets.push({ id, x: rig.group.position.x, y: rig.group.position.y, z: rig.group.position.z });
+    }
+    return targets;
+  }
+
+  private companionHit(id: string, mob: Mob, damage: number) {
+    const rig = this.companions.get(id);
+    if (!rig || !rig.localBot || rig.dead || this.phase !== 'playing') {
+      this.mobHit(mob, damage);
+      return;
+    }
+    const taken = Math.max(1, damage * (this.survival ? this.hostileDamageScale() : 1));
+    rig.setHealth(rig.health - taken);
+    rig.swingTimer = 0;
+    if (rig.dead) {
+      rig.activity = 'walking';
+      rig.mineTarget = null;
+      rig.group.rotation.z = Math.PI / 2;
+      rig.group.position.y = Math.max(0, rig.group.position.y - 0.28);
+      rig.target.copy(rig.group.position);
+      // A nearby player is still in range of a creeper blast even when the bot drew its attention.
+      if (mob.def.explodes && Math.hypot(mob.x - this.pos.x, mob.z - this.pos.z) < 3.4) this.mobHit(mob, damage);
+    }
+    this.syncHud(true);
+  }
+
   private updateCompanions(dt: number) {
     if (!this.companions.size) return;
     for (const rig of this.companions.values()) {
       const before = rig.group.position.clone();
-      // teammates walk rather than teleport: a recorded jump (a long pause in the timeline) is
-      // covered at a brisk pace instead of an instant snap
-      rig.group.position.lerp(rig.target, Math.min(1, dt * 4.5));
+      if (rig.localBot) this.updateLocalBot(rig, dt);
+      else rig.group.position.lerp(rig.target, Math.min(1, dt * 4.5));
       const moved = rig.group.position.distanceTo(before);
       rig.phase += moved * 4.2 + dt * 1.2;
-      const swing = rig.moving && moved > 0.0005 ? Math.sin(rig.phase * 2.4) * 0.55 : Math.sin(rig.phase * 0.6) * 0.06;
-      rig.leftLeg.rotation.x = swing;
-      rig.rightLeg.rotation.x = -swing;
-      rig.leftArm.rotation.x = -swing * 0.8;
-      rig.rightArm.rotation.x = swing * 0.8;
+      if (!rig.dead && rig.swingTimer > 0) {
+        const swing = Math.sin((1 - rig.swingTimer / 0.38) * Math.PI);
+        rig.rightArm.rotation.x = -1.05 * swing;
+        rig.leftArm.rotation.x = 0.12 * swing;
+        rig.leftLeg.rotation.x = 0;
+        rig.rightLeg.rotation.x = 0;
+      } else if (!rig.dead) {
+        const swing = rig.moving && moved > 0.0005 ? Math.sin(rig.phase * 2.4) * 0.55 : Math.sin(rig.phase * 0.6) * 0.06;
+        rig.leftLeg.rotation.x = swing;
+        rig.rightLeg.rotation.x = -swing;
+        rig.leftArm.rotation.x = -swing * 0.8;
+        rig.rightArm.rotation.x = swing * 0.8;
+      }
       let dy = rig.yawTarget - rig.group.rotation.y;
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
@@ -9610,7 +9974,9 @@ if (tpClipActive > 0.5) {
       rig.tag.position.y = 2.25;
       rig.bar.position.y = 2.02;
       rig.bob += dt;
-      rig.group.position.y = rig.target.y + (rig.moving && moved > 0.0005 ? Math.abs(Math.sin(rig.phase * 2.4)) * 0.045 : 0);
+      if (!rig.localBot) {
+        rig.group.position.y = rig.target.y + (rig.moving && moved > 0.0005 ? Math.abs(Math.sin(rig.phase * 2.4)) * 0.045 : 0);
+      }
       rig.moving = false;
     }
   }

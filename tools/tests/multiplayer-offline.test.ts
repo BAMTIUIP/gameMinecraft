@@ -24,7 +24,7 @@ g.document = { title: '', documentElement: { lang: '' }, addEventListener() {}, 
 Object.defineProperty(globalThis, 'navigator', { value: { language: 'ru' }, configurable: true });
 // deliberately no YaGames global
 
-type Move = { id: string; pose: { x: number; y: number; z: number } };
+type Move = { id: string; pose: { x: number; y: number; z: number; activity?: string } };
 const moves: Move[] = [];
 
 let passed = 0;
@@ -46,7 +46,7 @@ await loadFlags();
 
 const sink = {
   spawn: (seeds: Array<{ id: string }>) => void (spawned = seeds.map((s) => s.id)),
-  move: (id: string, pose: { x: number; y: number; z: number }) => void moves.push({ id, pose }),
+  move: (id: string, pose: { x: number; y: number; z: number; activity?: string }) => void moves.push({ id, pose }),
   finish: () => undefined,
   clear: () => undefined,
 };
@@ -67,6 +67,15 @@ const firstMove = moves.at(-1)!;
 const radius = Math.hypot(firstMove.pose.x - 100, firstMove.pose.z + 100);
 ok(radius >= 2 && radius <= 12, 'Напарник держится рядом с игроком', `радиус: ${radius.toFixed(1)}`);
 ok(Math.abs(firstMove.pose.y - 40) <= 1.5, 'Напарник не проваливается и не улетает по высоте', String(firstMove.pose.y));
+ok(['walking', 'mining', 'fighting'].includes(firstMove.pose.activity ?? ''), 'Локальный напарник получает занятие вместо случайного телепорта', String(firstMove.pose.activity));
+const fakeNowStart = Date.now;
+let botNow = fakeNowStart();
+Date.now = () => botNow;
+botNow += 5_000;
+const afterWalk = moves.length;
+tickCoop({ x: 100, y: 40, z: -100, yaw: 0, health: 90, blocks: 5 });
+ok(moves.length > afterWalk && moves.slice(afterWalk).some((move) => move.pose.activity === 'mining'), 'После прогулки локальный бот переходит к добыче');
+Date.now = fakeNowStart;
 
 // the recorder is off outside the platform: nothing to publish, nothing to record
 const commits = moves.length;

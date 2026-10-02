@@ -106,7 +106,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         : 'from-[#8f1c14] to-blood';
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 select-none font-body">
+    <div className={`pointer-events-none absolute inset-0 z-20 select-none font-body ${isTouch ? 'hud-touch' : ''}`}>
       {/* damage / hazard vignette */}
       <div
         ref={(el) => {
@@ -116,9 +116,9 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         style={{ transition: 'opacity 90ms linear' }}
       />
 
-      {/* ---------------- TOP LEFT: vitals ---------------- */}
-      <div className="absolute left-2 top-2 flex flex-col gap-1.5 sm:left-4 sm:top-4 sm:gap-2">
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2">
+      {/* ---------------- TOP LEFT: vitals + mission ---------------- */}
+      <div className="hud-information hud-information--top-left absolute left-2 top-2 flex flex-col gap-1.5 sm:left-4 sm:top-4 sm:gap-2">
+        <div className="hud-health-panel bevel-flat notch flex items-center gap-2 px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2">
           <HeartIcon size={16} className="text-blood drop-shadow-[0_0_6px_rgba(226,86,74,.7)]" />
           <div className="sunken relative h-3.5 w-28 overflow-hidden sm:h-4 sm:w-44">
             <div
@@ -136,7 +136,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         </div>
 
         {/* position + a compass needle that points home */}
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/50 sm:px-3">
+        <div className="hud-vitals-coordinates bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/50 sm:px-3">
           <span className="relative flex h-4 w-4 items-center justify-center">
             <svg
               viewBox="0 0 24 24"
@@ -160,7 +160,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           </span>
         </div>
 
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/60 sm:px-3 sm:text-xs">
+        <div className="hud-vitals-stats bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/60 sm:px-3 sm:text-xs">
           <DepthIcon size={14} className="text-copper" />
           <span>
             {t('depth')} <b className="font-display text-sm text-torch sm:text-base">{hud.deepest}</b>
@@ -183,91 +183,91 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             {t('mined')} <b className="font-display text-sm text-white/90">{hud.blocksMined}</b>
           </span>
         </div>
-      </div>
 
-      {hud.objectiveCount > 0 && hud.phase !== 'menu' && (
-        <section
-          aria-label={t('objectivePanelTitle')}
-          className="pointer-events-auto absolute left-2 top-[7.25rem] w-[min(20rem,calc(100vw-1rem))] border border-[#8c7549]/60 bg-[#101611]/90 p-2 shadow-[0_8px_26px_rgba(0,0,0,.5)] backdrop-blur-sm sm:left-4 sm:top-[8.25rem] sm:w-80 sm:p-2.5"
-        >
-          <header className="mb-1.5 flex items-center justify-between gap-2 border-b border-white/10 pb-1">
-            <span className="font-display text-[9px] tracking-[0.18em] text-[#f4b942] sm:text-[10px]">
-              {t('objectivePanelTitle')}
-            </span>
-            <span className="text-[9px] text-white/50">
-              {hud.objectiveIndex >= hud.objectiveCount
-                ? t('objectiveAllComplete')
-                : t('objectiveTaskCounter')
-                    .replace('{current}', String(hud.objectiveIndex + 1))
-                    .replace('{total}', String(hud.objectiveCount))}
-            </span>
-          </header>
-          <div className="flex flex-col gap-1.5">
-            {hud.explorationObjectives.map((objective) => (
-              <div
-                key={objective.id}
-                className={`border-l-2 pl-2 ${
-                  objective.status === 'active'
-                    ? 'border-[#93c95d] bg-[#93c95d]/[0.07]'
-                    : objective.status === 'complete'
-                      ? 'border-[#93c95d]/45 opacity-70'
-                      : 'border-white/15 opacity-45'
-                }`}
-              >
-                <div className="flex items-start gap-1.5">
-                  <span className={`mt-px text-[10px] leading-tight ${objective.status === 'complete' ? 'text-[#93c95d]' : objective.status === 'active' ? 'text-[#f4b942]' : 'text-white/40'}`}>
-                    {objective.status === 'complete' ? '✓' : objective.status === 'active' ? '◆' : '◇'}
-                  </span>
-                  <span className="min-w-0 flex-1 text-[10px] leading-tight text-white/85 sm:text-[11px]">
-                    {t(objective.titleKey)}
-                  </span>
-                  {objective.status !== 'locked' && (
-                    <span className="shrink-0 font-display text-[9px] tabular-nums text-white/70">
-                      {objective.progress}/{objective.target}
+        {hud.objectiveCount > 0 && hud.phase !== 'menu' && (
+          <section
+            aria-label={t('objectivePanelTitle')}
+            className="hud-objective-panel pointer-events-auto relative mt-1 w-[min(20rem,calc(100vw-1rem))] border border-[#8c7549]/60 bg-[#101611]/90 p-2 shadow-[0_8px_26px_rgba(0,0,0,.5)] backdrop-blur-sm sm:w-80 sm:p-2.5"
+          >
+            <header className="mb-1.5 flex items-center justify-between gap-2 border-b border-white/10 pb-1">
+              <span className="font-display text-[9px] tracking-[0.18em] text-[#f4b942] sm:text-[10px]">
+                {t('objectivePanelTitle')}
+              </span>
+              <span className="text-[9px] text-white/50">
+                {hud.objectiveIndex >= hud.objectiveCount
+                  ? t('objectiveAllComplete')
+                  : t('objectiveTaskCounter')
+                      .replace('{current}', String(hud.objectiveIndex + 1))
+                      .replace('{total}', String(hud.objectiveCount))}
+              </span>
+            </header>
+            <div className="flex flex-col gap-1.5">
+              {hud.explorationObjectives.map((objective) => (
+                <div
+                  key={objective.id}
+                  className={`hud-objective-row hud-objective-row--${objective.status} border-l-2 pl-2 ${
+                    objective.status === 'active'
+                      ? 'border-[#93c95d] bg-[#93c95d]/[0.07]'
+                      : objective.status === 'complete'
+                        ? 'border-[#93c95d]/45 opacity-70'
+                        : 'border-white/15 opacity-45'
+                  }`}
+                >
+                  <div className="flex items-start gap-1.5">
+                    <span className={`mt-px text-[10px] leading-tight ${objective.status === 'complete' ? 'text-[#93c95d]' : objective.status === 'active' ? 'text-[#f4b942]' : 'text-white/40'}`}>
+                      {objective.status === 'complete' ? '✓' : objective.status === 'active' ? '◆' : '◇'}
                     </span>
+                    <span className="min-w-0 flex-1 text-[10px] leading-tight text-white/85 sm:text-[11px]">
+                      {t(objective.titleKey)}
+                    </span>
+                    {objective.status !== 'locked' && (
+                      <span className="shrink-0 font-display text-[9px] tabular-nums text-white/70">
+                        {objective.progress}/{objective.target}
+                      </span>
+                    )}
+                  </div>
+                  <div className="hud-objective-reward ml-4 mt-0.5 font-display text-[8px] tracking-wide text-white/45 sm:text-[9px]">
+                    {objectiveReward(objective.rewardScore, objective.rewardSeconds)}
+                  </div>
+                  {objective.status === 'active' && (
+                    <div className="hud-objective-progress sunken ml-4 mt-1 h-1 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#6b9e41] to-[#b5d86e] transition-[width] duration-200"
+                        style={{ width: `${Math.min(100, (objective.progress / objective.target) * 100)}%` }}
+                      />
+                    </div>
                   )}
                 </div>
-                <div className="ml-4 mt-0.5 font-display text-[8px] tracking-wide text-white/45 sm:text-[9px]">
-                  {objectiveReward(objective.rewardScore, objective.rewardSeconds)}
-                </div>
-                {objective.status === 'active' && (
-                  <div className="sunken ml-4 mt-1 h-1 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#6b9e41] to-[#b5d86e] transition-[width] duration-200"
-                      style={{ width: `${Math.min(100, (objective.progress / objective.target) * 100)}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+              ))}
+            </div>
+          </section>
+        )}
 
-      {hud.tutorialTip && hud.phase === 'playing' && (
-        <div
-          key={hud.tutorialTip.key}
-          role="status"
-          aria-live="polite"
-          className="anim-pop absolute left-2 top-[20rem] flex w-[min(19rem,calc(100vw-1rem))] items-start gap-2.5 bevel-flat notch border-l-4 bg-[#101712]/95 px-2.5 py-2 shadow-[0_8px_26px_rgba(0,0,0,.55)] sm:left-4 sm:top-[22rem] sm:w-72"
-          style={{ borderLeftColor: hud.tutorialTip.color }}
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center bg-black/35">
-            <TutorialGlyph icon={hud.tutorialTip.icon} color={hud.tutorialTip.color} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-display text-[10px] tracking-[0.2em]" style={{ color: hud.tutorialTip.color }}>
-              {hud.tutorialTip.title}
+        {hud.tutorialTip && hud.phase === 'playing' && (
+          <div
+            key={hud.tutorialTip.key}
+            role="status"
+            aria-live="polite"
+            className="hud-tutorial-panel anim-pop pointer-events-auto relative mt-1 flex w-[min(19rem,calc(100vw-1rem))] items-start gap-2.5 bevel-flat notch border-l-4 bg-[#101712]/95 px-2.5 py-2 shadow-[0_8px_26px_rgba(0,0,0,.55)] sm:w-72"
+            style={{ borderLeftColor: hud.tutorialTip.color }}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center bg-black/35">
+              <TutorialGlyph icon={hud.tutorialTip.icon} color={hud.tutorialTip.color} />
             </span>
-            <span className="mt-0.5 block text-[11px] leading-snug text-white/75 sm:text-xs">
-              {hud.tutorialTip.body}
+            <span className="min-w-0 flex-1">
+              <span className="block font-display text-[10px] tracking-[0.2em]" style={{ color: hud.tutorialTip.color }}>
+                {hud.tutorialTip.title}
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-white/75 sm:text-xs">
+                {hud.tutorialTip.body}
+              </span>
             </span>
-          </span>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       {/* ---------------- TOP CENTER: clock + combo ---------------- */}
-      <div className="absolute left-1/2 top-2 flex -translate-x-1/2 flex-col items-center gap-1 sm:top-4">
+      <div className="hud-information hud-information--top-center absolute left-1/2 top-2 flex -translate-x-1/2 flex-col items-center gap-1 sm:top-4">
         <div className={`bevel-flat notch flex items-center gap-2 px-3 py-1 sm:gap-3 sm:px-4 sm:py-1.5 ${urgent ? 'anim-ring' : ''}`}>
           <ClockIcon size={15} className={urgent ? 'text-blood' : 'text-torch'} />
           <span
@@ -322,57 +322,64 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
 
       {/* ---------------- TOP RIGHT: score + tier + buttons + squad ---------------- */}
       <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-4 sm:top-4 sm:gap-2">
-        <div className="bevel-flat notch px-3 py-1 text-right sm:px-4 sm:py-2">
-          <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">{t('score').toUpperCase()}</div>
-          <div
-            key={bump}
-            ref={scoreRef}
-            className={`font-display text-3xl leading-none tabular-nums text-torch sm:text-4xl ${bump ? 'anim-bump' : ''}`}
-            style={{ textShadow: '0 0 16px rgba(244,185,66,.35), 2px 2px 0 #05080a' }}
-          >
-            {hud.score.toLocaleString()}
-          </div>
-        </div>
-
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 sm:px-3">
-          <PickIcon size={16} style={{ color: tierColor }} className="drop-shadow" />
-          <span className="font-display text-sm leading-none sm:text-base" style={{ color: tierColor }}>
-            {hud.tierName}
-          </span>
-          <span className="font-display text-[11px] text-white/40">{PICKAXE_TIERS[hud.tier].speed.toFixed(1)}x</span>
-        </div>
-
-        {/* teammates from asynchronous multiplayer sessions (survival co-op, up to five) */}
-        {hud.squad.length > 0 && (hud.phase === 'playing' || hud.phase === 'paused') && (
-          <section
-            aria-label={t('squadTitle')}
-            className="bevel-flat notch w-[11.5rem] px-2 py-1.5 text-left sm:w-48"
-          >
-            <div className="mb-1 flex items-center gap-1.5 font-display text-[9px] tracking-[0.2em] text-[#62e8dc] sm:text-[10px]">
-              <span aria-hidden="true">◆</span> {t('squadTitle')}
-              <span className="ml-auto text-white/35">{hud.squad.length + 1}</span>
+        <div className="hud-information hud-information--top-right flex flex-col items-end gap-1.5 sm:gap-2">
+          <div className="bevel-flat notch px-3 py-1 text-right sm:px-4 sm:py-2">
+            <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">{t('score').toUpperCase()}</div>
+            <div
+              key={bump}
+              ref={scoreRef}
+              className={`font-display text-3xl leading-none tabular-nums text-torch sm:text-4xl ${bump ? 'anim-bump' : ''}`}
+              style={{ textShadow: '0 0 16px rgba(244,185,66,.35), 2px 2px 0 #05080a' }}
+            >
+              {hud.score.toLocaleString()}
             </div>
-            <ul className="flex flex-col gap-0.5">
-              {hud.squad.map((mate) => (
-                <li key={mate.id} className="flex items-center gap-1.5 text-[10px] sm:text-[11px]">
-                  <span
-                    aria-hidden="true"
-                    className="h-2 w-2 shrink-0"
-                    style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
-                  />
-                  <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
-                  {mate.finished ? (
-                    <span className="shrink-0 text-[8px] tracking-widest text-torch">{t('squadFinished')}</span>
-                  ) : (
-                    <span className="shrink-0 font-display tabular-nums text-white/45">
-                      {t('squadBlocks').replace('{n}', String(mate.blocks))}
+          </div>
+
+          <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 sm:px-3">
+            <PickIcon size={16} style={{ color: tierColor }} className="drop-shadow" />
+            <span className="font-display text-sm leading-none sm:text-base" style={{ color: tierColor }}>
+              {hud.tierName}
+            </span>
+            <span className="font-display text-[11px] text-white/40">{PICKAXE_TIERS[hud.tier].speed.toFixed(1)}x</span>
+          </div>
+
+          {/* teammates from asynchronous multiplayer sessions (survival co-op, up to five) */}
+          {hud.squad.length > 0 && (hud.phase === 'playing' || hud.phase === 'paused') && (
+            <section
+              aria-label={t('squadTitle')}
+              className="bevel-flat notch w-[11.5rem] px-2 py-1.5 text-left sm:w-48"
+            >
+              <div className="mb-1 flex items-center gap-1.5 font-display text-[9px] tracking-[0.2em] text-[#62e8dc] sm:text-[10px]">
+                <span aria-hidden="true">◆</span> {t('squadTitle')}
+                <span className="ml-auto text-white/35">{hud.squad.length + 1}</span>
+              </div>
+              <ul className="flex flex-col gap-0.5">
+                {hud.squad.map((mate) => (
+                  <li key={mate.id} className="flex items-center gap-1.5 text-[10px] sm:text-[11px]">
+                    <span
+                      aria-hidden="true"
+                      className="h-2 w-2 shrink-0"
+                      style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
+                    <span className={`shrink-0 text-[7px] tracking-wide ${mate.kind === 'bot' ? 'text-white/35' : 'text-[#62e8dc]/55'}`}>
+                      {t(mate.kind === 'bot' ? 'squadLocalBot' : 'squadReplay')}
                     </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+                    {mate.dead ? (
+                      <span className="shrink-0 text-[8px] tracking-widest text-blood">{t('squadDead')}</span>
+                    ) : mate.finished ? (
+                      <span className="shrink-0 text-[8px] tracking-widest text-torch">{t('squadFinished')}</span>
+                    ) : (
+                      <span className="shrink-0 font-display tabular-nums text-white/45">
+                        {t('squadBlocks').replace('{n}', String(mate.blocks))}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
 
         <div className="pointer-events-auto flex gap-1.5">
           <button
@@ -402,7 +409,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       </div>
 
       {/* ---------------- CENTER: crosshair + target ---------------- */}
-      <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
+      <div className="hud-information hud-information--center absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
         <div
           className="ring-p relative h-16 w-16"
           ref={(el) => {
@@ -448,7 +455,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
 
       {/* ---------------- BANNER ---------------- */}
       {hud.banner && (
-        <div key={hud.banner.key} className="anim-banner absolute left-1/2 top-[19%] -translate-x-1/2 text-center">
+        <div key={hud.banner.key} className="hud-information hud-information--banner anim-banner absolute left-1/2 top-[19%] -translate-x-1/2 text-center">
           <div className="font-display text-3xl leading-none sm:text-5xl" style={{ color: hud.banner.color, textShadow: '3px 3px 0 #05080a, 0 0 26px rgba(0,0,0,.6)' }}>
             {hud.banner.text}
           </div>
@@ -456,9 +463,30 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         </div>
       )}
 
+      {/* ---------------- BREATH ---------------- */}
+      <div
+        className={`hud-breath absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 bevel-flat notch bg-[#07151c]/90 px-2 py-1 ${hud.breathVisible ? 'hud-breath--visible' : ''} ${hud.airBubbles === 0 ? 'hud-breath--critical' : ''}`}
+        role={hud.breathVisible ? 'status' : undefined}
+        aria-hidden={!hud.breathVisible}
+        aria-label={`${t('air')}: ${hud.airBubbles} / 6`}
+      >
+        <span className="font-display text-[9px] tracking-widest text-[#a8e5ff]">{t('air')}</span>
+        <span className="flex items-center gap-0.5">
+          {Array.from({ length: 6 }, (_, i) => (
+            <span key={i} className={`hud-breath-bubble ${i < hud.airBubbles ? 'hud-breath-bubble--full' : 'hud-breath-bubble--empty'}`}>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <circle cx="9" cy="9" r="7" />
+                <path d="M6.1 6.3c.5-1.3 1.4-1.9 2.5-2" />
+                <circle cx="12.8" cy="11.7" r=".8" className="hud-breath-bubble-shine" />
+              </svg>
+            </span>
+          ))}
+        </span>
+      </div>
+
       {/* ---------------- HOTBAR ---------------- */}
       <div
-        className={`hud-hotbar absolute left-1/2 -translate-x-1/2 origin-bottom ${
+        className={`hud-hotbar absolute left-1/2 origin-bottom ${
           isTouch ? 'bottom-44' : 'bottom-4 sm:bottom-6'
         }`}
       >
@@ -468,6 +496,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             slot === null ? (
               <div
                 key={`empty-${i}`}
+                data-hotbar-index={i}
                 className="hotbar-cell notch relative flex items-center justify-center"
                 style={{
                   background: 'linear-gradient(180deg,#141c17,#0c1210)',
@@ -489,7 +518,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
 
       {/* ---------------- HINT STACK (above the hotbar) ---------------- */}
       <div
-        className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5 ${isTouch ? 'bottom-60' : 'bottom-24'}`}
+        className={`hud-information hud-information--hint absolute left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5 ${isTouch ? 'bottom-60' : 'bottom-24'}`}
       >
         {hud.tradeNear && hud.phase === 'playing' && (
           <div className="anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: '#d98cff' }}>
@@ -528,7 +557,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       </div>
 
       {/* ---------------- FPS (remote-config flag ui.showFps) ---------------- */}
-      {showFps && <div className="absolute bottom-1 right-2 font-display text-[10px] text-white/25">{hud.fps} FPS</div>}
+      {showFps && <div className="hud-information hud-information--fps absolute bottom-1 right-2 font-display text-[10px] text-white/25">{hud.fps} FPS</div>}
     </div>
   );
 
@@ -536,6 +565,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
     return (
             <button
               key={slot.id}
+              data-hotbar-index={i}
               onClick={() => onSelect(i)}
               className={`hotbar-cell hotbar-slot notch relative flex items-center justify-center ${
                 i === hud.selected ? 'active' : ''

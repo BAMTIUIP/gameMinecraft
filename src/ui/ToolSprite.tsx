@@ -52,10 +52,17 @@ function PickHaft({ p }: { p: Palette }) {
 function PickShape({ p }: { p: Palette }) {
   return (
     <g>
-      <path d="M4 13 8 9H15L20 12H28L33 9H40L44 13 40 17H35L31 21H27L24 18 21 21H17L13 17H8Z" fill={p.outline} />
-      <path d="M7 13 10 11H16L21 14H27L32 11H38L41 13 38 15H34L30 19H27L24 16 21 19H18L14 15H10Z" fill={p.head} />
-      <path d="M6 13 10 11H15L20 13H14L10 15H7Z" fill={p.edge} />
-      <path d="M42 13 38 11H33L28 13H34L38 15H41Z" fill={p.edge} />
+      {/* Draw the left end once, then mirror it so both pickaxe tips stay identical. */}
+      <g>
+        <path d="M4 13 8 9H15L20 12H24V18L21 21H17L13 17H8Z" fill={p.outline} />
+        <path d="M7 13 10 11H16L21 14H24V16L21 19H18L14 15H10Z" fill={p.head} />
+        <path d="M6 13 10 11H15L20 13H14L10 15H7Z" fill={p.edge} />
+      </g>
+      <g transform="translate(48 0) scale(-1 1)">
+        <path d="M4 13 8 9H15L20 12H24V18L21 21H17L13 17H8Z" fill={p.outline} />
+        <path d="M7 13 10 11H16L21 14H24V16L21 19H18L14 15H10Z" fill={p.head} />
+        <path d="M6 13 10 11H15L20 13H14L10 15H7Z" fill={p.edge} />
+      </g>
       <path d="M20 13H28V16H20Z" fill={p.accent} />
     </g>
   );

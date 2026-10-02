@@ -771,12 +771,12 @@ export function StartScreen({
       </FitBox>
 
       {showShop && (
-        <div className="absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
+        <div className="shop-backdrop absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
           <section
             role="dialog"
             aria-modal="true"
             aria-labelledby="shop-title"
-            className="bevel notch my-auto flex max-h-[94vh] w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
+            className="shop-dialog bevel notch my-auto flex min-h-0 w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
           >
             <header className="flex shrink-0 items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-[#15242b] via-[#182229] to-[#241c32] p-3 sm:gap-4 sm:p-5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#62e8dc]/45 bg-[#62e8dc]/10 font-display text-2xl text-[#62e8dc] sm:h-14 sm:w-14 sm:text-3xl">
@@ -804,7 +804,7 @@ export function StartScreen({
               </button>
             </header>
 
-            <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
+            <div className="shop-currency-note mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
               <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
               <div className="min-w-0 flex-1">
                 <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
@@ -818,7 +818,7 @@ export function StartScreen({
             </div>
 
             {promo && (
-              <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.08] px-2.5 py-2 text-[10px] leading-snug text-white/70 sm:mx-4 sm:text-xs">
+              <div className="shop-promo-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.08] px-2.5 py-2 text-[10px] leading-snug text-white/70 sm:mx-4 sm:text-xs">
                 <span className="text-[#f4b942]">★</span>
                 <span className="min-w-0 flex-1">
                   <b className="font-display tracking-wide text-[#f4b942]">{t('promoBanner').replace('{id}', promo.promoId)}</b>
@@ -851,7 +851,7 @@ export function StartScreen({
               </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
+            <div className="shop-catalog min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
                 {filteredShopProducts.map((product) => {
                   // packs are real purchases: the price comes from the Console catalogue, together
@@ -1303,151 +1303,169 @@ export function GameOverScreen({
     <div className="absolute inset-0 z-30 overflow-hidden bg-pit-950/85 backdrop-blur-[2px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
       {/* FitBox: the run report and all of its buttons stay on screen at any window size (1.10) */}
-      <FitBox className="mx-auto w-full max-w-5xl items-start p-4 sm:p-7 lg:items-center">
-        <div className="anim-rise flex-1">
-          <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.4em]" style={{ color: accent }}>
-            <span className="h-px w-8" style={{ background: accent }} />
-            {t('runReport')} · {hud.endless ? '∞' : fmtMinutes(hud.runTime)}
-          </div>
-          <h2 className="font-display text-[clamp(2.4rem,8vw,4.6rem)] leading-[0.9] text-white text-outline">{title}</h2>
-          <p className="mt-2 max-w-md text-sm text-white/55">{sub}</p>
-
-          <div className="bevel notch mt-5 p-4">
-            <div className="text-[10px] tracking-[0.34em] text-white/40">{t('finalScore')}</div>
-            <div
-              className="font-display text-[clamp(3rem,11vw,5.4rem)] leading-none tabular-nums"
-              style={{ color: accent, textShadow: `0 0 40px ${accent}55, 4px 4px 0 #05080a` }}
-            >
-              {shown.toLocaleString()}
+      <FitBox className="mx-auto w-full max-w-5xl items-start p-3 sm:p-5 lg:items-center">
+        <div className="gameover-layout">
+          <section className="gameover-summary anim-rise min-w-0">
+            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.4em]" style={{ color: accent }}>
+              <span className="h-px w-8" style={{ background: accent }} />
+              {t('runReport')} · {hud.endless ? '∞' : fmtMinutes(hud.runTime)}
             </div>
-            {isRecord && (
-              <div className="anim-pop mt-2 inline-block bg-torch px-2 py-0.5 font-display text-xs tracking-widest text-pit-950">
-                {t('newBest')}
-              </div>
-            )}
-            {myRank !== undefined && (
-              <div className="mt-2 flex items-center gap-1.5 font-display text-[11px] tracking-[0.2em] text-[#62e8dc]/90">
-                <TrophyIcon size={12} />
-                {myRank && myRank > 0 ? t('lbYourRank').replace('{n}', String(myRank)) : t('lbNoRank')}
-              </div>
-            )}
+            <h2 className="font-display text-[clamp(2.4rem,8vw,4.6rem)] leading-[0.9] text-white text-outline">{title}</h2>
+            <p className="mt-2 max-w-md text-sm text-white/55">{sub}</p>
 
-            <div className="mt-4 grid grid-cols-2 gap-px bg-white/5 sm:grid-cols-5">
-              <Stat icon={<CubeIcon size={12} />} label={t('mined')} value={String(hud.blocksMined)} color="#e8efe9" />
-              <Stat icon={<PickIcon size={12} />} label={t('bestCombo')} value={`x${hud.bestCombo}`} color="#93c95d" />
-              <Stat icon={<DepthIcon size={12} />} label={t('deepest')} value={String(hud.deepest)} color="#d9844a" />
-              <Stat icon={<HeartIcon size={12} />} label={t('ores')} value={String(hud.oresFound)} color="#5fe8dc" />
-              <Stat icon={<TrophyIcon size={12} />} label={t('kills')} value={String(hud.kills)} color="#e2564a" />
-            </div>
-
-            {/* the shift's squad: teammates replayed from asynchronous multiplayer sessions */}
-            {hud.squad.length > 0 && (
-              <div className="mt-3 border-t border-white/10 pt-2">
-                <div className="mb-1 flex items-center gap-1.5 font-display text-[10px] tracking-[0.2em] text-[#62e8dc]">
-                  <span aria-hidden="true">◆</span> {t('squadTitle')} · {hud.squad.length + 1}
+            <div className="bevel notch mt-5 p-4">
+              <div className="text-[10px] tracking-[0.34em] text-white/40">{t('finalScore')}</div>
+              <div
+                className="font-display text-[clamp(3rem,11vw,5.4rem)] leading-none tabular-nums"
+                style={{ color: accent, textShadow: `0 0 40px ${accent}55, 4px 4px 0 #05080a` }}
+              >
+                {shown.toLocaleString()}
+              </div>
+              {isRecord && (
+                <div className="anim-pop mt-2 inline-block bg-torch px-2 py-0.5 font-display text-xs tracking-widest text-pit-950">
+                  {t('newBest')}
                 </div>
-                <ul className="flex flex-col gap-0.5">
-                  {hud.squad.map((mate) => (
-                    <li key={mate.id} className="flex items-center gap-2 text-[11px]">
-                      <span
-                        aria-hidden="true"
-                        className="h-2 w-2 shrink-0"
-                        style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
-                      />
-                      <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
-                      <span className="font-display text-[10px] tabular-nums text-white/45">
-                        {t('squadBlocks').replace('{n}', String(mate.blocks))}
-                      </span>
-                      {mate.finished && <span className="text-[9px] tracking-widest text-torch">{t('squadFinished')}</span>}
-                    </li>
-                  ))}
-                </ul>
-                {squadNote && <div className="mt-1 text-[10px] leading-snug text-white/35">{squadNote}</div>}
+              )}
+              {myRank !== undefined && (
+                <div className="mt-2 flex items-center gap-1.5 font-display text-[11px] tracking-[0.2em] text-[#62e8dc]/90">
+                  <TrophyIcon size={12} />
+                  {myRank && myRank > 0 ? t('lbYourRank').replace('{n}', String(myRank)) : t('lbNoRank')}
+                </div>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-px bg-white/5 sm:grid-cols-5">
+                <Stat icon={<CubeIcon size={12} />} label={t('mined')} value={String(hud.blocksMined)} color="#e8efe9" />
+                <Stat icon={<PickIcon size={12} />} label={t('bestCombo')} value={`x${hud.bestCombo}`} color="#93c95d" />
+                <Stat icon={<DepthIcon size={12} />} label={t('deepest')} value={String(hud.deepest)} color="#d9844a" />
+                <Stat icon={<HeartIcon size={12} />} label={t('ores')} value={String(hud.oresFound)} color="#5fe8dc" />
+                <Stat icon={<TrophyIcon size={12} />} label={t('kills')} value={String(hud.kills)} color="#e2564a" />
               </div>
-            )}
-          </div>
 
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <button
-              onClick={onRestart}
-              disabled={adBusy}
-              className="btn-mc notch flex items-center gap-2 bg-gradient-to-b from-moss to-[#4d8c31] px-7 py-3.5 text-xl text-pit-950 disabled:opacity-60"
-            >
-              <PlayIcon size={18} /> {t('mineAgain')}
-            </button>
-            {canRevive && (
-              <button
-                onClick={onRevive}
-                disabled={adBusy}
-                className="btn-mc notch flex flex-col items-start gap-0.5 bg-gradient-to-b from-[#62e8dc] to-[#2f9c96] px-5 py-2.5 text-left text-pit-950 disabled:opacity-60"
-              >
-                <span className="flex items-center gap-2 font-display text-base leading-none">
-                  <span className="border border-pit-950/40 bg-pit-950/15 px-1 py-0.5 font-display text-[8px] tracking-widest">
-                    {t('adBadge')}
-                  </span>
-                  {t('watchAdRevive')}
-                </span>
-                <span className="text-[10px] leading-snug opacity-80">{t('watchAdReviveSub').replace('{sec}', String(reviveSeconds))}</span>
-              </button>
-            )}
-            <button onClick={onQuit} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-5 py-3.5 text-base text-white/85">
-              {t('mainMenu')}
-            </button>
-            {canRate && (
-              <button
-                onClick={onRate}
-                className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2 text-xs text-white/80"
-              >
-                ★ {t('reviewCta')}
-              </button>
-            )}
-            {/* sdk-params: clipboard.writeText — one click puts the shift's summary on the clipboard */}
-            <button
-              onClick={() =>
-                onCopyResult(
-                  t('shareTemplate')
-                    .replace('{mode}', t(hud.survival ? 'survival' : 'explorer'))
-                    .replace('{score}', String(hud.score))
-                    .replace('{blocks}', String(hud.blocksMined))
-                    .replace('{depth}', String(hud.deepest)),
-                )
-              }
-              className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2 text-xs text-white/80"
-            >
-              ⧉ {t('copyResult')}
-            </button>
-            {reviewNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{reviewNote}</span>}
-            {copyNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{copyNote}</span>}
-            <span className="font-display text-[10px] tracking-[0.24em] text-white/30">[R] · [ESC]</span>
-            {diamondPrice > 0 && (
-              <button
-                onClick={onDiamondRevive}
-                disabled={adBusy || diamonds < diamondPrice}
-                title={diamonds < diamondPrice ? t('notEnoughDiamonds') : undefined}
-                className="btn-mc notch flex flex-col items-start gap-0.5 bg-gradient-to-b from-[#8ee9e2] to-[#3aa9a3] px-5 py-2.5 text-left text-pit-950 disabled:opacity-50"
-              >
-                <span className="font-display text-base leading-none">
-                  {t('continueWithDiamonds').replace('{n}', String(diamondPrice))}
-                </span>
-                <span className="text-[10px] leading-snug opacity-80">◆ {diamonds.toLocaleString()}</span>
-              </button>
-            )}
-            {adNotice && <span className="font-display text-[10px] tracking-[0.2em] text-copper">{adNotice}</span>}
-          </div>
-        </div>
+              {/* the shift's squad: teammates replayed from asynchronous multiplayer sessions */}
+              {hud.squad.length > 0 && (
+                <div className="mt-3 border-t border-white/10 pt-2">
+                  <div className="mb-1 flex items-center gap-1.5 font-display text-[10px] tracking-[0.2em] text-[#62e8dc]">
+                    <span aria-hidden="true">◆</span> {t('squadTitle')} · {hud.squad.length + 1}
+                  </div>
+                  <ul className="flex flex-col gap-0.5">
+                    {hud.squad.map((mate) => (
+                      <li key={mate.id} className="flex items-center gap-2 text-[11px]">
+                        <span
+                          aria-hidden="true"
+                          className="h-2 w-2 shrink-0"
+                          style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
+                        />
+                        <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
+                        <span className="font-display text-[10px] tabular-nums text-white/45">
+                          {t('squadBlocks').replace('{n}', String(mate.blocks))}
+                        </span>
+                        {mate.finished && <span className="text-[9px] tracking-widest text-torch">{t('squadFinished')}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                  {squadNote && <div className="mt-1 text-[10px] leading-snug text-white/35">{squadNote}</div>}
+                </div>
+              )}
+            </div>
 
-        <div className="anim-rise w-full lg:w-[360px]" style={{ animationDelay: '120ms' }}>
-          <div className="mb-2.5 flex items-center gap-2">
-            <span className="text-[10px] tracking-[0.28em] text-white/40">{t('signLog')}</span>
-            <input
-              value={name}
-              maxLength={12}
-              onChange={(e) => onName(e.target.value.toUpperCase().replace(/[^A-ZА-ЯЁ0-9 _-]/g, ''))}
-              className="sunken notch flex-1 px-2.5 py-1.5 font-display text-base tracking-widest text-torch outline-none focus:ring-2 focus:ring-torch/50"
-              placeholder={t('miner')}
-            />
-          </div>
-          <ScoreTable scores={scores} highlight={token} />
+            <div className="gameover-action-groups mt-4 flex flex-col gap-2.5">
+              <div className="gameover-primary-actions">
+                <button
+                  onClick={onRestart}
+                  disabled={adBusy}
+                  className="gameover-action gameover-primary-action btn-mc notch flex items-center justify-center gap-2 bg-gradient-to-b from-moss to-[#4d8c31] text-pit-950 disabled:opacity-60"
+                >
+                  <PlayIcon size={18} /> <span>{t('mineAgain')}</span>
+                </button>
+                <button
+                  onClick={onQuit}
+                  className="gameover-action gameover-primary-action btn-mc notch flex items-center justify-center bg-gradient-to-b from-pit-500 to-pit-700 text-white/85"
+                >
+                  {t('mainMenu')}
+                </button>
+              </div>
+
+              {(canRevive || diamondPrice > 0) && (
+                <div className="gameover-offer-actions">
+                  {canRevive && (
+                    <button
+                      onClick={onRevive}
+                      disabled={adBusy}
+                      className="gameover-action gameover-offer-action btn-mc notch flex min-w-0 flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-[#62e8dc] to-[#2f9c96] text-center text-pit-950 disabled:opacity-60"
+                    >
+                      <span className="flex flex-wrap items-center justify-center gap-2 font-display leading-tight">
+                        <span className="border border-pit-950/40 bg-pit-950/15 px-1 py-0.5 font-display text-[8px] tracking-widest">
+                          {t('adBadge')}
+                        </span>
+                        {t('watchAdRevive')}
+                      </span>
+                      <span className="text-[10px] leading-snug opacity-80">{t('watchAdReviveSub').replace('{sec}', String(reviveSeconds))}</span>
+                    </button>
+                  )}
+                  {diamondPrice > 0 && (
+                    <button
+                      onClick={onDiamondRevive}
+                      disabled={adBusy || diamonds < diamondPrice}
+                      title={diamonds < diamondPrice ? t('notEnoughDiamonds') : undefined}
+                      className="gameover-action gameover-offer-action btn-mc notch flex min-w-0 flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-[#8ee9e2] to-[#3aa9a3] text-center text-pit-950 disabled:opacity-50"
+                    >
+                      <span className="font-display leading-tight">
+                        {t('continueWithDiamonds').replace('{n}', String(diamondPrice))}
+                      </span>
+                      <span className="text-[10px] leading-snug opacity-80">◆ {diamonds.toLocaleString()}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="gameover-utility-actions">
+                {canRate && (
+                  <button
+                    onClick={onRate}
+                    className="gameover-action gameover-utility-action btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] text-white/80"
+                  >
+                    ★ {t('reviewCta')}
+                  </button>
+                )}
+                {/* sdk-params: clipboard.writeText — one click puts the shift's summary on the clipboard */}
+                <button
+                  onClick={() =>
+                    onCopyResult(
+                      t('shareTemplate')
+                        .replace('{mode}', t(hud.survival ? 'survival' : 'explorer'))
+                        .replace('{score}', String(hud.score))
+                        .replace('{blocks}', String(hud.blocksMined))
+                        .replace('{depth}', String(hud.deepest)),
+                    )
+                  }
+                  className="gameover-action gameover-utility-action btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] text-white/80"
+                >
+                  ⧉ {t('copyResult')}
+                </button>
+              </div>
+
+              <div className="gameover-feedback font-display text-[10px] tracking-[0.16em]">
+                {reviewNote && <span className="text-[#8ee9e2]">{reviewNote}</span>}
+                {copyNote && <span className="text-[#8ee9e2]">{copyNote}</span>}
+                {adNotice && <span className="text-copper">{adNotice}</span>}
+                <span className="gameover-shortcut text-white/30">[R] · [ESC]</span>
+              </div>
+            </div>
+          </section>
+
+          <aside className="gameover-aside anim-rise min-w-0" style={{ animationDelay: '120ms' }}>
+            <div className="mb-2.5 flex items-center gap-2">
+              <span className="text-[10px] tracking-[0.28em] text-white/40">{t('signLog')}</span>
+              <input
+                value={name}
+                maxLength={12}
+                onChange={(e) => onName(e.target.value.toUpperCase().replace(/[^A-ZА-ЯЁ0-9 _-]/g, ''))}
+                className="sunken notch flex-1 px-2.5 py-1.5 font-display text-base tracking-widest text-torch outline-none focus:ring-2 focus:ring-torch/50"
+                placeholder={t('miner')}
+              />
+            </div>
+            <ScoreTable scores={scores} highlight={token} />
+          </aside>
         </div>
       </FitBox>
     </div>

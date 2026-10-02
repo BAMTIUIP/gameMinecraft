@@ -105,6 +105,8 @@ export const MOBS: Record<MobId, MobDef> = {
 export const HOSTILES: MobId[] = ['zombie', 'skeleton', 'spider', 'creeper'];
 export const PASSIVES: MobId[] = ['pig', 'sheep', 'cow', 'chicken'];
 
+export type MobThreatTarget = { id: string; x: number; y: number; z: number };
+
 export type Mob = {
   id: MobId;
   def: MobDef;
@@ -1839,11 +1841,12 @@ export class MobSystem {
     py: number,
     pz: number,
     daylight: number,
-    onAttack: (m: Mob, dmg: number) => void,
+    onAttack: (m: Mob, dmg: number, targetId?: string | null) => void,
     onBurnDeath: (m: Mob) => void,
     onRanged?: (m: Mob) => void,
     onForage?: (x: number, y: number, z: number) => void,
     onFeed?: (x: number, y: number, z: number, food: number) => void,
+    hostileTargets: readonly MobThreatTarget[] = [],
   ) {
     this.tick++;
     // cats scare creepers & spiders — collect their positions once per frame
@@ -1938,9 +1941,30 @@ export class MobSystem {
       if (m.cd > 0) m.cd -= mdt;
       if (m.jumpCd > 0) m.jumpCd -= mdt;
 
-      const dx = px - m.x;
-      const dz = pz - m.z;
-      const dy = py - m.y;
+      let targetX = px;
+      let targetY = py;
+      let targetZ = pz;
+      let targetId: string | null = null;
+      let targetDistSq = (px - m.x) ** 2 + (pz - m.z) ** 2;
+      // Local fallback miners can draw melee hostiles away from the player. Recorded Yandex sessions
+      // are not treated as live targets, and ranged mobs keep their normal player target.
+      if (def.hostile && !def.ranged) {
+        for (const candidate of hostileTargets) {
+          const dx2 = candidate.x - m.x;
+          const dz2 = candidate.z - m.z;
+          const d2 = dx2 * dx2 + dz2 * dz2;
+          if (d2 < targetDistSq && Math.abs(candidate.y - m.y) < 9) {
+            targetDistSq = d2;
+            targetX = candidate.x;
+            targetY = candidate.y;
+            targetZ = candidate.z;
+            targetId = candidate.id;
+          }
+        }
+      }
+      const dx = targetX - m.x;
+      const dz = targetZ - m.z;
+      const dy = targetY - m.y;
       const dist = Math.hypot(dx, dz);
       const speedMul = m.slow > 0 ? 0.45 : 1;
 
@@ -1983,7 +2007,7 @@ export class MobSystem {
             mx = (dx / (dist || 1)) * def.speed * speedMul;
             mz = (dz / (dist || 1)) * def.speed * speedMul;
           }
-          if (m.cd <= 0 && dist < 16 && this.lineOfSight(m, px, py + 1.2, pz)) {
+          if (m.cd <= 0 && dist < 16 && this.lineOfSight(m, targetX, targetY + 1.2, targetZ)) {
             m.cd = def.cooldown;
             onRanged?.(m);
           }
@@ -1993,7 +2017,7 @@ export class MobSystem {
         }
         // melee needs an unobstructed line — no biting through walls or floors
         const canTouch =
-          !def.ranged && dist < def.reach && Math.abs(dy) < 2.2 && this.lineOfSight(m, px, py + 1.2, pz);
+          !def.ranged && dist < def.reach && Math.abs(dy) < 2.2 && this.lineOfSight(m, targetX, targetY + 1.2, targetZ);
         // creeper fuse
         if (def.explodes) {
           if (canTouch) {
@@ -2004,14 +2028,14 @@ export class MobSystem {
             mx *= 0.25;
             mz *= 0.25;
             if (m.fuse <= 0) {
-              onAttack(m, def.damage);
+              onAttack(m, def.damage, targetId);
               this.remove(m);
               continue;
             }
           }
         } else if (canTouch && m.cd <= 0) {
           m.cd = def.cooldown;
-          onAttack(m, def.damage);
+          onAttack(m, def.damage, targetId);
         }
         // hop over obstacles / up to the player
         if (m.onGround && m.jumpCd <= 0 && (dy > 0.6 || (dist < 6 && Math.random() < mdt * 1.2))) {

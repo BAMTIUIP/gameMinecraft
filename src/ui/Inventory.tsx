@@ -140,7 +140,7 @@ export default function Inventory({
   return (
     <div className="absolute inset-0 z-30 overflow-y-auto bg-pit-950/85 backdrop-blur-[3px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
-      <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col p-3 sm:p-6">
+      <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-3 sm:p-6">
         {/* ---------- header ---------- */}
         <div className="anim-rise bevel notch mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-end gap-3">
@@ -893,7 +893,7 @@ function Recipes({
         </span>
       </div>
 
-      <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
+      <div className="recipe-list flex min-w-0 flex-col gap-1.5 overflow-y-auto pr-1">
         {recipes.map((r, i) => {
           const ready = craftable.has(r.key);
           const justCrafted = hud.lastCraft === r.key;
@@ -904,7 +904,7 @@ function Recipes({
           return (
             <div
               key={r.key}
-              className={`anim-rise notch group relative flex items-center gap-2.5 px-2.5 py-2 transition-all duration-150 sm:gap-3 ${
+              className={`recipe-card anim-rise notch group relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-2 py-2 transition-all duration-150 sm:flex-nowrap sm:gap-3 sm:px-2.5 sm:gap-y-0 ${
                 ready ? 'hover:translate-x-1' : 'opacity-45'
               } ${justCrafted ? 'anim-pop' : ''}`}
               style={{
@@ -942,7 +942,7 @@ function Recipes({
                 )}
               </div>
 
-              <div className="min-w-0 flex-1">
+              <div className="recipe-details min-w-0 flex-[1_1_8rem] sm:flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className="truncate font-display text-sm leading-tight sm:text-base" style={{ color: ready ? r.accent : '#c9d3cc' }}>
                     {rName}
@@ -956,7 +956,7 @@ function Recipes({
                 <div className="truncate text-[10px] leading-tight text-white/40">{rDesc}</div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="recipe-costs flex min-w-0 flex-[1_1_10rem] flex-wrap items-center gap-1 sm:flex-initial sm:flex-nowrap sm:shrink-0">
                 {r.inputs.map(([id, n]) => {
                   const have = hud.inventory.find((x) => x.id === id)?.count ?? 0;
                   const ok = have >= n;
@@ -966,7 +966,7 @@ function Recipes({
                   return (
                     <span
                       key={id}
-                      className="flex items-center gap-0.5"
+                      className="flex items-center gap-0.5 whitespace-nowrap"
                       title={`${inputName}: ${have}/${n}`}
                     >
                       {inputSpec ? (
@@ -984,7 +984,7 @@ function Recipes({
                       ) : (
                         <span className="flex h-6 w-6 items-center justify-center font-display text-[9px] text-white/50">?</span>
                       )}
-                      <span className={`font-display text-xs ${ok ? 'text-moss' : 'text-blood'}`}>
+                      <span className={`whitespace-nowrap font-display text-[10px] sm:text-xs ${ok ? 'text-moss' : 'text-blood'}`}>
                         {have}/{n}
                       </span>
                     </span>
@@ -995,7 +995,7 @@ function Recipes({
               <button
                 disabled={!ready}
                 onClick={() => onCraft(r.key)}
-                className="btn-mc notch shrink-0 px-2.5 py-2 font-display text-[11px] leading-none sm:px-3.5 sm:text-xs"
+                className="recipe-craft btn-mc notch shrink-0 whitespace-nowrap px-2 py-2 font-display text-[10px] leading-none sm:px-3.5 sm:text-xs"
                 style={{
                   background: ready ? `linear-gradient(180deg, ${r.accent}, ${r.accent}99)` : 'linear-gradient(180deg,#26322b,#161d19)',
                   color: ready ? '#0a0e0c' : '#4c5b52',

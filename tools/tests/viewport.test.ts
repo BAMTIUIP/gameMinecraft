@@ -161,7 +161,15 @@ const layoutCss = readFileSync(path.join(root, 'src/index.css'), 'utf8');
 ok(/\.hotbar-row\s*\{[^}]*width:\s*min\(/s.test(layoutCss), 'Хотбар занимает доступную ширину (десять слотов не вылезают за экран)');
 ok(/\.hotbar-cell\s*\{[^}]*flex:/s.test(layoutCss) && /aspect-ratio:\s*1/.test(layoutCss), 'Слоты хотбара делят ширину и остаются квадратными');
 ok(/orientation:\s*landscape/.test(layoutCss) && /max-height:\s*520px/.test(layoutCss), 'Для телефона в альбомной ориентации есть компактная раскладка');
+ok(/orientation:\s*landscape\) and \(max-height:\s*560px/.test(layoutCss) && /hud-vitals-coordinates[\s\S]*hud-information--fps \{ display: none/s.test(layoutCss), 'В коротком альбомном окне вторичные показатели скрываются ради здоровья и миссии');
+ok(/hud-objective-row--locked/.test(layoutCss) && /hud-objective-reward/.test(layoutCss) && /hud-objective-progress/.test(layoutCss), 'Короткая панель миссий сохраняет текущую цель без наград и прогресс-бара');
 ok(/max-width:\s*700px/.test(layoutCss), 'Для узких экранов есть своя раскладка');
+ok(/@media \(orientation: portrait\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*flex-direction: column-reverse/.test(layoutCss), 'На сенсорном телефоне в портрете хотбар выстраивается слева, слот 1 остаётся снизу');
+ok(/@media \(orientation: landscape\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*width: min\(calc\(100vw - 23rem\)/.test(layoutCss), 'В альбомной ориентации хотбар занимает центральный ряд между сенсорными блоками');
+ok(/\.shop-dialog[\s\S]*height: min\(92dvh/.test(layoutCss) && /\.shop-catalog[\s\S]*flex: 1 1 0[\s\S]*overflow-y: auto/.test(layoutCss), 'Магазин фиксирует шапку и отдаёт каталогу оставшуюся прокручиваемую высоту');
+
+const inventory = readFileSync(path.join(root, 'src/ui/Inventory.tsx'), 'utf8');
+ok(/recipe-card[^`]*flex-wrap/.test(inventory) && /recipe-costs[^`]*flex-wrap/.test(inventory) && /recipe-craft/.test(inventory), 'Карточки крафта переносят ресурсы и кнопку на узкой ширине');
 
 const fit = readFileSync(path.join(root, 'src/ui/FitBox.tsx'), 'utf8');
 ok(/MIN_SCALE/.test(fit) && /ResizeObserver/.test(fit), 'FitBox пересчитывает масштаб при изменении размера окна');
@@ -169,6 +177,11 @@ ok(/scrollTop = 0/.test(fit), 'После пересчёта прокрутка 
 
 const hud = readFileSync(path.join(root, 'src/ui/Hud.tsx'), 'utf8');
 ok(!/h-10 w-10/.test(hud), 'Фиксированные размеры слотов хотбара убраны');
+ok(/hud-information--top-left/.test(hud) && /hud-objective-panel/.test(hud), 'Панель миссий привязана к блоку здоровья и координат');
+ok(/hud-information--top-right/.test(hud) && /hud-information--top-center/.test(hud), 'Информация HUD размечена отдельными зонами для адаптивного масштаба');
+ok(/gameover-primary-actions/.test(readFileSync(path.join(root, 'src/ui/Screens.tsx'), 'utf8')), 'Кнопки экрана смерти собраны в симметричную сетку');
+ok(/scale:\s*var\(--hud-information-scale\)/.test(css) && /\.hud-touch \.hud-information--top-left/.test(css), 'На телефоне масштабируется информация HUD, а не сенсорное управление');
+ok(/\.gameover-primary-actions/.test(css) && /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/.test(css), 'Основные кнопки экрана смерти имеют одинаковые колонки');
 
 const html = readFileSync(path.join(root, 'index.html'), 'utf8');
 ok(/viewport-fit=cover/.test(html), 'Метатег учитывает вырезы экрана (viewport-fit=cover)');
