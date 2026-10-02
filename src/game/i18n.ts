@@ -11,6 +11,18 @@ export const LANGS: Array<{ id: Lang; label: string; flag: string }> = [
 ];
 
 const EN = {
+  shopBalanceHint: 'BOUGHT',
+  shopLiveBadge: 'LIVE',
+  shopRealNotice: 'Payments are processed by Yandex Games. Diamonds are credited to your account and travel between devices.',
+  shopBuy: 'BUY',
+  shopBuying: 'OPENING…',
+  shopPurchaseDone: 'Purchase complete: +{n} diamonds',
+  shopPurchaseCancelled: 'Purchase cancelled — nothing was charged',
+  shopPurchaseFailed: 'The purchase did not go through. Please try again later.',
+  shopSoonHint: 'Coming soon',
+  continueWithDiamonds: 'CONTINUE · {n} ◆',
+  notEnoughDiamonds: 'Not enough diamonds',
+
   adRevived: 'SECOND WIND',
   adRevivedSub: 'Rewarded video: the shift continues',
   watchAdRevive: 'WATCH AD · CONTINUE',
@@ -476,6 +488,18 @@ const EN = {
 type Dict = typeof EN;
 
 const RU: Dict = {
+  shopBalanceHint: 'КУПЛЕНО',
+  shopLiveBadge: 'ПОКУПКИ',
+  shopRealNotice: 'Платежи обрабатывает Яндекс Игры. Алмазы начисляются на аккаунт и переносятся между устройствами.',
+  shopBuy: 'КУПИТЬ',
+  shopBuying: 'ОТКРЫВАЕМ…',
+  shopPurchaseDone: 'Покупка совершена: +{n} алмазов',
+  shopPurchaseCancelled: 'Покупка отменена — деньги не списаны',
+  shopPurchaseFailed: 'Покупка не прошла. Попробуйте позже.',
+  shopSoonHint: 'Скоро появится',
+  continueWithDiamonds: 'ПРОДОЛЖИТЬ · {n} ◆',
+  notEnoughDiamonds: 'Не хватает алмазов',
+
   adRevived: 'ВТОРОЕ ДЫХАНИЕ',
   adRevivedSub: 'Видеореклама: смена продолжается',
   watchAdRevive: 'СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ',
@@ -922,6 +946,18 @@ const RU: Dict = {
 };
 
 const FR: Dict = {
+  shopBalanceHint: 'ACHETÉS',
+  shopLiveBadge: 'ACHATS',
+  shopRealNotice: 'Les paiements sont traités par Yandex Games. Les diamants sont crédités sur votre compte et suivent d’un appareil à l’autre.',
+  shopBuy: 'ACHETER',
+  shopBuying: 'OUVERTURE…',
+  shopPurchaseDone: 'Achat effectué : +{n} diamants',
+  shopPurchaseCancelled: 'Achat annulé — rien n’a été débité',
+  shopPurchaseFailed: 'L’achat n’a pas abouti. Réessayez plus tard.',
+  shopSoonHint: 'Bientôt disponible',
+  continueWithDiamonds: 'CONTINUER · {n} ◆',
+  notEnoughDiamonds: 'Pas assez de diamants',
+
   adRevived: 'SECOND SOUFFLE',
   adRevivedSub: 'Vidéo récompensée : la session continue',
   watchAdRevive: 'VOIR UNE PUB · CONTINUER',
@@ -1368,6 +1404,18 @@ const FR: Dict = {
 };
 
 const DE: Dict = {
+  shopBalanceHint: 'GEKAUFT',
+  shopLiveBadge: 'KÄUFE',
+  shopRealNotice: 'Zahlungen werden von Yandex Games abgewickelt. Diamanten werden dem Konto gutgeschrieben und wandern zwischen Geräten.',
+  shopBuy: 'KAUFEN',
+  shopBuying: 'ÖFFNEN…',
+  shopPurchaseDone: 'Kauf abgeschlossen: +{n} Diamanten',
+  shopPurchaseCancelled: 'Kauf abgebrochen — es wurde nichts abgebucht',
+  shopPurchaseFailed: 'Der Kauf ist fehlgeschlagen. Bitte später erneut versuchen.',
+  shopSoonHint: 'Kommt bald',
+  continueWithDiamonds: 'WEITER · {n} ◆',
+  notEnoughDiamonds: 'Nicht genug Diamanten',
+
   adRevived: 'ZWEITER ATEM',
   adRevivedSub: 'Rewarded Video: die Schicht geht weiter',
   watchAdRevive: 'WERBUNG ANSEHEN · WEITER',

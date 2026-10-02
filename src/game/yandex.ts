@@ -83,6 +83,36 @@ export type YaAdv = {
 
 export type YaAdResult = { shown: boolean; rewarded: boolean; error?: boolean };
 
+/**
+ * In-app purchases (https://yandex.ru/dev/games/doc/ru/sdk/sdk-purchases). The game processes
+ * payments on the client (`signed: false`), so the returned objects are plain, unencrypted data.
+ */
+export type YaPurchase = {
+  productID: string;
+  purchaseToken: string;
+  developerPayload?: string;
+};
+
+/** An item of the Yandex Console catalogue: the price (and its currency icon) comes from here. */
+export type YaProduct = {
+  id: string;
+  title: string;
+  description: string;
+  imageURI: string;
+  price: string;
+  priceValue: string;
+  priceCurrencyCode: string;
+  getPriceCurrencyImage?: (size?: 'small' | 'medium' | 'svg') => string;
+};
+
+export type YaPayments = {
+  purchase: (data: { id: string; developerPayload?: string }) => Promise<YaPurchase>;
+  getPurchases: () => Promise<YaPurchase[]>;
+  getCatalog: () => Promise<YaProduct[]>;
+  /** removes a consumed purchase for good: call it only after the reward is saved */
+  consumePurchase: (purchaseToken: string) => Promise<void>;
+};
+
 /** Snapshot of the platform profile, safe to render from React. */
 export type YaProfile = {
   authorized: boolean;
@@ -102,6 +132,9 @@ type YSDK = {
   getFlags?: (params?: { defaultFlags?: YaFlags; clientFeatures?: YaClientFeature[] }) => Promise<YaFlags>;
   /** advertising: fullscreen, rewarded video and the sticky banner */
   adv?: YaAdv;
+  /** in-app purchases: preload with getPayments() and/or use directly */
+  payments?: YaPayments;
+  getPayments?: (options?: { signed?: boolean }) => Promise<YaPayments>;
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -582,6 +615,99 @@ export async function yaHideBannerAdv(): Promise<YaBannerStatus | null> {
   } catch (err) {
     console.warn('[Yandex SDK] hideBannerAdv() failed', err);
     return null;
+  }
+}
+
+/* ============================ in-app purchases ============================ */
+
+let paymentsPromise: Promise<YaPayments | null> | null = null;
+
+/**
+ * `ysdk.getPayments()` preloads everything the payment methods need, so the first `purchase()` is not
+ * delayed by the network (the docs recommend it). Falls back to the lazily-initialised
+ * `ysdk.payments` object, and to null when purchases are unavailable (outside Yandex, no contract).
+ */
+export function yaGetPayments(): Promise<YaPayments | null> {
+  if (paymentsPromise) return paymentsPromise;
+  paymentsPromise = (async () => {
+    if (!ysdk?.getPayments && !ysdk?.payments) return null;
+    try {
+      if (ysdk.getPayments) return await ysdk.getPayments();
+      return ysdk.payments ?? null;
+    } catch (err) {
+      console.warn('[Yandex SDK] getPayments() failed', err);
+      return null;
+    }
+  })();
+  return paymentsPromise;
+}
+
+/** Is there a payment flow at all? (the shop hides behind this outside Yandex Games) */
+export function yaPaymentsAvailable(): boolean {
+  return Boolean(ysdk?.getPayments || ysdk?.payments) && Boolean(ysdk);
+}
+
+/**
+ * `payments.purchase({ id })` — opens the payment frame. Rejects when the player closes the window,
+ * when the product is unknown or when the payment provider fails; the caller must treat all of those
+ * as "no purchase" and must not credit anything.
+ */
+export async function yaPurchase(id: string, developerPayload?: string): Promise<YaPurchase | null> {
+  const payments = await yaGetPayments();
+  if (!payments?.purchase) return null;
+  try {
+    const purchase = await payments.purchase(developerPayload === undefined ? { id } : { id, developerPayload });
+    if (!purchase?.purchaseToken) return null;
+    return purchase;
+  } catch (err) {
+    // a cancelled purchase is a normal outcome, not an error state
+    console.info('[Yandex SDK] purchase not completed', err);
+    return null;
+  }
+}
+
+/**
+ * `payments.getPurchases()` — also the mandatory start-up check for unprocessed purchases
+ * (requirement 1.13.1): whatever was paid for but not consumed must be delivered on the next launch.
+ */
+export async function yaGetPurchases(): Promise<YaPurchase[] | null> {
+  const payments = await yaGetPayments();
+  if (!payments?.getPurchases) return null;
+  try {
+    const purchases = await payments.getPurchases();
+    return Array.isArray(purchases) ? purchases.filter((p) => p && typeof p.purchaseToken === 'string') : [];
+  } catch (err) {
+    console.warn('[Yandex SDK] getPurchases() failed', err);
+    return null;
+  }
+}
+
+/** `payments.getCatalog()` — product titles, descriptions and prices configured in the Console. */
+export async function yaGetCatalog(): Promise<YaProduct[] | null> {
+  const payments = await yaGetPayments();
+  if (!payments?.getCatalog) return null;
+  try {
+    const catalog = await payments.getCatalog();
+    return Array.isArray(catalog) ? catalog : null;
+  } catch (err) {
+    console.warn('[Yandex SDK] getCatalog() failed', err);
+    return null;
+  }
+}
+
+/**
+ * `payments.consumePurchase(token)` — irreversible. The docs are explicit: save the reward to the
+ * player's data first, consume second. Otherwise a failed save loses the purchase for good.
+ */
+export async function yaConsumePurchase(purchaseToken: string): Promise<boolean> {
+  const payments = await yaGetPayments();
+  if (!payments?.consumePurchase) return false;
+  try {
+    await payments.consumePurchase(purchaseToken);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] consumePurchase() failed', err);
+    return false;
   }
 }
 

@@ -23,6 +23,7 @@ import {
 import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
+import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
 import { storageGet, storageSet } from './game/storage';
 
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
@@ -112,6 +113,10 @@ export default function App() {
   const [adBusy, setAdBusy] = useState(false);
   const [adNotice, setAdNotice] = useState<string | null>(null);
   const [revivesUsed, setRevivesUsed] = useState(0);
+  // shop: real payments go through the Yandex payment frame, the balance lives in the cloud profile
+  const [diamonds, setDiamonds] = useState(0);
+  const [shopPrices, setShopPrices] = useState<ShopCatalog>(() => new Map());
+  const [canPay, setCanPay] = useState(false);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -143,6 +148,16 @@ export default function App() {
       // Remote config: one request at startup (sdk-config). Paying status comes from the profile,
       // so the Yandex Console can target monetisation flags at paying / non-paying groups.
       setFlags(await loadFlags(snapshot.platform?.paying));
+
+      // Shop: the catalogue gives real prices in the player's currency, and any purchase that was
+      // paid for but not delivered last time is granted right now (requirement 1.13.1).
+      setCanPay(paymentsAvailable());
+      if (paymentsAvailable()) {
+        setShopPrices(await loadShopCatalog());
+        const restored = await deliverPendingPurchases();
+        if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
+      }
+      setDiamonds(diamondsBalance());
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -421,6 +436,29 @@ export default function App() {
     if (snapshot.cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
   }, []);
 
+  /** Opens the Yandex payment frame and settles the balance when it closes. */
+  const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
+    const result = await buyDiamondPack(productId);
+    setDiamonds(result.diamonds);
+    return result;
+  }, []);
+
+  /** Paid alternative to the rewarded video: same revive, paid with diamonds. */
+  const reviveWithDiamonds = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine || engine.phase !== 'gameover') return;
+    if (diamondsBalance() < REVIVE_DIAMOND_PRICE) {
+      setAdNotice(t('notEnoughDiamonds'));
+      return;
+    }
+    if (!engine.reviveAfterAd(REVIVE_SECONDS)) return;
+    // the balance was checked a line above, so a refusal here would be a race, not a shortfall:
+    // the revive is already granted and the diamonds stay with the player
+    buyRevive();
+    setDiamonds(diamondsBalance());
+    setAdNotice(null);
+  }, []);
+
   const playing = hud.phase === 'playing' || hud.phase === 'paused';
 
   return (
@@ -475,6 +513,10 @@ export default function App() {
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
           shopEnabled={flags['shop.enabled'] !== 'false'}
+          diamonds={diamonds}
+          shopPrices={shopPrices}
+          paymentsAvailable={canPay}
+          onBuyPack={buyPack}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (
@@ -528,6 +570,9 @@ export default function App() {
           adBusy={adBusy}
           adNotice={adNotice}
           reviveSeconds={REVIVE_SECONDS}
+          diamonds={diamonds}
+          diamondPrice={REVIVE_DIAMOND_PRICE}
+          onDiamondRevive={reviveWithDiamonds}
         />
       )}
     </div>

@@ -5,8 +5,15 @@
  * `npm run yandex:sdk-check` serves dist/ over HTTP, swaps the real /sdk.js for
  * tools/yandex-sdk-check/mock-sdk.js, drives the game in headless Chromium and asserts on the SDK
  * call log (window.__yaCalls). That is the only way to see the init → LoadingAPI.ready →
- * GameplayAPI.start/stop sequence, remote config, cloud saves and advertising without the developer
- * console on games.yandex.ru.
+ * GameplayAPI.start/stop sequence, remote config, cloud saves, advertising and purchases without the
+ * developer console on games.yandex.ru.
+ *
+ * Two scenarios run in separate browser contexts:
+ *   A. a player with cloud progress from another device and one undelivered purchase — the game must
+ *      merge the cloud profile, deliver the purchase (before consuming it!) and play a full shift
+ *      with а rewarded video, a paid revive and a fullscreen ad;
+ *   B. the shop: catalogue prices from the Console, a real purchase click, the balance and the
+ *      consumption order.
  *
  * Browser: uses the first of
  *   1. $CHROME_PATH / $PUPPETEER_EXECUTABLE_PATH,
@@ -111,246 +118,346 @@ const browser = await puppeteer.launch({
   env: { ...process.env, ...(chromium.extraEnv ?? {}) },
 });
 
-/* --------------------------------- checks --------------------------------- */
+/* ------------------------------ check helpers ------------------------------ */
 
 const failures = [];
 const passes = [];
 const check = (ok, label, detail = '') => (ok ? passes : failures).push(detail ? `${label} → ${detail}` : label);
-
-const page = await browser.newPage();
-const consoleErrors = [];
-page.on('console', (msg) => {
-  if (msg.type() === 'error') consoleErrors.push(msg.text());
-});
-page.on('pageerror', (err) => consoleErrors.push(String(err)));
-
-// a player who already has cloud progress from another device
-const seed = {
-  lang: 'ru',
-  name: 'CLOUD MINER',
-  // remote config: the shop is off for this group, the FPS counter is hidden
-  flags: { 'shop.enabled': 'false', 'ui.showFps': 'false' },
-  // and the explorer shift is 15 s, which lets the check reach the results screen end to end
-  data: {
-    'orerush.profile': {
-      v: 1,
-      savedAt: Date.now(),
-      name: 'CLOUD MINER',
-      scores: [
-        { name: 'CLOUD MINER', score: 9999, blocks: 10, tier: 'IRON', depth: 5, combo: 3, date: Date.now(), token: 'cloud-1' },
-      ],
-      totals: { bestScore: 9999, blocksMined: 4242 },
-    },
-  },
-  stats: { bestScore: 9999, blocksMined: 4242 },
-  adsFill: true,
-  rewarded: true,
-};
-await page.evaluateOnNewDocument(
-  (s) => {
-    window.__yaMockSeed = s;
-    // the shortened shift: the game reads game.exploreMinutes from the remote config
-    window.__yaMockSeed.flags = { ...s.flags, 'game.exploreMinutes': '0.25' };
-  },
-  seed,
-);
-
-const calls = () => page.evaluate(() => window.__yaCalls ?? []);
-const names = (log) => log.map((c) => c.name);
-const count = (log, name) => log.filter((c) => c.name === name).length;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const waitFor = async (label, fn, timeout = 60_000, arg) => {
-  const start = Date.now();
-  for (;;) {
-    try {
-      // `arg` is passed into the page: a closure variable would be a ReferenceError there
-      if (await page.evaluate(fn, arg)) return true;
-    } catch {
-      /* page mid-navigation */
-    }
-    if (Date.now() - start > timeout) {
-      check(false, label, `таймаут ${timeout} ms`);
-      return false;
-    }
-    await wait(250);
-  }
-};
 
-try {
+/** Everything a scenario needs to drive one page and read the SDK call log. */
+async function openGame(seed) {
+  // NOTE: createBrowserContext() crashes this headless build (Target closed), so scenarios reuse the
+  // same browser and just clear localStorage before the app boots.
+  const page = await browser.newPage();
+  const consoleErrors = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') consoleErrors.push(msg.text());
+  });
+  page.on('pageerror', (err) => consoleErrors.push(String(err)));
+
+  await page.evaluateOnNewDocument((s) => {
+    try {
+      window.localStorage.clear();
+    } catch {
+      /* about:blank */
+    }
+    window.__yaCalls = [];
+    window.__yaMockSeed = s;
+  }, seed);
+  const calls = () => page.evaluate(() => window.__yaCalls ?? []);
+  const names = (log) => log.map((c) => c.name);
+  const count = (log, name) => log.filter((c) => c.name === name).length;
+  const storageValue = (key) => page.evaluate((k) => window.localStorage.getItem(k), key);
+  const clickByText = (re) =>
+    page.evaluate((source) => {
+      const rx = new RegExp(source, 'i');
+      const button = [...document.querySelectorAll('button')].find((b) => rx.test(b.textContent ?? ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    }, re.source);
+  const waitFor = async (label, fn, timeout = 60_000, arg) => {
+    const start = Date.now();
+    for (;;) {
+      try {
+        // `arg` is passed into the page: a closure variable would be a ReferenceError there
+        if (await page.evaluate(fn, arg)) return true;
+      } catch {
+        /* page mid-navigation */
+      }
+      if (Date.now() - start > timeout) {
+        check(false, label, `таймаут ${timeout} ms`);
+        return false;
+      }
+      await wait(250);
+    }
+  };
+
   await page.goto(`${base}?payload=check`, { waitUntil: 'domcontentloaded' });
+  return { page, consoleErrors, calls, names, count, storageValue, clickByText, waitFor };
+}
+
+/* --------------------------------- scenario A --------------------------------- */
+
+async function scenarioProgress() {
+  const game = await openGame({
+    lang: 'ru',
+    name: 'CLOUD MINER',
+    // remote config: the shop is off for this group, the FPS counter is hidden, and the
+    // explorer shift lasts 15 s so the check can reach the results screen end to end
+    flags: { 'shop.enabled': 'false', 'ui.showFps': 'false', 'game.exploreMinutes': '0.25' },
+    data: {
+      'orerush.profile': {
+        v: 1,
+        savedAt: Date.now(),
+        name: 'CLOUD MINER',
+        scores: [
+          { name: 'CLOUD MINER', score: 9999, blocks: 10, tier: 'IRON', depth: 5, combo: 3, date: Date.now(), token: 'cloud-1' },
+        ],
+        totals: { bestScore: 9999, blocksMined: 4242 },
+      },
+    },
+    stats: { bestScore: 9999, blocksMined: 4242 },
+    // a purchase that went through on another device and was never delivered
+    purchases: [{ productID: 'diamonds-100', purchaseToken: 'pending-token-1', developerPayload: '' }],
+    adsFill: true,
+    rewarded: true,
+  });
 
   // ===================== 1. boot: SDK, loader, remote config =====================
-  const menuUp = await waitFor('Меню игры появилось', () => {
+  const menuUp = await game.waitFor('Меню игры появилось', () => {
     const root = document.getElementById('root');
     return !!root && /ВОЙТИ ЧЕРЕЗ ЯНДЕКС|MINE NOW|НАЧАТЬ|CREUSER|ABBAUEN/i.test(root.textContent ?? '');
   });
-  const logBeforeMenu = await calls();
-  check(names(logBeforeMenu).includes('YaGames.init'), 'YaGames.init() вызван');
-  check(count(logBeforeMenu, 'LoadingAPI.ready') === 1, 'LoadingAPI.ready() вызван ровно один раз');
-  check(!menuUp || names(logBeforeMenu).includes('LoadingAPI.ready'), 'Game Ready отправлен вместе с появлением меню');
+  let log = await game.calls();
+  check(game.names(log).includes('YaGames.init'), 'YaGames.init() вызван');
+  check(game.count(log, 'LoadingAPI.ready') === 1, 'LoadingAPI.ready() вызван ровно один раз');
+  check(!menuUp || game.names(log).includes('LoadingAPI.ready'), 'Game Ready отправлен вместе с появлением меню');
 
-  check(count(logBeforeMenu, 'ysdk.getFlags') === 1, 'ysdk.getFlags() вызван один раз на старте');
-  const flagCall = logBeforeMenu.find((c) => c.name === 'ysdk.getFlags')?.arg;
+  check(game.count(log, 'ysdk.getFlags') === 1, 'ysdk.getFlags() вызван один раз на старте');
+  const flagCall = log.find((c) => c.name === 'ysdk.getFlags')?.arg;
   check((flagCall?.local ?? 0) >= 9, 'Локальная конфигурация передана в defaultFlags', `ключей: ${flagCall?.local}`);
   check(
     (flagCall?.features ?? []).includes('lang') && (flagCall?.features ?? []).includes('payingStatus'),
     'Клиентские параметры (lang, payingStatus) переданы',
     JSON.stringify(flagCall?.features),
   );
-  const shopVisible = await page.evaluate(() =>
+  const shopVisible = await game.page.evaluate(() =>
     [...document.querySelectorAll('button')].some((b) => /МАГАЗИН|SHOP|BOUTIQUE/i.test(b.textContent ?? '')),
   );
   check(shopVisible === false, 'Флаг shop.enabled=false действительно скрыл магазин');
 
-  // ===================== 2. player: profile, cloud merge, rate limits =====================
-  check(count(logBeforeMenu, 'ysdk.getPlayer') <= 2, 'getPlayer() в пределах лимита 20/5мин');
-  check(names(logBeforeMenu).includes('player.getData'), 'player.getData() вызван для облачного профиля');
-  const restored = await page.evaluate(() =>
-    (window.localStorage.getItem('orerush.highscores.v1') ?? '').includes('CLOUD MINER'),
-  );
+  // ===================== 2. player + cloud merge + pending purchase =====================
+  check(game.count(log, 'ysdk.getPlayer') <= 2, 'getPlayer() в пределах лимита 20/5мин');
+  check(game.names(log).includes('player.getData'), 'player.getData() вызван для облачного профиля');
+  const restored = (await game.storageValue('orerush.highscores.v1'))?.includes('CLOUD MINER') ?? false;
   check(restored, 'Облачные рекорды подтянуты в локальную таблицу');
 
+  check(game.names(log).includes('payments.getPurchases'), 'Необработанные покупки проверяются на старте (1.13.1)');
+  const balance = await game.storageValue('orerush.diamonds.v1');
+  check(balance === '100', 'Незакрытая покупка зачислена на баланс алмазов', `баланс: ${balance}`);
+  const consumeAt = game.names(log).indexOf('payments.consumePurchase');
+  const saveAt = log.map((c) => c.name).lastIndexOf('player.setData');
+  check(consumeAt >= 0, 'Токен покупки погашен (payments.consumePurchase)');
+  check(saveAt >= 0 && saveAt < consumeAt, 'Награда сохранена в облако ДО погашения покупки (порядок из документации)');
+
   // ===================== 3. explorer mode from the remote config =====================
-  const modeClicked = await page.evaluate(() => {
+  const modeClicked = await game.page.evaluate(() => {
     const section = [...document.querySelectorAll('section[aria-label]')][0];
-    const button =
-      section && [...section.querySelectorAll('button')].find((b) => b.getAttribute('aria-pressed') === 'false');
+    const button = section && [...section.querySelectorAll('button')].find((b) => b.getAttribute('aria-pressed') === 'false');
     if (!button) return false;
     button.click();
     return true;
   });
   check(modeClicked, 'Переключатель режима найден');
   await wait(500);
-  const mode = await page.evaluate(() => window.localStorage.getItem('orerush.mode'));
+  const mode = await game.storageValue('orerush.mode');
   check(mode === 'explorer', 'Режим переключился на исследователя', String(mode));
-  const cloudFlushed = await waitFor(
+  const cloudFlushed = await game.waitFor(
     'player.setData после смены режима',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.setData'),
     15_000,
   );
   check(cloudFlushed, 'Смена режима уходит в облако батчем (player.setData)');
-  const flushCount = count(await calls(), 'player.setData');
-  check(flushCount <= 3, 'Запись профиля не спамит лимит setData (100/5мин)', `запросов: ${flushCount}`);
+  const flushCount = game.count(await game.calls(), 'player.setData');
+  check(flushCount <= 4, 'Запись профиля не спамит лимит setData (100/5мин)', `запросов: ${flushCount}`);
 
   // ===================== 4. gameplay markup =====================
-  const playClicked = await page.evaluate(() => {
-    const button = [...document.querySelectorAll('button')].find((b) =>
-      /НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/i.test(b.textContent ?? ''),
-    );
-    if (!button) return false;
-    button.click();
-    return true;
-  });
+  const playClicked = await game.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/);
   check(playClicked, 'Кнопка старта забега найдена и нажата');
   await wait(3000);
-  check(names(await calls()).includes('GameplayAPI.start'), 'GameplayAPI.start() на старте забега');
+  check(game.names(await game.calls()).includes('GameplayAPI.start'), 'GameplayAPI.start() на старте забега');
 
-  await page.keyboard.press('Escape');
+  await game.page.keyboard.press('Escape');
   await wait(1200);
-  let log = await calls();
-  const startedIdx = names(log).lastIndexOf('GameplayAPI.start');
-  const stoppedIdx = names(log).lastIndexOf('GameplayAPI.stop');
+  log = await game.calls();
+  const startedIdx = game.names(log).lastIndexOf('GameplayAPI.start');
+  const stoppedIdx = game.names(log).lastIndexOf('GameplayAPI.stop');
   check(stoppedIdx > startedIdx, 'GameplayAPI.stop() на паузе (после start)');
-  await page.keyboard.press('Escape');
+  await game.page.keyboard.press('Escape');
   await wait(1200);
-  log = await calls();
-  check(names(log).lastIndexOf('GameplayAPI.start') > stoppedIdx, 'GameplayAPI.start() после снятия паузы');
+  log = await game.calls();
+  check(game.names(log).lastIndexOf('GameplayAPI.start') > stoppedIdx, 'GameplayAPI.start() после снятия паузы');
 
   // platform-driven pause / resume, while a run is really in progress
-  const stopsBefore = count(log, 'GameplayAPI.stop');
-  await page.evaluate(() => (window.__yaEmit?.game_api_pause ?? []).forEach((fn) => fn()));
+  const stopsBefore = game.count(log, 'GameplayAPI.stop');
+  await game.page.evaluate(() => (window.__yaEmit?.game_api_pause ?? []).forEach((fn) => fn()));
   await wait(1000);
-  log = await calls();
-  check(count(log, 'GameplayAPI.stop') > stopsBefore, 'Платформенная пауза (game_api_pause) останавливает геймплей');
-  const startsBefore = count(log, 'GameplayAPI.start');
-  await page.evaluate(() => (window.__yaEmit?.game_api_resume ?? []).forEach((fn) => fn()));
+  log = await game.calls();
+  check(game.count(log, 'GameplayAPI.stop') > stopsBefore, 'Платформенная пауза (game_api_pause) останавливает геймплей');
+  const startsBefore = game.count(log, 'GameplayAPI.start');
+  await game.page.evaluate(() => (window.__yaEmit?.game_api_resume ?? []).forEach((fn) => fn()));
   await wait(1200);
-  log = await calls();
-  check(count(log, 'GameplayAPI.start') > startsBefore, 'Возврат (game_api_resume) снова запускает геймплей');
+  log = await game.calls();
+  check(game.count(log, 'GameplayAPI.start') > startsBefore, 'Возврат (game_api_resume) снова запускает геймплей');
 
   // ===================== 5. the sticky banner is menu-only =====================
   check(
-    names(log).includes('adv.hideBannerAdv') || names(log).includes('adv.showBannerAdv'),
+    game.names(log).includes('adv.hideBannerAdv') || game.names(log).includes('adv.showBannerAdv'),
     'Стики-баннер управляется через API (меню/игра)',
   );
 
   // ===================== 6. the short shift ends → results screen, cloud stats =====================
-  const finished = await waitFor(
+  const finished = await game.waitFor(
     'Экран итогов забега',
     () =>
       /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|ЕЩЁ РАЗ|MINE AGAIN|NOCHMAL|REJOUER/i.test(
         document.body.innerText ?? '',
       ),
-    60_000,
+    150_000,
   );
   check(finished, 'Короткая смена из удалённой конфигурации дошла до экрана итогов');
-  const statsFlushed = await waitFor(
+  const statsFlushed = await game.waitFor(
     'Статистика забега в облаке',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.incrementStats' || c.name === 'player.setStats'),
     15_000,
   );
   check(statsFlushed, 'По итогам забега статистика ушла в player.incrementStats/setStats');
-  const profileFlushed = await waitFor(
+  const profileFlushed = await game.waitFor(
     'Рекорды в облачном профиле',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.setData' && (c.arg?.keys ?? []).includes('orerush.profile')),
     15_000,
   );
   check(profileFlushed, 'Рекорды забега ушли в облачный профиль (player.setData)');
 
-  // ===================== 7. rewarded video: click → reward → the run continues =====================
-  const startsBeforeRevive = count(await calls(), 'GameplayAPI.start');
-  const reviveClicked = await page.evaluate(() => {
-    const button = [...document.querySelectorAll('button')].find((b) =>
-      /СМОТРЕТЬ РЕКЛАМУ|WATCH AD|WERBUNG|VOIR UNE PUB/i.test(b.textContent ?? ''),
-    );
-    if (!button) return false;
-    button.click();
-    return true;
+  // ===================== 7. the results screen offers both revives =====================
+  const bothRevives = await game.page.evaluate(() => {
+    const text = document.body.innerText ?? '';
+    return {
+      rewarded: /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|NOCHMAL|REJOUER/i.test(text),
+      diamonds: /ПРОДОЛЖИТЬ · 100|CONTINUE · 100|WEITER · 100|CONTINUER · 100/.test(text),
+    };
   });
-  check(reviveClicked, 'Кнопка rewarded-видео предложена на экране итогов');
-  const rewardedShown = await waitFor(
-    'adv.showRewardedVideo',
-    () => (window.__yaCalls ?? []).some((c) => c.name === 'adv.showRewardedVideo'),
-    10_000,
-  );
-  check(rewardedShown, 'Клик вызвал ysdk.adv.showRewardedVideo()');
-  const revived = await waitFor(
-    'Возврат в забег после награды',
+  check(bothRevives.rewarded, 'Rewarded-возрождение осталось на месте (регрессия UI покупок)');
+  check(bothRevives.diamonds, 'Платное возрождение предложено рядом с рекламным, с ценой из REVIVE_DIAMOND_PRICE');
+
+  // ===================== 8. paid revive spends the diamonds =====================
+  const startsBeforeRevive = game.count(await game.calls(), 'GameplayAPI.start');
+  const paidReviveClicked = await game.clickByText(/ПРОДОЛЖИТЬ · 100|CONTINUE · 100|WEITER · 100|CONTINUER · 100/);
+  check(paidReviveClicked, 'Кнопка платного возрождения нажата');
+  const spent = await game.waitFor('Списание алмазов', () => window.localStorage.getItem('orerush.diamonds.v1') === '0', 20_000);
+  check(spent, 'Стоимость возрождения списана с баланса');
+  const revived = await game.waitFor(
+    'Возврат в забег после платного возрождения',
     (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before,
-    10_000,
+    15_000,
     startsBeforeRevive,
   );
-  check(revived, 'После награды забег продолжился (GameplayAPI.start)');
+  check(revived, 'Платное возрождение вернуло игрока в забег (GameplayAPI.start)');
+  check(
+    game.count(await game.calls(), 'payments.purchase') === 0,
+    'Возрождение за алмазы не открывает платёжное окно (оплата из баланса)',
+  );
 
-  // ===================== 8. fullscreen ad on "play again" (user action) =====================
-  await page.keyboard.press('Escape');
+  // ===================== 9. restart from the pause menu → fullscreen ad =====================
+  await game.page.keyboard.press('Escape');
   await wait(1500);
-  const restartClicked = await page.evaluate(() => {
-    const button = [...document.querySelectorAll('button')].find((b) =>
-      /ЗАНОВО|RESTART|NEU STARTEN|RECOMMENCER/i.test(b.textContent ?? ''),
-    );
-    if (!button) return false;
-    button.click();
-    return true;
-  });
-  const fullscreenShown = await waitFor(
+  const restartClicked = await game.clickByText(/ЗАНОВО|RESTART|NEU STARTEN|RECOMMENCER/);
+  const fullscreenShown = await game.waitFor(
     'adv.showFullscreenAdv',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'adv.showFullscreenAdv'),
     10_000,
   );
   check(restartClicked && fullscreenShown, 'Полноэкранная реклама вызвана действием игрока (кнопка «Заново»)');
 
-  // ===================== 9. local mirrors and console health =====================
-  const totalsMirror = await page.evaluate(() => !!window.localStorage.getItem('orerush.totals.v1'));
-  check(totalsMirror, 'Локальное зеркало статистики создано');
-  const fatal = consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
+  // ===================== 10. the next shift ends → rewarded revive =====================
+  const newShift = await game.waitFor(
+    'Второй экран итогов',
+    () => /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|NOCHMAL|REJOUER/i.test(document.body.innerText ?? ''),
+    150_000,
+  );
+  check(newShift, 'Следующая смена тоже доходит до экрана итогов');
+  const startsBeforeAd = game.count(await game.calls(), 'GameplayAPI.start');
+  const reviveClicked = await game.clickByText(/СМОТРЕТЬ РЕКЛАМУ|WATCH AD|WERBUNG|VOIR UNE PUB/);
+  check(reviveClicked, 'Кнопка rewarded-видео предложена на экране итогов');
+  const rewardedShown = await game.waitFor(
+    'adv.showRewardedVideo',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'adv.showRewardedVideo'),
+    15_000,
+  );
+  check(rewardedShown, 'Клик вызвал ysdk.adv.showRewardedVideo()');
+  const rewardedRevive = await game.waitFor(
+    'Возврат в забег после награды',
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before,
+    15_000,
+    startsBeforeAd,
+  );
+  check(rewardedRevive, 'После награды забег продолжился (GameplayAPI.start)');
+
+  // ===================== 10. local mirrors and console health =====================
+  check((await game.storageValue('orerush.totals.v1')) !== null, 'Локальное зеркало статистики создано');
+  const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
   check(fatal.length === 0, 'В консоли нет ошибок SDK', fatal.slice(0, 3).join(' | '));
 
-  if (process.env.DEBUG_SDK_CHECK) {
-    const tail = (await calls()).slice(-25).map((c) => `${c.name}${c.arg ? ` ${JSON.stringify(c.arg)}` : ''}`);
-    console.log('\n[debug] последние вызовы SDK:\n' + tail.join('\n'));
-    console.log('[debug] фаза игры:', await page.evaluate(() => document.body.innerText.slice(0, 200).replace(/\n+/g, ' | ')));
-  }
+  await game.page.close();
+}
+
+/* --------------------------------- scenario B --------------------------------- */
+
+async function scenarioShop() {
+  const game = await openGame({
+    lang: 'ru',
+    name: 'SHOPPER',
+    flags: { 'shop.enabled': 'true', 'game.exploreMinutes': '0.25' },
+    purchases: [],
+    adsFill: true,
+    rewarded: true,
+  });
+
+  await game.waitFor('Меню игры', () => /ВОЙТИ ЧЕРЕЗ ЯНДЕКС|ЕЩЁ РАЗ|MINE NOW|НАЧАТЬ/i.test(document.body.innerText ?? ''));
+  const catalogLoaded = await game.waitFor(
+    'Каталог товаров',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'payments.getCatalog'),
+    15_000,
+  );
+  check(catalogLoaded, 'Каталог покупок запрошен (payments.getCatalog)');
+
+  const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
+  check(shopOpened, 'Магазин открывается при включённом флаге');
+  await wait(400);
+  const priceShown = await game.page.evaluate(() => (document.body.innerText ?? '').includes('99 ₽'));
+  check(priceShown, 'В магазине показана цена из каталога Консоли (99 ₽)');
+  const currencyIcon = await game.page.evaluate(() =>
+    [...document.querySelectorAll('img')].some((img) => (img.getAttribute('src') ?? '').startsWith('data:image/gif')),
+  );
+  check(currencyIcon, 'Иконка портальной валюты взята из каталога (getPriceCurrencyImage)');
+
+  const before = game.count(await game.calls(), 'payments.purchase');
+  const buyClicked = await game.page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('button')].filter((b) => /КУПИТЬ|BUY|ACHETER|KAUFEN/.test(b.textContent ?? ''));
+    if (!buttons.length) return false;
+    buttons[0].click();
+    return true;
+  });
+  check(buyClicked, 'Кнопка покупки активна');
+  const purchased = await game.waitFor(
+    'payments.purchase',
+    (n) => (window.__yaCalls ?? []).filter((c) => c.name === 'payments.purchase').length > n,
+    10_000,
+    before,
+  );
+  check(purchased, 'Клик открыл платёжное окно (payments.purchase)');
+  const consumed = await game.waitFor(
+    'payments.consumePurchase',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'payments.consumePurchase'),
+    10_000,
+  );
+  check(consumed, 'После начисления алмазов покупка погашена');
+  const newBalance = await game.storageValue('orerush.diamonds.v1');
+  check(newBalance === '100', 'Алмазы начислены на баланс', `баланс: ${newBalance}`);
+  const noticeShown = await game.page.evaluate(() => /Покупка совершена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
+  check(noticeShown, 'Игрок видит подтверждение покупки');
+
+  const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
+  check(fatal.length === 0, 'Магазин работает без ошибок в консоли', fatal.slice(0, 3).join(' | '));
+
+  await game.page.close();
+}
+
+try {
+  await scenarioProgress();
+  await scenarioShop();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

@@ -47,6 +47,14 @@ export type CloudProfile = {
   mode?: 'survival' | 'explorer';
   lang?: Lang;
   totals?: Partial<Record<StatKey, number>>;
+  /** in-game currency bought in the shop; kept next to the records so it moves between devices */
+  diamonds?: number;
+  /**
+   * Purchase tokens already credited. The purchase itself is consumed right after the save, but if
+   * that call fails the platform hands the same token back on the next launch — the list keeps the
+   * player from being paid twice for it (see shop.deliverPendingPurchases).
+   */
+  deliveredPurchases?: string[];
 };
 
 export type StatKey =
@@ -57,7 +65,11 @@ export type StatKey =
   | 'deepest'
   | 'bestScore'
   | 'kills'
-  | 'playSeconds';
+  | 'playSeconds'
+  /** diamonds bought with real money through the Yandex payment frame */
+  | 'diamondsBought'
+  /** diamonds spent on in-game rewards */
+  | 'diamondsSpent';
 
 export type ProfileSnapshot = {
   /** platform profile (Yandex) or null when running outside Yandex Games */
@@ -126,6 +138,8 @@ function collect(): CloudProfile {
     v: 1,
     savedAt: yaServerTime(),
     name: storageGet(NAME_KEY) ?? undefined,
+    diamonds: diamonds,
+    deliveredPurchases: deliveredPurchases(),
     scores: localScores().slice(0, 8),
     ...(storageGet('orerush.mode') ? { mode: storageGet('orerush.mode') as 'survival' | 'explorer' } : {}),
     lang: getLang(),
@@ -170,37 +184,45 @@ function scheduleFlush() {
   }, wait);
 }
 
-/** Send everything that has piled up. `immediate` also asks the platform to write right away. */
-export async function flushProfile(immediate = false): Promise<void> {
+/**
+ * Send everything that has piled up. `immediate` also asks the platform to write right away.
+ * Returns true only when every pending change reached the platform — the shop relies on that
+ * guarantee before it consumes a purchase (docs: save the reward first, consume second).
+ */
+export async function flushProfile(immediate = false): Promise<boolean> {
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
     flushTimer = null;
   }
   const payload = pendingData;
   pendingData = null;
+  let saved = true;
 
   if (payload) {
     lastFlush = Date.now();
     storageSet(LOCAL_STAMP_KEY, String(payload.savedAt));
-    const ok = await yaCloudSet({ [CLOUD_KEY]: payload }, immediate);
+    saved = await yaCloudSet({ [CLOUD_KEY]: payload }, immediate);
     // on failure the payload is not silently dropped: it is re-queued for the next attempt
-    if (!ok) pendingData = payload;
+    if (!saved) pendingData = payload;
   }
 
-  await flushStats();
+  const statsSaved = await flushStats();
   emit();
+  return saved && statsSaved;
 }
 
-async function flushStats() {
+async function flushStats(): Promise<boolean> {
   const stats = pendingStats;
   const peaks = pendingPeaks;
   pendingStats = {};
   pendingPeaks = {};
-  if (!Object.keys(stats).length && !Object.keys(peaks).length) return;
+  if (!Object.keys(stats).length && !Object.keys(peaks).length) return true;
   lastStatsFlush = Date.now();
+  let ok2 = true;
 
   const ok = Object.keys(stats).length ? await yaStatsIncrement(stats) : true;
   if (!ok) {
+    ok2 = false;
     for (const [key, value] of Object.entries(stats) as Array<[StatKey, number]>) {
       pendingStats[key] = (pendingStats[key] ?? 0) + value;
     }
@@ -212,8 +234,12 @@ async function flushStats() {
     }
     const peaksOk = await yaStatsSet(absolute);
     // a failed peak write is retried from the local totals on the next run end
-    if (!peaksOk) for (const key of Object.keys(absolute) as StatKey[]) pendingPeaks[key] = Math.max(pendingPeaks[key] ?? 0, absolute[key]);
+    if (!peaksOk) {
+      ok2 = false;
+      for (const key of Object.keys(absolute) as StatKey[]) pendingPeaks[key] = Math.max(pendingPeaks[key] ?? 0, absolute[key]);
+    }
   }
+  return ok2;
 }
 
 /* ---------------------------------- boot --------------------------------- */
@@ -272,7 +298,91 @@ function applyCloud(cloud: CloudProfile) {
   if (cloud.mode && storageGet('orerush.mode') === null) storageSet('orerush.mode', cloud.mode);
   if (cloud.lang && storageGet('orerush.lang') === null) setLang(cloud.lang);
   if (cloud.totals) applyTotals(cloud.totals);
+  if (typeof cloud.diamonds === 'number' && Number.isFinite(cloud.diamonds)) {
+    // never lose currency: the higher of the two balances wins on a merge
+    diamonds = Math.max(diamonds, Math.floor(cloud.diamonds));
+    storageSet(DIAMONDS_KEY, String(diamonds));
+  }
+  if (Array.isArray(cloud.deliveredPurchases) && cloud.deliveredPurchases.length) {
+    // tokens are only ever added, so the union is the safe merge
+    const merged = [...new Set([...deliveredPurchases(), ...cloud.deliveredPurchases])].slice(-DELIVERED_LIMIT);
+    storageSet(DELIVERED_KEY, JSON.stringify(merged));
+  }
   storageSet(LOCAL_STAMP_KEY, String(cloud.savedAt));
+}
+
+/* --------------------------- delivered purchases -------------------------- */
+
+/**
+ * Tokens of the purchases whose reward has already been paid out. Normally they disappear as soon as
+ * `consumePurchase()` succeeds; the list only matters when that call fails, and then it is what stops
+ * the platform's "unprocessed purchases" retry from paying for the same pack twice.
+ */
+const DELIVERED_KEY = 'orerush.purchases.v1';
+const DELIVERED_LIMIT = 25;
+
+function deliveredPurchases(): string[] {
+  const raw = storageGet(DELIVERED_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((token): token is string => typeof token === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function hasDeliveredPurchase(token: string): boolean {
+  return !!token && deliveredPurchases().includes(token);
+}
+
+/** Remember that this token's reward is already on the balance (and queue the cloud write). */
+export function markPurchaseDelivered(token: string) {
+  if (!token) return;
+  const next = [...new Set([...deliveredPurchases(), token])].slice(-DELIVERED_LIMIT);
+  storageSet(DELIVERED_KEY, JSON.stringify(next));
+  markProfileDirty({ deliveredPurchases: next });
+}
+
+/* ------------------------------ diamonds --------------------------------- */
+
+const DIAMONDS_KEY = 'orerush.diamonds.v1';
+let diamonds = readDiamonds();
+
+function readDiamonds(): number {
+  const raw = storageGet(DIAMONDS_KEY);
+  const value = raw ? Number(raw) : 0;
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function writeDiamonds(next: number) {
+  diamonds = Math.max(0, Math.floor(next));
+  storageSet(DIAMONDS_KEY, String(diamonds));
+  markProfileDirty({ diamonds });
+  emit();
+}
+
+/** Current in-game currency balance (0 outside the shop's reach). */
+export function getDiamonds(): number {
+  return diamonds;
+}
+
+/** Credit diamonds — used when a pack is bought or an unprocessed purchase is delivered. */
+export function addDiamonds(amount: number, reason: 'purchase' | 'grant' = 'grant') {
+  if (!Number.isFinite(amount) || amount <= 0) return diamonds;
+  writeDiamonds(diamonds + Math.floor(amount));
+  if (reason === 'purchase') bumpStats({ diamondsBought: Math.floor(amount) });
+  return diamonds;
+}
+
+/** Try to spend diamonds; returns false (and changes nothing) when the balance is too low. */
+export function spendDiamonds(amount: number): boolean {
+  const cost = Math.max(0, Math.floor(amount));
+  if (cost === 0) return true;
+  if (diamonds < cost) return false;
+  writeDiamonds(diamonds - cost);
+  bumpStats({ diamondsSpent: cost });
+  return true;
 }
 
 /* ----------------------------- lifetime totals ---------------------------- */
@@ -290,6 +400,8 @@ const EMPTY_TOTALS: Totals = {
   bestScore: 0,
   kills: 0,
   playSeconds: 0,
+  diamondsBought: 0,
+  diamondsSpent: 0,
 };
 
 let totals: Totals = loadTotals();

@@ -5,6 +5,7 @@ import { getBlockIcon } from '../game/textures';
 import type { ScoreEntry } from './scores';
 import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
 import type { YaProfile } from '../game/yandex';
+import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
 import {
   BagIcon,
   ClockIcon,
@@ -309,6 +310,10 @@ export function StartScreen({
   onSignIn,
   cloudSavedAt,
   shopEnabled,
+  diamonds,
+  shopPrices,
+  paymentsAvailable,
+  onBuyPack,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -334,10 +339,20 @@ export function StartScreen({
   cloudSavedAt: number;
   /** remote-config flag shop.enabled: the shop button disappears when the flag turns it off */
   shopEnabled: boolean;
+  /** in-game currency balance (bought with real money, spent on rewards) */
+  diamonds: number;
+  /** prices from the Yandex Console catalogue, keyed by product id */
+  shopPrices: ShopCatalog;
+  /** true when the payment flow exists (inside Yandex Games with purchases connected) */
+  paymentsAvailable: boolean;
+  /** opens the payment frame; the promise resolves when it closes */
+  onBuyPack: (productId: string) => Promise<BuyResult>;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
   const [shopTab, setShopTab] = useState<ShopFilter>('all');
+  const [buying, setBuying] = useState<string | null>(null);
+  const [shopNotice, setShopNotice] = useState<string | null>(null);
   const filteredShopProducts = shopTab === 'all'
     ? SHOP_PRODUCTS
     : SHOP_PRODUCTS.filter((product) => product.category === shopTab);
@@ -556,11 +571,13 @@ export function StartScreen({
                 <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{t('shopSubtitle')}</p>
               </div>
               <div className="hidden min-w-28 border border-[#62e8dc]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
-                <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopDemoBalance')}</div>
-                <div className="font-display text-lg leading-tight text-[#62e8dc]">◆ 0</div>
-                <div className="text-[8px] text-white/35">{t('shopBalance')}</div>
+                <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopBalance')}</div>
+                <div className="font-display text-lg leading-tight text-[#62e8dc]">◆ {diamonds.toLocaleString()}</div>
+                <div className="text-[8px] text-white/35">{t('shopBalanceHint')}</div>
               </div>
-              <div className="flex shrink-0 items-center gap-1 border border-[#62e8dc]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#62e8dc] sm:hidden">◆ 0</div>
+              <div className="flex shrink-0 items-center gap-1 border border-[#62e8dc]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#62e8dc] sm:hidden">
+                ◆ {diamonds.toLocaleString()}
+              </div>
               <button
                 type="button"
                 aria-label={t('close')}
@@ -575,10 +592,12 @@ export function StartScreen({
               <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
               <div className="min-w-0 flex-1">
                 <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
-                <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">{t('shopMockNotice')}</p>
+                <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">
+                  {paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
+                </p>
               </div>
               <span className="shrink-0 border border-white/10 bg-black/20 px-1.5 py-1 font-display text-[8px] tracking-widest text-white/45 sm:px-2 sm:text-[9px]">
-                {t('shopMockBadge')}
+                {paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
               </span>
             </div>
 
@@ -609,13 +628,19 @@ export function StartScreen({
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
                 {filteredShopProducts.map((product) => {
-                  const priceLabel = product.diamondAmount !== undefined
-                    ? `${product.diamondAmount.toLocaleString()} ◆`
-                    : product.diamondCost !== undefined
-                      ? `${product.diamondCost.toLocaleString()} ◆`
-                      : product.freeDrop
-                        ? t('shopFree')
-                        : t('shopPriceSoon');
+                  // packs are real purchases: the price comes from the Console catalogue, together
+                  // with the portal-currency icon (requirement 1.13.2 forbids hardcoding it)
+                  const catalogPrice = shopPrices.get(product.id);
+                  const purchasable = paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined;
+                  const priceLabel = catalogPrice
+                    ? catalogPrice.label
+                    : product.diamondAmount !== undefined
+                      ? `${product.diamondAmount.toLocaleString()} ◆`
+                      : product.diamondCost !== undefined
+                        ? `${product.diamondCost.toLocaleString()} ◆`
+                        : product.freeDrop
+                          ? t('shopFree')
+                          : t('shopPriceSoon');
                   return (
                     <article
                       key={product.id}
@@ -660,18 +685,41 @@ export function StartScreen({
 
                       <div className="mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
                         <div>
-                          <div className="font-display text-sm leading-tight" style={{ color: product.accent }}>{priceLabel}</div>
-                          {product.rubles !== undefined && (
-                            <div className="mt-0.5 font-display text-xs text-white/65">{product.rubles} ₽</div>
+                          <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }}>
+                            {catalogPrice?.currencyIcon && (
+                              <img src={catalogPrice.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
+                            )}
+                            {priceLabel}
+                          </div>
+                          {catalogPrice && product.diamondAmount !== undefined && (
+                            <div className="mt-0.5 text-[10px] text-white/55">{product.diamondAmount.toLocaleString()} ◆</div>
                           )}
                         </div>
                         <button
                           type="button"
-                          disabled
-                          title={t('shopMockNotice')}
-                          className="notch shrink-0 cursor-not-allowed border-[3px] border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] px-2.5 py-2 font-display text-[9px] tracking-wide text-white/45 opacity-80 sm:px-3 sm:text-[10px]"
+                          disabled={!purchasable || buying !== null}
+                          title={purchasable ? t('shopBuy') : t('shopSoonHint')}
+                          onClick={async () => {
+                            if (!purchasable) return;
+                            setBuying(product.id);
+                            setShopNotice(null);
+                            const result = await onBuyPack(product.id);
+                            setBuying(null);
+                            setShopNotice(
+                              result.ok
+                                ? t('shopPurchaseDone').replace('{n}', String(DIAMOND_PACKS[product.id]))
+                                : result.reason === 'cancelled'
+                                  ? t('shopPurchaseCancelled')
+                                  : t('shopPurchaseFailed'),
+                            );
+                          }}
+                          className={`notch shrink-0 border-[3px] px-2.5 py-2 font-display text-[9px] tracking-wide sm:px-3 sm:text-[10px] ${
+                            purchasable
+                              ? 'border-black/70 bg-gradient-to-b from-[#5fd8cf] to-[#2f9c96] text-pit-950 hover:brightness-110 disabled:opacity-60'
+                              : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
+                          }`}
                         >
-                          {t('shopSoon')}
+                          {purchasable ? (buying === product.id ? t('shopBuying') : t('shopBuy')) : t('shopSoon')}
                         </button>
                       </div>
                     </article>
@@ -681,7 +729,7 @@ export function StartScreen({
             </div>
 
             <footer className="shrink-0 border-t border-white/10 bg-black/25 px-3 py-2 text-center text-[9px] leading-snug text-white/35 sm:px-4 sm:py-2.5 sm:text-[10px]">
-              {t('shopMockNotice')}
+              {shopNotice ?? (paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice'))}
             </footer>
           </section>
         </div>
@@ -905,6 +953,9 @@ export function GameOverScreen({
   adBusy,
   adNotice,
   reviveSeconds,
+  diamonds,
+  diamondPrice,
+  onDiamondRevive,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -920,6 +971,10 @@ export function GameOverScreen({
   adBusy: boolean;
   adNotice: string | null;
   reviveSeconds: number;
+  /** in-game currency balance and the price of the paid alternative to the rewarded video */
+  diamonds: number;
+  diamondPrice: number;
+  onDiamondRevive: () => void;
 }) {
   const [shown, setShown] = useState(0);
   const rafRef = useRef(0);
@@ -1020,6 +1075,19 @@ export function GameOverScreen({
               {t('mainMenu')}
             </button>
             <span className="font-display text-[10px] tracking-[0.24em] text-white/30">[R] · [ESC]</span>
+            {diamondPrice > 0 && (
+              <button
+                onClick={onDiamondRevive}
+                disabled={adBusy || diamonds < diamondPrice}
+                title={diamonds < diamondPrice ? t('notEnoughDiamonds') : undefined}
+                className="btn-mc notch flex flex-col items-start gap-0.5 bg-gradient-to-b from-[#8ee9e2] to-[#3aa9a3] px-5 py-2.5 text-left text-pit-950 disabled:opacity-50"
+              >
+                <span className="font-display text-base leading-none">
+                  {t('continueWithDiamonds').replace('{n}', String(diamondPrice))}
+                </span>
+                <span className="text-[10px] leading-snug opacity-80">◆ {diamonds.toLocaleString()}</span>
+              </button>
+            )}
             {adNotice && <span className="font-display text-[10px] tracking-[0.2em] text-copper">{adNotice}</span>}
           </div>
         </div>

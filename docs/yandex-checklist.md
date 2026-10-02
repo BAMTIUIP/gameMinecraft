@@ -14,7 +14,7 @@
 | [sdk-player](https://yandex.ru/dev/games/doc/ru/sdk/sdk-player) | `getPlayer()`, авторизация, облачные сохранения (`setData`/`getData`), статистика (`setStats`/`incrementStats`), ник и аватар, `safeStorage` | `src/game/yandex.ts`, `src/game/profile.ts`, `src/game/storage.ts`, карточка профиля в `src/ui/Screens.tsx` | ✅ |
 | [sdk-config](https://yandex.ru/dev/games/doc/ru/sdk/sdk-config) | `ysdk.getFlags()` один раз на старте, `defaultFlags` с локальной конфигурацией, `clientFeatures` из данных игрока, приоритет remote → кэш → локальные | `src/game/flags.ts`, вызов в `src/App.tsx`, применение флагов в `src/ui/Screens.tsx`, `src/ui/Hud.tsx` | ✅ |
 | [sdk-adv](https://yandex.ru/dev/games/doc/ru/sdk/sdk-adv) | Полноэкранный блок по действию игрока (кулдаун 60 с + грейс-период), rewarded-видео с наградой в `onRewarded` (возрождение в забеге), стики-баннер через API только в меню, флаги `adv.*` | `src/game/ads.ts`, обёртки в `src/game/yandex.ts`, кнопки в `src/ui/Screens.tsx`, вызовы в `src/App.tsx` | ✅ |
-| [sdk-purchases](https://yandex.ru/dev/games/doc/ru/sdk/sdk-purchases) | | | ⬜ |
+| [sdk-purchases](https://yandex.ru/dev/games/doc/ru/sdk/sdk-purchases) | `getPayments()`, `purchase()`, `getCatalog()` (цена и иконка валюты только из каталога, п. 1.13.2), порядок «сохранить → `consumePurchase`», проверка незакрытых покупок на старте (п. 1.13.1), алмазы в облачном профиле | `src/game/shop.ts`, обёртки в `src/game/yandex.ts`, баланс в `src/game/profile.ts`, магазин и платное возрождение в `src/ui/Screens.tsx`, вызовы в `src/App.tsx` | ✅ |
 | [sdk-leaderboard](https://yandex.ru/dev/games/doc/ru/sdk/sdk-leaderboard) | | | ⬜ |
 | [sdk-multiplayer-sessions](https://yandex.ru/dev/games/doc/ru/sdk/sdk-multiplayer-sessions) | Кооператив до 5 игроков в режиме выживания | | ⬜ |
 | [sdk-review](https://yandex.ru/dev/games/doc/ru/sdk/sdk-review) | | | ⬜ |
@@ -56,5 +56,5 @@
 | --- | --- |
 | `npm run build` | сборка игры одним файлом `dist/index.html` |
 | `npm run yandex:check` | требования к архиву: размер, имена файлов, `index.html` в корне, подключение `/sdk.js` выше кода игры |
-| `npm run test:profile` | юнит-тесты на мок-SDK: облачный прогресс (лимиты, батчинг, слияние), флаги и реклама (кулдаун, награда, выключенные флаги, работа вне Яндекса) |
-| `npm run yandex:sdk-check` | живые вызовы SDK в headless-браузере с подменённым `/sdk.js`: `init → LoadingAPI.ready → GameplayAPI.start/stop`, облачные данные, флаги и полный цикл рекламы (забег → итоги → rewarded → возврат) |
+| `npm run test:profile` | юнит-тесты на мок-SDK: облачный прогресс (лимиты, батчинг, слияние), флаги, реклама (кулдаун, награда, выключенные флаги, работа вне Яндекса), покупки (каталог, отмена, порядок «начислить → сохранить → погасить», повторная выдача без дубля) |
+| `npm run yandex:sdk-check` | живые вызовы SDK в headless-браузере с подменённым `/sdk.js`: `init → LoadingAPI.ready → GameplayAPI.start/stop`, облачные данные, флаги, полный цикл рекламы (забег → итоги → rewarded → возврат) и магазин (каталог, покупка, алмазы, платное возрождение, выдача незакрытой покупки на старте) |

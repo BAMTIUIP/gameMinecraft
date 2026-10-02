@@ -91,6 +91,50 @@
             },
           };
         },
+        payments: null, // filled by getPayments() below
+        getPayments: async () => {
+          record('ysdk.getPayments');
+          return {
+            getCatalog: async () => {
+              record('payments.getCatalog');
+              return [
+                {
+                  id: 'diamonds-100',
+                  title: 'Pocket of diamonds',
+                  description: '100 diamonds',
+                  imageURI: '',
+                  price: '99 ₽',
+                  priceValue: '99',
+                  priceCurrencyCode: 'RUB',
+                  getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
+                },
+                {
+                  id: 'diamonds-599',
+                  title: 'Miner pouch',
+                  description: '599 diamonds',
+                  imageURI: '',
+                  price: '499 ₽',
+                  priceValue: '499',
+                  priceCurrencyCode: 'RUB',
+                  getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
+                },
+              ];
+            },
+            getPurchases: async () => {
+              record('payments.getPurchases');
+              return (seed.purchases ?? []).map((p) => ({ ...p }));
+            },
+            purchase: async (data) => {
+              record('payments.purchase', data);
+              if (seed.purchaseCancelled) throw new Error('PURCHASE_CANCELLED');
+              return { productID: data.id, purchaseToken: `token-${data.id}-${Date.now()}`, developerPayload: data.developerPayload ?? '' };
+            },
+            consumePurchase: async (token) => {
+              record('payments.consumePurchase', token);
+              seed.purchases = (seed.purchases ?? []).filter((p) => p.purchaseToken !== token);
+            },
+          };
+        },
         adv: {
           // Real ads are asynchronous: onOpen, then the player closes them. Callbacks resolve the
           // game's promises, so the mock closes itself after a moment like a filled ad would.
