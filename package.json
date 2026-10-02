@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "yandex:check": "node scripts/package-yandex.mjs --check",
     "yandex:zip": "npm run build && node scripts/package-yandex.mjs --zip",
+    "yandex:proxy": "npx --yes @yandex-games/sdk-dev-proxy -p dist --dev-mode=true",
     "package:yandex": "npm run yandex:zip"
   },
   "dependencies": {

@@ -52,6 +52,37 @@ async function collectFiles(dir, root = dir) {
   return files.sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
 
+/**
+ * The Yandex Games SDK must be connected before YaGames.init() runs
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-about#check):
+ *   - <script src="/sdk.js"> — relative path, the archive is served by Yandex itself;
+ *   - it must sit above the game bundle, otherwise window.YaGames is still undefined
+ *     when the game calls init() and the loader shows "IF" instead of "IT".
+ */
+async function validateSdkTag(files, errors) {
+  const indexFile = files.find((file) => file.relPath === 'index.html');
+  if (!indexFile) return;
+
+  let html;
+  try {
+    html = await readFile(indexFile.fullPath, 'utf8');
+  } catch (error) {
+    errors.push(`Не удалось прочитать dist/index.html: ${error.message}`);
+    return;
+  }
+
+  const sdkMatch = /<script\b[^>]*\bsrc=["']\/sdk\.js["'][^>]*>/i.exec(html);
+  if (!sdkMatch) {
+    errors.push('В dist/index.html нет тега <script src="/sdk.js"> — SDK Яндекс Игр не подключён.');
+    return;
+  }
+
+  const gameMatch = /<script\b[^>]*\btype=["']module["'][^>]*>/i.exec(html);
+  if (gameMatch && gameMatch.index < sdkMatch.index) {
+    errors.push('Тег /sdk.js должен стоять в <head> до кода игры: YaGames.init() вызывается раньше загрузки SDK.');
+  }
+}
+
 function validate(files) {
   const errors = [];
   const warnings = [];
@@ -206,6 +237,7 @@ async function main() {
 
   const files = await collectFiles(DIST_DIR);
   const { totalSize, errors, warnings } = validate(files);
+  await validateSdkTag(files, errors);
 
   console.log(`Проверка dist для Яндекс Игр:`);
   console.log(`- файлов: ${files.length}`);
