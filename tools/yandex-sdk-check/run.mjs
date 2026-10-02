@@ -478,6 +478,58 @@ async function scenarioProgress() {
     'Без записанных транзакций смена не публикуется (push)',
   );
 
+  // ===================== 9c. platform events: back button and account picker =====================
+  const emit = (name) =>
+    game.page.evaluate((event) => {
+      const listeners = window.__yaEmit?.[event] ?? [];
+      listeners.forEach((fn) => fn());
+      return listeners.length;
+    }, name);
+  const backDelivered = await emit('HISTORY_BACK');
+  check(backDelivered > 0, 'Событие HISTORY_BACK (кнопка «Назад» на ТВ) доходит до игры', `подписчиков: ${backDelivered}`);
+  const exitDialog = await game.waitFor(
+    'Диалог выхода',
+    () => /ВЫЙТИ ИЗ ИГРЫ|LEAVE THE GAME|QUITTER LE JEU|SPIEL VERLASSEN/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(exitDialog, 'Вместо молчаливого выхода игра показывает свой диалог');
+  const stayClicked = await game.clickByText(/^\s*ОСТАТЬСЯ\s*$|^\s*STAY\s*$/i);
+  check(stayClicked, 'В диалоге есть кнопка «Остаться»');
+  const dialogGone = await game.waitFor(
+    'Диалог закрылся',
+    () => !/ВЫЙТИ ИЗ ИГРЫ|LEAVE THE GAME|QUITTER LE JEU|SPIEL VERLASSEN/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(dialogGone, 'Отказ закрывает диалог, игра продолжается');
+  check(game.count(await game.calls(), 'ysdk.dispatchEvent') === 0, 'Без подтверждения платформе ничего не отправляется');
+  await emit('HISTORY_BACK');
+  await game.waitFor('Диалог снова открыт', () => /ВЫЙТИ ИЗ ИГРЫ/i.test(document.body.innerText ?? ''), 10_000);
+  const leaveClicked = await game.clickByText(/^\s*ВЫЙТИ\s*$/);
+  check(leaveClicked, 'Кнопка «Выйти» нажата');
+  const exitSent = await game.waitFor(
+    'ysdk.dispatchEvent(EXIT)',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'ysdk.dispatchEvent' && c.arg === 'EXIT'),
+    10_000,
+  );
+  check(exitSent, 'После подтверждения игра отправляет ysdk.dispatchEvent(EXIT)');
+
+  const readsBefore = game.count(await game.calls(), 'player.getData');
+  await emit('ACCOUNT_SELECTION_DIALOG_OPENED');
+  await emit('ACCOUNT_SELECTION_DIALOG_CLOSED');
+  const resynced = await game.waitFor(
+    'Прогресс перечитан после выбора аккаунта',
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'player.getData').length > before,
+    15_000,
+    readsBefore,
+  );
+  check(resynced, 'После диалога выбора аккаунта игра заново читает прогресс (player.getData)');
+  const backToMenu = await game.waitFor(
+    'Возврат в меню',
+    () => /НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/.test(document.body.innerText ?? ''),
+    15_000,
+  );
+  check(backToMenu, 'После выбора аккаунта игра возвращается в главное меню');
+
   // ===================== 10. local mirrors and console health =====================
   check((await game.storageValue('orerush.totals.v1')) !== null, 'Локальное зеркало статистики создано');
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));

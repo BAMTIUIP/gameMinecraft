@@ -85,6 +85,8 @@ type ActiveRound = {
 
 let active: ActiveRound | null = null;
 let eventsBound = false;
+/** removes the SDK listeners of the current round (sdk-events: on/off come in pairs) */
+let unbindEvents: (() => void) | null = null;
 let notified: SquadMember[] = [];
 
 export function coopEnabled(): boolean {
@@ -109,7 +111,9 @@ export function coopActive(): boolean {
 /** Test seam: forget the round without touching the platform. */
 export function resetCoopState() {
   active = null;
+  if (eventsBound) unbindEvents?.();
   eventsBound = false;
+  unbindEvents = null;
   notified = [];
 }
 
@@ -198,7 +202,7 @@ async function loadOpponents(round: ActiveRound, wanted: number) {
 
   if (!eventsBound) {
     eventsBound = true;
-    yaOnMultiplayer({
+    unbindEvents = yaOnMultiplayer({
       transaction: (data) => applyTransactions(active, data.opponentId, data.transactions),
       finish: (opponentId) => {
         if (!active) return;
@@ -313,6 +317,12 @@ export function publishCoopSession(result?: { score?: number; depth?: number; bl
 
 /** End the round: stop recording, forget the squad. The rigs are removed by the engine. */
 export function stopCoopRound() {
+  if (eventsBound) {
+    // the round is over: the SDK keeps no listeners of ours (sdk-events: on() and off() come in pairs)
+    unbindEvents?.();
+    eventsBound = false;
+    unbindEvents = null;
+  }
   if (!active) return;
   active.bots = [];
   active = null;

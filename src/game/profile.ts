@@ -137,6 +137,9 @@ function localScores(): ScoreEntry[] {
 /* --------------------------------- queue --------------------------------- */
 
 let pendingData: CloudProfile | null = null;
+// While the platform's account picker is open, the player is choosing which progress to keep; pushing
+// ours at that moment would be wrong (sdk-events). Flushes are held back and resumed after the dialog.
+let syncPaused = false;
 let pendingStats: Partial<Record<StatKey, number>> = {}; // additive counters → incrementStats
 let pendingPeaks: Partial<Record<StatKey, number>> = {}; // lifetime best/deepest → setStats
 let flushTimer: number | null = null;
@@ -196,6 +199,7 @@ export function bumpStats(increments: Partial<Record<StatKey, number>>) {
 }
 
 function scheduleFlush() {
+  if (syncPaused) return;
   if (flushTimer !== null) return;
   const wait = Math.max(0, FLUSH_INTERVAL_MS - (Date.now() - lastFlush));
   flushTimer = window.setTimeout(() => {
@@ -213,6 +217,11 @@ export async function flushProfile(immediate = false): Promise<boolean> {
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
     flushTimer = null;
+  }
+  if (syncPaused) {
+    // nothing may leave the game while the account picker is open; the caller (the shop) sees `false`
+    // and therefore does not consume the purchase — the documented "save first, consume second" order
+    return false;
   }
   const payload = pendingData;
   pendingData = null;
@@ -330,6 +339,39 @@ function applyCloud(cloud: CloudProfile) {
     storageSet(DELIVERED_KEY, JSON.stringify(merged));
   }
   storageSet(LOCAL_STAMP_KEY, String(cloud.savedAt));
+}
+
+/** Hold back (or resume) cloud writes while the platform's account picker is open. */
+export function pauseProfileSync(paused: boolean) {
+  syncPaused = paused;
+  if (!paused) {
+    markProfileDirty();
+    scheduleFlush();
+  }
+}
+
+/**
+ * The account picker just closed: the progress under the player may have changed, so re-request the
+ * player and adopt the cloud profile of the chosen account. The docs describe exactly this step
+ * ("перезапрашиваем данные игрока" after `ACCOUNT_SELECTION_DIALOG_CLOSED`).
+ */
+export async function resyncProfile(): Promise<boolean> {
+  if (!yaAvailable()) return false;
+  const platform = await yaRefreshProfile(true);
+  snapshot = { ...snapshot, platform };
+  const remote = await yaCloudGet([CLOUD_KEY]);
+  const cloud = remote?.[CLOUD_KEY] as CloudProfile | undefined;
+  if (cloud && cloud.v === 1) {
+    // the cloud record belongs to the account the player has just chosen: it wins even over a local
+    // stamp that looks newer, because that stamp was written under the previous account
+    applyCloud(cloud);
+    storageSet(TOTALS_KEY, JSON.stringify(totals));
+    snapshot = { ...snapshot, cloudApplied: true };
+  } else {
+    markProfileDirty();
+  }
+  emit();
+  return snapshot.cloudApplied;
 }
 
 /* --------------------------- delivered purchases -------------------------- */

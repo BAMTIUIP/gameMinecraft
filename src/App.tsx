@@ -31,10 +31,11 @@ import {
   yaServerTime,
   type YaProfile,
 } from './game/yandex';
-import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { claimDailyReward, dailyReward, type DailyView } from './game/daily';
+import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformEvents } from './game/platform';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
 import {
@@ -169,6 +170,8 @@ export default function App() {
   /** daily reward: recomputed from the trusted clock, refreshed after each claim */
   const [daily, setDaily] = useState<DailyView>(() => dailyReward());
   const [dailyNote, setDailyNote] = useState<string | null>(null);
+  /** the game's own dialog for the TV back button (sdk-events) */
+  const [exitPrompt, setExitPrompt] = useState(false);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -269,10 +272,32 @@ export default function App() {
 
     const offYaPause = yaOnPause(() => eng.systemPause());
     const offYaResume = yaOnResume(() => eng.systemResume());
+
+    // Platform events (sdk-events). HISTORY_BACK happens on TVs and must not exit silently: the game
+    // shows its dialog and reports EXIT to the platform only if the player confirms. The account
+    // picker holds our progress sync while it is open, and once it closes the chosen cloud progress
+    // is pulled in and the game returns to the menu.
+    startPlatformEvents();
+    const offExitPrompt = onExitPrompt(() => setExitPrompt(true));
+    const offAccountSwitch = onAccountSwitch((phase) => {
+      if (phase === 'opened') {
+        pauseProfileSync(true);
+        return;
+      }
+      pauseProfileSync(false);
+      void resyncProfile().then(() => {
+        setScores(loadScores());
+        setName(loadPlayerName());
+        setDiamonds(diamondsBalance());
+        engineRef.current?.toMenu();
+      });
+    });
     return () => {
       eng.onPose(null);
       offYaPause();
       offYaResume();
+      offExitPrompt();
+      offAccountSwitch();
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
       window.removeEventListener('keydown', onKey);
@@ -659,6 +684,36 @@ export default function App() {
 
       {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} />}
 
+      {exitPrompt && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 px-4">
+          <div className="notch w-full max-w-sm border border-white/10 bg-gradient-to-b from-[#172126] to-[#0c1215] p-5 text-center">
+            <h2 className="font-display text-lg text-white sm:text-2xl">{t('exitTitle')}</h2>
+            <p className="mt-1.5 text-[11px] text-white/50 sm:text-xs">{t('exitHint')}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  confirmExit();
+                  setExitPrompt(false);
+                }}
+                className="btn-mc notch bg-gradient-to-b from-[#c9584f] to-[#8d3129] px-3 py-2.5 text-xs text-white sm:text-sm"
+              >
+                {t('exitConfirm')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  dismissExit();
+                  setExitPrompt(false);
+                }}
+                className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2.5 text-xs text-white/85 sm:text-sm"
+              >
+                {t('exitStay')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (
         <StartScreen

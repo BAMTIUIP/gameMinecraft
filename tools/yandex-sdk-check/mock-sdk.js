@@ -66,6 +66,23 @@
           window.__yaEmit ??= {};
           (window.__yaEmit[event] ??= []).push(listener);
         },
+        off: (event, listener) => {
+          record('ysdk.off', event);
+          const listeners = window.__yaEmit?.[event] ?? [];
+          const index = listeners.indexOf(listener);
+          if (index >= 0) listeners.splice(index, 1);
+        },
+        // the platform-side names, exactly as the SDK exposes them
+        EVENTS: {
+          EXIT: 'EXIT',
+          HISTORY_BACK: 'HISTORY_BACK',
+          ACCOUNT_SELECTION_DIALOG_OPENED: 'ACCOUNT_SELECTION_DIALOG_OPENED',
+          ACCOUNT_SELECTION_DIALOG_CLOSED: 'ACCOUNT_SELECTION_DIALOG_CLOSED',
+        },
+        dispatchEvent: (event) => {
+          record('ysdk.dispatchEvent', event);
+          return Promise.resolve();
+        },
         getFlags: async (params) => {
           record('ysdk.getFlags', {
             local: Object.keys(params?.defaultFlags ?? {}).length,

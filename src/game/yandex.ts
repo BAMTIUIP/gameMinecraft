@@ -278,14 +278,37 @@ type YSDK = {
     GameplayAPI?: { start?: () => void; stop?: () => void };
   };
   /**
-   * Platform events: the game must pause on `game_api_pause` and resume on `game_api_resume`;
-   * `multiplayer-sessions-*` deliver opponent replay data (see YaMultiplayerEvents).
+   * Platform events: the game must pause on `game_api_pause` and resume on `game_api_resume`,
+   * `multiplayer-sessions-*` deliver opponent replay data (see YaMultiplayerEvents), and
+   * `HISTORY_BACK` / `EXIT` / `ACCOUNT_SELECTION_DIALOG_*` report the TV back button, the confirmed
+   * exit and the account picker (https://yandex.ru/dev/games/doc/ru/sdk/sdk-events).
    */
-  on?: (
-    event: 'game_api_pause' | 'game_api_resume' | 'multiplayer-sessions-transaction' | 'multiplayer-sessions-finish',
-    listener: (payload?: never) => void,
-  ) => unknown;
+  on?: (event: YaEventName, listener: (payload?: never) => void) => unknown;
+  /** the documented counterpart of `on()`, used by every subscriber that can be torn down */
+  off?: (event: YaEventName, listener: (payload?: never) => void) => unknown;
+  /** sends a platform event, e.g. `ysdk.dispatchEvent(ysdk.EVENTS.EXIT)` after the player confirmed */
+  dispatchEvent?: (event: YaEventName, detail?: object) => unknown;
+  /** event name constants; the SDK exposes them, but the string names are the same */
+  EVENTS?: Partial<Record<YaPlatformEvent, YaPlatformEvent>>;
 };
+
+/** Events the platform can send the game (sdk-events). */
+export type YaPlatformEvent =
+  /** back button on a TV: the game shows its own "leave?" dialog */
+  | 'HISTORY_BACK'
+  /** the player confirmed leaving in that dialog: the game must report it back */
+  | 'EXIT'
+  /** the account picker opened: pause progress sync while the player chooses */
+  | 'ACCOUNT_SELECTION_DIALOG_OPENED'
+  /** the account picker closed: the progress under the player may have changed */
+  | 'ACCOUNT_SELECTION_DIALOG_CLOSED';
+
+export type YaEventName =
+  | 'game_api_pause'
+  | 'game_api_resume'
+  | 'multiplayer-sessions-transaction'
+  | 'multiplayer-sessions-finish'
+  | YaPlatformEvent;
 
 declare global {
   interface Window {
@@ -308,10 +331,14 @@ let loadingReady = false;
 let loadingReadySent = false;
 let gameplayActive = false;
 let gameplaySent = false;
+// The platform pauses the game for its own overlays (the startup full-screen ad among them) and can
+// do it before the game has finished booting; the flag lets a slow start avoid starting into a pause.
+let platformPaused = false;
 
 type Listener = () => void;
 const pauseListeners = new Set<Listener>();
 const resumeListeners = new Set<Listener>();
+const platformListeners = new Map<YaPlatformEvent, Set<Listener>>();
 
 function emit(listeners: Set<Listener>) {
   for (const cb of [...listeners]) {
@@ -326,10 +353,64 @@ function emit(listeners: Set<Listener>) {
 /** subscribe to the platform's pause / resume events once, as soon as init() has resolved */
 function subscribePauseResume(sdk: YSDK) {
   try {
-    sdk.on?.('game_api_pause', () => emit(pauseListeners));
-    sdk.on?.('game_api_resume', () => emit(resumeListeners));
+    sdk.on?.('game_api_pause', () => {
+      platformPaused = true;
+      emit(pauseListeners);
+    });
+    sdk.on?.('game_api_resume', () => {
+      platformPaused = false;
+      emit(resumeListeners);
+    });
+    for (const event of PLATFORM_EVENTS) {
+      sdk.on?.(event, () => emit(platformListeners.get(event) ?? new Set()));
+    }
   } catch (err) {
     console.error('[Yandex SDK] ysdk.on() failed', err);
+  }
+}
+
+const PLATFORM_EVENTS: YaPlatformEvent[] = [
+  'HISTORY_BACK',
+  'EXIT',
+  'ACCOUNT_SELECTION_DIALOG_OPENED',
+  'ACCOUNT_SELECTION_DIALOG_CLOSED',
+];
+
+/**
+ * Is the platform holding the game now? True between `game_api_pause` and `game_api_resume` — the
+ * startup full-screen ad works exactly like that, so a game whose sound or loop starts right away
+ * must not start into this state (sdk-events).
+ */
+export function yaPlatformPaused(): boolean {
+  return platformPaused;
+}
+
+/**
+ * Subscribe to a platform event (`HISTORY_BACK`, `EXIT`, `ACCOUNT_SELECTION_DIALOG_*`). The listener
+ * is registered once with the SDK and can be removed: the returned function drops it on both sides,
+ * the game's registry and the SDK's `off()`. Returns a no-op outside Yandex Games.
+ */
+export function yaOnPlatformEvent(event: YaPlatformEvent, cb: Listener): () => void {
+  const listeners = platformListeners.get(event) ?? new Set<Listener>();
+  platformListeners.set(event, listeners);
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+/**
+ * Report a confirmed exit back to the platform: `ysdk.dispatchEvent(ysdk.EVENTS.EXIT)`, as sdk-events
+ * requires after the player confirms leaving in the game's own dialog.
+ */
+export function yaDispatchExit(): boolean {
+  try {
+    if (!ysdk?.dispatchEvent) return false;
+    ysdk.dispatchEvent('EXIT');
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] dispatchEvent(EXIT) failed', err);
+    return false;
   }
 }
 
@@ -1090,7 +1171,15 @@ export function yaOnMultiplayer(events: Partial<YaMultiplayerEvents>): () => voi
     console.warn('[Yandex SDK] multiplayer event subscription failed', err);
     return () => undefined;
   }
-  return () => undefined; // the SDK's on() has no matching off(): the handler filters by session id
+  // the documented off() pair: the round can be torn down without leaving listeners on the SDK
+  return () => {
+    try {
+      ysdk?.off?.('multiplayer-sessions-transaction', onTransaction);
+      ysdk?.off?.('multiplayer-sessions-finish', onFinish);
+    } catch (err) {
+      console.warn('[Yandex SDK] ysdk.off() failed', err);
+    }
+  };
 }
 
 function safeString(read: () => string): string {
