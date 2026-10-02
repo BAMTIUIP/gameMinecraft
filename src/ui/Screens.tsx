@@ -771,12 +771,12 @@ export function StartScreen({
       </FitBox>
 
       {showShop && (
-        <div className="absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
+        <div className="shop-backdrop absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
           <section
             role="dialog"
             aria-modal="true"
             aria-labelledby="shop-title"
-            className="bevel notch my-auto flex max-h-[94vh] w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
+            className="shop-dialog bevel notch my-auto flex min-h-0 w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
           >
             <header className="flex shrink-0 items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-[#15242b] via-[#182229] to-[#241c32] p-3 sm:gap-4 sm:p-5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#62e8dc]/45 bg-[#62e8dc]/10 font-display text-2xl text-[#62e8dc] sm:h-14 sm:w-14 sm:text-3xl">
@@ -804,7 +804,7 @@ export function StartScreen({
               </button>
             </header>
 
-            <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
+            <div className="shop-currency-note mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
               <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
               <div className="min-w-0 flex-1">
                 <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
@@ -818,7 +818,7 @@ export function StartScreen({
             </div>
 
             {promo && (
-              <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.08] px-2.5 py-2 text-[10px] leading-snug text-white/70 sm:mx-4 sm:text-xs">
+              <div className="shop-promo-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.08] px-2.5 py-2 text-[10px] leading-snug text-white/70 sm:mx-4 sm:text-xs">
                 <span className="text-[#f4b942]">★</span>
                 <span className="min-w-0 flex-1">
                   <b className="font-display tracking-wide text-[#f4b942]">{t('promoBanner').replace('{id}', promo.promoId)}</b>
@@ -851,7 +851,7 @@ export function StartScreen({
               </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
+            <div className="shop-catalog min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
                 {filteredShopProducts.map((product) => {
                   // packs are real purchases: the price comes from the Console catalogue, together

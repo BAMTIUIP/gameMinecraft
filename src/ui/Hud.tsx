@@ -362,7 +362,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                       style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
                     />
                     <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
-                    {mate.finished ? (
+                    <span className={`shrink-0 text-[7px] tracking-wide ${mate.kind === 'bot' ? 'text-white/35' : 'text-[#62e8dc]/55'}`}>
+                      {t(mate.kind === 'bot' ? 'squadLocalBot' : 'squadReplay')}
+                    </span>
+                    {mate.dead ? (
+                      <span className="shrink-0 text-[8px] tracking-widest text-blood">{t('squadDead')}</span>
+                    ) : mate.finished ? (
                       <span className="shrink-0 text-[8px] tracking-widest text-torch">{t('squadFinished')}</span>
                     ) : (
                       <span className="shrink-0 font-display tabular-nums text-white/45">
@@ -458,9 +463,30 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         </div>
       )}
 
+      {/* ---------------- BREATH ---------------- */}
+      <div
+        className={`hud-breath absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 bevel-flat notch bg-[#07151c]/90 px-2 py-1 ${hud.breathVisible ? 'hud-breath--visible' : ''} ${hud.airBubbles === 0 ? 'hud-breath--critical' : ''}`}
+        role={hud.breathVisible ? 'status' : undefined}
+        aria-hidden={!hud.breathVisible}
+        aria-label={`${t('air')}: ${hud.airBubbles} / 6`}
+      >
+        <span className="font-display text-[9px] tracking-widest text-[#a8e5ff]">{t('air')}</span>
+        <span className="flex items-center gap-0.5">
+          {Array.from({ length: 6 }, (_, i) => (
+            <span key={i} className={`hud-breath-bubble ${i < hud.airBubbles ? 'hud-breath-bubble--full' : 'hud-breath-bubble--empty'}`}>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <circle cx="9" cy="9" r="7" />
+                <path d="M6.1 6.3c.5-1.3 1.4-1.9 2.5-2" />
+                <circle cx="12.8" cy="11.7" r=".8" className="hud-breath-bubble-shine" />
+              </svg>
+            </span>
+          ))}
+        </span>
+      </div>
+
       {/* ---------------- HOTBAR ---------------- */}
       <div
-        className={`hud-hotbar absolute left-1/2 -translate-x-1/2 origin-bottom ${
+        className={`hud-hotbar absolute left-1/2 origin-bottom ${
           isTouch ? 'bottom-44' : 'bottom-4 sm:bottom-6'
         }`}
       >
@@ -470,6 +496,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             slot === null ? (
               <div
                 key={`empty-${i}`}
+                data-hotbar-index={i}
                 className="hotbar-cell notch relative flex items-center justify-center"
                 style={{
                   background: 'linear-gradient(180deg,#141c17,#0c1210)',
@@ -538,6 +565,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
     return (
             <button
               key={slot.id}
+              data-hotbar-index={i}
               onClick={() => onSelect(i)}
               className={`hotbar-cell hotbar-slot notch relative flex items-center justify-center ${
                 i === hud.selected ? 'active' : ''

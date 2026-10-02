@@ -807,13 +807,42 @@ async function scenarioShop() {
 
   const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(shopOpened, 'Магазин открывается при включённом флаге');
+  await game.page.setViewport({ width: 360, height: 640 });
   await wait(400);
+  const shopScroll = await game.page.evaluate(() => {
+    const dialog = document.querySelector('.shop-dialog');
+    const header = dialog?.querySelector('header');
+    const tabs = dialog?.querySelector('.shop-tabs');
+    const catalog = dialog?.querySelector('.shop-catalog');
+    if (!dialog || !header || !tabs || !catalog) return null;
+    const before = { headerTop: header.getBoundingClientRect().top, tabsTop: tabs.getBoundingClientRect().top };
+    const catalogRect = catalog.getBoundingClientRect();
+    const canScroll = catalog.scrollHeight > catalog.clientHeight + 2;
+    catalog.scrollTop = catalog.scrollHeight;
+    const after = { headerTop: header.getBoundingClientRect().top, tabsTop: tabs.getBoundingClientRect().top };
+    const result = {
+      canScroll,
+      moved: catalog.scrollTop > 0,
+      headerFixed: Math.abs(before.headerTop - after.headerTop) < 1,
+      tabsFixed: Math.abs(before.tabsTop - after.tabsTop) < 1,
+      catalogHeight: catalogRect.height,
+      viewportHeight: window.innerHeight,
+    };
+    catalog.scrollTop = 0;
+    return result;
+  });
+  check(!!shopScroll && shopScroll.catalogHeight > 160, 'Каталог магазина получает основную высоту телефона', JSON.stringify(shopScroll));
+  check(!!shopScroll && shopScroll.canScroll && shopScroll.moved, 'Каталог магазина прокручивается на телефоне', JSON.stringify(shopScroll));
+  check(!!shopScroll && shopScroll.headerFixed && shopScroll.tabsFixed, 'Заголовок и вкладки магазина остаются на месте при прокрутке каталога', JSON.stringify(shopScroll));
+  await wait(250);
   const priceShown = await game.page.evaluate(() => (document.body.innerText ?? '').includes('99 ₽'));
   check(priceShown, 'В магазине показана цена из каталога Консоли (99 ₽)');
   const currencyIcon = await game.page.evaluate(() =>
     [...document.querySelectorAll('img')].some((img) => (img.getAttribute('src') ?? '').startsWith('data:image/gif')),
   );
   check(currencyIcon, 'Иконка портальной валюты взята из каталога (getPriceCurrencyImage)');
+  await game.page.setViewport({ width: 1280, height: 720 });
+  await wait(250);
 
   const before = game.count(await game.calls(), 'payments.purchase');
   const buyClicked = await game.page.evaluate(() => {
@@ -1373,7 +1402,26 @@ async function layoutReport(page) {
     }
 
     const hudHotbarOverlaps = [];
+    const hotbarControlOverlaps = [];
     const hotbar = document.querySelector('.hud-hotbar');
+    const hotbarStyle = hotbar ? (() => {
+      const style = getComputedStyle(hotbar);
+      const rowStyle = getComputedStyle(hotbar.querySelector('.hotbar-row'));
+      return { touchClass: !!hotbar.closest('.hud-touch'), orientation: matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape', left: style.left, right: style.right, top: style.top, bottom: style.bottom, width: style.width, transform: style.transform, translate: style.translate, rowWidth: rowStyle.width, rowTransform: rowStyle.transform };
+    })() : null;
+    const hotbarSlots = hotbar ? [...hotbar.querySelectorAll('[data-hotbar-index]')].map((el) => {
+      const rect = el.getBoundingClientRect();
+      return { index: Number(el.getAttribute('data-hotbar-index')), left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+    }) : [];
+    if (hotbar) {
+      const a = hotbar.getBoundingClientRect();
+      for (const control of document.querySelectorAll('.touch-left, .touch-right')) {
+        const b = control.getBoundingClientRect();
+        const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (w > 1 && h > 1) hotbarControlOverlaps.push(`${hotbar.className} × ${control.className}`);
+      }
+    }
     const topLeftInfo = document.querySelector('.hud-information--top-left');
     if (hotbar && topLeftInfo) {
       const a = topLeftInfo.getBoundingClientRect();
@@ -1407,6 +1455,9 @@ async function layoutReport(page) {
       overlaps,
       hudControlOverlaps,
       hudHotbarOverlaps,
+      hotbarControlOverlaps,
+      hotbarSlots,
+      hotbarStyle,
       swipeBlocked,
     };
   });
@@ -1486,6 +1537,17 @@ async function scenarioLayout() {
     check(report.overlaps.length === 0, `Забег: элементы не накладываются (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
     check(report.hudControlOverlaps.length === 0, `Забег: HUD не перекрывает сенсорные органы (${vp.name})`, report.hudControlOverlaps.slice(0, 4).join(' | '));
     check(report.hudHotbarOverlaps.length === 0, `Забег: левая информационная панель не перекрывает хотбар (${vp.name})`, report.hudHotbarOverlaps.join(' | '));
+    check(report.hotbarControlOverlaps.length === 0, `Забег: хотбар не перекрывает сенсорные зоны (${vp.name})`, report.hotbarControlOverlaps.join(' | '));
+    const slots = report.hotbarSlots.sort((a, b) => a.index - b.index);
+    if (vp.height > vp.width && slots.length === 10) {
+      const sameColumn = slots.every((slot) => Math.abs(slot.left - slots[0].left) < 1.5);
+      const slotOneAtBottom = slots[0].top > slots[9].top && slots[0].bottom > slots[9].bottom;
+      check(sameColumn && slotOneAtBottom, `Забег: портретный хотбар вертикален, слот 1 внизу (${vp.name})`, JSON.stringify({ style: report.hotbarStyle, slots: slots.map((slot) => [slot.index + 1, Math.round(slot.left), Math.round(slot.top)]) }));
+    } else if (slots.length === 10 && vp.width < 1100) {
+      const sameRow = slots.every((slot) => Math.abs(slot.top - slots[0].top) < 1.5);
+      const ordered = slots[0].left < slots[9].left;
+      check(sameRow && ordered, `Забег: альбомный хотбар горизонтален и упорядочен (${vp.name})`, JSON.stringify({ style: report.hotbarStyle, slots: slots.map((slot) => [slot.index + 1, Math.round(slot.left), Math.round(slot.top)]) }));
+    }
     check(report.scroll[0] <= 1 && report.scroll[1] <= 1, `Забег: у страницы нет прокрутки (${vp.name})`, `scroll ${report.scroll.join('×')}`);
   }
   const touches = await game.page.evaluate(() => {
@@ -1497,6 +1559,34 @@ async function scenarioLayout() {
     return !!stick && stick.width >= 96 && actions.length > 0 && actions.every(Boolean);
   });
   check(touches, 'Сенсорные стики и кнопки сохраняют размеры для нажатия');
+  await game.page.setViewport({ width: 360, height: 740 });
+  const inventoryOpened = await game.page.evaluate(() => {
+    const button = document.querySelector('.hud-information--top-right')?.parentElement?.querySelector('button');
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+  check(inventoryOpened, 'Инвентарь открывается в портретной ориентации');
+  const recipesVisible = await game.waitFor('Карточки крафта на телефоне', () => !!document.querySelector('.recipe-card .recipe-craft'), 10_000);
+  check(recipesVisible, 'Карточки рецептов и кнопки создания отображаются на телефоне');
+  const recipeFit = await game.page.evaluate(() => {
+    const list = document.querySelector('.recipe-list');
+    const root = list?.closest('.absolute.inset-0');
+    if (!list || !root) return null;
+    root.scrollTop = root.scrollHeight;
+    const cards = [...document.querySelectorAll('.recipe-card')];
+    const overflow = cards.filter((card) => {
+      const rect = card.getBoundingClientRect();
+      const craft = card.querySelector('.recipe-craft')?.getBoundingClientRect();
+      const costs = card.querySelector('.recipe-costs')?.getBoundingClientRect();
+      return rect.left < -1 || rect.right > window.innerWidth + 1 ||
+        (!!craft && (craft.left < rect.left - 1 || craft.right > rect.right + 1 || craft.right > window.innerWidth + 1)) ||
+        (!!costs && (costs.left < rect.left - 1 || costs.right > rect.right + 1 || costs.right > window.innerWidth + 1)) ||
+        card.scrollWidth > card.clientWidth + 1;
+    });
+    return { cards: cards.length, overflow: overflow.length, viewport: window.innerWidth, rootWidth: root.clientWidth, rootScrollWidth: root.scrollWidth };
+  });
+  check(!!recipeFit && recipeFit.cards > 0 && recipeFit.overflow === 0 && recipeFit.rootScrollWidth <= recipeFit.rootWidth + 1, 'Рецепты, стоимость и кнопки не обрезаются и не расширяют экран по горизонтали', JSON.stringify(recipeFit));
   await game.page.close();
 }
 

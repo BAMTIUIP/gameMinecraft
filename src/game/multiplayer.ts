@@ -70,7 +70,18 @@ export type CoopSink = {
   clear(): void;
 };
 
-type BotState = { id: string; nextMoveAt: number; blocks: number; seed: number };
+type BotActivity = 'walking' | 'mining' | 'fighting';
+type BotState = {
+  id: string;
+  nextMoveAt: number;
+  seed: number;
+  activity: BotActivity;
+  cycles: number;
+  initialized: boolean;
+  targetX: number;
+  targetZ: number;
+  yaw: number;
+};
 
 type ActiveRound = {
   sink: CoopSink;
@@ -148,7 +159,17 @@ export async function startCoopRound(sink: CoopSink): Promise<SquadMember[]> {
     // offline squad: same rigs, same panel, no platform behind them
     const seeds = botSeeds(wanted);
     round.members = seeds.map((seed) => ({ id: seed.id, name: seed.name, avatar: null, kind: 'bot' as const, metaScore: null }));
-    round.bots = seeds.map((seed, i) => ({ id: seed.id, nextMoveAt: 0, blocks: 0, seed: i + 1 }));
+    round.bots = seeds.map((seed, i) => ({
+      id: seed.id,
+      nextMoveAt: 0,
+      seed: i + 1,
+      activity: 'walking',
+      cycles: 0,
+      initialized: false,
+      targetX: 0,
+      targetZ: 0,
+      yaw: 0,
+    }));
     sink.spawn(seeds);
   }
 
@@ -215,7 +236,7 @@ async function loadOpponents(round: ActiveRound, wanted: number) {
 function botSeeds(count: number): CompanionSeed[] {
   const seeds: CompanionSeed[] = [];
   for (let i = 0; i < count; i++) {
-    seeds.push({ id: `bot-${i + 1}`, name: t('squadBotName').replace('{n}', String(i + 2)), color: `bot-${i}` });
+    seeds.push({ id: `bot-${i + 1}`, name: t('squadBotName').replace('{n}', String(i + 2)), color: `bot-${i}`, localBot: true });
   }
   return seeds;
 }
@@ -267,9 +288,25 @@ export function recordPose(pose: PlayerPose) {
 
 /* --------------------------------- ticking -------------------------------- */
 
+function botRandom(bot: BotState) {
+  // A small per-bot generator keeps fallback behaviour varied without making health, height or
+  // movement jump unpredictably from one frame to the next.
+  bot.seed = (Math.imul(bot.seed, 1_664_525) + 1_013_904_223) >>> 0;
+  return bot.seed / 0x1_0000_0000;
+}
+
+function setBotWalkTarget(bot: BotState, pose: PlayerPose) {
+  const angle = botRandom(bot) * Math.PI * 2;
+  const radius = BOT_RADIUS_MIN + 1 + botRandom(bot) * Math.min(5, BOT_RADIUS_MAX - BOT_RADIUS_MIN - 1);
+  bot.targetX = pose.x + Math.cos(angle) * radius;
+  bot.targetZ = pose.z + Math.sin(angle) * radius;
+  bot.yaw = Math.atan2(-(bot.targetX - pose.x), -(bot.targetZ - pose.z));
+}
+
 /**
- * Per-tick upkeep: the engine calls this with the current pose (from `onPose`). It keeps the local
- * teammates wandering around the player; opponent replay comes from the platform events.
+ * Per-tick upkeep: the engine calls this with the current pose (from `onPose`). Local fallback
+ * teammates receive steady ground-level destinations and a simple walk → mine → fight routine. Real
+ * Yandex teammates remain replays of recorded sessions; these local bots are never sent to the SDK.
  */
 export function tickCoop(pose: PlayerPose) {
   const round = active;
@@ -278,18 +315,33 @@ export function tickCoop(pose: PlayerPose) {
 
   const now = Date.now();
   for (const bot of round.bots) {
-    if (now < bot.nextMoveAt) continue;
-    bot.nextMoveAt = now + 2_200 + Math.random() * 2_600;
-    const angle = Math.random() * Math.PI * 2;
-    const radius = BOT_RADIUS_MIN + Math.random() * (BOT_RADIUS_MAX - BOT_RADIUS_MIN);
-    bot.blocks += Math.random() < 0.7 ? 1 + Math.floor(Math.random() * 2) : 0;
+    const distFromPlayer = bot.initialized ? Math.hypot(bot.targetX - pose.x, bot.targetZ - pose.z) : Infinity;
+    if (now < bot.nextMoveAt && distFromPlayer < 16) continue;
+
+    if (!bot.initialized || distFromPlayer >= 16 || bot.activity === 'fighting') {
+      setBotWalkTarget(bot, pose);
+      bot.activity = 'walking';
+      bot.initialized = true;
+      bot.nextMoveAt = now + 2_800 + botRandom(bot) * 1_500;
+    } else if (bot.activity === 'walking') {
+      // Pause at the new patch of ground and mine for a moment before setting off again.
+      bot.activity = 'mining';
+      bot.nextMoveAt = now + 1_900 + botRandom(bot) * 700;
+    } else {
+      bot.cycles += 1;
+      // A brief fight attempt every few resource stops; the engine only engages an actual nearby
+      // hostile, so an empty daytime world never gets imaginary combat.
+      bot.activity = bot.cycles % 3 === 0 ? 'fighting' : 'walking';
+      if (bot.activity === 'walking') setBotWalkTarget(bot, pose);
+      bot.nextMoveAt = now + (bot.activity === 'fighting' ? 2_600 + botRandom(bot) * 800 : 2_800 + botRandom(bot) * 1_500);
+    }
+
     round.sink.move(bot.id, {
-      x: pose.x + Math.cos(angle) * radius,
-      y: pose.y + (Math.random() - 0.5) * 2,
-      z: pose.z + Math.sin(angle) * radius,
-      yaw: angle + Math.PI, // walking away from the centre of the circle
-      health: 70 + Math.round(Math.random() * 30),
-      blocks: bot.blocks,
+      x: bot.targetX,
+      y: pose.y,
+      z: bot.targetZ,
+      yaw: bot.yaw,
+      activity: bot.activity,
     });
   }
 }

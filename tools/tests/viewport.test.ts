@@ -164,6 +164,12 @@ ok(/orientation:\s*landscape/.test(layoutCss) && /max-height:\s*520px/.test(layo
 ok(/orientation:\s*landscape\) and \(max-height:\s*560px/.test(layoutCss) && /hud-vitals-coordinates[\s\S]*hud-information--fps \{ display: none/s.test(layoutCss), 'В коротком альбомном окне вторичные показатели скрываются ради здоровья и миссии');
 ok(/hud-objective-row--locked/.test(layoutCss) && /hud-objective-reward/.test(layoutCss) && /hud-objective-progress/.test(layoutCss), 'Короткая панель миссий сохраняет текущую цель без наград и прогресс-бара');
 ok(/max-width:\s*700px/.test(layoutCss), 'Для узких экранов есть своя раскладка');
+ok(/@media \(orientation: portrait\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*flex-direction: column-reverse/.test(layoutCss), 'На сенсорном телефоне в портрете хотбар выстраивается слева, слот 1 остаётся снизу');
+ok(/@media \(orientation: landscape\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*width: min\(calc\(100vw - 23rem\)/.test(layoutCss), 'В альбомной ориентации хотбар занимает центральный ряд между сенсорными блоками');
+ok(/\.shop-dialog[\s\S]*height: min\(92dvh/.test(layoutCss) && /\.shop-catalog[\s\S]*flex: 1 1 0[\s\S]*overflow-y: auto/.test(layoutCss), 'Магазин фиксирует шапку и отдаёт каталогу оставшуюся прокручиваемую высоту');
+
+const inventory = readFileSync(path.join(root, 'src/ui/Inventory.tsx'), 'utf8');
+ok(/recipe-card[^`]*flex-wrap/.test(inventory) && /recipe-costs[^`]*flex-wrap/.test(inventory) && /recipe-craft/.test(inventory), 'Карточки крафта переносят ресурсы и кнопку на узкой ширине');
 
 const fit = readFileSync(path.join(root, 'src/ui/FitBox.tsx'), 'utf8');
 ok(/MIN_SCALE/.test(fit) && /ResizeObserver/.test(fit), 'FitBox пересчитывает масштаб при изменении размера окна');
