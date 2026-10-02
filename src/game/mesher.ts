@@ -3,6 +3,9 @@ import {
   AIR,
   BED,
   BLOCKS,
+  LADDER_PALETTE,
+  isLadder,
+  isSolid,
   CACTUS,
   CACTUS_PALE,
   DEAD_BUSH,
@@ -194,6 +197,45 @@ function addBox(
       C.push(r * sh, g * sh, b * sh);
     }
     I.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+  }
+}
+
+/** A wall-mounted, climbable voxel ladder; the first solid neighbour fixes its rendering plane. */
+function addLadder(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, world: World) {
+  const supportedAt = (dx: number, dz: number) => isSolid(world.get(x + dx, y, z + dz));
+  let axis: 'x' | 'z' = 'z';
+  let plane = z + 0.055;
+  if (supportedAt(-1, 0)) {
+    axis = 'x';
+    plane = x + 0.055;
+  } else if (supportedAt(1, 0)) {
+    axis = 'x';
+    plane = x + 0.945;
+  } else if (supportedAt(0, -1)) {
+    axis = 'z';
+    plane = z + 0.055;
+  } else if (supportedAt(0, 1)) {
+    axis = 'z';
+    plane = z + 0.945;
+  }
+
+  const palette = LADDER_PALETTE[id];
+  const rail = srgb(palette.dark);
+  const rung = srgb(palette.light);
+  if (axis === 'x') {
+    for (const railZ of [z + 0.22, z + 0.78]) {
+      addBox(P, C, I, plane, y + 0.5, railZ, 0.085, 0.94, 0.09, ...rail);
+    }
+    for (const rungY of [y + 0.12, y + 0.30, y + 0.48, y + 0.66, y + 0.84]) {
+      addBox(P, C, I, plane, rungY, z + 0.5, 0.065, 0.055, 0.60, ...rung);
+    }
+  } else {
+    for (const railX of [x + 0.22, x + 0.78]) {
+      addBox(P, C, I, railX, y + 0.5, plane, 0.09, 0.94, 0.085, ...rail);
+    }
+    for (const rungY of [y + 0.12, y + 0.30, y + 0.48, y + 0.66, y + 0.84]) {
+      addBox(P, C, I, x + 0.5, rungY, plane, 0.60, 0.055, 0.065, ...rung);
+    }
   }
 }
 
@@ -1135,6 +1177,10 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           // Climbable hanging tendrils; do not fill the entire voxel.
           addBox(dPositions, dColors, dIndices, x + 0.45, y + 0.5, z + 0.45, 0.06, 0.96, 0.06, ...srgb(0x38743a));
           addBox(dPositions, dColors, dIndices, x + 0.58, y + 0.4, z + 0.53, 0.05, 0.78, 0.05, ...srgb(0x68a850));
+          continue;
+        }
+        if (isLadder(id)) {
+          addLadder(dPositions, dColors, dIndices, x, y, z, id, world);
           continue;
         }
         if (id === TALL_GRASS) {

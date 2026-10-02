@@ -22,39 +22,40 @@ export type ToolMaterial = {
   axeDamage: number;
   shovelDamage: number;
   hoeDamage: number;
+  bowDamage: number;
 };
 
 /** A zero durability limit marks the unbreakable netherite tier. */
 export const TOOL_MATERIALS: readonly ToolMaterial[] = [
   {
-    key: 'wood', durability: 48, speed: 1.0,
+    key: 'wood', durability: 55, speed: 1.0,
     head: '#7a472b', edge: '#b8733d', accent: '#8f542c', handle: '#5a321f',
-    repairResource: PLANKS, pickDamage: 4, swordDamage: 9, axeDamage: 7, shovelDamage: 4, hoeDamage: 4,
+    repairResource: PLANKS, pickDamage: 3.5, swordDamage: 7, axeDamage: 8, shovelDamage: 3.5, hoeDamage: 3.2, bowDamage: 5,
   },
   {
-    key: 'stone', durability: 96, speed: 1.7,
+    key: 'stone', durability: 105, speed: 1.4,
     head: '#59636a', edge: '#aeb9c0', accent: '#c9e0dc', handle: '#65462b',
-    repairResource: COBBLE, pickDamage: 5, swordDamage: 13, axeDamage: 11, shovelDamage: 5, hoeDamage: 5,
+    repairResource: COBBLE, pickDamage: 4.4, swordDamage: 9, axeDamage: 10, shovelDamage: 4.4, hoeDamage: 4, bowDamage: 6.8,
   },
   {
-    key: 'iron', durability: 250, speed: 2.6,
+    key: 'iron', durability: 230, speed: 1.9,
     head: '#8f9ca2', edge: '#e0e5dc', accent: '#f3bb7a', handle: '#5a3c25',
-    repairResource: IRON, pickDamage: 7, swordDamage: 19, axeDamage: 16, shovelDamage: 6, hoeDamage: 6,
+    repairResource: IRON, pickDamage: 5.5, swordDamage: 11.5, axeDamage: 12.5, shovelDamage: 5.2, hoeDamage: 4.8, bowDamage: 8.5,
   },
   {
-    key: 'gold', durability: 38, speed: 3.3,
+    key: 'gold', durability: 42, speed: 2.25,
     head: '#a65d12', edge: '#f5c548', accent: '#fff0a0', handle: '#54351d',
-    repairResource: GOLD, pickDamage: 6, swordDamage: 14, axeDamage: 12, shovelDamage: 5, hoeDamage: 5,
+    repairResource: GOLD, pickDamage: 4.8, swordDamage: 10, axeDamage: 11, shovelDamage: 4.8, hoeDamage: 4.6, bowDamage: 7.8,
   },
   {
-    key: 'diamond', durability: 1561, speed: 4.0,
+    key: 'diamond', durability: 480, speed: 2.65,
     head: '#087e8a', edge: '#51e1d2', accent: '#c4fff3', handle: '#4b3829',
-    repairResource: DIAMOND, pickDamage: 10, swordDamage: 29, axeDamage: 24, shovelDamage: 8, hoeDamage: 8,
+    repairResource: DIAMOND, pickDamage: 7.2, swordDamage: 14.5, axeDamage: 15, shovelDamage: 6.5, hoeDamage: 6, bowDamage: 11,
   },
   {
-    key: 'netherite', durability: 0, speed: 4.8,
+    key: 'netherite', durability: 0, speed: 3.0,
     head: '#29282d', edge: '#68515a', accent: '#ff7045', handle: '#35251f',
-    repairResource: null, pickDamage: 12, swordDamage: 36, axeDamage: 30, shovelDamage: 10, hoeDamage: 10,
+    repairResource: null, pickDamage: 8.4, swordDamage: 17.5, axeDamage: 18, shovelDamage: 7.3, hoeDamage: 6.8, bowDamage: 13,
   },
 ] as const;
 
@@ -75,6 +76,8 @@ export const AXE_TOOLS = [230, 231, 232, 233, 234, 235] as const;
 // ID 204 was the old cobblestone shovel, so keep it at the stone tier.
 export const SHOVEL_TOOLS = [240, TOOL_SHOVEL, 241, 242, 243, 244] as const;
 export const HOE_TOOLS = [250, 251, 252, 253, 254, 255] as const;
+// Bow ID 205 remains the first-tier bow for saves; later materials use unique IDs.
+export const BOW_TOOLS = [TOOL_BOW, 260, 261, 262, 263, 264] as const;
 
 export type ToolSpec = ToolMaterial & {
   id: number;
@@ -84,13 +87,14 @@ export type ToolSpec = ToolMaterial & {
   attackDamage: number;
 };
 
-function makeSpec(id: number, kind: Exclude<ToolKind, 'bow'>, tier: number): ToolSpec {
+function makeSpec(id: number, kind: ToolKind, tier: number): ToolSpec {
   const material = TOOL_MATERIALS[tier] ?? TOOL_MATERIALS[0];
   const attackDamage =
     kind === 'pickaxe' ? material.pickDamage :
     kind === 'sword' ? material.swordDamage :
     kind === 'axe' ? material.axeDamage :
-    kind === 'shovel' ? material.shovelDamage : material.hoeDamage;
+    kind === 'shovel' ? material.shovelDamage :
+    kind === 'hoe' ? material.hoeDamage : material.bowDamage;
   return { ...material, id, kind, tier, maxDurability: material.durability, attackDamage };
 }
 
@@ -100,6 +104,10 @@ function tierForId(ids: readonly number[], id: number) {
 
 /** Return material, weapon class and stats for any durable tool/weapon ID. */
 export function getToolSpec(id: number): ToolSpec | null {
+  // Bow IDs are fixed ranges; avoid a six-element scan on the hot path used by mining/render updates.
+  const bowTier = id === TOOL_BOW ? 0 : id >= BOW_TOOLS[1] && id <= BOW_TOOLS[BOW_TOOLS.length - 1] ? id - BOW_TOOLS[1] + 1 : -1;
+  if (bowTier >= 0) return makeSpec(id, 'bow', bowTier);
+
   let tier = tierForId(PICK_TOOLS, id);
   if (id === TOOL_PICK) tier = 0;
   if (tier >= 0) return makeSpec(id, 'pickaxe', tier);
@@ -119,10 +127,6 @@ export function getToolSpec(id: number): ToolSpec | null {
   if (id === TOOL_HOE) tier = 0;
   if (tier >= 0) return makeSpec(id, 'hoe', tier);
 
-  if (id === TOOL_BOW) {
-    const wood = TOOL_MATERIALS[0];
-    return { ...wood, id, kind: 'bow', tier: 0, maxDurability: 384, durability: 384, attackDamage: 0 };
-  }
   return null;
 }
 
@@ -131,6 +135,7 @@ export const isSwordTool = (id: number) => id === TOOL_SWORD || SWORD_TOOLS.incl
 export const isAxeTool = (id: number) => id === TOOL_AXE || AXE_TOOLS.includes(id as (typeof AXE_TOOLS)[number]);
 export const isShovelTool = (id: number) => SHOVEL_TOOLS.includes(id as (typeof SHOVEL_TOOLS)[number]);
 export const isHoeTool = (id: number) => id === TOOL_HOE || HOE_TOOLS.includes(id as (typeof HOE_TOOLS)[number]);
+export const isBowTool = (id: number) => BOW_TOOLS.includes(id as (typeof BOW_TOOLS)[number]);
 export const isDurabilityTool = (id: number) => getToolSpec(id) !== null;
 
 export function toolIdFor(kind: Exclude<ToolKind, 'bow'>, tier: number): number {

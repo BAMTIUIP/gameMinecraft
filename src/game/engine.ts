@@ -62,6 +62,7 @@ import {
   TURTLE_EGG,
   HONEY,
   NETHERITE,
+  NETHERITE_ORE,
   NETHERITE_INGOT,
   HIVE,
   SNOW_GRASS,
@@ -93,7 +94,11 @@ import {
   FLESH,
   GUNPOWDER,
   LOOT_BAG,
+  LADDER_PALETTE,
   blockClass,
+  canBreakByHand,
+  minimumPickaxeTier,
+  isLadder,
   isBreakable,
   isInteractive,
   isResource,
@@ -154,7 +159,7 @@ import {
   type Slot,
   type Stats,
 } from './items';
-import { blockName, matName, pickaxeLabel, rarName, recipeText, toolLabelForId, t } from './i18n';
+import { blockName, matName, pickaxeLabel, rarName, recipeText, toolLabelForId, t, type TKey } from './i18n';
 import { yaServerTime } from './yandex';
 
 const AFFIX_KEY = Object.fromEntries(
@@ -184,6 +189,58 @@ import {
 } from './audio';
 
 export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
+
+export type TutorialIcon = 'pickaxe' | 'sword' | 'bow' | 'axe' | 'shovel' | 'hoe' | 'anvil' | 'ladder' | 'trader' | 'workbench';
+export type TutorialTip = {
+  title: string;
+  body: string;
+  color: string;
+  icon: TutorialIcon;
+  key: number;
+};
+
+const TUTORIAL_STORAGE_KEY = 'orerush.tutorials.v1';
+
+type ExplorationTaskDefinition = {
+  id: string;
+  titleKey: TKey;
+  target: number;
+  rewardScore: number;
+  rewardSeconds: number;
+  mineBlockIds?: readonly number[];
+  craftPickaxeTier?: number;
+  craftRecipeKey?: string;
+};
+
+type ExplorationTask = ExplorationTaskDefinition & { progress: number };
+
+export type HudObjective = {
+  id: string;
+  titleKey: TKey;
+  progress: number;
+  target: number;
+  rewardScore: number;
+  rewardSeconds: number;
+  status: 'complete' | 'active' | 'locked';
+};
+
+const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
+  { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
+  { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
+  { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
+  { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
+  { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
+  { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
+  { id: 'iron-pick', titleKey: 'objectiveCraftIronPickaxe', target: 1, rewardScore: 380, rewardSeconds: 40, craftPickaxeTier: 2 },
+  { id: 'gold', titleKey: 'objectiveMineGold', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [GOLD_ORE] },
+  { id: 'gold-pick', titleKey: 'objectiveCraftGoldPickaxe', target: 1, rewardScore: 600, rewardSeconds: 50, craftPickaxeTier: 3 },
+  { id: 'diamond', titleKey: 'objectiveMineDiamond', target: 2, rewardScore: 700, rewardSeconds: 55, mineBlockIds: [DIAMOND_ORE] },
+  { id: 'diamond-pick', titleKey: 'objectiveCraftDiamondPickaxe', target: 1, rewardScore: 850, rewardSeconds: 65, craftPickaxeTier: 4 },
+  { id: 'rare-ores', titleKey: 'objectiveMineRareOres', target: 3, rewardScore: 1000, rewardSeconds: 70, mineBlockIds: [REDSTONE_ORE, LAPIS_ORE, EMERALD_ORE] },
+  { id: 'ancient-debris', titleKey: 'objectiveMineAncientDebris', target: 12, rewardScore: 1400, rewardSeconds: 120, mineBlockIds: [NETHERITE_ORE] },
+  { id: 'netherite-ingots', titleKey: 'objectiveCraftNetheriteIngot', target: 3, rewardScore: 1800, rewardSeconds: 150, craftRecipeKey: 'netherite_ingot' },
+  { id: 'netherite-pick', titleKey: 'objectiveCraftNetheritePickaxe', target: 1, rewardScore: 3000, rewardSeconds: 180, craftPickaxeTier: 5 },
+];
 
 /** every species collapses onto one of the synthesised voices */
 const MOB_VOICE: Partial<Record<MobId, CreatureVoice>> = {
@@ -233,7 +290,10 @@ export type HudState = {
   freeLook: boolean;
   runTime: number;
   inventoryOpen: boolean;
-  craftHint: string | null;
+  tutorialTip: TutorialTip | null;
+  explorationObjectives: HudObjective[];
+  objectiveIndex: number;
+  objectiveCount: number;
   inventory: { id: number; count: number; instanceId?: number; durability?: number; maxDurability?: number }[];
   craftable: string[];
   lastCraft: string | null;
@@ -272,6 +332,7 @@ export type DomRefs = {
 };
 
 const RUN_TIME = 150;
+export const EXPLORATION_RUN_TIME = 20 * 60;
 
 /** selectable shift lengths (seconds) */
 export const SESSION_LENGTHS = [
@@ -533,6 +594,14 @@ export class Engine {
   private visualClimateReady = false;
   private banner: HudState['banner'] = null;
   private bannerTimer = 0;
+  private tutorialTip: TutorialTip | null = null;
+  private tutorialTipTimer = 0;
+  private tutorialTipQueue: Array<{ id: string; tip: TutorialTip }> = [];
+  private tutorialPending = new Set<string>();
+  private tutorialSeen = new Set<string>();
+  private craftTipScanTimer = 0;
+  private explorationObjectives: ExplorationTask[] = [];
+  private objectiveIndex = 0;
   private loadTasks: (() => boolean)[] = [];
   private loadTotal = 0;
   private loadProgress = 0;
@@ -594,6 +663,7 @@ export class Engine {
   private target: { x: number; y: number; z: number; nx: number; ny: number; nz: number; id: number } | null = null;
   private mineProgress = 0;
   private mineBlockKey = '';
+  private mineDenyKey = '';
   private swingT = -1;
   private swingDur = 0.3;
   private swingStep = 0;
@@ -620,6 +690,14 @@ export class Engine {
   constructor(container: HTMLElement, onHud: (s: HudState) => void) {
     this.container = container;
     this.onHud = onHud;
+    try {
+      const saved = JSON.parse(localStorage.getItem(TUTORIAL_STORAGE_KEY) ?? '[]') as unknown;
+      if (Array.isArray(saved)) {
+        for (const id of saved) if (typeof id === 'string') this.tutorialSeen.add(id);
+      }
+    } catch {
+      // Tutorial persistence is optional; private browsing/storage restrictions must not block play.
+    }
   }
 
   // ================= SETUP =================
@@ -1528,9 +1606,9 @@ if (tpClipActive > 0.5) {
         this.toolCrafted.add(this.buildToolModel(heldId, wear));
         this.craftedToolKey = signature;
       }
-      // Give each tool a useful working pose.  The head/edge points into the
-      // scene, while the flat face remains visible enough to identify it.
-      this.toolCrafted.position.set(0.02, -0.03, 0.02);
+      // Lean the business end slightly away from the forearm and into the world;
+      // the grip stays near the hand while the head/blade no longer lies along the arm.
+      this.toolCrafted.position.set(0.02, -0.03, -0.035);
       // Keep the pick's successful size, but give the shovel and the other
       // long-handled tools enough breathing room in the lower-right hand area.
       const viewScale =
@@ -1539,14 +1617,14 @@ if (tpClipActive > 0.5) {
         craftedSpec.kind === 'axe' ? 0.84 :
         craftedSpec.kind === 'sword' ? 0.82 : 0.92;
       this.toolCrafted.scale.setScalar(viewScale);
-      if (craftedSpec.kind === 'pickaxe') this.toolCrafted.rotation.set(0.36, -0.95, 0.48);
-      else if (craftedSpec.kind === 'axe') this.toolCrafted.rotation.set(0.32, -1.45, 0.34);
-      else if (craftedSpec.kind === 'shovel') this.toolCrafted.rotation.set(0.34, -0.78, 0.32);
-      else if (craftedSpec.kind === 'hoe') this.toolCrafted.rotation.set(0.32, -1.28, 0.38);
-      // Present the sword diagonally like the pick, with the grip low and the
-      // blade pointing into the scene instead of directly at the camera.
-      else if (craftedSpec.kind === 'sword') this.toolCrafted.rotation.set(0.5, -0.68, 0.46);
-      else this.toolCrafted.rotation.set(0.22, 0.15, 0.28);
+      if (craftedSpec.kind === 'pickaxe') this.toolCrafted.rotation.set(-0.17, -0.95, 0.48);
+      else if (craftedSpec.kind === 'axe') this.toolCrafted.rotation.set(-0.34, -1.45, 0.34);
+      else if (craftedSpec.kind === 'shovel') this.toolCrafted.rotation.set(-0.35, -0.78, 0.32);
+      else if (craftedSpec.kind === 'hoe') this.toolCrafted.rotation.set(-0.36, -1.28, 0.38);
+      // Present the sword diagonally with its grip close to the hand and the
+      // blade leaning into the scene, not flat against the forearm.
+      else if (craftedSpec.kind === 'sword') this.toolCrafted.rotation.set(-0.34, -0.68, 0.46);
+      else this.toolCrafted.rotation.set(-0.36, 0.15, 0.28);
     }
     const holdingLanternBlock = kind === 'block' && heldId === TORCH;
     const isCandidateItem =
@@ -1682,17 +1760,16 @@ if (tpClipActive > 0.5) {
         craftedSpec.kind === 'bow' ? 0.12 : 0.42;
       this.avatarHeldTool.position.set(0, handOffset, 0.02);
       this.avatarHeldTool.scale.setScalar(0.72);
-      // heldRoot already pitches toward the avatar. Counter that pitch for a
-      // forward-facing working pose: blades point away from the face and the
-      // pick/hoe/shovel heads sit above the hand at the end of the handle.
-      if (craftedSpec.kind === 'pickaxe') this.avatarHeldTool.rotation.set(0.88, -0.75, 0.32);
-      else if (craftedSpec.kind === 'axe') this.avatarHeldTool.rotation.set(0.84, -1.15, 0.32);
-      else if (craftedSpec.kind === 'hoe') this.avatarHeldTool.rotation.set(0.84, -1.08, 0.32);
-      else if (craftedSpec.kind === 'shovel') this.avatarHeldTool.rotation.set(0.84, -0.65, 0.32);
-      // The sword grip is at y=-0.24 in its model. This offset seats it in
-      // the hand and its positive-y blade points forward, away from the head.
-      else if (craftedSpec.kind === 'sword') this.avatarHeldTool.rotation.set(1.25, -0.05, 0.32);
-      else this.avatarHeldTool.rotation.set(0.18, 0.05, 0.32);
+      // Keep the forward pitch from the arm instead of cancelling it: the grip
+      // stays in the palm while each head/blade angles away from the forearm.
+      if (craftedSpec.kind === 'pickaxe') this.avatarHeldTool.rotation.set(0.6, -0.75, 0.32);
+      else if (craftedSpec.kind === 'axe') this.avatarHeldTool.rotation.set(0.65, -1.15, 0.32);
+      else if (craftedSpec.kind === 'hoe') this.avatarHeldTool.rotation.set(0.65, -1.08, 0.32);
+      else if (craftedSpec.kind === 'shovel') this.avatarHeldTool.rotation.set(0.58, -0.65, 0.32);
+      // The sword grip is at y=-0.24 in its model; keep that grip seated and
+      // give the blade a modest forward lean.
+      else if (craftedSpec.kind === 'sword') this.avatarHeldTool.rotation.set(0.38, -0.05, 0.32);
+      else this.avatarHeldTool.rotation.set(0.33, 0.05, 0.32);
       this.avatarHeldTool.visible = true;
       return;
     }
@@ -2154,8 +2231,8 @@ if (tpClipActive > 0.5) {
 
     // Inventory is a live overlay: allow craft/close shortcuts but never feed gameplay movement or actions.
     if (this.inventoryOpen) {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(c)) e.preventDefault();
-      if (c === 'KeyE' || c === 'Tab' || c === 'KeyI') {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Escape'].includes(c)) e.preventDefault();
+      if (c === 'KeyE' || c === 'Tab' || c === 'KeyI' || c === 'Escape') {
         this.keys[c] = true;
         e.preventDefault();
         this.closeInventory();
@@ -2771,9 +2848,13 @@ if (tpClipActive > 0.5) {
     initAudio();
     stopMusic(0.4);
     if (survivalRun) this.runTime = 0;
-    else if (seconds && seconds > 0) this.runTime = seconds;
+    else this.runTime = seconds && seconds > 0 ? seconds : EXPLORATION_RUN_TIME;
     this.score = 0;
     this.timeLeft = this.runTime;
+    this.explorationObjectives = !survivalRun && !sandbox
+      ? EXPLORATION_TASKS.map((task) => ({ ...task, progress: 0 }))
+      : [];
+    this.objectiveIndex = 0;
     this.health = 100;
     this.combo = 0;
     this.comboTimer = 0;
@@ -2791,10 +2872,15 @@ if (tpClipActive > 0.5) {
     this.deathCause = null;
     this.inventoryOpen = false;
     this.lastCraft = null;
-    this.prevHint = null;
+    this.tutorialTip = null;
+    this.tutorialTipTimer = 0;
+    this.tutorialTipQueue.length = 0;
+    this.tutorialPending.clear();
+    this.craftTipScanTimer = 0;
     this.vel.set(0, 0, 0);
     this.mineProgress = 0;
     this.mineBlockKey = '';
+    this.mineDenyKey = '';
     this.swingT = -1;
     this.shake = 0;
     this.shakeMag = 0;
@@ -3256,16 +3342,8 @@ if (tpClipActive > 0.5) {
         this.syncHud(true);
       }
     }
-    // nudge the player the first time a pickaxe upgrade is within reach
-    const hint = this.craftHint();
-    if (hint !== this.prevHint) {
-      this.prevHint = hint;
-      const hintKey = this.craftHintKey();
-      const hintRecipe = hintKey ? RECIPES.find((r) => r.key === hintKey) : undefined;
-      if (hint && hintRecipe?.kind === 'pickaxe') {
-        this.pushBanner(t('workbenchReady'), `${hint} — ${t('pressE')}`, '#f4b942');
-      }
-    }
+    this.updateTutorialTip(dt);
+    this.updateCraftReadyTip(dt);
     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
     this.flash = Math.max(0, this.flash - dt * 2.4);
     this.syncHud(false);
@@ -3451,15 +3529,21 @@ if (tpClipActive > 0.5) {
     if (this.vel.y > 0 && !jumpHeld) g *= 1.9;
     this.vel.y -= g * dt;
     this.vel.y = Math.max(-52, this.vel.y);
-    // Vines form climbable ladders through the palm canopy.
+    // Vines and crafted ladders share a gentle climb assist; W/Space climbs ladders, S descends.
     const vr = PLAYER_HALF + 0.13;
     let onVine = false;
+    let onLadder = false;
     for (const xx of [this.pos.x - vr, this.pos.x + vr])
       for (const zz of [this.pos.z - vr, this.pos.z + vr])
-        for (const yy of [this.pos.y + 0.35, this.pos.y + 1.25])
-          if (this.world.get(Math.floor(xx), Math.floor(yy), Math.floor(zz)) === VINE) onVine = true;
-    if (onVine) {
-      this.vel.y = jumpHeld ? Math.max(this.vel.y, 3.5) : Math.max(this.vel.y, -1.5);
+        for (const yy of [this.pos.y + 0.35, this.pos.y + 1.25]) {
+          const climbBlock = this.world.get(Math.floor(xx), Math.floor(yy), Math.floor(zz));
+          if (climbBlock === VINE) onVine = true;
+          else if (isLadder(climbBlock)) onLadder = true;
+        }
+    if (onVine || onLadder) {
+      const climbUp = jumpHeld || (onLadder && fz > 0.1);
+      const climbDown = onLadder && fz < -0.1;
+      this.vel.y = climbUp ? Math.max(this.vel.y, 3.5) : climbDown ? Math.min(this.vel.y, -2.2) : Math.max(this.vel.y, -1.5);
       this.fallStart = this.pos.y;
     }
 
@@ -4294,6 +4378,7 @@ if (tpClipActive > 0.5) {
       this.highlight.visible = false;
       this.crackMesh.visible = false;
       this.mineProgress = 0;
+      this.mineDenyKey = '';
       return;
     }
     // a mob under the crosshair always wins over the block behind it
@@ -4302,58 +4387,85 @@ if (tpClipActive > 0.5) {
       this.crackMesh.visible = false;
       this.mineProgress = 0;
       this.mineBlockKey = '';
+      this.mineDenyKey = '';
       return;
     }
-    const t = this.target;
-    if (!t) {
+    const target = this.target;
+    if (!target) {
       this.highlight.visible = false;
       this.crackMesh.visible = false;
       this.mineProgress = 0;
       this.mineBlockKey = '';
+      this.mineDenyKey = '';
       return;
     }
     this.highlight.visible = true;
-    this.highlight.position.set(t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    this.highlight.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
     const pulse = 1 + Math.sin(this.time * 9) * 0.006;
     this.highlight.scale.setScalar(pulse);
     const hlMat = this.highlight.material as THREE.LineBasicMaterial;
     hlMat.opacity = wantMining ? 0.95 : 0.6;
 
-    const def = BLOCKS[t.id];
-    if (!isBreakable(t.id)) {
-      hlMat.color.setHex(isTreasureChest(t.id) ? 0xf4b942 : 0xe2564a);
+    const def = BLOCKS[target.id];
+    if (!isBreakable(target.id)) {
+      hlMat.color.setHex(isTreasureChest(target.id) ? 0xf4b942 : 0xe2564a);
       this.crackMesh.visible = false;
       this.mineProgress = 0;
       this.mineBlockKey = '';
+      this.mineDenyKey = '';
       return;
     }
+    const heldId = this.hotbar[this.selected] ?? -1;
+    const heldSpec = getToolSpec(heldId);
+    const requiredTier = minimumPickaxeTier(target.id);
+    const needsPickaxe = requiredTier !== null && (heldSpec?.kind !== 'pickaxe' || heldSpec.tier < requiredTier);
+    const needsAnyTool = requiredTier === null && !heldSpec && !canBreakByHand(target.id);
+    if (needsPickaxe || needsAnyTool) {
+      hlMat.color.setHex(0xe2564a);
+      this.crackMesh.visible = false;
+      this.mineProgress = 0;
+      this.mineBlockKey = '';
+      if (wantMining) {
+        const key = `${target.x},${target.y},${target.z}:${heldId}:${requiredTier ?? 'tool'}`;
+        if (key !== this.mineDenyKey) {
+          this.mineDenyKey = key;
+          const message = requiredTier !== null
+            ? t('needPickaxe').replace('{tool}', pickaxeLabel(requiredTier))
+            : t('needToolToMine');
+          this.popup(target.x + 0.5, target.y + 1.1, target.z + 0.5, message, '#e2564a');
+        }
+      } else {
+        this.mineDenyKey = '';
+      }
+      return;
+    }
+    this.mineDenyKey = '';
     hlMat.color.setHex(0x0b0d0c);
 
     if (wantMining) {
       // Flowers, meadow grass, ferns, dead bushes, and eggs break in exactly ONE hit
-      if (isInstaBreak(t.id)) {
+      if (isInstaBreak(target.id)) {
         this.mineProgress = 0;
         this.startSwing(0.05);
-        this.breakBlock(t.x, t.y, t.z, t.id);
+        this.breakBlock(target.x, target.y, target.z, target.id);
         this.updateTarget();
         return;
       }
-      const key = `${t.x},${t.y},${t.z}`;
+      const key = `${target.x},${target.y},${target.z}`;
       if (key !== this.mineBlockKey) {
         this.mineBlockKey = key;
         this.mineProgress = 0;
         // first whack on an occupied hive wakes the swarm
-        if (t.id === HIVE) this.angerBees(t.x, t.y, t.z);
+        if (target.id === HIVE) this.angerBees(target.x, target.y, target.z);
       }
       if (this.swingT < 0) this.startSwing(def.hardness);
       // Use the selected tool's own tier speed. This also keeps shovel/hoe names
       // and their actual efficiency tied to the same physical instance.
-      const heldSpec = getToolSpec(this.hotbar[this.selected] ?? -1);
-      const tierSpeed = (heldSpec?.speed ?? PICKAXE_TIERS[0].speed) * this.toolMultiplier(t.id) * (1 + this.stats.miner / 100);
+      const tierSpeed = (heldSpec?.speed ?? PICKAXE_TIERS[0].speed) * this.toolMultiplier(target.id) * (1 + this.stats.miner / 100);
       this.mineProgress += (dt * tierSpeed) / Math.max(0.05, def.hardness);
       if (this.mineProgress >= 1) {
         this.mineProgress = 0;
-        this.breakBlock(t.x, t.y, t.z, t.id);
+        this.breakBlock(target.x, target.y, target.z, target.id);
         this.updateTarget();
       }
     } else {
@@ -4363,7 +4475,7 @@ if (tpClipActive > 0.5) {
     const stage = Math.min(9, Math.floor(this.mineProgress * 10));
     if (this.mineProgress > 0.01) {
       this.crackMesh.visible = true;
-      this.crackMesh.position.set(t.x + 0.5, t.y + 0.5, t.z + 0.5);
+      this.crackMesh.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
       if (stage !== this.crackStage) {
         this.crackStage = stage;
         const [u0, v0, u1, v1] = crackTileUV(stage);
@@ -4425,9 +4537,9 @@ if (tpClipActive > 0.5) {
         this.vineTips.set(Engine.packCell(x, y + 1, z), { x, y: y + 1, z, t: 4 + Math.random() * 4 });
     }
     // cutting a trunk? everything above comes down as one physical piece
-    if (isLogId(id) && isLogId(this.world.get(x, y + 1, z))) {
-      this.fellTree(x, y, z);
-    }
+    const extraLogs = isLogId(id) && isLogId(this.world.get(x, y + 1, z))
+      ? this.fellTree(x, y, z)
+      : 0;
     this.rebuildAt(x, z);
     this.blocksMined++;
     this.damageHeldTool(1);
@@ -4485,10 +4597,11 @@ if (tpClipActive > 0.5) {
       this.addShake(0.6);
       this.pushBanner(
         isDia || isEm ? t('diamond') : t('gold'),
-        `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`,
+        this.endlessRun ? '' : `+${Math.round(def.timeBonus)}${t('secShort')} ${t('secondsOnClock')}`,
         isDia ? '#5fe8dc' : isEm ? '#2bd45e' : '#f7d34b',
       );
     }
+    this.recordExplorerMining(id, 1 + extraLogs);
     this.syncHotbar(false);
     this.syncHud(true);
   }
@@ -4532,7 +4645,7 @@ if (tpClipActive > 0.5) {
   }
 
   /** detach the trunk + canopy above (x,y,z) from the world and let it topple over */
-  private fellTree(x: number, y: number, z: number) {
+  private fellTree(x: number, y: number, z: number): number {
     // 1. collect the trunk going up (allowing 1-block lean / branches for giant trees)
     const logs: Array<{ pos: [number, number, number]; id: number }> = [];
     const logSeen = new Set<string>();
@@ -4553,7 +4666,7 @@ if (tpClipActive > 0.5) {
             if (cy + dy > y) stack.push([cx + dx2, cy + dy, cz + dz2]);
           }
     }
-    if (!logs.length) return;
+    if (!logs.length) return 0;
 
     // 2. gather the whole leaf canopy — wide first ring around the logs, then
     //    flood through connected leaves so nothing is left hovering.  Keep a
@@ -4658,6 +4771,7 @@ if (tpClipActive > 0.5) {
     this.fallingTrees.push({ group, pivot, axis, angle: 0, vel: 0.28, creak: false, blocks });
     if (this.fallingTrees.length > 4) this.finishTree(this.fallingTrees.shift()!);
     sfx.crack(3);
+    return logs.length;
   }
 
   private updateFallingTrees(dt: number) {
@@ -4748,6 +4862,7 @@ if (tpClipActive > 0.5) {
     if (this.phase !== 'playing') return false;
     // trader first — walking up to him and pressing E opens the trade tab
     if (this.traderNear()) {
+      this.queueTutorialTip('mechanic:trader', t('tutorialTraderTitle'), t('tutorialTraderBody'), '#d98cff', 'trader');
       this.invTab = 'trade';
       this.openInventory();
       return true;
@@ -4755,12 +4870,14 @@ if (tpClipActive > 0.5) {
     const tg = this.target;
     // workbench / crafting table → open the workbench dismantle view
     if (tg && tg.id === CRAFTING_TABLE) {
+      this.queueTutorialTip('mechanic:workbench', t('tutorialWorkbenchTitle'), t('tutorialWorkbenchBody'), '#f4b942', 'workbench');
       this.invTab = 'workbench';
       this.openInventory();
       return true;
     }
     // anvil → open the smithing tab
     if (tg && tg.id === ANVIL) {
+      this.queueTutorialTip('mechanic:anvil', t('tutorialAnvilTitle'), t('tutorialAnvilBody'), '#d6d9dd', 'anvil');
       this.invTab = 'anvil';
       this.openInventory();
       return true;
@@ -6097,7 +6214,13 @@ if (tpClipActive > 0.5) {
         if (fallY!==y) { this.markDirtyAt(x,z); this.enqueueSupportCheck(x,fallY,z); this.enqueueSupportCheck(x,y,z); }
         continue;
       }
-      if (isLeafId(id)) {
+      if (isLadder(id)) {
+        // Ladders hang only from a horizontal solid face; a floor beneath is not support.
+        const attached =
+          isSolid(this.world.get(x - 1, y, z)) || isSolid(this.world.get(x + 1, y, z)) ||
+          isSolid(this.world.get(x, y, z - 1)) || isSolid(this.world.get(x, y, z + 1));
+        if (attached) continue;
+      } else if (isLeafId(id)) {
         // Palm crowns reach three blocks out; all leaf kinds recognise
         // their matching living trunk or adjacent solid structure block.
         let alive =
@@ -6211,6 +6334,16 @@ if (tpClipActive > 0.5) {
     if (!this.world.inBounds(px, py, pz)) return;
     const targetCell = this.world.get(px, py, pz);
     if (targetCell !== AIR && targetCell !== WATER) return; // building displaces water
+    if (isLadder(id)) {
+      const attached =
+        isSolid(this.world.get(px - 1, py, pz)) || isSolid(this.world.get(px + 1, py, pz)) ||
+        isSolid(this.world.get(px, py, pz - 1)) || isSolid(this.world.get(px, py, pz + 1));
+      if (!attached) {
+        sfx.ui(false);
+        this.placeCooldown = 0.3;
+        return;
+      }
+    }
     // don't entomb the player
     const minX = this.pos.x - PLAYER_HALF - 0.02,
       maxX = this.pos.x + PLAYER_HALF + 0.02;
@@ -6218,7 +6351,7 @@ if (tpClipActive > 0.5) {
       maxY = this.pos.y + PLAYER_HEIGHT + 0.02;
     const minZ = this.pos.z - PLAYER_HALF - 0.02,
       maxZ = this.pos.z + PLAYER_HALF + 0.02;
-    if (px + 1 > minX && px < maxX && py + 1 > minY && py < maxY && pz + 1 > minZ && pz < maxZ) return;
+    if (!isLadder(id) && px + 1 > minX && px < maxX && py + 1 > minY && py < maxY && pz + 1 > minZ && pz < maxZ) return;
 
     // Placing lava into a water cell is itself a contact, not a free swap.
     const placed = id === LAVA && targetCell === WATER ? VOLCANIC_STONE : id;
@@ -6258,6 +6391,9 @@ if (tpClipActive > 0.5) {
     this.placeCooldown = 0.18;
     this.startSwing(0.5);
     sfx.place();
+    if (isLadder(id)) {
+      this.queueTutorialTip('mechanic:ladder', t('tutorialLadderTitle'), t('tutorialLadderBody'), '#93c95d', 'ladder');
+    }
     this.burst(px + 0.5, py + 0.5, pz + 0.5, BLOCKS[placed].tint, 5, 1.6);
     this.syncHotbar(true);
   }
@@ -6423,6 +6559,16 @@ if (tpClipActive > 0.5) {
     }
     const g = new THREE.Group();
     const B = Engine.fancyBox;
+    if (isLadder(id)) {
+      const palette = LADDER_PALETTE[id];
+      for (const x of [-0.18, 0.18]) B(g, x, 0, 0, 0.06, 0.78, 0.07, palette.dark);
+      for (const y of [-0.28, -0.1, 0.08, 0.26]) {
+        B(g, 0, y, 0, 0.43, 0.065, 0.08, palette.dark);
+        B(g, 0, y + 0.008, 0.018, 0.39, 0.035, 0.05, palette.light);
+      }
+      g.rotation.set(0.16, 0.24, -0.08);
+      return g;
+    }
     switch (id) {
       case WOOL: {
         // fluffy cloud of offset puffs
@@ -7013,8 +7159,8 @@ if (tpClipActive > 0.5) {
     this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
     this.addToHotbar(d.id);
     if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound++;
-    if (def.timeBonus > 0) {
-      this.timeLeft = Math.min(this.runTime + 40, this.timeLeft + def.timeBonus);
+    if (!this.endlessRun && def.timeBonus > 0) {
+      this.timeLeft += def.timeBonus;
       this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}${t('secShort')}`, '#7ee7a0', true);
     }
     if (d.id === DIAMOND || d.id === EMERALD) this.health = Math.min(100, this.health + 16);
@@ -7104,7 +7250,17 @@ if (tpClipActive > 0.5) {
     const spec = getToolSpec(id);
     const instance = this.getToolInstanceAt(this.selected);
     if (!spec || spec.maxDurability <= 0 || !instance) return;
+    const previousDurability = instance.durability;
     instance.durability = Math.max(0, instance.durability - Math.max(1, amount));
+    if (previousDurability > spec.maxDurability * 0.5 && instance.durability <= spec.maxDurability * 0.5) {
+      this.queueTutorialTip(
+        'mechanic:low-durability',
+        t('tutorialLowDurability'),
+        `${toolLabelForId(id)} · ${t('tutorialRepairTool')}`,
+        '#f4b942',
+        'anvil',
+      );
+    }
     if (instance.durability <= 0) {
       const broken = this.removeToolInstance(instance.instanceId);
       if (broken) {
@@ -7632,7 +7788,11 @@ if (tpClipActive > 0.5) {
     if (m.id === 'trader') return true; // he's a merchant, not target practice
 
     const swift = 1 - Math.min(0.4, this.stats.swift / 100);
-    this.attackCd = (this.heldKind() === 'sword' ? 0.42 : 0.56) * swift;
+    const held = this.heldKind();
+    const cooldown = held === 'sword' ? 0.44 : held === 'axe' ? 0.68 : held === 'hoe' ? 0.56 : 0.58;
+    const weaponSpec = getToolSpec(this.hotbar[this.selected] ?? -1);
+    const materialTempo = weaponSpec?.key === 'gold' ? 0.8 : 1;
+    this.attackCd = cooldown * swift * materialTempo;
     this.startSwing(0.6);
 
     let dmg = this.attackDamage();
@@ -7686,11 +7846,12 @@ if (tpClipActive > 0.5) {
     const base = spec?.attackDamage ?? 3;
     const mul =
       held === 'sword' ? 1 :
-      held === 'axe' ? 0.78 :
-      held === 'pick' ? 0.58 :
-      held === 'shovel' ? 0.44 :
-      held === 'hoe' ? 0.4 : 0.3;
-    return (base * mul + this.stats.damage) * (1 + this.stats.swift / 220);
+      held === 'axe' ? 1.05 :
+      held === 'pick' ? 0.62 :
+      held === 'shovel' ? 0.46 :
+      held === 'hoe' ? 0.4 :
+      held === 'fist' ? 0.38 : 0.3;
+    return (base * mul + this.stats.damage) * (1 + this.stats.swift / 500);
   }
 
   // ================= ARROWS =================
@@ -7703,6 +7864,10 @@ if (tpClipActive > 0.5) {
     vz: number;
     life: number;
     mesh: THREE.Mesh;
+    /** Player arrow stats are captured at launch so switching bows cannot change an in-flight shot. */
+    damage?: number;
+    critChance?: number;
+    critMultiplier?: number;
     /** true = shot by a skeleton archer, hurts the player */
     hostile?: boolean;
   }> = [];
@@ -7735,19 +7900,26 @@ if (tpClipActive > 0.5) {
   private tryShoot() {
     if (this.attackCd > 0) return;
     if ((this.inventory.get(ARROW_ITEM) ?? 0) <= 0) {
+      this.queueTutorialTip('mechanic:bow-ammo', t('tutorialBowTitle'), t('tutorialBowAmmo'), '#c7a879', 'bow');
       this.attackCd = 0.4;
       sfx.ui(false);
       return;
     }
+    this.queueTutorialTip('mechanic:bow-fire', t('tutorialBowTitle'), t('tutorialBowFire'), '#c7a879', 'bow');
     this.inventory.set(ARROW_ITEM, (this.inventory.get(ARROW_ITEM) ?? 0) - 1);
+    const spec = getToolSpec(this.hotbar[this.selected] ?? TOOL_BOW);
+    const tier = spec?.kind === 'bow' ? spec.tier : 0;
+    // Early bows shoot more slowly and hit lightly; later materials trade resources for reach and power.
+    const cooldowns = [0.82, 0.76, 0.70, 0.62, 0.64, 0.58];
+    const speeds = [27, 29, 31, 32, 33, 35];
     const swift = 1 - Math.min(0.4, this.stats.swift / 100);
-    this.attackCd = 0.55 * swift;
+    this.attackCd = cooldowns[tier] * swift;
     this.startSwing(0.4);
     sfx.swing(4);
     this.damageHeldTool(1);
     if (!this.arrowGeo) this.arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.52);
     const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
-    const sp = 34;
+    const sp = speeds[tier];
     const a = {
       x: this.eyeV.x + this.dirV.x * 0.6,
       y: this.eyeV.y - 0.12 + this.dirV.y * 0.6,
@@ -7757,6 +7929,9 @@ if (tpClipActive > 0.5) {
       vz: this.dirV.z * sp,
       life: 2.4,
       mesh,
+      damage: (spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35,
+      critChance: 0.14,
+      critMultiplier: 1.55,
     };
     mesh.position.set(a.x, a.y, a.z);
     this.scene.add(mesh);
@@ -7789,10 +7964,11 @@ if (tpClipActive > 0.5) {
           if (isSolid(this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)))) {
             this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.2);
             if (Math.random() < 0.8) {
+              const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
               this.spawnDrop(
-                a.x - (a.vx / 22) * 0.35,
-                a.y - (a.vy / 22) * 0.35 + 0.15,
-                a.z - (a.vz / 22) * 0.35,
+                a.x - (a.vx / speed) * 0.35,
+                a.y - (a.vy / speed) * 0.35 + 0.15,
+                a.z - (a.vz / speed) * 0.35,
                 ARROW_ITEM,
               );
             }
@@ -7804,7 +7980,8 @@ if (tpClipActive > 0.5) {
         // hit a mob?
         const hit = this.mobSys.inRadius(a.x, a.y, a.z, 0.75).filter((m) => m.id !== 'trader')[0];
         if (hit) {
-          const dmg = (14 + this.stats.damage * 0.6) * (Math.random() < 0.2 ? 1.7 : 1);
+          const crit = Math.random() < (a.critChance ?? 0.18);
+          const dmg = (a.damage ?? 8) * (crit ? (a.critMultiplier ?? 1.6) : 1);
           hit.hp -= dmg;
           hit.hurtFlash = 0.18;
           hit.vx += a.vx * 0.06;
@@ -7813,7 +7990,7 @@ if (tpClipActive > 0.5) {
           hit.stuckArrows++;
           if (this.stats.fire > 0) hit.burn = Math.max(hit.burn, 3);
           if (this.stats.frost > 0) hit.slow = 2;
-          this.popup(hit.x, hit.y + 1.5, hit.z, `${Math.round(dmg)}`, '#93c95d');
+          this.popup(hit.x, hit.y + 1.5, hit.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#93c95d', crit);
           this.burst(a.x, a.y, a.z, [220, 220, 200], 5, 2);
           sfx.crack(2);
           if (hit.hp <= 0) this.mobDied(hit, false);
@@ -7825,7 +8002,8 @@ if (tpClipActive > 0.5) {
           this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.4);
           if (Math.random() < 0.8) {
             // back out of the wall a touch so the drop doesn't spawn inside the block
-            this.spawnDrop(a.x - (a.vx / 34) * 0.35, a.y - (a.vy / 34) * 0.35 + 0.15, a.z - (a.vz / 34) * 0.35, ARROW_ITEM);
+            const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
+            this.spawnDrop(a.x - (a.vx / speed) * 0.35, a.y - (a.vy / speed) * 0.35 + 0.15, a.z - (a.vz / speed) * 0.35, ARROW_ITEM);
           }
           dead = true;
           break;
@@ -8015,27 +8193,19 @@ if (tpClipActive > 0.5) {
     const cls = blockClass(blockId);
     switch (this.heldKind()) {
       case 'pick':
-        return cls === 'stone' ? 1.35 : cls === 'earth' ? 0.7 : cls === 'wood' ? 0.6 : 0.8;
-      case 'axe': {
-        const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
-        const axeSpeed = 1.1 + (spec?.speed ?? 1) * 1.0;
-        return cls === 'wood' ? axeSpeed : cls === 'earth' ? 0.6 : 0.35;
-      }
-      case 'shovel': {
-        const shovelTier = this.heldShovelTier();
-        const shovelSpeed = [1.5, 2.6, 3.0, 2.7, 3.6, 4.5][shovelTier] ?? 1.5;
-        return cls === 'earth' ? shovelSpeed : cls === 'wood' ? 0.5 : 0.3;
-      }
-      case 'hoe': {
-        const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
-        const hoeSpeed = 1.25 + (spec?.speed ?? 1) * 0.95;
+        return cls === 'stone' ? 1.5 : cls === 'earth' ? 0.72 : cls === 'wood' ? 0.65 : 0.55;
+      case 'axe':
+        // The material's speed stat already supplies progression; this is its woodcutting bonus.
+        return cls === 'wood' ? 1.55 : cls === 'earth' ? 0.65 : 0.42;
+      case 'shovel':
+        return cls === 'earth' ? 1.45 : cls === 'wood' ? 0.55 : 0.35;
+      case 'hoe':
         // Minecraft-style hoes are efficient on leaves and organic blocks.
-        return isLeafId(blockId) || blockId === HAY_BALE || isPlant(blockId) ? hoeSpeed : 0.35;
-      }
+        return isLeafId(blockId) || blockId === HAY_BALE || isPlant(blockId) ? 1.35 : 0.35;
       case 'sword':
-        return 0.25;
+        return 0.18;
       case 'bow':
-        return 0.2;
+        return 0.12;
       case 'fist':
         // bare hands: noticeably worse than even a wooden pick
         return cls === 'wood' || cls === 'earth' ? 0.45 : 0.3;
@@ -8317,7 +8487,6 @@ if (tpClipActive > 0.5) {
   inventoryOpen = false;
   invTab: string = 'all';
   private lastCraft: string | null = null;
-  private prevHint: string | null = null;
 
   private craftSignature() {
     let s = '';
@@ -8350,27 +8519,23 @@ if (tpClipActive > 0.5) {
     return r.inputs.every(([id, n]) => (this.inventory.get(id) ?? 0) >= n);
   }
 
-  craftHintKey(): string | null {
-    const pick = RECIPES.find((r) => r.kind === 'pickaxe' && this.canCraft(r));
-    if (pick) return pick.key;
-    const any = RECIPES.find((r) => this.canCraft(r));
-    return any ? any.key : null;
-  }
-
-  craftHint(): string | null {
-    const key = this.craftHintKey();
-    const r = key ? RECIPES.find((rr) => rr.key === key) : undefined;
-    if (!r) return null;
-    return r.toolId ? toolLabelForId(r.toolId) : recipeText(r.key, r.name, r.desc)[0];
-  }
-
   craft(key: string): boolean {
     const r = RECIPES.find((rr) => rr.key === key);
     if (!r || !this.canCraft(r)) {
       sfx.ui(false);
       return false;
     }
-    for (const [id, n] of r.inputs) this.inventory.set(id, (this.inventory.get(id) ?? 0) - n);
+    for (const [id, n] of r.inputs) {
+      if (getToolSpec(id)) {
+        // Upgraded bows consume the previous physical bow, including its wear record and hotbar slot.
+        for (let i = 0; i < n; i++) {
+          const instance = [...this.toolInstances.values()].find((item) => item.id === id);
+          if (instance) this.removeToolInstance(instance.instanceId);
+        }
+      } else {
+        this.inventory.set(id, (this.inventory.get(id) ?? 0) - n);
+      }
+    }
     this.lastCraft = r.key;
     const [localizedName, localizedDesc] = recipeText(r.key, r.name, r.desc);
     const rName = r.toolId ? toolLabelForId(r.toolId) : localizedName;
@@ -8432,10 +8597,14 @@ if (tpClipActive > 0.5) {
       sfx.upgrade();
       this.pushBanner(pickaxeLabel(r.tier), rDesc, PICKAXE_TIERS[r.tier].color);
     } else if (r.kind === 'time') {
-      this.timeLeft = Math.min(this.runTime + 60, this.timeLeft + (r.seconds ?? 0));
       sfx.upgrade();
-      this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.seconds}${t('secShort')}`, '#7ee7a0', true);
-      this.pushBanner(t('overdrive'), `+${r.seconds}${t('secShort')} ${t('secondsOnClock')}`, '#7ee7a0');
+      if (!this.endlessRun) {
+        this.timeLeft += r.seconds ?? 0;
+        this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.seconds}${t('secShort')}`, '#7ee7a0', true);
+        this.pushBanner(t('overdrive'), `+${r.seconds}${t('secShort')} ${t('secondsOnClock')}`, '#7ee7a0');
+      } else {
+        this.pushBanner(rName, rDesc, r.accent);
+      }
     } else if (r.kind === 'heal') {
       this.health = Math.min(100, this.health + (r.heal ?? 0));
       sfx.upgrade();
@@ -8446,6 +8615,7 @@ if (tpClipActive > 0.5) {
       this.pushBanner(rName, rDesc, r.accent);
       this.burst(this.pos.x, this.pos.y + 1.1, this.pos.z, [255, 240, 190], 14, 3);
     }
+    this.recordExplorerCraft(r);
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -8635,6 +8805,125 @@ if (tpClipActive > 0.5) {
     this.syncHud(true);
   }
 
+  private queueTutorialTip(id: string, title: string, body: string, color: string, icon: TutorialIcon) {
+    if (this.tutorialSeen.has(id) || this.tutorialPending.has(id)) return;
+    const tip = { title, body, color, icon, key: Math.random() };
+    this.tutorialPending.add(id);
+    const queued = { id, tip };
+    if (this.tutorialTip) this.tutorialTipQueue.push(queued);
+    else this.activateTutorialTip(queued);
+  }
+
+  private activateTutorialTip(entry: { id: string; tip: TutorialTip }) {
+    this.tutorialPending.delete(entry.id);
+    this.tutorialSeen.add(entry.id);
+    this.tutorialTip = entry.tip;
+    this.tutorialTipTimer = 5.5;
+    try {
+      localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify([...this.tutorialSeen]));
+    } catch {
+      // Keep the hint visible even when storage is unavailable.
+    }
+    this.syncHud(true);
+  }
+
+  private updateTutorialTip(dt: number) {
+    // Keep interaction tips waiting behind inventory screens, then let the player read them on return.
+    if (this.inventoryOpen) return;
+    if (!this.tutorialTip) {
+      const next = this.tutorialTipQueue.shift();
+      if (next) this.activateTutorialTip(next);
+      return;
+    }
+    this.tutorialTipTimer -= dt;
+    if (this.tutorialTipTimer > 0) return;
+    this.tutorialTip = null;
+    const next = this.tutorialTipQueue.shift();
+    if (next) this.activateTutorialTip(next);
+    else this.syncHud(true);
+  }
+
+  private updateCraftReadyTip(dt: number) {
+    if (this.tutorialTip || this.tutorialTipQueue.length) return;
+    this.craftTipScanTimer -= dt;
+    if (this.craftTipScanTimer > 0) return;
+    this.craftTipScanTimer = 0.55;
+
+    const order: Array<{ kind: 'pickaxe' | 'weapon' | 'bow' | 'axe' | 'shovel' | 'hoe'; icon: TutorialIcon }> = [
+      { kind: 'pickaxe', icon: 'pickaxe' },
+      { kind: 'weapon', icon: 'sword' },
+      { kind: 'bow', icon: 'bow' },
+      { kind: 'axe', icon: 'axe' },
+      { kind: 'shovel', icon: 'shovel' },
+      { kind: 'hoe', icon: 'hoe' },
+    ];
+    for (const entry of order) {
+      const id = `craft:${entry.kind}`;
+      if (this.tutorialSeen.has(id) || this.tutorialPending.has(id)) continue;
+      const recipe = RECIPES.find((candidate) => candidate.kind === entry.kind && candidate.toolId !== undefined && this.canCraft(candidate));
+      if (!recipe) continue;
+      const label = recipe.toolId ? toolLabelForId(recipe.toolId) : recipe.name;
+      const openHint = this.isCoarse() ? t('tutorialOpenInventoryTouch') : t('tutorialOpenInventory');
+      this.queueTutorialTip(id, t('tutorialCraftReady'), `${label} · ${openHint}`, recipe.accent, entry.icon);
+      return;
+    }
+  }
+
+  private objectiveHudState(): HudObjective[] {
+    if (!this.explorationObjectives.length) return [];
+    const len = this.explorationObjectives.length;
+    const start = Math.max(0, Math.min(this.objectiveIndex - 1, len - 3));
+    return this.explorationObjectives.slice(start, start + 3).map((task, offset) => {
+      const index = start + offset;
+      return {
+        id: task.id,
+        titleKey: task.titleKey,
+        progress: task.progress,
+        target: task.target,
+        rewardScore: task.rewardScore,
+        rewardSeconds: task.rewardSeconds,
+        status: index < this.objectiveIndex ? 'complete' : index === this.objectiveIndex ? 'active' : 'locked',
+      };
+    });
+  }
+
+  private recordExplorerMining(blockId: number, amount = 1) {
+    if (!this.explorationObjectives.length || amount <= 0) return;
+    for (const task of this.explorationObjectives) {
+      if (task.mineBlockIds?.includes(blockId)) task.progress = Math.min(task.target, task.progress + amount);
+    }
+    this.advanceExplorerObjectives();
+  }
+
+  private recordExplorerCraft(recipe: Recipe) {
+    if (!this.explorationObjectives.length) return;
+    for (const task of this.explorationObjectives) {
+      const craftedPickaxe = task.craftPickaxeTier !== undefined && recipe.kind === 'pickaxe' && recipe.tier === task.craftPickaxeTier;
+      const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
+      if (craftedPickaxe || craftedRecipe) task.progress = Math.min(task.target, task.progress + 1);
+    }
+    this.advanceExplorerObjectives();
+  }
+
+  private advanceExplorerObjectives() {
+    let lastCompleted: ExplorationTask | null = null;
+    while (this.objectiveIndex < this.explorationObjectives.length) {
+      const task = this.explorationObjectives[this.objectiveIndex];
+      if (task.progress < task.target) break;
+      lastCompleted = task;
+      this.objectiveIndex++;
+      this.score += task.rewardScore;
+      if (!this.endlessRun) this.timeLeft += task.rewardSeconds;
+    }
+    if (!lastCompleted) return;
+    const rewardTime = `${Math.floor(lastCompleted.rewardSeconds / 60)}:${String(lastCompleted.rewardSeconds % 60).padStart(2, '0')}`;
+    const reward = t('objectiveReward')
+      .replace('{score}', String(lastCompleted.rewardScore))
+      .replace('{time}', rewardTime);
+    this.popup(this.pos.x, this.pos.y + 1.7, this.pos.z, `+${lastCompleted.rewardScore} · +${lastCompleted.rewardSeconds}${t('secShort')}`, '#93c95d', true);
+    this.pushBanner(t('objectiveComplete'), `${t(lastCompleted.titleKey)} · ${reward}`, '#93c95d');
+  }
+
   private tmpV = new THREE.Vector3();
   private updatePopups(dt: number) {
     const w = this.container.clientWidth;
@@ -8763,6 +9052,7 @@ if (tpClipActive > 0.5) {
     }
     const targetBlock = this.target;
     const wearKey = [...this.toolInstances.values()].map((item) => `${item.instanceId}:${item.durability}`).join(',');
+    const objectiveKey = `${this.objectiveIndex}/${this.explorationObjectives.map((task) => task.progress).join(',')}`;
     const key = [
       this.phase,
       Math.round(this.loadProgress * 100),
@@ -8776,6 +9066,7 @@ if (tpClipActive > 0.5) {
       this.oresFound,
       this.selected,
       this.banner?.key ?? 0,
+      this.tutorialTip?.key ?? 0,
       this.deathCause ?? '-',
       this.fps,
       this.locked || this.lockPending ? 1 : 0,
@@ -8786,6 +9077,7 @@ if (tpClipActive > 0.5) {
       this.hotbar.map((id, i) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}:${this.hotbarInstanceIds[i] ?? -1}`).join('|'),
       wearKey,
       this.craftSignature(),
+      objectiveKey,
     ].join('~');
     if (!force && key === this.lastHudKey) {
       this.writeDom();
@@ -8858,7 +9150,10 @@ if (tpClipActive > 0.5) {
       sandbox: this.sandbox,
       endless: this.endlessRun,
       inventoryOpen: this.inventoryOpen,
-      craftHint: this.craftHint(),
+      tutorialTip: this.tutorialTip,
+      explorationObjectives: this.objectiveHudState(),
+      objectiveIndex: this.objectiveIndex,
+      objectiveCount: this.explorationObjectives.length,
       inventory: this.inventoryList(),
       craftable: RECIPES.filter((r) => this.canCraft(r)).map((r) => r.key),
       lastCraft: this.lastCraft,

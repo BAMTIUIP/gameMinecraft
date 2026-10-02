@@ -21,66 +21,79 @@ type Palette = {
   outline: string;
 };
 
-/** The shared eight-bit haft used by every hand tool. */
+/** The shared diagonal haft used by every hand tool; the broad end is hidden under its head. */
 function PixelHaft({ p }: { p: Palette }) {
   return (
     <g>
-      <path d="M7 37 11 42 35 19 31 15Z" fill={p.outline} />
-      <path d="M11 37 13 40 33 20 30 18Z" fill={p.handle} />
-      <path d="M14 35 17 38 19 36 16 33Z" fill={p.accent} />
-      <path d="M20 29 23 32 25 30 22 27Z" fill={p.handle} />
-      <path d="M26 23 29 26 31 24 28 21Z" fill={p.accent} />
+      <path d="M7 37 11 41 37 15 33 11Z" fill={p.outline} />
+      <path d="M11 37 13 39 35 17 33 15Z" fill={p.handle} />
+      <path d="M14 34 17 37 19 35 16 32Z" fill={p.accent} />
+      <path d="M20 28 23 31 25 29 22 26Z" fill={p.handle} />
+      <path d="M26 22 29 25 31 23 28 20Z" fill={p.accent} />
     </g>
   );
 }
 
-/** A clear, symmetrical pixel pickaxe head with both ends inside the 48px tile. */
+/** A steeper haft puts its axis under the centre of the horizontal pick head. */
+function PickHaft({ p }: { p: Palette }) {
+  return (
+    <g>
+      {/* The haft axis runs directly through the centre socket at x=24. */}
+      <path d="M8 37 11 40 25 17 22 14Z" fill={p.outline} />
+      <path d="M11 37 13 39 24 17 23 15Z" fill={p.handle} />
+      <path d="M11 33 14 36 16 34 13 31Z" fill={p.accent} />
+      <path d="M15 27 18 30 20 28 17 25Z" fill={p.handle} />
+      <path d="M19 21 22 24 24 22 21 19Z" fill={p.accent} />
+    </g>
+  );
+}
+
+/** A balanced double-ended pick head with a centered socket; every point stays inside the tile. */
 function PickShape({ p }: { p: Palette }) {
   return (
     <g>
-      <path d="M7 11 11 7H29L33 10H38L42 13V17H38L35 20H30L27 17H17L13 20H8V17H4V13H7Z" fill={p.outline} />
-      <path d="M10 12 13 9H28L31 12H36L39 14V16H36L33 18H31L27 15H17L13 18H10V16H7V14H10Z" fill={p.head} />
-      <path d="M13 9H28L31 12H35V14H12Z" fill={p.edge} />
-      <path d="M7 14H13V16H8Z" fill={p.edge} />
-      <path d="M35 14H39V16H36Z" fill={p.edge} />
-      <path d="M22 10H27V12H22Z" fill={p.accent} />
+      <path d="M4 13 8 9H15L20 12H28L33 9H40L44 13 40 17H35L31 21H27L24 18 21 21H17L13 17H8Z" fill={p.outline} />
+      <path d="M7 13 10 11H16L21 14H27L32 11H38L41 13 38 15H34L30 19H27L24 16 21 19H18L14 15H10Z" fill={p.head} />
+      <path d="M6 13 10 11H15L20 13H14L10 15H7Z" fill={p.edge} />
+      <path d="M42 13 38 11H33L28 13H34L38 15H41Z" fill={p.edge} />
+      <path d="M20 13H28V16H20Z" fill={p.accent} />
     </g>
   );
 }
 
+/** The axe has one broad cutting blade and a narrow socket, never a square hammer head. */
 function AxeShape({ p }: { p: Palette }) {
   return (
     <g>
-      <path d="M26 8H36V11H40V15H43V23H40V27H32V25H27V21H24V16H22V12H26Z" fill={p.outline} />
-      <path d="M28 10H35V13H38V16H41V21H37V24H33V22H29V19H26V15H25V13H28Z" fill={p.head} />
-      <path d="M28 10H35V13H38V16H27V14H28Z" fill={p.edge} />
-      <path d="M37 16H41V21H38V23H35V20H37Z" fill={p.edge} />
-      <path d="M29 13H33V16H29Z" fill={p.accent} />
+      <path d="M28 6H34V9H37V12H39V15H41V18H39V21H36V23H32V20H29V17H26V16H23V18H20V16H18V12H19V9H22V7H28Z" fill={p.outline} />
+      <path d="M28 8H33V11H35V13H38V16H39V18H36V20H33V18H30V16H27V14H24V16H22V14H20V11H21V9H24V8H28Z" fill={p.head} />
+      <path d="M27 8H30V11H27V14H24V17H21V15H19V12H20V10H23V8H27Z" fill={p.edge} />
+      <path d="M31 11H33V14H31Z" fill={p.accent} />
     </g>
   );
 }
 
+/** A proper spade silhouette: broad shoulders taper to a visible point, not a stone block. */
 function ShovelShape({ p }: { p: Palette }) {
   return (
     <g>
-      {/* Broad scoop, with a tapered lower edge so it cannot read as a mallet. */}
-      <path d="M28 10H37V13H40V17H42V27H40V32H37V35H29V33H25V29H23V18H26V13H28Z" fill={p.outline} />
-      <path d="M29 12H35V15H38V18H40V26H38V30H35V32H30V30H27V27H25V19H28V15H29Z" fill={p.head} />
-      <path d="M29 12H35V15H38V18H28V16H29Z" fill={p.edge} />
-      <path d="M25 19H28V26H26V24H25Z" fill={p.edge} />
-      <path d="M30 29H37V31H30Z" fill={p.accent} />
+      <path d="M28 6H36L40 10H43V15L40 19H37L33 23L31 28L27 23H24L21 18V13L24 9H28Z" fill={p.outline} />
+      <path d="M29 8H35L38 11H41V15L38 18H35L32 22L30 19H27L24 16V13L26 10H29Z" fill={p.head} />
+      <path d="M29 8H35L38 11H40V13H32V16H28V12H29Z" fill={p.edge} />
+      <path d="M25 13H28V17L30 19L28 21H26L23 17V14H25Z" fill={p.edge} />
+      <path d="M32 16V21L31 24L30 21V17Z" fill={p.accent} />
     </g>
   );
 }
 
+/** A short, flat, one-sided hoe blade: deliberately unlike the pointed axe silhouette. */
 function HoeShape({ p }: { p: Palette }) {
   return (
     <g>
-      {/* Short crossbar plus a single hanging blade, like a Minecraft hoe. */}
-      <path d="M23 8H37V11H41V14H44V19H38V28H32V20H23V18H19V13H23Z" fill={p.outline} />
-      <path d="M25 10H36V13H39V15H41V17H36V26H34V18H25V16H22V14H25Z" fill={p.head} />
-      <path d="M25 10H36V13H39V15H25Z" fill={p.edge} />
-      <path d="M36 16H41V18H36Z" fill={p.accent} />
+      <path d="M23 7H38V10H35V13H32V16H28V13H25V11H22V9H23Z" fill={p.outline} />
+      <path d="M25 9H36V10H34V12H31V14H29V12H26V11H24V10H25Z" fill={p.head} />
+      <path d="M24 8H36V9H24Z" fill={p.edge} />
+      <path d="M31 10H33V12H31Z" fill={p.accent} />
     </g>
   );
 }
@@ -88,16 +101,18 @@ function HoeShape({ p }: { p: Palette }) {
 function SwordShape({ p }: { p: Palette }) {
   return (
     <g>
-      {/* The same diagonal axis as the tools: grip at bottom-left, tip top-right. */}
-      <path d="M23 28 32 12 42 5 39 15 30 31Z" fill={p.outline} />
-      <path d="M26 27 34 13 39 9 37 15 29 28Z" fill={p.head} />
-      <path d="M29 25 35 13 39 9 36 16 30 27Z" fill={p.edge} />
-      <path d="M34 14 38 10 36 16Z" fill={p.accent} />
-      <path d="M20 27 25 22 32 29 28 33Z" fill={p.outline} />
-      <path d="M22 27 25 24 29 29 27 31Z" fill={p.edge} />
-      <path d="M10 38 14 34 24 34 27 37 23 41 14 41Z" fill={p.outline} />
-      <path d="M13 37 15 35 22 35 24 37 22 39 15 39Z" fill={p.handle} />
-      <path d="M16 36H20V38H16Z" fill={p.accent} />
+      {/* Blade, guard, grip and pommel share one continuous diagonal axis. */}
+      <path d="M41 5 44 8 41 14 37 19 32 24 27 29 21 23 26 18 31 13 36 8Z" fill={p.outline} />
+      <path d="M40 8 42 9 39 14 35 18 31 22 27 27 24 24 29 19 33 14 37 10Z" fill={p.head} />
+      <path d="M40 7 42 9 39 13 36 16 34 15 37 10Z" fill={p.edge} />
+      <path d="M34 16 36 17 32 22 30 21Z" fill={p.accent} />
+      <path d="M16 22 20 18 33 31 29 35Z" fill={p.outline} />
+      <path d="M18 22 20 20 31 31 29 33Z" fill={p.edge} />
+      <path d="M20 25 24 29 11 42 7 38Z" fill={p.outline} />
+      <path d="M20 27 22 29 11 40 9 38Z" fill={p.handle} />
+      <path d="M15 32 18 35 16 37 13 34Z" fill={p.accent} />
+      <path d="M7 37 12 37 15 40 11 44 6 44 4 41Z" fill={p.outline} />
+      <path d="M8 40H11L12 41 10 42H7L6 41Z" fill={p.edge} />
     </g>
   );
 }
@@ -152,7 +167,7 @@ export function ToolSprite({ id, size = 32, durability, className = '', style, m
         <SwordShape p={p} />
       ) : (
         <g>
-          <PixelHaft p={p} />
+          {spec.kind === 'pickaxe' ? <PickHaft p={p} /> : <PixelHaft p={p} />}
           {spec.kind === 'pickaxe' && <PickShape p={p} />}
           {spec.kind === 'axe' && <AxeShape p={p} />}
           {spec.kind === 'shovel' && <ShovelShape p={p} />}

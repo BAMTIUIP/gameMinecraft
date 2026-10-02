@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DomRefs, HudState } from '../game/engine';
+import type { DomRefs, HudState, TutorialIcon } from '../game/engine';
 import { PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import {
+  AxeIcon,
   BagIcon,
+  BowIcon,
   ClockIcon,
   DepthIcon,
   HeartIcon,
+  HoeIcon,
   MoonIcon,
   PauseIcon,
   PickIcon,
   PlayIcon,
+  ShovelIcon,
   SkullIcon,
   SoundIcon,
   SunIcon,
+  SwordIcon,
 } from './icons';
 import {
   HAND,
@@ -32,6 +37,28 @@ function fmtTime(t: number) {
   const m = Math.floor(s / 60);
   const ss = Math.floor(s % 60);
   return `${m}:${ss.toString().padStart(2, '0')}`;
+}
+
+function objectiveReward(score: number, seconds: number) {
+  return t('objectiveReward')
+    .replace('{score}', String(score))
+    .replace('{time}', fmtTime(seconds));
+}
+
+function TutorialGlyph({ icon, color }: { icon: TutorialIcon; color: string }) {
+  const props = { size: 20, style: { color } };
+  switch (icon) {
+    case 'pickaxe': return <PickIcon {...props} />;
+    case 'sword': return <SwordIcon {...props} />;
+    case 'bow': return <BowIcon {...props} />;
+    case 'axe': return <AxeIcon {...props} />;
+    case 'shovel': return <ShovelIcon {...props} />;
+    case 'hoe': return <HoeIcon {...props} />;
+    case 'anvil': return <span className="font-display text-xl leading-none" style={{ color }}>⚒</span>;
+    case 'ladder': return <span className="font-display text-xl leading-none" style={{ color }}>↕</span>;
+    case 'trader': return <span className="font-display text-lg leading-none" style={{ color }}>⇄</span>;
+    case 'workbench': return <span className="font-display text-lg leading-none" style={{ color }}>▦</span>;
+  }
 }
 
 type Props = {
@@ -156,6 +183,87 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         </div>
       </div>
 
+      {hud.objectiveCount > 0 && hud.phase !== 'menu' && (
+        <section
+          aria-label={t('objectivePanelTitle')}
+          className="pointer-events-auto absolute left-2 top-[7.25rem] w-[min(20rem,calc(100vw-1rem))] border border-[#8c7549]/60 bg-[#101611]/90 p-2 shadow-[0_8px_26px_rgba(0,0,0,.5)] backdrop-blur-sm sm:left-4 sm:top-[8.25rem] sm:w-80 sm:p-2.5"
+        >
+          <header className="mb-1.5 flex items-center justify-between gap-2 border-b border-white/10 pb-1">
+            <span className="font-display text-[9px] tracking-[0.18em] text-[#f4b942] sm:text-[10px]">
+              {t('objectivePanelTitle')}
+            </span>
+            <span className="text-[9px] text-white/50">
+              {hud.objectiveIndex >= hud.objectiveCount
+                ? t('objectiveAllComplete')
+                : t('objectiveTaskCounter')
+                    .replace('{current}', String(hud.objectiveIndex + 1))
+                    .replace('{total}', String(hud.objectiveCount))}
+            </span>
+          </header>
+          <div className="flex flex-col gap-1.5">
+            {hud.explorationObjectives.map((objective) => (
+              <div
+                key={objective.id}
+                className={`border-l-2 pl-2 ${
+                  objective.status === 'active'
+                    ? 'border-[#93c95d] bg-[#93c95d]/[0.07]'
+                    : objective.status === 'complete'
+                      ? 'border-[#93c95d]/45 opacity-70'
+                      : 'border-white/15 opacity-45'
+                }`}
+              >
+                <div className="flex items-start gap-1.5">
+                  <span className={`mt-px text-[10px] leading-tight ${objective.status === 'complete' ? 'text-[#93c95d]' : objective.status === 'active' ? 'text-[#f4b942]' : 'text-white/40'}`}>
+                    {objective.status === 'complete' ? '✓' : objective.status === 'active' ? '◆' : '◇'}
+                  </span>
+                  <span className="min-w-0 flex-1 text-[10px] leading-tight text-white/85 sm:text-[11px]">
+                    {t(objective.titleKey)}
+                  </span>
+                  {objective.status !== 'locked' && (
+                    <span className="shrink-0 font-display text-[9px] tabular-nums text-white/70">
+                      {objective.progress}/{objective.target}
+                    </span>
+                  )}
+                </div>
+                <div className="ml-4 mt-0.5 font-display text-[8px] tracking-wide text-white/45 sm:text-[9px]">
+                  {objectiveReward(objective.rewardScore, objective.rewardSeconds)}
+                </div>
+                {objective.status === 'active' && (
+                  <div className="sunken ml-4 mt-1 h-1 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#6b9e41] to-[#b5d86e] transition-[width] duration-200"
+                      style={{ width: `${Math.min(100, (objective.progress / objective.target) * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {hud.tutorialTip && hud.phase === 'playing' && (
+        <div
+          key={hud.tutorialTip.key}
+          role="status"
+          aria-live="polite"
+          className="anim-pop absolute left-2 top-[20rem] flex w-[min(19rem,calc(100vw-1rem))] items-start gap-2.5 bevel-flat notch border-l-4 bg-[#101712]/95 px-2.5 py-2 shadow-[0_8px_26px_rgba(0,0,0,.55)] sm:left-4 sm:top-[22rem] sm:w-72"
+          style={{ borderLeftColor: hud.tutorialTip.color }}
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center bg-black/35">
+            <TutorialGlyph icon={hud.tutorialTip.icon} color={hud.tutorialTip.color} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[10px] tracking-[0.2em]" style={{ color: hud.tutorialTip.color }}>
+              {hud.tutorialTip.title}
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-snug text-white/75 sm:text-xs">
+              {hud.tutorialTip.body}
+            </span>
+          </span>
+        </div>
+      )}
+
       {/* ---------------- TOP CENTER: clock + combo ---------------- */}
       <div className="absolute left-1/2 top-2 flex -translate-x-1/2 flex-col items-center gap-1 sm:top-4">
         <div className={`bevel-flat notch flex items-center gap-2 px-3 py-1 sm:gap-3 sm:px-4 sm:py-1.5 ${urgent ? 'anim-ring' : ''}`}>
@@ -235,14 +343,11 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         <div className="pointer-events-auto flex gap-1.5">
           <button
             onClick={onBag}
-            className={`bevel-flat notch relative flex h-8 w-8 items-center justify-center transition active:scale-95 sm:h-9 sm:w-9 ${
-              hud.craftHint ? 'text-torch' : 'text-white/70 hover:text-torch'
-            }`}
+            className="bevel-flat notch relative flex h-8 w-8 items-center justify-center text-white/70 transition hover:text-torch active:scale-95 sm:h-9 sm:w-9"
             aria-label={t('bag')}
-            title={`${t('bag')} (E)`}
+            title={`${t('bag')} (TAB / I)`}
           >
             <BagIcon size={17} />
-            {hud.craftHint && <span className="anim-flicker absolute -right-1 -top-1 h-2.5 w-2.5 bg-torch shadow-[0_0_8px_#f4b942]" />}
           </button>
           <button
             onClick={onMute}
@@ -357,20 +462,6 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             <span className="font-display text-xs tracking-widest text-[#d98cff] sm:text-sm">{t('pressTrade')}</span>
           </div>
         )}
-        {hud.craftHint && (
-          <button
-            onClick={onBag}
-            className="pointer-events-auto anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5 transition hover:-translate-y-0.5 hover:brightness-125"
-            style={{ borderColor: '#f4b942' }}
-          >
-            <BagIcon size={14} className="anim-flicker text-torch" />
-            <span className="font-display text-xs tracking-widest text-torch sm:text-sm">{hud.craftHint}</span>
-            <span className="font-display text-[10px] tracking-widest text-white/45">
-              {t('ready')} · [E]
-            </span>
-          </button>
-        )}
-
         {hint && (
           <div className="bevel-flat notch anim-rise px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/55 sm:text-xs">
             {isTouch ? t('hintTouch') : t('hintDesktop')}
