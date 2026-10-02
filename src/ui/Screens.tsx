@@ -460,6 +460,7 @@ export function StartScreen({
   canShortcut,
   onShortcut,
   shortcutNote,
+  promo,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -505,10 +506,22 @@ export function StartScreen({
   onShortcut: () => void;
   /** result of the shortcut dialog: added (with the reward) / dismissed / failed */
   shortcutNote: string | null;
+  /** promo deep link: the shop should open on this product, with the campaign banner visible */
+  promo: { productId: string | null; promoId: string } | null;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
   const [shopTab, setShopTab] = useState<ShopFilter>('all');
+  const [promoProductId, setPromoProductId] = useState<string | null>(null);
+
+  // A promo banner in the catalogue opens the game with `referrer=promo`: take the player straight
+  // to the promised screen instead of leaving them on the main menu (sdk-environment).
+  useEffect(() => {
+    if (!promo) return;
+    setShopTab(promo.productId ? (SHOP_PRODUCTS.find((product) => product.id === promo.productId)?.category ?? 'diamonds') : 'diamonds');
+    setPromoProductId(promo.productId);
+    setShowShop(true);
+  }, [promo]);
   const [buying, setBuying] = useState<string | null>(null);
   const [shopNotice, setShopNotice] = useState<string | null>(null);
   const filteredShopProducts = shopTab === 'all'
@@ -766,6 +779,16 @@ export function StartScreen({
               </span>
             </div>
 
+            {promo && (
+              <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.08] px-2.5 py-2 text-[10px] leading-snug text-white/70 sm:mx-4 sm:text-xs">
+                <span className="text-[#f4b942]">★</span>
+                <span className="min-w-0 flex-1">
+                  <b className="font-display tracking-wide text-[#f4b942]">{t('promoBanner').replace('{id}', promo.promoId)}</b>
+                  <span className="ml-1.5 text-white/50">{t('promoHint')}</span>
+                </span>
+              </div>
+            )}
+
             <nav aria-label={t('shop')} className="shop-tabs mt-2 flex shrink-0 gap-1.5 overflow-x-auto px-2 pb-1 sm:mt-3 sm:gap-2 sm:px-4">
               {SHOP_TABS.map((tab) => {
                 const selected = shopTab === tab.id;
@@ -796,6 +819,7 @@ export function StartScreen({
                   // packs are real purchases: the price comes from the Console catalogue, together
                   // with the portal-currency icon (requirement 1.13.2 forbids hardcoding it)
                   const catalogPrice = shopPrices.get(product.id);
+                  const promoted = promoProductId === product.id;
                   const purchasable = paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined;
                   const priceLabel = catalogPrice
                     ? catalogPrice.label
@@ -810,13 +834,21 @@ export function StartScreen({
                     <article
                       key={product.id}
                       className="flex min-h-[220px] flex-col border bg-gradient-to-b from-[#172126] to-[#0c1215] p-2.5 shadow-[0_6px_18px_rgba(0,0,0,.24)] sm:min-h-[235px] sm:p-3"
-                      style={{ borderColor: `${product.accent}45` }}
+                      style={{
+                        borderColor: promoted ? '#f4b942' : `${product.accent}45`,
+                        boxShadow: promoted ? '0 0 0 1px #f4b94255, 0 6px 22px rgba(244,185,66,.18)' : undefined,
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
                           {product.rarityKey && (
                             <span className="border border-white/10 bg-black/25 px-1.5 py-1 font-display text-[8px] tracking-wide sm:text-[9px]" style={{ color: product.accent }}>
                               {t(product.rarityKey)}
+                            </span>
+                          )}
+                          {promoted && (
+                            <span className="border border-[#f4b942]/50 bg-[#f4b942]/10 px-1.5 py-1 font-display text-[8px] tracking-wide text-[#f4b942] sm:text-[9px]">
+                              ★ {t('promoBadge')}
                             </span>
                           )}
                           {product.badgeKey && (

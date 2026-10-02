@@ -17,6 +17,7 @@ import { getLang } from './i18n';
 import { storageGet, storageSet } from './storage';
 import { yaGetFlags, type YaClientFeature, type YaFlags } from './yandex';
 import { getTotals } from './profile';
+import { promoClientFeature } from './promo';
 
 /**
  * Local configuration: the flags the game can live with when neither the remote config nor the
@@ -104,6 +105,9 @@ export async function loadFlags(payingStatus?: string): Promise<YaFlags> {
     { name: 'blocksMined', value: String(totals.blocksMined) },
   ];
   if (payingStatus) features.push({ name: 'payingStatus', value: payingStatus });
+  // promo deep link: the Console can target flags at the players who came from a campaign
+  const promo = promoClientFeature();
+  if (promo) features.push(promo);
 
   const remote = await yaGetFlags(LOCAL_FLAGS, features);
   if (remote) {

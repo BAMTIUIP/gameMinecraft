@@ -33,6 +33,7 @@ import {
 } from './game/yandex';
 import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
+import { promoAction } from './game/promo';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
 import {
@@ -162,6 +163,8 @@ export default function App() {
   /** desktop shortcut: offered in the menu when the platform says the dialog can be shown */
   const [canShortcut, setCanShortcut] = useState(false);
   const [shortcutNote, setShortcutNote] = useState<string | null>(null);
+  /** promo deep link: opening the game from a catalogue banner lands on the promised screen */
+  const [promo, setPromo] = useState<{ productId: string | null; promoId: string } | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -207,6 +210,10 @@ export default function App() {
       // Desktop shortcut: a quiet check at startup — the button only appears when the platform can
       // actually show the native dialog on this device.
       setCanShortcut((await shortcutOffer()).available);
+      // Promo deep link (sdk-environment): a banner in the catalogue may promise a discount or the
+      // shop itself — route the player to that screen instead of the main menu.
+      const action = promoAction();
+      if (action?.kind === 'shop') setPromo({ productId: action.productId, promoId: action.promoId });
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -675,6 +682,7 @@ export default function App() {
           canShortcut={canShortcut}
           onShortcut={addShortcut}
           shortcutNote={shortcutNote}
+          promo={promo}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (

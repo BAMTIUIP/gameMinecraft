@@ -659,9 +659,72 @@ async function scenarioShop() {
   await game.page.close();
 }
 
+/* ------------------------ scenario C: promo deep links ------------------------ */
+
+/**
+ * `?referrer=promo&promo_id=…&promo_intent=…&inapp_id=…` from a catalogue banner.
+ * The game must land the player on the promised screen: an `inapp_id` promo opens the shop on that
+ * purchase, an `intent` promo opens the screen named by the campaign, and anything unknown (a plain
+ * seasonal banner) keeps the normal flow.
+ */
+async function scenarioPromo() {
+  // --- 1. discount promo: a specific purchase is promised -------------------------------
+  const discount = await openGame({
+    lang: 'ru',
+    referrer: { type: 'promo', promoId: 'SPRING_DISCOUNT', intent: 'open_starter_pack', inappId: 'diamonds-599' },
+  });
+  const shopByPromo = await discount.waitFor(
+    'Магазин по акции',
+    () => /ПО АКЦИИ/.test(document.body.innerText ?? ''),
+    30_000,
+  );
+  check(shopByPromo, 'Ссылка ?referrer=promo сразу открывает обещанный экран (магазин)');
+  const promoBanner = await discount.page.evaluate(() =>
+    /Акция · SPRING_DISCOUNT/.test(document.body.innerText ?? ''),
+  );
+  check(promoBanner, 'Игрок видит, по какой акции он пришёл');
+  const flagFeatures = (await discount.calls()).find((c) => c.name === 'ysdk.getFlags')?.arg?.features ?? [];
+  check(flagFeatures.includes('promoId'), 'ID акции уходит в remote-конфиг как clientFeature', flagFeatures.join(','));
+  const highlighted = await discount.page.evaluate(() => {
+    const badge = [...document.querySelectorAll('span')].find((s) => /ПО АКЦИИ/.test(s.textContent ?? ''));
+    const card = badge?.closest('article');
+    return !!card && /Сумка шахтёра/.test(card.textContent ?? '');
+  });
+  check(highlighted, 'Подсвечен именно товар из ссылки акции (inapp_id: diamonds-599)');
+  await discount.page.close();
+
+  // --- 2. screen promo: only an intent is named -----------------------------------------
+  const byIntent = await openGame({
+    lang: 'ru',
+    referrer: { type: 'promo', promoId: 'VIP_PROMO', intent: 'open_shop' },
+  });
+  const shopByIntent = await byIntent.waitFor(
+    'Магазин по intent',
+    () => /Акция · VIP_PROMO/.test(document.body.innerText ?? ''),
+    30_000,
+  );
+  check(shopByIntent, 'Акция с promo_intent=open_shop открывает магазин без подсветки товара');
+  const nothingHighlighted = await byIntent.page.evaluate(() => !/ПО АКЦИИ/.test(document.body.innerText ?? ''));
+  check(nothingHighlighted, 'Без inapp_id ни один товар не помечен как акционный');
+  await byIntent.page.close();
+
+  // --- 3. plain campaign: the game must not hijack the start ---------------------------
+  const plain = await openGame({ lang: 'ru', referrer: { type: 'promo', promoId: 'SALE_SPRING_2026' } });
+  const menu = await plain.waitFor(
+    'Меню по обычной акции',
+    () => /НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(document.body.innerText ?? ''),
+    30_000,
+  );
+  check(menu, 'Акция без понятного сценария оставляет игрока в обычном меню');
+  const shopClosed = await plain.page.evaluate(() => !/Акция ·/.test(document.body.innerText ?? ''));
+  check(shopClosed, 'Магазин по такой акции сам не открывается');
+  await plain.page.close();
+}
+
 try {
   await scenarioProgress();
   await scenarioShop();
+  await scenarioPromo();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

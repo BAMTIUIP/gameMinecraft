@@ -49,6 +49,8 @@
           app: { id: '0' },
           i18n: { lang: seed.lang ?? 'en' },
           payload: seed.payload ?? null,
+          // promo deep link, same shape the platform passes for a catalogue banner
+          referrer: seed.referrer ?? undefined,
         },
         serverTime: () => Date.now(),
         features: {

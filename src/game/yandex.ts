@@ -26,11 +26,22 @@ export { hasSafeStorage };
  * `window.YaGames`, so initYandex() resolves to null at once and every call degrades to nothing.
  */
 
+/** Deep link from a promo banner in the catalogue (`ysdk.environment.referrer`). */
+export type YaReferrer = {
+  type: 'promo';
+  promoId: string;
+  /** free-form hint, e.g. `open_starter_pack` */
+  intent?: string;
+  /** id of the in-app purchase the promo is about */
+  inappId?: string;
+};
+
 export type YaEnvironment = {
   app: { id: string };
   i18n: { lang: string };
   payload?: string;
-  referrer?: { type: 'promo'; promoId: string; intent?: string; inappId?: string };
+  /** set only when the game was opened from a promo banner in the catalogue */
+  referrer?: YaReferrer;
 };
 
 /** Payment activity of a Yandex Games user, used to pick the right monetisation offer. */
@@ -400,6 +411,25 @@ export function yaLang(): string | null {
 }
 
 /** `?payload=...` from the game URL, if any */
+/**
+ * `ysdk.environment.referrer` — the promo deep link (https://yandex.ru/dev/games/doc/ru/sdk/sdk-environment).
+ * `type` is always `promo`; `promoId` identifies the campaign, `intent` hints at the screen to open and
+ * `inappId` names the purchase the promo is about.
+ */
+export function yaReferrer(): YaReferrer | null {
+  const referrer = ysdk?.environment?.referrer;
+  if (!referrer || referrer.type !== 'promo' || typeof referrer.promoId !== 'string') return null;
+  return referrer;
+}
+
+export function yaAppId(): string | null {
+  return ysdk?.environment?.app?.id ?? null;
+}
+
+/**
+ * `ysdk.environment.payload` — the free-form `payload` query parameter of the game URL
+ * (`?payload=test`), used for hand-made campaign links.
+ */
 export function yaPayload(): string | null {
   return ysdk?.environment?.payload ?? null;
 }
