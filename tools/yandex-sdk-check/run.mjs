@@ -1306,6 +1306,149 @@ async function scenarioWorldAutosave() {
   await game.page.close();
 }
 
+/* ---------------- scenario I: correct display at any window size (requirement 1.10) ---------------- */
+
+/** The sizes moderation uses: phones in both orientations, laptops, a big desktop and a TV. */
+const LAYOUT_VIEWPORTS = [
+  { name: 'телефон 360×740', width: 360, height: 740 },
+  { name: 'телефон 740×360 (альбомная)', width: 740, height: 360 },
+  { name: 'узкое окно 1093×614 (−20%)', width: 1093, height: 614 },
+  { name: 'ноутбук 1366×768', width: 1366, height: 768 },
+  { name: 'монитор 1280×1024', width: 1280, height: 1024 },
+  { name: 'телевизор 1920×1080', width: 1920, height: 1080 },
+];
+
+/**
+ * Measure the page: which interactive elements are cut by the viewport, which ones overlap each other
+ * beyond the allowed share, whether the document itself scrolls, and whether a plain swipe is blocked
+ * (that is the guard against pull-to-refresh, which `overscroll-behavior` alone does not stop on iOS).
+ */
+async function layoutReport(page) {
+  return page.evaluate(() => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const doc = document.documentElement;
+    const boxes = [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"]')]
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return rect.width > 2 && rect.height > 2 && style.visibility !== 'hidden' && style.display !== 'none';
+      })
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const label = (el.textContent ?? el.getAttribute('aria-label') ?? '').trim().replace(/\s+/g, ' ').slice(0, 20);
+        return { label: label || el.tagName.toLowerCase(), x: rect.left, y: rect.top, w: rect.width, h: rect.height };
+      });
+
+    const cut = boxes
+      .filter((b) => b.x < -1 || b.y < -1 || b.x + b.w > vw + 1 || b.y + b.h > vh + 1)
+      .map((b) => `${b.label}@${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}×${Math.round(b.h)}`);
+
+    const overlaps = [];
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+        const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+        if (w <= 0 || h <= 0) continue;
+        const ratio = (w * h) / Math.min(a.w * a.h, b.w * b.h);
+        if (ratio > 0.35) overlaps.push(`${a.label} × ${b.label} = ${Math.round(ratio * 100)}%`);
+      }
+    }
+
+    let swipeBlocked = null;
+    try {
+      const target = document.querySelector('button') ?? document.body;
+      const touch = new Touch({ identifier: 1, target, clientX: 20, clientY: 20 });
+      const event = new TouchEvent('touchmove', { touches: [touch], changedTouches: [touch], cancelable: true, bubbles: true });
+      target.dispatchEvent(event);
+      swipeBlocked = event.defaultPrevented;
+    } catch {
+      swipeBlocked = null; // the browser does not expose the Touch constructor here
+    }
+
+    const fit = document.querySelector('[data-fit-inner]');
+    const fitOuter = document.querySelector('[data-fit-outer]');
+
+    return {
+      viewport: [vw, vh],
+      fit: fit ? { natural: fit.scrollHeight, scale: Number(fitOuter?.getAttribute('data-fit-scale') ?? 1), box: fitOuter?.clientHeight ?? 0 } : null,
+      scroll: [Math.max(0, doc.scrollWidth - vw), Math.max(0, doc.scrollHeight - vh)],
+      overscroll: getComputedStyle(doc).overscrollBehavior,
+      boxes: boxes.length,
+      cut,
+      overlaps,
+      swipeBlocked,
+    };
+  });
+}
+
+/**
+ * Requirement 1.10: the game is resized along both axes, and at every size nothing important may be
+ * cut off or overlapped, the page must not gain a scrollbar, and a swipe must not refresh it. The menu
+ * is measured at every size; the in-run HUD — at the two smallest ones, where space is tightest.
+ */
+async function scenarioLayout() {
+  const game = await openGame({ lang: 'ru', deviceType: 'mobile', flags: { 'game.exploreMinutes': '2' } });
+  const menu = await game.waitFor('Меню для проверки вёрстки', () => /НАЧАТЬ ДОБЫЧУ/.test(document.body.innerText ?? ''), 30_000);
+  check(menu, 'Игра открылась для проверки вёрстки');
+
+  let swipeChecked = false;
+  for (const vp of LAYOUT_VIEWPORTS) {
+    await game.page.setViewport({ width: vp.width, height: vp.height });
+    await wait(400);
+    if (process.env.SDK_CHECK_DEBUG) {
+      await game.page.evaluate(() => {
+        window.__layoutDebug = true;
+      });
+      const sections = await game.page.evaluate(() => {
+        const report = {};
+        const main = document.querySelector('main');
+        const aside = document.querySelector('aside');
+        report.main = main ? Math.round(main.getBoundingClientRect().height) : 0;
+        report.aside = aside ? Math.round(aside.getBoundingClientRect().height) : 0;
+        report.mainParts = main ? [...main.children].map((el) => `${(el.className || el.tagName).toString().split(' ')[0]}:${Math.round(el.getBoundingClientRect().height)}`) : [];
+        report.asideParts = aside ? [...aside.children].map((el) => `${(el.className || el.tagName).toString().split(' ')[0]}:${Math.round(el.getBoundingClientRect().height)}`) : [];
+        return report;
+      });
+      console.log(`[layout] ${vp.name}`, JSON.stringify(sections));
+    }
+    const report = await layoutReport(game.page);
+    check(report.boxes > 0, `Меню: элементы управления найдены (${vp.name})`, String(report.boxes));
+    check(
+      report.cut.length === 0,
+      `Меню: важные элементы не обрезаны (${vp.name})`,
+      `${report.cut.slice(0, 3).join(' | ')} || fit ${JSON.stringify(report.fit)}`,
+    );
+    check(report.overlaps.length === 0, `Меню: элементы не накладываются друг на друга (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
+    check(report.scroll[0] <= 1 && report.scroll[1] <= 1, `Меню: у страницы нет системной прокрутки (${vp.name})`, `scroll ${report.scroll.join('×')}`);
+    check(report.overscroll === 'none', `Меню: свайп-обновление выключено в CSS (${vp.name})`, report.overscroll);
+    if (report.swipeBlocked !== null && !swipeChecked) {
+      check(report.swipeBlocked === true, 'Свайп вниз по экрану не перезагружает игру (preventDefault)');
+      swipeChecked = true;
+    }
+  }
+
+  // a run in progress: the HUD is the densest screen of the game
+  await game.page.setViewport({ width: 360, height: 740 });
+  await wait(300);
+  await game.clickByText(/НАЧАТЬ ДОБЫЧУ/);
+  await game.waitFor('Смена на телефоне', () => !!document.querySelector('canvas'), 30_000);
+  for (const vp of [LAYOUT_VIEWPORTS[0], LAYOUT_VIEWPORTS[1], LAYOUT_VIEWPORTS[3]]) {
+    await game.page.setViewport({ width: vp.width, height: vp.height });
+    await wait(500);
+    const report = await layoutReport(game.page);
+    check(report.boxes > 0, `Забег: элементы управления найдены (${vp.name})`, String(report.boxes));
+    check(report.cut.length === 0, `Забег: HUD и кнопки не обрезаны (${vp.name})`, report.cut.slice(0, 4).join(' | '));
+    check(report.overlaps.length === 0, `Забег: элементы не накладываются (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
+    check(report.scroll[0] <= 1 && report.scroll[1] <= 1, `Забег: у страницы нет прокрутки (${vp.name})`, `scroll ${report.scroll.join('×')}`);
+  }
+  const touches = await game.page.evaluate(() => !!document.querySelector('.touch-left') && !!document.querySelector('.touch-right'));
+  check(touches, 'Управление одной рукой: сенсорные элементы на месте на телефоне');
+  await game.page.close();
+}
+
 /* ------------------ scenario F: asynchronous SDK connection (sdk-example) ------------------ */
 
 /**
@@ -1354,6 +1497,7 @@ try {
   if (wanted('async')) await scenarioAsyncSdk();
   if (wanted('tv')) await scenarioTv();
   if (wanted('world')) await scenarioWorldAutosave();
+  if (wanted('layout')) await scenarioLayout();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

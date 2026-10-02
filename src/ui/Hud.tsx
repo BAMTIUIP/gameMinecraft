@@ -462,13 +462,13 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           isTouch ? 'bottom-44' : 'bottom-4 sm:bottom-6'
         }`}
       >
-        <div className="pointer-events-auto flex gap-0.5 p-1 sm:gap-1.5 sm:p-1.5">
+        <div className="hotbar-row pointer-events-auto">
           {/* always render 10 fixed cells; empty ones are dim placeholders */}
           {Array.from({ length: 10 }, (_, i) => hud.hotbar[i] ?? null).map((slot, i) =>
             slot === null ? (
               <div
                 key={`empty-${i}`}
-                className="notch relative flex h-10 w-10 items-center justify-center sm:h-14 sm:w-14"
+                className="hotbar-cell notch relative flex items-center justify-center"
                 style={{
                   background: 'linear-gradient(180deg,#141c17,#0c1210)',
                   border: '3px solid #06090a',
@@ -537,7 +537,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             <button
               key={slot.id}
               onClick={() => onSelect(i)}
-              className={`hotbar-slot notch relative flex h-10 w-10 items-center justify-center sm:h-14 sm:w-14 ${
+              className={`hotbar-cell hotbar-slot notch relative flex items-center justify-center ${
                 i === hud.selected ? 'active' : ''
               }`}
               style={{

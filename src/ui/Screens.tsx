@@ -7,6 +7,7 @@ import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n
 import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
 import { SHORTCUT_REWARD } from '../game/shortcut';
+import { FitBox } from './FitBox';
 import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
 import type { DailyView } from '../game/daily';
 import { fullscreenAvailable } from '../game/params';
@@ -548,21 +549,22 @@ export function StartScreen({
   ];
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain">
+    <div className="absolute inset-0 z-30 overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,rgba(38,55,43,.52)_0%,rgba(6,10,9,.88)_58%,rgba(4,7,6,.97)_100%)]" />
       <div className="pointer-events-none absolute inset-0 grain opacity-35" />
 
-      <div className="relative mx-auto flex min-h-full w-full max-w-[1600px] items-center justify-center px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
-        <div className="grid w-full grid-cols-1 items-center gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] xl:gap-10">
+      {/* FitBox keeps the whole menu on screen at short window sizes (requirement 1.10) */}
+      <FitBox className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
+        <div className="menu-grid grid w-full grid-cols-1 items-center gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] xl:gap-10">
           {/* Centered title and primary choices */}
-          <main className="pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col items-center text-center">
-            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.38em] text-torch/80 sm:text-[11px] sm:tracking-[0.46em]">
+          <main className="menu-main pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col items-center text-center">
+            <div className="menu-eyebrow mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.38em] text-torch/80 sm:text-[11px] sm:tracking-[0.46em]">
               <span className="h-px w-7 bg-torch/60 sm:w-10" />
               {t('tagline')}
               <span className="h-px w-7 bg-torch/60 sm:w-10" />
             </div>
 
-            <h1 className="font-display leading-[0.8]">
+            <h1 className="menu-title font-display leading-[0.8]">
               <span className="block text-[clamp(3.4rem,10vw,7.5rem)] text-transparent" style={{ WebkitTextStroke: '3px #f4b942' }}>
                 ORE
               </span>
@@ -576,7 +578,7 @@ export function StartScreen({
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/75 sm:mt-4 sm:text-base lg:text-lg">{t('intro')}</p>
 
             {/* Mode selection and fresh-world generation stay together as the main menu's first action row. */}
-            <section className="mt-5 w-full max-w-[900px]" aria-label={t('mode')}>
+            <section className="menu-modes mt-5 w-full max-w-[900px]" aria-label={t('mode')}>
               <div className="mb-2 flex items-center justify-center gap-2 text-[10px] tracking-[0.28em] text-white/50 sm:text-[11px] sm:tracking-[0.34em]">
                 <CubeIcon size={13} className="text-torch" /> {t('mode')}
               </div>
@@ -621,7 +623,7 @@ export function StartScreen({
             </section>
 
             {/* Custom world is deliberately directly beneath the mode/world choices. */}
-            <section className="bevel-flat notch mt-3 flex w-full max-w-[900px] flex-col items-center gap-2.5 p-3 sm:flex-row sm:justify-between sm:gap-4 sm:px-4">
+            <section className="menu-custom bevel-flat notch mt-3 flex w-full max-w-[900px] flex-col items-center gap-2.5 p-3 sm:flex-row sm:justify-between sm:gap-4 sm:px-4">
               <div className="min-w-0 text-center sm:text-left">
                 <div className="font-display text-xs tracking-[0.13em] text-[#9dbdff] sm:text-sm sm:tracking-widest">
                   ∞ {t('createYourWorld')}
@@ -654,7 +656,7 @@ export function StartScreen({
               disabled={!daily.available}
               onClick={onClaimDaily}
               title={daily.available ? t('dailyTitle') : t('dailyClaimed')}
-              className={`mt-4 flex w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
+              className={`menu-daily mt-4 flex w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
                 daily.available
                   ? 'border-[#f4b942]/60 bg-[#f4b942]/[0.12] text-[#f4b942] hover:bg-[#f4b942]/20'
                   : 'border-white/10 bg-black/20 text-white/40'
@@ -670,7 +672,7 @@ export function StartScreen({
             </button>
 
             <div
-              className={`mt-1.5 grid w-full max-w-[900px] items-stretch gap-1.5 sm:mt-3 sm:gap-3 ${shopEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}
+              className={`menu-actions mt-1.5 grid w-full max-w-[900px] items-stretch gap-1.5 sm:mt-3 sm:gap-3 ${shopEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}
             >
               {shopEnabled && (
                 <button
@@ -703,7 +705,7 @@ export function StartScreen({
           </main>
 
           {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
-          <aside className="pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
+          <aside className="menu-aside pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
             {profile && <ProfileCard profile={profile} restored={cloudSavedAt > 0} onSignIn={onSignIn} />}
             <ScorePanel
               scores={scores}
@@ -713,7 +715,7 @@ export function StartScreen({
               leaderboardCooldown={leaderboardCooldown}
               onLoadLeaderboard={onLoadLeaderboard}
             />
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
+            <div className="menu-guide grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
               <div className="bevel-flat notch p-3">
                 <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
                   <BagIcon size={13} /> {t('guideTitle')} <span className="text-white/30">· {t('guideSub')}</span>
@@ -766,7 +768,7 @@ export function StartScreen({
             </div>
           </aside>
         </div>
-      </div>
+      </FitBox>
 
       {showShop && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
@@ -1298,9 +1300,10 @@ export function GameOverScreen({
           : t('overFall');
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-pit-950/85 backdrop-blur-[2px]">
+    <div className="absolute inset-0 z-30 overflow-hidden bg-pit-950/85 backdrop-blur-[2px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
-      <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col gap-5 p-4 sm:p-7 lg:flex-row lg:items-center">
+      {/* FitBox: the run report and all of its buttons stay on screen at any window size (1.10) */}
+      <FitBox className="mx-auto w-full max-w-5xl items-start p-4 sm:p-7 lg:items-center">
         <div className="anim-rise flex-1">
           <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.4em]" style={{ color: accent }}>
             <span className="h-px w-8" style={{ background: accent }} />
@@ -1446,7 +1449,7 @@ export function GameOverScreen({
           </div>
           <ScoreTable scores={scores} highlight={token} />
         </div>
-      </div>
+      </FitBox>
     </div>
   );
 }

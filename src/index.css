@@ -26,7 +26,20 @@ body,
   margin: 0;
   background: #080b0a;
   overflow: hidden;
+  /* Requirement 1.10: the page itself never scrolls and never pulls to refresh. `overscroll-behavior`
+     covers Chrome/Firefox, `100dvh` (below) stops the mobile URL bar from cropping the UI, and iOS
+     Safari gets the belt-and-braces guard from src/game/viewport.ts. */
   overscroll-behavior: none;
+  max-width: 100%;
+}
+
+/* the layout viewport of mobile browsers changes when the URL bar hides: dvh keeps the UI on screen */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
 }
 
 body {
@@ -38,6 +51,8 @@ body {
 
 canvas {
   display: block;
+  /* no scroll, pinch or rubber-band gesture may start on the playfield: the engine reads pointer events */
+  touch-action: none;
 }
 
 /* ---------- Minecraft-ish bevelled panel ---------- */
@@ -412,4 +427,91 @@ input:focus-visible,
   outline: 3px solid #62e8dc;
   outline-offset: 2px;
   box-shadow: 0 0 18px rgba(98, 232, 220, 0.45);
+}
+
+/* ---------- hotbar fit (requirement 1.10) ----------
+   Ten fixed cells of 40-56 px were wider than a phone in portrait, so the row stuck out of the screen
+   and its first slot was cut off. The row now takes the available width (capped at the old size) and
+   the cells stay square by sharing it. */
+.hotbar-row {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  width: min(calc(100vw - 0.5rem), 26.625rem); /* 10×40 + 9×2 + 2×4 */
+}
+@media (min-width: 640px) {
+  .hotbar-row {
+    gap: 6px;
+    padding: 6px;
+    width: min(calc(100vw - 1.5rem), 39rem); /* 10×56 + 9×6 + 2×6 */
+  }
+}
+.hotbar-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+
+/* ---------- short landscape windows (requirement 1.10) ----------
+   A phone turned sideways leaves ~360 px of height: the stacked menu is far taller than that, so it
+   switches to two columns (choices on the left, records on the right) and then fits the screen. */
+@media (orientation: landscape) and (max-height: 640px) {
+  .menu-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    align-items: center;
+    gap: 1.25rem;
+  }
+  .menu-aside {
+    max-width: none;
+  }
+  /* the hint panels repeat what the game shows in a run: on a short window they give way */
+  .menu-guide {
+    display: none;
+  }
+}
+
+/* Narrow screens (phones in portrait): the hint panels repeat what the game shows in a run, so they
+   give way, and the whole menu stays on screen. */
+@media (max-width: 700px) {
+  .menu-guide {
+    display: none;
+  }
+  .menu-grid {
+    gap: 0.75rem;
+  }
+}
+
+/* Short windows: the sections sit closer together so the menu fits without cutting anything. */
+@media (max-height: 700px) {
+  .menu-main > * + * {
+    margin-top: 0.45rem;
+  }
+  .menu-main section {
+    margin-top: 0.45rem;
+  }
+  .menu-aside {
+    gap: 0.5rem;
+  }
+}
+
+/* A phone held sideways leaves about 360 px of height and a narrow column for everything: the choices
+   take the full width (the cards lay out in rows) and the records panel gives way — it is repeated on
+   the results screen, while every control of the menu itself stays on screen. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .menu-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+  .menu-aside {
+    display: none;
+  }
+  .menu-main > * + * {
+    margin-top: 0.35rem;
+  }
+  .menu-main section {
+    margin-top: 0.35rem;
+  }
+  .menu-modes button {
+    min-height: 3.4rem;
+  }
 }
