@@ -555,6 +555,42 @@ async function scenarioShop() {
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
   check(fatal.length === 0, 'Магазин работает без ошибок в консоли', fatal.slice(0, 3).join(' | '));
 
+  // ===================== desktop shortcut (settings dialog) =====================
+  const settingsOpened = await game.clickByText(/^\s*⚙|НАСТРОЙКИ|SETTINGS|PARAMÈTRES|EINSTELLUNGEN/);
+  check(settingsOpened, 'Окно настроек открывается');
+  const shortcutChecked = await game.waitFor(
+    'Проверка ярлыка',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'shortcut.canShowPrompt'),
+    15_000,
+  );
+  check(shortcutChecked, 'Старт игры проверяет возможность добавить ярлык (shortcut.canShowPrompt)');
+  const shortcutButton = await game.page.evaluate(() =>
+    [...document.querySelectorAll('button')].some((b) => /НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/i.test(b.textContent ?? '')),
+  );
+  check(shortcutButton, 'В настройках появилась кнопка «добавить ярлык»');
+  const balanceBeforeShortcut = Number((await game.storageValue('orerush.diamonds.v1')) ?? 0);
+  const shortcutClicked = await game.clickByText(/НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/);
+  check(shortcutClicked, 'Кнопка ярлыка нажата');
+  const promptShown = await game.waitFor(
+    'Окно ярлыка',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'shortcut.showPrompt'),
+    10_000,
+  );
+  check(promptShown, 'Клик открыл системное окно ярлыка (shortcut.showPrompt)');
+  const rewardShown = await game.waitFor(
+    'Награда за ярлык',
+    () => /ярлык добавлен|Shortcut added|Raccourci ajouté|Verknüpfung erstellt/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(rewardShown, 'После добавления ярлыка игра сообщает о награде');
+  const balanceAfterShortcut = Number((await game.storageValue('orerush.diamonds.v1')) ?? 0);
+  check(balanceAfterShortcut === balanceBeforeShortcut + 250, 'Алмазы за ярлык начислены на баланс', `${balanceBeforeShortcut} → ${balanceAfterShortcut}`);
+  const shortcutGone = await game.page.evaluate(() =>
+    [...document.querySelectorAll('button')].some((b) => /НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/i.test(b.textContent ?? '')),
+  );
+  check(shortcutGone === false, 'После добавления ярлыка кнопка исчезает');
+  await game.clickByText(/^\s*×|ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/);
+
   // ===================== co-op survival (asynchronous multiplayer) =====================
   await game.clickByText(/ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/); // the shop overlay, if it is still open
   const runStarted = await game.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/);

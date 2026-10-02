@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
 import { requestGameReview, reviewOffer } from './game/review';
+import { requestShortcut, SHORTCUT_REWARD, shortcutOffer } from './game/shortcut';
 import {
   coopEnabled,
   publishCoopSession,
@@ -158,6 +159,9 @@ export default function App() {
   /** rating dialog: the platform decides who may be asked, the results screen only offers the button */
   const [canRate, setCanRate] = useState(false);
   const [reviewNote, setReviewNote] = useState<string | null>(null);
+  /** desktop shortcut: offered in the menu when the platform says the dialog can be shown */
+  const [canShortcut, setCanShortcut] = useState(false);
+  const [shortcutNote, setShortcutNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -200,6 +204,9 @@ export default function App() {
       }
       setDiamonds(diamondsBalance());
       setLbAvailable(leaderboardAvailable());
+      // Desktop shortcut: a quiet check at startup — the button only appears when the platform can
+      // actually show the native dialog on this device.
+      setCanShortcut((await shortcutOffer()).available);
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -556,6 +563,21 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [leaderboard]);
 
+  /** Opens the desktop-shortcut dialog and credits the one-time reward when it was accepted. */
+  const addShortcut = useCallback(async () => {
+    setShortcutNote(null);
+    const result = await requestShortcut();
+    setCanShortcut(false);
+    if (result === 'accepted') {
+      setDiamonds(diamondsBalance());
+      setShortcutNote(t('shortcutDone').replace('{n}', String(SHORTCUT_REWARD)));
+    } else if (result === 'dismissed') {
+      setShortcutNote(t('shortcutDismissed'));
+    } else if (result === 'failed') {
+      setShortcutNote(t('shortcutFailed'));
+    }
+  }, []);
+
   /** Opens the platform's rating dialog (docs: only from a user action, once per session). */
   const rateGame = useCallback(async () => {
     setCanRate(false);
@@ -650,6 +672,9 @@ export default function App() {
           leaderboardAvailable={lbAvailable}
           leaderboardCooldown={lbCooldown}
           onLoadLeaderboard={loadWorldRanking}
+          canShortcut={canShortcut}
+          onShortcut={addShortcut}
+          shortcutNote={shortcutNote}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (

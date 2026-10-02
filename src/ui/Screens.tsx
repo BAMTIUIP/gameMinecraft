@@ -6,6 +6,7 @@ import type { ScoreEntry } from './scores';
 import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
 import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
+import { SHORTCUT_REWARD } from '../game/shortcut';
 import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
 import {
   BagIcon,
@@ -456,6 +457,9 @@ export function StartScreen({
   leaderboardAvailable,
   leaderboardCooldown,
   onLoadLeaderboard,
+  canShortcut,
+  onShortcut,
+  shortcutNote,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -496,6 +500,11 @@ export function StartScreen({
   /** milliseconds until the platform allows the next getEntries call (0 = now) */
   leaderboardCooldown: number;
   onLoadLeaderboard: () => void;
+  /** the platform can show the desktop-shortcut dialog on this device (shortcut.canShowPrompt) */
+  canShortcut: boolean;
+  onShortcut: () => void;
+  /** result of the shortcut dialog: added (with the reward) / dismissed / failed */
+  shortcutNote: string | null;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
@@ -952,6 +961,26 @@ export function StartScreen({
                   )}
                 </div>
               </div>
+
+              {(canShortcut || shortcutNote) && (
+                <div className="sm:col-span-2">
+                  <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('platformLabel')}</div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 p-3">
+                    {canShortcut && (
+                      <button
+                        type="button"
+                        onClick={onShortcut}
+                        className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2.5 text-xs text-white/90"
+                      >
+                        ★ {t('shortcutCta')}
+                      </button>
+                    )}
+                    <div className="mt-2 text-[11px] leading-relaxed text-white/55">
+                      {shortcutNote ?? t('shortcutSub').replace('{n}', String(SHORTCUT_REWARD))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="sm:col-span-2">
                 <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('controls')}</div>

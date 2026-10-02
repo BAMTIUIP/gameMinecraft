@@ -146,6 +146,13 @@ export type YaLeaderboardEntries = {
   entries: YaLeaderboardEntry[];
 };
 
+/** `ysdk.shortcut` — the desktop shortcut dialog. */
+export type YaShortcut = {
+  canShowPrompt: () => Promise<{ canShow?: boolean }>;
+  /** 'accepted' means the shortcut was added; other outcomes are a refusal or a closed dialog */
+  showPrompt: () => Promise<{ outcome?: string }>;
+};
+
 /** Why the platform refuses to show the rating dialog (`ysdk.feedback.canReview()`). */
 export type YaReviewReason = 'NO_AUTH' | 'GAME_RATED' | 'REVIEW_ALREADY_REQUESTED' | 'REVIEW_WAS_REQUESTED' | 'UNKNOWN';
 
@@ -249,6 +256,8 @@ type YSDK = {
   multiplayer?: { sessions?: YaMultiplayerSessions };
   /** rating the game: canReview() first, requestReview() once per session */
   feedback?: YaFeedback;
+  /** desktop shortcut: canShowPrompt() first, then showPrompt() from a user action */
+  shortcut?: YaShortcut;
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -907,6 +916,37 @@ export async function yaGetLeaderboardEntries(
     return result && Array.isArray(result.entries) ? result : null;
   } catch (err) {
     console.warn('[Yandex SDK] leaderboards.getEntries() failed', name, err);
+    return null;
+  }
+}
+
+/* ============================ desktop shortcut ============================ */
+
+/*
+ * `ysdk.shortcut` (https://yandex.ru/dev/games/doc/ru/sdk/sdk-shortcut). Availability depends on the
+ * device, the browser and the platform, so the check comes first; the prompt itself is opened only
+ * from a click (see src/game/shortcut.ts).
+ */
+
+export async function yaCanShowShortcutPrompt(): Promise<boolean | null> {
+  if (!ysdk?.shortcut?.canShowPrompt) return null;
+  try {
+    const result = await ysdk.shortcut.canShowPrompt();
+    return result?.canShow === true;
+  } catch (err) {
+    console.warn('[Yandex SDK] shortcut.canShowPrompt() failed', err);
+    return null;
+  }
+}
+
+/** `shortcut.showPrompt()` — returns whether the player accepted, or null when the call failed. */
+export async function yaShowShortcutPrompt(): Promise<{ accepted: boolean } | null> {
+  if (!ysdk?.shortcut?.showPrompt) return null;
+  try {
+    const result = await ysdk.shortcut.showPrompt();
+    return { accepted: result?.outcome === 'accepted' };
+  } catch (err) {
+    console.warn('[Yandex SDK] shortcut.showPrompt() failed', err);
     return null;
   }
 }

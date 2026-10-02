@@ -70,6 +70,17 @@
           });
           return { ...(params?.defaultFlags ?? {}), ...(seed.flags ?? {}) };
         },
+        // desktop shortcut: canShowPrompt() gates showPrompt(); the seed can hide the feature
+        shortcut: {
+          canShowPrompt: async () => {
+            record('shortcut.canShowPrompt');
+            return { canShow: seed.shortcutCanShow !== false };
+          },
+          showPrompt: async () => {
+            record('shortcut.showPrompt');
+            return { outcome: seed.shortcutOutcome ?? 'accepted' };
+          },
+        },
         // rating the game: canReview() gates requestReview(), both recorded for the check
         feedback: {
           canReview: async () => {
