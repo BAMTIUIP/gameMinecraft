@@ -289,7 +289,7 @@
           // Real ads are asynchronous: onOpen, then the player closes them. Callbacks resolve the
           // game's promises, so the mock closes itself after a moment like a filled ad would.
           showFullscreenAdv: ({ callbacks } = {}) => {
-            record('adv.showFullscreenAdv');
+            record('adv.showFullscreenAdv', { callbacks: Object.keys(callbacks ?? {}) });
             window.__yaAdv = { kind: 'fullscreen', callbacks };
             window.__yaAdvTimer = setTimeout(() => {
               callbacks?.onOpen?.();
@@ -297,7 +297,7 @@
             }, 250);
           },
           showRewardedVideo: ({ callbacks } = {}) => {
-            record('adv.showRewardedVideo');
+            record('adv.showRewardedVideo', { callbacks: Object.keys(callbacks ?? {}) });
             window.__yaAdv = { kind: 'rewarded', callbacks };
             window.__yaAdvTimer = setTimeout(() => {
               callbacks?.onOpen?.();

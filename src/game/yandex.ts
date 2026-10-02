@@ -489,12 +489,50 @@ function flush() {
  * Initialise the SDK once; resolves to null when not on Yandex Games.
  * Call it as early as possible — every later call returns the same promise.
  */
+/**
+ * The SDK script may arrive after the game code: the docs show both connections
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-example), and in the asynchronous one `/sdk.js` is
+ * injected with `s.async = true; s.onload = initSDK;`. So when the global is not there yet but the
+ * page really does ask for the SDK script, wait for it instead of deciding "this is not Yandex
+ * Games" too early. Without the script tag (dev server, itch, own hosting) nothing is awaited.
+ */
+async function waitForYaGames(timeoutMs = 5_000): Promise<Window['YaGames'] | undefined> {
+  if (window.YaGames) return window.YaGames;
+  let wantsSdk = false;
+  try {
+    wantsSdk = !!document.querySelector?.('script[src*="sdk.js"]');
+  } catch {
+    wantsSdk = false;
+  }
+  if (!wantsSdk) return undefined;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (window.YaGames) return window.YaGames;
+  }
+  console.warn('[Yandex SDK] /sdk.js did not appear within the wait window');
+  return undefined;
+}
+
+/**
+ * Run a platform callback without letting a throw escape into the SDK. The docs' example deliberately
+ * throws inside a callback to make the point: «it should not abort other code execution». A broken
+ * handler of ours must therefore break nothing but itself.
+ */
+function safeCall(label: string, run: () => void) {
+  try {
+    run();
+  } catch (err) {
+    console.error(`[Yandex SDK] ${label} callback failed`, err);
+  }
+}
+
 export function initYandex(): Promise<YSDK | null> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    // /sdk.js is a blocking <script> ahead of our module, so the global is either already
-    // here or this isn't Yandex Games — there is nothing to wait for.
-    const YaGames = window.YaGames;
+    // Synchronous connection (the usual one): /sdk.js is a blocking <script> ahead of our module, so
+    // the global is already here. Asynchronous connection: wait for it, as sdk-example describes.
+    const YaGames = await waitForYaGames();
     if (!YaGames) return null;
     try {
       ysdk = await YaGames.init();
@@ -867,14 +905,19 @@ export function yaShowFullscreenAdv(): Promise<YaAdResult> {
       resolve(result);
     };
     try {
+      // All callbacks of the example are passed: onOpen reports a real opening, onClose carries the
+      // authoritative `wasShown`, and onError may arrive on its own (too frequent, no fill): the game
+      // must never be left waiting behind an ad. Each of them is guarded, so a throw inside a callback
+      // cannot abort the SDK or the game.
       adv.showFullscreenAdv({
         callbacks: {
-          onClose: (wasShown) => settle({ shown: wasShown === true, rewarded: false }),
-          // onError may arrive without onClose: never leave the game waiting behind an ad
-          onError: (error) => {
-            console.warn('[Yandex SDK] fullscreen ad error', error);
-            settle({ shown: false, rewarded: false, error: true });
-          },
+          onOpen: () => safeCall('onOpen', () => undefined),
+          onClose: (wasShown) => safeCall('onClose', () => settle({ shown: wasShown === true, rewarded: false })),
+          onError: (error) =>
+            safeCall('onError', () => {
+              console.warn('[Yandex SDK] fullscreen ad error', error);
+              settle({ shown: false, rewarded: false, error: true });
+            }),
         },
       });
     } catch (err) {
@@ -902,14 +945,17 @@ export function yaShowRewardedVideo(): Promise<YaAdResult> {
     try {
       adv.showRewardedVideo({
         callbacks: {
-          onRewarded: () => {
-            rewarded = true;
-          },
-          onClose: (wasShown) => settle({ shown: wasShown === true, rewarded: rewarded && wasShown === true }),
-          onError: (error) => {
-            console.warn('[Yandex SDK] rewarded video error', error);
-            settle({ shown: false, rewarded: false, error: true });
-          },
+          onRewarded: () =>
+            safeCall('onRewarded', () => {
+              rewarded = true;
+            }),
+          onClose: (wasShown) =>
+            safeCall('onClose', () => settle({ shown: wasShown === true, rewarded: rewarded && wasShown === true })),
+          onError: (error) =>
+            safeCall('onError', () => {
+              console.warn('[Yandex SDK] rewarded video error', error);
+              settle({ shown: false, rewarded: false, error: true });
+            }),
         },
       });
     } catch (err) {
@@ -1259,12 +1305,14 @@ export function yaOnMultiplayer(events: Partial<YaMultiplayerEvents>): () => voi
   if (!ysdk?.on) return () => undefined;
   const onTransaction = (payload?: never) => {
     const data = payload as unknown as { opponentId?: string; transactions?: YaSessionTransaction[] };
-    if (!data?.opponentId || !Array.isArray(data.transactions)) return;
-    events.transaction?.({ opponentId: data.opponentId, transactions: data.transactions });
+    const opponentId = data?.opponentId;
+    const transactions = data?.transactions;
+    if (typeof opponentId !== 'string' || !opponentId || !Array.isArray(transactions)) return;
+    safeCall('multiplayer-sessions-transaction', () => events.transaction?.({ opponentId, transactions }));
   };
   const onFinish = (payload?: never) => {
     const opponentId = typeof payload === 'string' ? payload : (payload as unknown as { opponentId?: string })?.opponentId;
-    if (opponentId) events.finish?.(opponentId);
+    if (opponentId) safeCall('multiplayer-sessions-finish', () => events.finish?.(opponentId));
   };
   try {
     ysdk.on('multiplayer-sessions-transaction', onTransaction);

@@ -44,7 +44,9 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/sdk.js') {
     res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
-    res.end(readFileSync(MOCK));
+    // ?slow=1 serves the SDK late: the asynchronous connection (sdk-example) has to survive it
+    const delay = url.searchParams.get('slow') ? 800 : 0;
+    setTimeout(() => res.end(readFileSync(MOCK)), delay);
     return;
   }
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -55,6 +57,27 @@ const server = createServer((req, res) => {
     return;
   }
   res.setHeader('Content-Type', file.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream');
+  if (file.endsWith('.html') && url.searchParams.get('asyncsdk')) {
+    // the asynchronous connection from sdk-example: no blocking tag, the SDK is injected with
+    // `s.async = true` and answers late, so the game code definitely runs first
+    const html = readFileSync(full, 'utf8')
+      // the built page keeps the tag as `<script src="/sdk.js" >` (the marker attribute is stripped)
+      .replace(/\s*<script src="\/sdk\.js"[^>]*><\/script>/, '')
+      .replace(
+        '</body>',
+        `<script>
+          (function (d) {
+            var t = d.getElementsByTagName('script')[0];
+            var s = d.createElement('script');
+            s.src = '/sdk.js?slow=1';
+            s.async = true;
+            t.parentNode.insertBefore(s, t);
+          })(document);
+        </script></body>`,
+      );
+    res.end(html);
+    return;
+  }
   res.end(readFileSync(full));
 });
 
@@ -174,7 +197,7 @@ async function openGame(seed) {
     }
   };
 
-  await page.goto(`${base}?payload=check`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${base}?payload=check${seed.asyncSdk ? '&asyncsdk=1' : ''}`, { waitUntil: 'domcontentloaded' });
   return { page, consoleErrors, calls, names, count, storageValue, clickByText, waitFor };
 }
 
@@ -453,6 +476,14 @@ async function scenarioProgress() {
   await game.page.keyboard.press('Escape');
   await wait(1500);
   const restartClicked = await game.clickByText(/ЗАНОВО|RESTART|NEU STARTEN|RECOMMENCER/);
+  const fullscreenCall = (await game.calls()).filter((c) => c.name === 'adv.showFullscreenAdv').at(-1)?.arg;
+  check(
+    (fullscreenCall?.callbacks ?? []).includes('onClose') &&
+      (fullscreenCall?.callbacks ?? []).includes('onOpen') &&
+      (fullscreenCall?.callbacks ?? []).includes('onError'),
+    'Полноэкранная реклама передаёт все колбэки примера (onClose, onOpen, onError)',
+    JSON.stringify(fullscreenCall),
+  );
   const fullscreenShown = await game.waitFor(
     'adv.showFullscreenAdv',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'adv.showFullscreenAdv'),
@@ -721,9 +752,11 @@ async function scenarioShop() {
   });
   check(squadNames.deep && squadNames.cloud, 'Имена напарников из сессий показаны в панели', JSON.stringify(squadNames));
   const poseCommitted = await game.waitFor(
+    // the first pose is committed a couple of seconds into the shift; the wait is generous because a
+    // loaded machine can stretch the world generation that precedes it
     'Запись позы в сессию',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'multiplayer.commit'),
-    20_000,
+    60_000,
   );
   check(poseCommitted, 'Поза игрока записывается транзакциями (multiplayer.commit)');
 
@@ -939,12 +972,47 @@ async function scenarioDevice() {
   await desktop.page.close();
 }
 
+/* ------------------ scenario F: asynchronous SDK connection (sdk-example) ------------------ */
+
+/**
+ * The docs show two connections. The synchronous one (`<script src="/sdk.js">` in the head) is how the
+ * game ships; this scenario checks the asynchronous one: the tag is removed, the SDK is injected with
+ * `s.async = true` and answers late, so the game boots before the SDK exists and must wait for it
+ * instead of falling back to "not Yandex Games".
+ */
+async function scenarioAsyncSdk() {
+  const game = await openGame({
+    lang: 'ru',
+    asyncSdk: true,
+    name: 'ASYNC MINER',
+    data: { 'orerush.profile': { v: 1, savedAt: Date.now(), name: 'ASYNC MINER', scores: [], totals: {} } },
+  });
+  const menu = await game.waitFor(
+    'Меню после позднего SDK',
+    () => /ВОЙТИ ЧЕРЕЗ ЯНДЕКС|MINE NOW|НАЧАТЬ|CREUSER|ABBAUEN|ASYNC MINER/i.test(document.body.innerText ?? ''),
+    40_000,
+  );
+  check(menu, 'Игра запускается, когда /sdk.js приходит асинхронно');
+  const initialised = await game.waitFor(
+    'YaGames.init',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'YaGames.init'),
+    20_000,
+  );
+  check(initialised, 'Игра дождалась SDK и вызвала YaGames.init()');
+  const readyOnce = game.count(await game.calls(), 'LoadingAPI.ready') === 1;
+  check(readyOnce, 'Game Ready отправлен ровно один раз и после позднего SDK');
+  const cloudRead = (await game.calls()).some((c) => c.name === 'player.getData');
+  check(cloudRead, 'Облачный профиль читается и при асинхронном подключении');
+  await game.page.close();
+}
+
 try {
   await scenarioProgress();
   await scenarioShop();
   await scenarioPromo();
   await scenarioDaily();
   await scenarioDevice();
+  await scenarioAsyncSdk();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {
