@@ -1357,6 +1357,21 @@ async function layoutReport(page) {
       }
     }
 
+    const hudControlOverlaps = [];
+    const hudInfo = [...document.querySelectorAll(
+      '.hud-information--top-left, .hud-information--top-center, .hud-information--top-right, .hud-information--center, .hud-information--hint',
+    )];
+    const touchControls = [...document.querySelectorAll('.touch-left, .touch-right')];
+    for (const info of hudInfo) {
+      const a = info.getBoundingClientRect();
+      for (const control of touchControls) {
+        const b = control.getBoundingClientRect();
+        const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (w > 1 && h > 1) hudControlOverlaps.push(`${info.className} × ${control.className}`);
+      }
+    }
+
     let swipeBlocked = null;
     try {
       const target = document.querySelector('button') ?? document.body;
@@ -1379,6 +1394,7 @@ async function layoutReport(page) {
       boxes: boxes.length,
       cut,
       overlaps,
+      hudControlOverlaps,
       swipeBlocked,
     };
   });
@@ -1430,11 +1446,20 @@ async function scenarioLayout() {
     }
   }
 
-  // a run in progress: the HUD is the densest screen of the game
+  // a run in progress: explorer mode shows the mission panel, the densest information HUD
+  const explorerMode = await game.page.evaluate(() => {
+    const option = document.querySelector('.menu-modes button[aria-pressed="false"]');
+    if (!option) return false;
+    option.click();
+    return true;
+  });
+  check(explorerMode, 'Перед проверкой HUD выбран режим с панелью миссий');
   await game.page.setViewport({ width: 360, height: 740 });
   await wait(300);
   await game.clickByText(/НАЧАТЬ ДОБЫЧУ/);
   await game.waitFor('Смена на телефоне', () => !!document.querySelector('canvas'), 30_000);
+  const missionVisible = await game.waitFor('Панель миссий в забеге', () => !!document.querySelector('.hud-objective-panel'), 30_000);
+  check(missionVisible, 'В исследователе отображается панель миссий');
   for (const vp of [LAYOUT_VIEWPORTS[0], LAYOUT_VIEWPORTS[1], LAYOUT_VIEWPORTS[3]]) {
     await game.page.setViewport({ width: vp.width, height: vp.height });
     await wait(500);
@@ -1442,10 +1467,18 @@ async function scenarioLayout() {
     check(report.boxes > 0, `Забег: элементы управления найдены (${vp.name})`, String(report.boxes));
     check(report.cut.length === 0, `Забег: HUD и кнопки не обрезаны (${vp.name})`, report.cut.slice(0, 4).join(' | '));
     check(report.overlaps.length === 0, `Забег: элементы не накладываются (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
+    check(report.hudControlOverlaps.length === 0, `Забег: HUD не перекрывает сенсорные органы (${vp.name})`, report.hudControlOverlaps.slice(0, 4).join(' | '));
     check(report.scroll[0] <= 1 && report.scroll[1] <= 1, `Забег: у страницы нет прокрутки (${vp.name})`, `scroll ${report.scroll.join('×')}`);
   }
-  const touches = await game.page.evaluate(() => !!document.querySelector('.touch-left') && !!document.querySelector('.touch-right'));
-  check(touches, 'Управление одной рукой: сенсорные элементы на месте на телефоне');
+  const touches = await game.page.evaluate(() => {
+    const stick = document.querySelector('.touch-left')?.getBoundingClientRect();
+    const actions = [...document.querySelectorAll('.touch-right button')].map((button) => {
+      const rect = button.getBoundingClientRect();
+      return rect.width >= 48 && rect.height >= 48;
+    });
+    return !!stick && stick.width >= 96 && actions.length > 0 && actions.every(Boolean);
+  });
+  check(touches, 'Сенсорные стики и кнопки сохраняют размеры для нажатия');
   await game.page.close();
 }
 

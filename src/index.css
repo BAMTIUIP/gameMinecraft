@@ -391,6 +391,51 @@ input[type='text'] {
 }
 .touch-right > div { gap: clamp(0.35rem, 1vmin, 0.7rem) !important; }
 
+/*
+ * On a phone, the touch clusters keep their normal hit targets. Only the information HUD scales down;
+ * anchoring the scale to each panel's nearest edge keeps the health, mission, score and clock in place
+ * instead of letting them drift toward the centre. The mission/tutorial cards now flow below vitals
+ * and get their own compact scroll area on short displays, so they cannot sit underneath the sticks.
+ */
+.hud-information {
+  --hud-information-scale: 1;
+  scale: var(--hud-information-scale);
+}
+.hud-information--top-left { transform-origin: top left; }
+.hud-information--top-center { transform-origin: top center; }
+.hud-information--top-right { transform-origin: top right; }
+@supports (zoom: 1) {
+  /* This panel shares a column with full-size action buttons: zoom also reclaims the layout height. */
+  .hud-information--top-right { scale: none; zoom: var(--hud-information-scale); }
+}
+.hud-information--center { transform-origin: center; }
+.hud-information--banner { transform-origin: top center; }
+.hud-information--hint { transform-origin: bottom center; }
+.hud-information--fps { transform-origin: bottom right; }
+
+.hud-touch .hud-information--top-left,
+.hud-touch .hud-information--top-right { --hud-information-scale: 0.7; }
+.hud-touch .hud-information--top-center { --hud-information-scale: 0.74; }
+.hud-touch .hud-information--center { --hud-information-scale: 0.82; }
+.hud-touch .hud-information--banner { --hud-information-scale: 0.82; }
+.hud-touch .hud-information--hint { --hud-information-scale: 0.84; }
+.hud-touch .hud-information--fps { --hud-information-scale: 0.8; }
+.hud-touch .hud-objective-panel,
+.hud-touch .hud-tutorial-panel {
+  max-height: min(24dvh, 9rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (orientation: landscape) {
+  .hud-touch .hud-information--top-left,
+  .hud-touch .hud-information--top-right { --hud-information-scale: 0.74; }
+  .hud-touch .hud-information--top-center { --hud-information-scale: 0.76; }
+  .hud-touch .hud-information--center { --hud-information-scale: 0.78; }
+  .hud-touch .hud-objective-panel,
+  .hud-touch .hud-tutorial-panel { max-height: min(24dvh, 8rem); }
+}
+
 /* Lift the ten-slot bar above the touch clusters; reserve the home-indicator area. */
 @media (pointer: coarse) {
   .hud-hotbar { bottom: max(11.5rem, calc(env(safe-area-inset-bottom) + 10.5rem)) !important; }
@@ -427,6 +472,76 @@ input:focus-visible,
   outline: 3px solid #62e8dc;
   outline-offset: 2px;
   box-shadow: 0 0 18px rgba(98, 232, 220, 0.45);
+}
+
+/* ---------- game-over layout: stable, symmetric actions on every aspect ratio ---------- */
+.gameover-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+  width: 100%;
+}
+.gameover-summary,
+.gameover-aside { min-width: 0; }
+.gameover-aside { width: 100%; }
+.gameover-primary-actions,
+.gameover-offer-actions,
+.gameover-utility-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  width: 100%;
+}
+.gameover-offer-actions:has(> :only-child),
+.gameover-utility-actions:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.gameover-action {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.9rem;
+  padding: 0.65rem 0.75rem;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.gameover-primary-action {
+  min-height: 3.25rem;
+  font-size: clamp(0.82rem, 1.7vw, 1.1rem);
+}
+.gameover-offer-action { font-size: clamp(0.72rem, 1.3vw, 0.9rem); }
+.gameover-utility-action { font-size: clamp(0.72rem, 1.2vw, 0.82rem); }
+.gameover-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.9rem;
+  min-height: 1rem;
+  text-align: center;
+  line-height: 1.3;
+}
+.gameover-shortcut { white-space: nowrap; }
+
+@media (min-width: 960px), (orientation: landscape) and (min-width: 600px) {
+  .gameover-layout {
+    grid-template-columns: minmax(0, 1.55fr) minmax(15rem, 0.9fr);
+    gap: clamp(1rem, 2vw, 1.75rem);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .gameover-layout { gap: 0.6rem; }
+  .gameover-action-groups { margin-top: 0.8rem !important; gap: 0.45rem !important; }
+  .gameover-primary-actions,
+  .gameover-offer-actions,
+  .gameover-utility-actions { gap: 0.4rem; }
+  .gameover-action { min-height: 2.45rem; padding: 0.45rem 0.5rem; }
+  .gameover-primary-action { min-height: 2.65rem; }
+  .gameover-aside [class~="max-h-[38vh]"] { max-height: 24vh; }
 }
 
 /* ---------- hotbar fit (requirement 1.10) ----------

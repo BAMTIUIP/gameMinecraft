@@ -169,6 +169,11 @@ ok(/scrollTop = 0/.test(fit), 'После пересчёта прокрутка 
 
 const hud = readFileSync(path.join(root, 'src/ui/Hud.tsx'), 'utf8');
 ok(!/h-10 w-10/.test(hud), 'Фиксированные размеры слотов хотбара убраны');
+ok(/hud-information--top-left/.test(hud) && /hud-objective-panel/.test(hud), 'Панель миссий привязана к блоку здоровья и координат');
+ok(/hud-information--top-right/.test(hud) && /hud-information--top-center/.test(hud), 'Информация HUD размечена отдельными зонами для адаптивного масштаба');
+ok(/gameover-primary-actions/.test(readFileSync(path.join(root, 'src/ui/Screens.tsx'), 'utf8')), 'Кнопки экрана смерти собраны в симметричную сетку');
+ok(/scale:\s*var\(--hud-information-scale\)/.test(css) && /\.hud-touch \.hud-information--top-left/.test(css), 'На телефоне масштабируется информация HUD, а не сенсорное управление');
+ok(/\.gameover-primary-actions/.test(css) && /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/.test(css), 'Основные кнопки экрана смерти имеют одинаковые колонки');
 
 const html = readFileSync(path.join(root, 'index.html'), 'utf8');
 ok(/viewport-fit=cover/.test(html), 'Метатег учитывает вырезы экрана (viewport-fit=cover)');
