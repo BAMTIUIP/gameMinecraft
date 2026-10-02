@@ -209,6 +209,17 @@ function scheduleFlush() {
 }
 
 /**
+ * Requirement 1.9 (https://yandex.ru/dev/games/doc/ru/requirements/1/9): progress is written right
+ * after the player's action, not on a timer. Every progress-changing action in the game calls this
+ * after it has updated the local mirrors, so a refresh a moment later already sees the change — and
+ * an authorised player has it in the cloud as well. Each cloud write goes through the same queue
+ * (which coalesces bursts and respects the platform's rate limits) but skips the debounce.
+ */
+export function saveProgressNow(): void {
+  void flushProfile(true);
+}
+
+/**
  * Send everything that has piled up. `immediate` also asks the platform to write right away.
  * Returns true only when every pending change reached the platform — the shop relies on that
  * guarantee before it consumes a purchase (docs: save the reward first, consume second).
@@ -420,9 +431,10 @@ function readDiamonds(): number {
 
 function writeDiamonds(next: number) {
   diamonds = Math.max(0, Math.floor(next));
-  storageSet(DIAMONDS_KEY, String(diamonds));
+  storageSet(DIAMONDS_KEY, String(diamonds)); // the local mirror first: a refresh must never lose it
   markProfileDirty({ diamonds });
   emit();
+  saveProgressNow(); // earned or spent currency is progress — saved right after the action (1.9)
 }
 
 /** Current in-game currency balance (0 outside the shop's reach). */
@@ -509,6 +521,7 @@ export function addTotals(increments: Partial<Record<StatKey, number>>) {
   storageSet(TOTALS_KEY, JSON.stringify(totals));
   bumpStats(increments);
   markProfileDirty({ totals });
+  saveProgressNow(); // lifetime records are progress too (1.9)
   return totals;
 }
 

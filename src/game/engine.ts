@@ -2885,8 +2885,12 @@ if (tpClipActive > 0.5) {
     }
   }
 
-  /** snapshot the whole run into localStorage; returns false on quota errors */
-  saveWorld(): boolean {
+  /**
+   * Snapshot the whole run into localStorage; returns false on quota errors. `silent` is the
+   * automatic save taken when the page is being hidden or left (requirement 1.9: a refresh must not
+   * lose the built world) — it keeps quiet, because the player is no longer looking at the game.
+   */
+  saveWorld(silent = false): boolean {
     try {
       const chunks: Array<[number, number, number[], number[]]> = [];
       for (const [key, ch] of this.world.chunks) {
@@ -2922,12 +2926,16 @@ if (tpClipActive > 0.5) {
         chunks,
       };
       if (!storageSet(Engine.SAVE_KEY, JSON.stringify(data))) throw new Error('save failed');
-      this.pushBanner(t('worldSaved'), '', '#93c95d');
-      sfx.upgrade();
+      if (!silent) {
+        this.pushBanner(t('worldSaved'), '', '#93c95d');
+        sfx.upgrade();
+      }
       return true;
     } catch {
-      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
-      sfx.ui(false);
+      if (!silent) {
+        this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+        sfx.ui(false);
+      }
       return false;
     }
   }

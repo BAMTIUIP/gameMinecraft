@@ -31,7 +31,7 @@ import {
   yaServerTime,
   type YaProfile,
 } from './game/yandex';
-import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { claimDailyReward, dailyReward, type DailyView } from './game/daily';
@@ -387,6 +387,7 @@ export default function App() {
     setLang(l);
     setLangUi(l);
     markProfileDirty({ lang: l });
+    saveProgressNow(); // requirement 1.9: the choice is progress, it goes out right away
   }, []);
 
   const pickMode = useCallback((s: boolean) => {
@@ -394,6 +395,7 @@ export default function App() {
     storageSet('orerush.mode', s ? 'survival' : 'explorer');
     // the chosen mode travels to the cloud, so another device opens the same way
     markProfileDirty({ mode: s ? 'survival' : 'explorer' });
+    saveProgressNow();
     engineRef.current?.setSurvival(s);
     engineRef.current?.setRunTime(exploreSeconds);
   }, [exploreSeconds]);
@@ -499,6 +501,7 @@ export default function App() {
       savePlayerName(n);
       if (token) setScores(updateName(token, n));
       markProfileDirty({ name: n });
+      saveProgressNow(); // the record table was rewritten too: push both without waiting
     },
     [token],
   );
@@ -626,6 +629,12 @@ export default function App() {
   // leaving the tab (or the platform pausing us) is the last safe moment to push progress
   useEffect(() => {
     const onHide = () => {
+      // Requirement 1.9: a refresh must not lose the world the player has built. The sandbox world
+      // is stored locally and has a save button of its own; this last-moment write covers the case
+      // when the player leaves without pressing it. Silent: the player is already gone.
+      if (engineRef.current?.phase === 'playing' || engineRef.current?.phase === 'paused') {
+        engineRef.current?.saveWorld(true);
+      }
       if (document.hidden) void flushProfile(true);
     };
     document.addEventListener('visibilitychange', onHide);

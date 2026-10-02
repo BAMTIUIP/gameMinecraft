@@ -151,6 +151,9 @@ ok(!future.available && future.reason === 'clock', 'Дата из будущег
 
 // --- cloud merge: the same day on a second device -----------------------------------------------
 storage.set('orerush.daily.v1', JSON.stringify({ last: day(5), streak: 2, at: BASE + 5 * DAY_MS }));
+// the local mirror says this device last saved on day 5; the cloud blob below was written on day 6,
+// so the profile merge (requirement 1.9 writes the mirror eagerly now) does pull it in
+storage.set('orerush.profile.savedAt', String(BASE + 5 * DAY_MS));
 resetDailyState();
 serverNow = BASE + 6 * DAY_MS; // the other device claimed "today" (day 6)
 cloudBlob = {

@@ -161,7 +161,10 @@ async function openGame(seed) {
 
   await page.evaluateOnNewDocument((s) => {
     try {
-      window.localStorage.clear();
+      // Each scenario starts from a clean device — except when the check itself reloads the page to
+      // verify requirement 1.9: the flag travels through sessionStorage, which survives a reload.
+      if (sessionStorage.getItem('__yaKeepStorage')) sessionStorage.removeItem('__yaKeepStorage');
+      else window.localStorage.clear();
     } catch {
       /* about:blank */
     }
@@ -709,6 +712,61 @@ async function scenarioProgress() {
     sessionState,
   );
 
+  // ===================== 9f. progress survives a refresh (requirement 1.9) =====================
+  // The player is back in the menu here; the daily bonus button is an ordinary progress action, so it
+  // is a good probe: the save must leave the game right after the click, without any reload.
+  const writesBeforeClaim = game.count(await game.calls(), 'player.setData');
+  const dailyReady = await game.waitFor(
+    'Кнопка ежедневного бонуса доступна',
+    () => {
+      const button = [...document.querySelectorAll('button')].find((b) => /ЕЖЕДНЕВНЫЙ БОНУС/.test(b.textContent ?? ''));
+      return !!button && !button.disabled;
+    },
+    10_000,
+  );
+  check(dailyReady, 'Действие для проверки сохранения доступно (ежедневный бонус)');
+  await game.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
+  const savedRightAway = await game.waitFor(
+    'Сохранение сразу после действия',
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'player.setData').length > before,
+    15_000,
+    writesBeforeClaim,
+  );
+  check(savedRightAway, 'Прогресс уходит в облако сразу после действия игрока, без перезагрузки и таймера');
+
+  const beforeReload = await game.page.evaluate(() => ({
+    scores: window.localStorage.getItem('orerush.highscores.v1'),
+    diamonds: window.localStorage.getItem('orerush.diamonds.v1'),
+    totals: window.localStorage.getItem('orerush.totals.v1'),
+    name: window.localStorage.getItem('orerush.playername.v1'),
+    daily: window.localStorage.getItem('orerush.daily.v1'),
+  }));
+  await game.page.evaluate(() => sessionStorage.setItem('__yaKeepStorage', '1'));
+  await game.page.reload({ waitUntil: 'domcontentloaded' });
+  const afterReload = await game.waitFor(
+    'Меню после перезагрузки страницы',
+    () => /НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(document.body.innerText ?? ''),
+    40_000,
+  );
+  check(afterReload, 'После обновления страницы игра снова открывается (пункт 1.9)');
+  const reloaded = await game.page.evaluate(() => ({
+    scores: window.localStorage.getItem('orerush.highscores.v1'),
+    diamonds: window.localStorage.getItem('orerush.diamonds.v1'),
+    totals: window.localStorage.getItem('orerush.totals.v1'),
+    name: window.localStorage.getItem('orerush.playername.v1'),
+    daily: window.localStorage.getItem('orerush.daily.v1'),
+  }));
+  const survived = Object.keys(beforeReload).every((key) => beforeReload[key] === reloaded[key]);
+  check(survived, 'Рекорды, алмазы, счётчики, имя и бонус пережили обновление страницы', JSON.stringify({ beforeReload, reloaded }).slice(0, 200));
+  const recordInMenu = await game.page.evaluate(() => {
+    const score = String(Number(JSON.parse(window.localStorage.getItem('orerush.highscores.v1') ?? '[]')?.[0]?.score ?? 0));
+    const digits = (document.body.innerText ?? '').replace(/\D+/g, '');
+    return score !== '0' && digits.includes(score);
+  });
+  check(recordInMenu, 'Лучший результат из хранилища снова показан в меню');
+  const cloudReadAfterReload = (await game.calls()).some((c) => c.name === 'player.getData');
+  check(cloudReadAfterReload, 'После перезагрузки игра снова читает облачный прогресс (player.getData)');
+
   // ===================== 10. local mirrors and console health =====================
   check((await game.storageValue('orerush.totals.v1')) !== null, 'Локальное зеркало статистики создано');
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
@@ -1090,6 +1148,49 @@ async function scenarioDevice() {
   check(touchControls, 'deviceInfo=mobile включает сенсорное управление');
   const deviceQueried = (await mobile.calls()).some((c) => c.name === 'deviceInfo.type' || c.name === 'deviceInfo.isMobile');
   check(deviceQueried, 'Игра спросила тип устройства у платформы (deviceInfo)');
+
+  // Requirement 1.9 also covers the device rotation: the shift on screen must survive it
+  const canvasOf = () =>
+    mobile.page.evaluate(() => {
+      const el = document.querySelector('canvas');
+      return el
+        ? { w: el.clientWidth, h: el.clientHeight, attrW: el.width, attrH: el.height, dpr: window.devicePixelRatio || 1, win: [window.innerWidth, window.innerHeight], text: document.body.innerText ?? '' }
+        : null;
+    });
+  const beforeRotate = await canvasOf();
+  await mobile.page.setViewport({ width: 740, height: 360 }); // a rotation is a resize, not a reload
+  // the engine redraws on `resize`: wait for the canvas to actually take the new width
+  const resized = await mobile.waitFor(
+    'canvas под новый размер',
+    (target) => {
+      const el = document.querySelector('canvas');
+      return !!el && Math.abs(el.width - target * (window.devicePixelRatio || 1)) <= 1;
+    },
+    10_000,
+    740,
+  );
+  const afterRotate = await canvasOf();
+  check(
+    resized && !!afterRotate && Math.abs(afterRotate.attrW - Math.round(afterRotate.w * afterRotate.dpr)) <= 1,
+    'Поворот экрана перестраивает canvas под новую ширину',
+    JSON.stringify({ beforeRotate, afterRotate }),
+  );
+  check(!!afterRotate && !!beforeRotate && afterRotate.attrW < beforeRotate.attrW, 'После поворота картинка стала под новое, более узкое окно', `${beforeRotate?.attrW} → ${afterRotate?.attrW}`);
+  const stillInRun = /ПАУЗА|PAUSED|ПРОДОЛЖИТЬ|RESUME/.test(afterRotate.text) || !/НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(afterRotate.text);
+  check(stillInRun, 'После поворота экрана смена не сбрасывается в меню');
+  const touchAfterRotate = await mobile.page.evaluate(() => ({
+    left: !!document.querySelector('.touch-left'),
+    right: !!document.querySelector('.touch-right'),
+    text: (document.body.innerText ?? '').slice(0, 120),
+  }));
+  check(
+    touchAfterRotate.left && touchAfterRotate.right,
+    'После поворота экрана сенсорное управление осталось на месте',
+    JSON.stringify(touchAfterRotate),
+  );
+  await mobile.page.setViewport({ width: 360, height: 740 });
+  await wait(400);
+
   await mobile.page.close();
 
   const desktop = await openGame({ lang: 'ru', deviceType: 'desktop', flags: { 'game.exploreMinutes': '0.25' } });
@@ -1172,6 +1273,39 @@ async function scenarioTv() {
   await run.page.close();
 }
 
+/* ---------------- scenario H: the built world is autosaved (requirement 1.9) ---------------- */
+
+/**
+ * A sandbox world has a save button, and requirement 1.9 additionally wants the progress to survive a
+ * refresh. The world is local-only (it is far larger than the cloud budget), so the game writes it one
+ * last time when the page is being hidden — this scenario builds something, hides the tab without
+ * pressing the button and checks that the snapshot appeared.
+ */
+async function scenarioWorldAutosave() {
+  const game = await openGame({ lang: 'ru', name: 'BUILDER', flags: { 'game.exploreMinutes': '0.25' } });
+  await game.waitFor('Меню песочницы', () => /НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(document.body.innerText ?? ''), 30_000);
+  const clicked = await game.clickByText(/СОЗДАТЬ МИР|CREATE WORLD|CRÉER UN MONDE|ERSTELLEN/i);
+  check(clicked, 'Кнопка создания своего мира найдена');
+  const inRun = await game.waitFor('Мир открылся', () => !!document.querySelector('canvas'), 30_000);
+  check(inRun, 'Свой мир запускается');
+  await wait(1500);
+  check((await game.storageValue('orerush.myworld.v1')) === null, 'До действия игрока автосохранения ещё нет');
+
+  await game.page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  const autosaved = await game.waitFor(
+    'Мир сохранён при уходе со страницы',
+    () => (window.localStorage.getItem('orerush.myworld.v1') ?? '').length > 100,
+    15_000,
+  );
+  check(autosaved, 'Мир сохраняется сам, когда страницу сворачивают или обновляют (пункт 1.9)');
+  const silent = await game.page.evaluate(() => !/МИР СОХРАНЁН|WORLD SAVED/i.test(document.body.innerText ?? ''));
+  check(silent, 'Автосохранение не мешает игроку баннером');
+  await game.page.close();
+}
+
 /* ------------------ scenario F: asynchronous SDK connection (sdk-example) ------------------ */
 
 /**
@@ -1206,14 +1340,20 @@ async function scenarioAsyncSdk() {
   await game.page.close();
 }
 
+// SDK_CHECK_SCENARIO=<progress|shop|promo|daily|device|async|tv|world> runs one scenario only: handy
+// while debugging a single check without waiting for the whole suite
+const only = process.env.SDK_CHECK_SCENARIO;
+const wanted = (name) => !only || only === name;
+
 try {
-  await scenarioProgress();
-  await scenarioShop();
-  await scenarioPromo();
-  await scenarioDaily();
-  await scenarioDevice();
-  await scenarioAsyncSdk();
-  await scenarioTv();
+  if (wanted('progress')) await scenarioProgress();
+  if (wanted('shop')) await scenarioShop();
+  if (wanted('promo')) await scenarioPromo();
+  if (wanted('daily')) await scenarioDaily();
+  if (wanted('device')) await scenarioDevice();
+  if (wanted('async')) await scenarioAsyncSdk();
+  if (wanted('tv')) await scenarioTv();
+  if (wanted('world')) await scenarioWorldAutosave();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {
