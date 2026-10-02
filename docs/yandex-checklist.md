@@ -12,7 +12,7 @@
 | [sdk-about](https://yandex.ru/dev/games/doc/ru/sdk/sdk-about) | Подключение `<script src="/sdk.js">` в `<head>` выше кода игры, `YaGames.init()` один раз, никаких вызовов до `init()` | `index.html`, `src/main.tsx`, `src/game/yandex.ts`; проверка наличия и порядка тега — `scripts/package-yandex.mjs` | ✅ |
 | [sdk-game-events](https://yandex.ru/dev/games/doc/ru/sdk/sdk-game-events) | `LoadingAPI.ready()` когда игрок реально может играть; `GameplayAPI.start()/stop()` на каждый старт/паузу/возврат | `src/App.tsx` (эффект по `hud.phase`), `yaOnPause`/`yaOnResume` в `src/game/yandex.ts` | ✅ |
 | [sdk-player](https://yandex.ru/dev/games/doc/ru/sdk/sdk-player) | `getPlayer()`, авторизация, облачные сохранения (`setData`/`getData`), статистика (`setStats`/`incrementStats`), ник и аватар, `safeStorage` | `src/game/yandex.ts`, `src/game/profile.ts`, `src/game/storage.ts`, карточка профиля в `src/ui/Screens.tsx` | ✅ |
-| [sdk-config](https://yandex.ru/dev/games/doc/ru/sdk/sdk-config) | | | ⬜ |
+| [sdk-config](https://yandex.ru/dev/games/doc/ru/sdk/sdk-config) | `ysdk.getFlags()` один раз на старте, `defaultFlags` с локальной конфигурацией, `clientFeatures` из данных игрока, приоритет remote → кэш → локальные | `src/game/flags.ts`, вызов в `src/App.tsx`, применение флагов в `src/ui/Screens.tsx`, `src/ui/Hud.tsx` | ✅ |
 | [sdk-adv](https://yandex.ru/dev/games/doc/ru/sdk/sdk-adv) | | | ⬜ |
 | [sdk-purchases](https://yandex.ru/dev/games/doc/ru/sdk/sdk-purchases) | | | ⬜ |
 | [sdk-leaderboard](https://yandex.ru/dev/games/doc/ru/sdk/sdk-leaderboard) | | | ⬜ |

@@ -71,9 +71,11 @@ type Props = {
   onBag: () => void;
   onCaptureMouse: () => void;
   isTouch: boolean;
+  /** remote-config flag ui.showFps */
+  showFps: boolean;
 };
 
-export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag, onCaptureMouse, isTouch }: Props) {
+export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag, onCaptureMouse, isTouch, showFps }: Props) {
   const scoreRef = useRef<HTMLDivElement>(null);
   const prevScore = useRef(hud.score);
   const [bump, setBump] = useState(0);
@@ -493,8 +495,8 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         )}
       </div>
 
-      {/* ---------------- FPS ---------------- */}
-      <div className="absolute bottom-1 right-2 font-display text-[10px] text-white/25">{hud.fps} FPS</div>
+      {/* ---------------- FPS (remote-config flag ui.showFps) ---------------- */}
+      {showFps && <div className="absolute bottom-1 right-2 font-display text-[10px] text-white/25">{hud.fps} FPS</div>}
     </div>
   );
 

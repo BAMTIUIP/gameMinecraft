@@ -28,7 +28,7 @@ const localStorageStub = {
 
 const g = globalThis as unknown as Record<string, unknown>;
 g.window = globalThis;
-g.localStorage = localStorageStub;
+Object.defineProperty(globalThis, 'localStorage', { value: localStorageStub, configurable: true });
 g.document = { title: '', documentElement: { lang: '' }, addEventListener() {}, removeEventListener() {} };
 // Node 22 defines navigator as a getter-only global: redefine it instead of assigning
 Object.defineProperty(globalThis, 'navigator', {

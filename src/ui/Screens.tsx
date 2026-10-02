@@ -308,6 +308,7 @@ export function StartScreen({
   profile,
   onSignIn,
   cloudSavedAt,
+  shopEnabled,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -331,6 +332,8 @@ export function StartScreen({
   onSignIn: () => void;
   /** timestamp of the cloud profile that was pulled on this boot, 0 when nothing was restored */
   cloudSavedAt: number;
+  /** remote-config flag shop.enabled: the shop button disappears when the flag turns it off */
+  shopEnabled: boolean;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
@@ -444,18 +447,22 @@ export function StartScreen({
               </div>
             </section>
 
-            <div className="mt-4 grid w-full max-w-[900px] grid-cols-3 items-stretch gap-1.5 sm:mt-5 sm:gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShopTab('all');
-                  setShowShop(true);
-                }}
-                className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
-              >
-                <span aria-hidden="true" className="font-display text-lg leading-none text-[#62e8dc] sm:text-xl">◆</span>
-                <span>{t('shop')}</span>
-              </button>
+            <div
+              className={`mt-4 grid w-full max-w-[900px] items-stretch gap-1.5 sm:mt-5 sm:gap-3 ${shopEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}
+            >
+              {shopEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShopTab('all');
+                    setShowShop(true);
+                  }}
+                  className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
+                >
+                  <span aria-hidden="true" className="font-display text-lg leading-none text-[#62e8dc] sm:text-xl">◆</span>
+                  <span>{t('shop')}</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onPlay}

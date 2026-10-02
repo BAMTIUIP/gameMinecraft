@@ -124,6 +124,8 @@ page.on('pageerror', (err) => consoleErrors.push(String(err)));
 const seed = {
   lang: 'ru',
   name: 'CLOUD MINER',
+  // remote config: the shop is switched off for this group and the FPS counter is hidden
+  flags: { 'shop.enabled': 'false', 'ui.showFps': 'false' },
   data: {
     'orerush.profile': {
       v: 1,
@@ -141,6 +143,7 @@ await page.evaluateOnNewDocument((s) => {
 
 const calls = () => page.evaluate(() => window.__yaCalls ?? []);
 const names = (log) => log.map((c) => c.name);
+const count = (log, name) => log.filter((c) => c.name === name).length;
 const waitFor = async (label, fn, timeout = 120_000) => {
   const start = Date.now();
   for (;;) {
@@ -171,7 +174,16 @@ try {
     menuUp ? `ready на позиции ${readyIndex}` : 'меню не дождались',
   );
 
-  // 2. player object: one getPlayer, cloud profile pulled and merged (records from another device)
+  // 2. remote config: one request at startup, local configuration passed as defaults,
+  //    player data passed as client features, the returned flag applied to the menu
+  check(count(logBeforeMenu, 'ysdk.getFlags') === 1, 'ysdk.getFlags() вызван один раз на старте');
+  const flagCall = logBeforeMenu.find((c) => c.name === 'ysdk.getFlags')?.arg;
+  check((flagCall?.local ?? 0) >= 8, 'Локальная конфигурация флагов передана в defaultFlags', `ключей: ${flagCall?.local}`);
+  check((flagCall?.features ?? []).includes('lang') && (flagCall?.features ?? []).includes('payingStatus'), 'Клиентские параметры (lang, payingStatus) переданы', JSON.stringify(flagCall?.features));
+  const shopVisible = await page.evaluate(() => [...document.querySelectorAll('button')].some((b) => /МАГАЗИН|SHOP|BOUTIQUE/i.test(b.textContent ?? '')));
+  check(shopVisible === false, 'Флаг shop.enabled=false действительно скрыл магазин');
+
+  // 3. player object: one getPlayer, cloud profile pulled and merged (records from another device)
   check(names(logBeforeMenu).filter((n) => n === 'ysdk.getPlayer').length <= 2, 'getPlayer() в пределах лимита 20/5мин');
   const restored = await page.evaluate(() => {
     const raw = window.localStorage.getItem('orerush.highscores.v1');
@@ -180,7 +192,7 @@ try {
   check(restored, 'Облачные рекорды подтянуты в локальную таблицу');
   check(names(logBeforeMenu).includes('player.getData'), 'player.getData() вызван для облачного профиля');
 
-  // 3. a mode switch is a profile change: it must reach the cloud in a batched setData
+  // 4. a mode switch is a profile change: it must reach the cloud in a batched setData
   const modeClicked = await page.evaluate(() => {
     const buttons = [...document.querySelectorAll('button[aria-pressed]')];
     const other = buttons.find((b) => b.getAttribute('aria-pressed') === 'false');
@@ -198,7 +210,7 @@ try {
   const flushCount = (await calls()).filter((c) => c.name === 'player.setData').length;
   check(flushCount <= 3, 'Запись профиля не спамит лимит setData (100/5мин)', `запросов: ${flushCount}`);
 
-  // 4. gameplay markup: start on play, stop on pause, start again on resume (UI is Russian here)
+  // 5. gameplay markup: start on play, stop on pause, start again on resume (UI is Russian here)
   const clicked = await page.evaluate(() => {
     const buttons = [...document.querySelectorAll('button')];
     const play = buttons.find((b) => /НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|JETZT ABBAUEN/i.test(b.textContent ?? ''));
@@ -223,7 +235,7 @@ try {
   log = await calls();
   check(names(log).lastIndexOf('GameplayAPI.start') > stopped, 'GameplayAPI.start() после снятия паузы');
 
-  // 5. platform pause/resume events are obeyed
+  // 6. platform pause/resume events are obeyed
   await page.evaluate(() => (window.__yaEmit?.game_api_pause ?? []).forEach((fn) => fn()));
   await new Promise((r) => setTimeout(r, 1000));
   log = await calls();
@@ -237,7 +249,7 @@ try {
     'Платформенные game_api_pause / game_api_resume приводят к stop / start',
   );
 
-  // 6. the local totals mirror exists even before a run ends (stats flush happens on run end)
+  // 7. the local totals mirror exists even before a run ends (stats flush happens on run end)
   const totalsMirror = await page.evaluate(() => !!window.localStorage.getItem('orerush.totals.v1'));
   check(totalsMirror, 'Локальное зеркало статистики создано');
 

@@ -54,6 +54,15 @@ export type YaPlayer = {
   incrementStats: (increments: Record<string, number>) => Promise<Record<string, number>>;
 };
 
+/**
+ * Remote config (https://yandex.ru/dev/games/doc/ru/sdk/sdk-config): a flat map of string values.
+ * The platform merges the remote config over `defaultFlags`, so the game always has a usable value.
+ */
+export type YaFlags = Record<string, string>;
+
+/** Client parameter used to target a flag at a player group, e.g. paying status or language. */
+export type YaClientFeature = { name: string; value: string };
+
 /** Snapshot of the platform profile, safe to render from React. */
 export type YaProfile = {
   authorized: boolean;
@@ -69,6 +78,8 @@ type YSDK = {
   serverTime?: () => number;
   /** interface language / auth / profile; rate-limited (getPlayer: 20 calls per 5 minutes) */
   getPlayer?: (options?: { scoped?: boolean; signed?: boolean }) => Promise<YaPlayer>;
+  /** remote config flags: single flat string map, fetched once at startup */
+  getFlags?: (params?: { defaultFlags?: YaFlags; clientFeatures?: YaClientFeature[] }) => Promise<YaFlags>;
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -416,6 +427,24 @@ export async function yaStatsSet(stats: Record<string, number>): Promise<boolean
   } catch (err) {
     console.warn('[Yandex SDK] player.setStats() failed', err);
     return false;
+  }
+}
+
+/**
+ * `ysdk.getFlags()` — remote config for feature flags, live-ops and A/B tests. Called once at
+ * startup (as the docs advise): a failure returns null and the caller keeps its local defaults.
+ */
+export async function yaGetFlags(
+  defaultFlags: YaFlags,
+  clientFeatures: YaClientFeature[] = [],
+): Promise<YaFlags | null> {
+  if (!ysdk?.getFlags) return null;
+  try {
+    const flags = await ysdk.getFlags({ defaultFlags, clientFeatures });
+    return flags && typeof flags === 'object' ? { ...defaultFlags, ...flags } : null;
+  } catch (err) {
+    console.warn('[Yandex SDK] getFlags() failed, keeping local config', err);
+    return null;
   }
 }
 

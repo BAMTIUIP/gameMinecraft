@@ -12,7 +12,9 @@
     "yandex:proxy": "npx --yes @yandex-games/sdk-dev-proxy -p dist --dev-mode=true",
     "package:yandex": "npm run yandex:zip",
     "yandex:sdk-check": "node tools/yandex-sdk-check/run.mjs",
-    "test:profile": "node tools/tests/run.mjs profile.test.ts"
+    "test:profile": "node tools/tests/run.mjs profile.test.ts flags.test.ts flags-offline.test.ts",
+    "test:game": "node tools/tests/run.mjs profile.test.ts flags.test.ts flags-offline.test.ts",
+    "verify": "npm run build && npm run yandex:check && npm run test:profile && npm run yandex:sdk-check"
   },
   "dependencies": {
     "clsx": "2.1.1",

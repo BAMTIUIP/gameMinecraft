@@ -44,6 +44,13 @@
           window.__yaEmit ??= {};
           (window.__yaEmit[event] ??= []).push(listener);
         },
+        getFlags: async (params) => {
+          record('ysdk.getFlags', {
+            local: Object.keys(params?.defaultFlags ?? {}).length,
+            features: (params?.clientFeatures ?? []).map((f) => f.name),
+          });
+          return { ...(params?.defaultFlags ?? {}), ...(seed.flags ?? {}) };
+        },
         isAvailableMethod: async (method) => {
           record('ysdk.isAvailableMethod', method);
           return true;

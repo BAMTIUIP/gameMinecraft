@@ -21,6 +21,7 @@ import {
   type YaProfile,
 } from './game/yandex';
 import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { allFlags, loadFlags } from './game/flags';
 import { storageGet, storageSet } from './game/storage';
 
 const INITIAL_HUD: HudState = {
@@ -100,6 +101,8 @@ export default function App() {
   // Yandex profile: avatar/nick in the menu, cloud-progress notice, sign-in button
   const [profile, setProfile] = useState<YaProfile | null>(null);
   const [cloudSavedAt, setCloudSavedAt] = useState(0);
+  // Remote config (ysdk.getFlags): rendered from the local configuration until the remote one lands
+  const [flags, setFlags] = useState(() => allFlags());
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -127,6 +130,9 @@ export default function App() {
         setLangUi(getLang());
         setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
       }
+      // Remote config: one request at startup (sdk-config). Paying status comes from the profile,
+      // so the Yandex Console can target monetisation flags at paying / non-paying groups.
+      setFlags(await loadFlags(snapshot.platform?.paying));
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -140,7 +146,7 @@ export default function App() {
     engineRef.current = eng;
     eng.mount();
     eng.setDom(domRef.current);
-    eng.setRunTime(EXPLORATION_RUN_TIME);
+    // the remote-config knob (game.exploreMinutes) is applied by the effect below, once flags load
     eng.setSurvival(survival);
     setFreeLookUi(eng.freeLookEnabled);
     setEngine(eng);
@@ -183,6 +189,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** shift length of explore mode: a remote-config knob (flag game.exploreMinutes) */
+  const exploreSeconds = Math.max(60, Math.round((Number(flags['game.exploreMinutes']) || 20) * 60));
+
+  useEffect(() => {
+    engineRef.current?.setRunTime(exploreSeconds);
+  }, [exploreSeconds]);
+
   const toggleMute = useCallback(() => {
     const next = !isMuted();
     setMuted(next);
@@ -209,8 +222,8 @@ export default function App() {
     // the chosen mode travels to the cloud, so another device opens the same way
     markProfileDirty({ mode: s ? 'survival' : 'explorer' });
     engineRef.current?.setSurvival(s);
-    engineRef.current?.setRunTime(EXPLORATION_RUN_TIME);
-  }, []);
+    engineRef.current?.setRunTime(exploreSeconds);
+  }, [exploreSeconds]);
 
   const equip = useCallback((uid: string) => engineRef.current?.equip(uid), []);
   const unequip = useCallback((slot: Slot) => engineRef.current?.unequip(slot), []);
@@ -299,12 +312,12 @@ export default function App() {
   );
 
   const play = useCallback(() => {
-    engineRef.current?.startRun(survival ? undefined : EXPLORATION_RUN_TIME);
-  }, [survival]);
+    engineRef.current?.startRun(survival ? undefined : exploreSeconds);
+  }, [survival, exploreSeconds]);
   const restart = useCallback(() => {
     // restarting a sandbox stays a sandbox; survival itself is endless too
-    engineRef.current?.startRun(survival ? undefined : EXPLORATION_RUN_TIME, engineRef.current?.sandbox ?? false);
-  }, [survival]);
+    engineRef.current?.startRun(survival ? undefined : exploreSeconds, engineRef.current?.sandbox ?? false);
+  }, [survival, exploreSeconds]);
   const createWorld = useCallback(() => {
     engineRef.current?.startRun(undefined, true);
     setHasSave(Engine.hasSavedWorld());
@@ -380,6 +393,7 @@ export default function App() {
           onBag={openInventory}
           onCaptureMouse={captureMouse}
           isTouch={isTouch}
+          showFps={flags['ui.showFps'] !== 'false'}
         />
       )}
 
@@ -408,6 +422,7 @@ export default function App() {
           profile={profile}
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
+          shopEnabled={flags['shop.enabled'] !== 'false'}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (
