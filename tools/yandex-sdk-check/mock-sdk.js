@@ -54,6 +54,54 @@
         },
         // the trusted clock: the test can shift it without touching the device clock
         serverTime: () => Date.now() + (seed.serverTimeOffsetMs ?? 0),
+        // sdk-params: the device, the browser fullscreen mode and the clipboard
+        deviceInfo: (() => {
+          const kind = seed.deviceType ?? 'desktop';
+          return {
+            get type() {
+              record('deviceInfo.type');
+              return kind;
+            },
+            isMobile: () => {
+              record('deviceInfo.isMobile');
+              return kind === 'mobile';
+            },
+            isTablet: () => {
+              record('deviceInfo.isTablet');
+              return kind === 'tablet';
+            },
+            isTV: () => {
+              record('deviceInfo.isTV');
+              return kind === 'tv';
+            },
+          };
+        })(),
+        screen: {
+          fullscreen: (() => {
+            let current = 'off';
+            return {
+              STATUS_ON: 'on',
+              STATUS_OFF: 'off',
+              get status() {
+                return current;
+              },
+              request: async () => {
+                record('screen.fullscreen.request');
+                current = 'on';
+              },
+              exit: async () => {
+                record('screen.fullscreen.exit');
+                current = 'off';
+              },
+            };
+          })(),
+        },
+        clipboard: {
+          writeText: async (text) => {
+            record('clipboard.writeText', text);
+            window.__yaClipboard = text;
+          },
+        },
         features: {
           LoadingAPI: { ready: () => record('LoadingAPI.ready') },
           GameplayAPI: {

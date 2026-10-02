@@ -375,6 +375,22 @@ async function scenarioProgress() {
   check(profileFlushed, 'Рекорды забега ушли в облачный профиль (player.setData)');
 
   // ===================== 6c. rating the game =====================
+  // ===================== 6b2. the shift summary goes to the clipboard =====================
+  const copyClicked = await game.clickByText(/СКОПИРОВАТЬ ИТОГ|COPY RESULT|COPIER LE RÉSULTAT|ERGEBNIS KOPIEREN/);
+  check(copyClicked, 'На экране итогов есть кнопка «Скопировать итог»');
+  const copiedToClipboard = await game.waitFor(
+    'ysdk.clipboard.writeText',
+    () => typeof window.__yaClipboard === 'string' && window.__yaClipboard.includes('ORE RUSH'),
+    10_000,
+  );
+  check(copiedToClipboard, 'Клик кладёт строку итога в ysdk.clipboard.writeText', await game.page.evaluate(() => window.__yaClipboard ?? ''));
+  const copyNoteShown = await game.waitFor(
+    'Подтверждение копирования',
+    () => /Итог скопирован|Result copied|Résultat copié|Ergebnis in die Zwischenablage/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(copyNoteShown, 'Игрок видит подтверждение копирования');
+
   const reviewChecked = await game.waitFor(
     'Проверка возможности оценить игру',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'feedback.canReview'),
@@ -641,6 +657,37 @@ async function scenarioShop() {
     [...document.querySelectorAll('button')].some((b) => /НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/i.test(b.textContent ?? '')),
   );
   check(shortcutGone === false, 'После добавления ярлыка кнопка исчезает');
+
+  // ===================== browser fullscreen (sdk-params) =====================
+  const fullscreenButton = await game.page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')].find((b) => /НА ВЕСЬ ЭКРАН|FULLSCREEN|PLEIN ÉCRAN|VOLLBILD$/i.test(b.textContent ?? ''));
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+  check(fullscreenButton, 'В настройках есть кнопка «На весь экран»');
+  const fullscreenOn = await game.waitFor(
+    'screen.fullscreen.request',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'screen.fullscreen.request'),
+    10_000,
+  );
+  check(fullscreenOn, 'Клик вызывает ysdk.screen.fullscreen.request()');
+  const labelAfter = await game.waitFor(
+    'Метка выхода из полного экрана',
+    () => [...document.querySelectorAll('button')].some((b) => /ВЫЙТИ ИЗ ПОЛНОГО ЭКРАНА|EXIT FULLSCREEN|QUITTER LE PLEIN ÉCRAN|VOLLBILD VERLASSEN/i.test(b.textContent ?? '')),
+    10_000,
+  );
+  check(labelAfter, 'После включения кнопка предлагает выйти из полного экрана');
+  await game.page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')].find((b) => /ВЫЙТИ ИЗ ПОЛНОГО ЭКРАНА|EXIT FULLSCREEN/i.test(b.textContent ?? ''));
+    button?.click();
+  });
+  const fullscreenOff = await game.waitFor(
+    'screen.fullscreen.exit',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'screen.fullscreen.exit'),
+    10_000,
+  );
+  check(fullscreenOff, 'Повторный клик вызывает ysdk.screen.fullscreen.exit()');
   await game.clickByText(/^\s*×|ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/);
 
   // ===================== co-op survival (asynchronous multiplayer) =====================
@@ -858,11 +905,46 @@ async function scenarioDaily() {
   await nextDay.page.close();
 }
 
+/* ---------------------- scenario E: deviceInfo (touch controls) ---------------------- */
+
+/**
+ * sdk-params: the touch controls appear because `deviceInfo` says `mobile`, not because of a guess,
+ * and stay away on a device the platform calls a desktop.
+ */
+async function scenarioDevice() {
+  const mobile = await openGame({ lang: 'ru', deviceType: 'mobile', flags: { 'game.exploreMinutes': '0.25' } });
+  const menu = await mobile.waitFor('Меню на мобильном', () => /НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(document.body.innerText ?? ''), 30_000);
+  check(menu, 'Игра запускается на устройстве, которое платформа называет мобильным');
+  const starts = await mobile.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW/);
+  check(starts, 'Смена запускается и на мобильном устройстве');
+  const touchControls = await mobile.waitFor(
+    'Сенсорные элементы управления',
+    () => !!document.querySelector('.touch-left') && !!document.querySelector('.touch-right'),
+    30_000,
+  );
+  check(touchControls, 'deviceInfo=mobile включает сенсорное управление');
+  const deviceQueried = (await mobile.calls()).some((c) => c.name === 'deviceInfo.type' || c.name === 'deviceInfo.isMobile');
+  check(deviceQueried, 'Игра спросила тип устройства у платформы (deviceInfo)');
+  await mobile.page.close();
+
+  const desktop = await openGame({ lang: 'ru', deviceType: 'desktop', flags: { 'game.exploreMinutes': '0.25' } });
+  await desktop.waitFor('Меню на компьютере', () => /НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(document.body.innerText ?? ''), 30_000);
+  await desktop.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW/);
+  const noTouch = await desktop.waitFor(
+    'Сенсорных элементов нет',
+    () => !document.querySelector('.touch-left'),
+    30_000,
+  );
+  check(noTouch, 'На устройстве desktop сенсорные элементы не показываются');
+  await desktop.page.close();
+}
+
 try {
   await scenarioProgress();
   await scenarioShop();
   await scenarioPromo();
   await scenarioDaily();
+  await scenarioDevice();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

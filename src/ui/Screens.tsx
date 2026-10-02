@@ -9,6 +9,7 @@ import type { LeaderboardView } from '../game/leaderboard';
 import { SHORTCUT_REWARD } from '../game/shortcut';
 import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
 import type { DailyView } from '../game/daily';
+import { fullscreenAvailable } from '../game/params';
 import {
   BagIcon,
   ClockIcon,
@@ -465,6 +466,8 @@ export function StartScreen({
   daily,
   onClaimDaily,
   dailyNote,
+  fullscreen,
+  onFullscreen,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -517,6 +520,9 @@ export function StartScreen({
   onClaimDaily: () => void;
   /** result of the claim: '+25 ◆ за сегодня' or a note that the platform was unreachable */
   dailyNote: string | null;
+  /** is the browser in fullscreen right now (sdk-params); the toggle lives in the settings dialog */
+  fullscreen: boolean;
+  onFullscreen: () => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
@@ -1024,10 +1030,21 @@ export function StartScreen({
                 </div>
               </div>
 
-              {(canShortcut || shortcutNote) && (
+              {(canShortcut || shortcutNote || fullscreenAvailable()) && (
                 <div className="sm:col-span-2">
                   <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('platformLabel')}</div>
                   <div className="rounded-sm border border-white/10 bg-black/20 p-3">
+                    {/* sdk-params: the platform's own button sits in the catalogue corner, so the game
+                        offers its own toggle — always from a click, as browsers require */}
+                    {fullscreenAvailable() && (
+                      <button
+                        type="button"
+                        onClick={onFullscreen}
+                        className="btn-mc notch mr-2 bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2.5 text-xs text-white/90"
+                      >
+                        ⛶ {fullscreen ? t('fullscreenOn') : t('fullscreenOff')}
+                      </button>
+                    )}
                     {canShortcut && (
                       <button
                         type="button"
@@ -1208,6 +1225,8 @@ export function GameOverScreen({
   canRate,
   onRate,
   reviewNote,
+  onCopyResult,
+  copyNote,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -1231,6 +1250,10 @@ export function GameOverScreen({
   myRank?: number | null;
   /** closing line under the squad table: the shift was published / teammates are local */
   squadNote?: string | null;
+  /** copies the share line to the clipboard (sdk-params) */
+  onCopyResult: (text: string) => void;
+  /** feedback of the copy button: «Итог скопирован» or an honest "clipboard is unavailable" */
+  copyNote: string | null;
   /** the platform allows asking this player to rate the game (ysdk.feedback.canReview → true) */
   canRate?: boolean;
   onRate?: () => void;
@@ -1375,7 +1398,23 @@ export function GameOverScreen({
                 ★ {t('reviewCta')}
               </button>
             )}
+            {/* sdk-params: clipboard.writeText — one click puts the shift's summary on the clipboard */}
+            <button
+              onClick={() =>
+                onCopyResult(
+                  t('shareTemplate')
+                    .replace('{mode}', t(hud.survival ? 'survival' : 'explorer'))
+                    .replace('{score}', String(hud.score))
+                    .replace('{blocks}', String(hud.blocksMined))
+                    .replace('{depth}', String(hud.deepest)),
+                )
+              }
+              className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2 text-xs text-white/80"
+            >
+              ⧉ {t('copyResult')}
+            </button>
             {reviewNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{reviewNote}</span>}
+            {copyNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{copyNote}</span>}
             <span className="font-display text-[10px] tracking-[0.24em] text-white/30">[R] · [ESC]</span>
             {diamondPrice > 0 && (
               <button

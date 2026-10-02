@@ -36,6 +36,7 @@ import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { claimDailyReward, dailyReward, type DailyView } from './game/daily';
 import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformEvents } from './game/platform';
+import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
 import {
@@ -172,10 +173,14 @@ export default function App() {
   const [dailyNote, setDailyNote] = useState<string | null>(null);
   /** the game's own dialog for the TV back button (sdk-events) */
   const [exitPrompt, setExitPrompt] = useState(false);
+  /** browser fullscreen (sdk-params): the settings dialog shows the right label for the current state */
+  const [fullscreen, setFullscreen] = useState(false);
+  /** clipboard feedback on the results screen */
+  const [copyNote, setCopyNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
-    setIsTouch(window.matchMedia?.('(pointer: coarse)').matches ?? false);
+    setIsTouch(touchDevice()); // deviceInfo when the platform is up, pointer type otherwise
     setLangUi(initLang());
     markAdSessionStart(); // the grace period before the first fullscreen ad starts now
 
@@ -224,6 +229,10 @@ export default function App() {
       // Daily reward (sdk-server-time): counted by the trusted clock and stored in the cloud profile,
       // so a system-clock rollback cannot bring the bonus back.
       setDaily(dailyReward());
+      // Device info and fullscreen (sdk-params) are only known once the SDK is up: the touch controls
+      // follow deviceInfo, and the settings toggle needs the platform's fullscreen status.
+      setIsTouch(touchDevice());
+      setFullscreen(fullscreenOn());
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -603,6 +612,16 @@ export default function App() {
   }, [leaderboard]);
 
   /** Opens the desktop-shortcut dialog and credits the one-time reward when it was accepted. */
+  // sdk-params: the fullscreen toggle is reachable only from a click (browser rule) and reports state
+  const toggleFull = useCallback(async () => {
+    if (!fullscreenAvailable()) return;
+    setFullscreen(await toggleFullscreen());
+  }, []);
+
+  const copyResult = useCallback((text: string) => {
+    void copyText(text).then((ok) => setCopyNote(ok ? t('copied') : t('copyFailed')));
+  }, []);
+
   const addDaily = useCallback(() => {
     const result = claimDailyReward();
     setDaily(dailyReward());
@@ -754,6 +773,8 @@ export default function App() {
           daily={daily}
           onClaimDaily={addDaily}
           dailyNote={dailyNote}
+          fullscreen={fullscreen}
+          onFullscreen={toggleFull}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (
@@ -812,6 +833,8 @@ export default function App() {
           onDiamondRevive={reviveWithDiamonds}
           myRank={myRank}
           squadNote={squadNote}
+          onCopyResult={copyResult}
+          copyNote={copyNote}
           canRate={canRate}
           onRate={rateGame}
           reviewNote={reviewNote}

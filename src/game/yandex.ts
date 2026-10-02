@@ -290,6 +290,35 @@ type YSDK = {
   dispatchEvent?: (event: YaEventName, detail?: object) => unknown;
   /** event name constants; the SDK exposes them, but the string names are the same */
   EVENTS?: Partial<Record<YaPlatformEvent, YaPlatformEvent>>;
+  /** device of the player: `type` plus the matching is*() helpers (sdk-params) */
+  deviceInfo?: YaDeviceInfo;
+  /** browser fullscreen control (sdk-params) */
+  screen?: { fullscreen?: YaFullscreen };
+  /** writing a string to the clipboard (sdk-params) */
+  clipboard?: { writeText?: (text: string) => unknown };
+};
+
+/** `ysdk.deviceInfo` (sdk-params): the device the game is running on. */
+export type YaDeviceType = 'desktop' | 'mobile' | 'tablet' | 'tv';
+
+export type YaDeviceInfo = {
+  type?: YaDeviceType;
+  isMobile?: () => boolean;
+  isDesktop?: () => boolean;
+  isTablet?: () => boolean;
+  isTV?: () => boolean;
+};
+
+/**
+ * `ysdk.screen.fullscreen` (sdk-params). Browsers refuse to switch the mode without a user gesture,
+ * which is why the game only ever calls `request()`/`exit()` from a click.
+ */
+export type YaFullscreen = {
+  STATUS_ON?: string;
+  STATUS_OFF?: string;
+  status?: string;
+  request?: () => Promise<void> | void;
+  exit?: () => Promise<void> | void;
 };
 
 /** Events the platform can send the game (sdk-events). */
@@ -528,6 +557,79 @@ export function yaServerTime(): number {
     // SDK unavailable or temporarily unable to provide server time.
   }
   return Date.now();
+}
+
+/**
+ * `ysdk.deviceInfo.type` (sdk-params): `desktop`, `mobile`, `tablet` or `tv`. Null outside the
+ * platform — the caller then falls back to its own guesses.
+ */
+export function yaDeviceType(): YaDeviceType | null {
+  const type = ysdk?.deviceInfo?.type;
+  return type === 'desktop' || type === 'mobile' || type === 'tablet' || type === 'tv' ? type : null;
+}
+
+/**
+ * `ysdk.deviceInfo.isMobile()` / `isTablet()` / `isTV()`. The docs keep both the field and the
+ * helpers, so the game asks the helpers when they exist and treats an absent answer as "unknown".
+ */
+export function yaDeviceFlag(flag: 'mobile' | 'tablet' | 'tv'): boolean | null {
+  const info = ysdk?.deviceInfo;
+  if (!info) return null;
+  const fn = flag === 'mobile' ? info.isMobile : flag === 'tablet' ? info.isTablet : info.isTV;
+  try {
+    const value = fn?.call(info);
+    return typeof value === 'boolean' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Current fullscreen status as the platform reports it: `'on' | 'off'`, or null without the SDK. */
+export function yaFullscreenStatus(): 'on' | 'off' | null {
+  const fullscreen = ysdk?.screen?.fullscreen;
+  if (!fullscreen) return null;
+  if (fullscreen.status === fullscreen.STATUS_ON || fullscreen.status === 'on') return 'on';
+  if (fullscreen.status === fullscreen.STATUS_OFF || fullscreen.status === 'off') return 'off';
+  return null;
+}
+
+/** Ask the platform for fullscreen. Must be called from a user action (browser rule). */
+export async function yaRequestFullscreen(): Promise<boolean> {
+  try {
+    const request = ysdk?.screen?.fullscreen?.request;
+    if (!request) return false;
+    await request.call(ysdk?.screen?.fullscreen);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] fullscreen request failed', err);
+    return false;
+  }
+}
+
+/** …and the way back. */
+export async function yaExitFullscreen(): Promise<boolean> {
+  try {
+    const exit = ysdk?.screen?.fullscreen?.exit;
+    if (!exit) return false;
+    await exit.call(ysdk?.screen?.fullscreen);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] fullscreen exit failed', err);
+    return false;
+  }
+}
+
+/** `ysdk.clipboard.writeText(text)` (sdk-params). Returns false when the platform has no clipboard. */
+export async function yaCopyText(text: string): Promise<boolean> {
+  try {
+    const write = ysdk?.clipboard?.writeText;
+    if (!write) return false;
+    await write(text);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] clipboard.writeText failed', err);
+    return false;
+  }
 }
 
 /**
