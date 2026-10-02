@@ -63,6 +63,26 @@ export type YaFlags = Record<string, string>;
 /** Client parameter used to target a flag at a player group, e.g. paying status or language. */
 export type YaClientFeature = { name: string; value: string };
 
+/** Advertising surface of the SDK (https://yandex.ru/dev/games/doc/ru/sdk/sdk-adv). */
+export type YaAdv = {
+  showFullscreenAdv?: (params?: {
+    callbacks?: { onOpen?: () => void; onClose?: (wasShown: boolean) => void; onError?: (error: unknown) => void };
+  }) => void;
+  showRewardedVideo?: (params?: {
+    callbacks?: {
+      onOpen?: () => void;
+      onRewarded?: () => void;
+      onClose?: (wasShown: boolean) => void;
+      onError?: (error: unknown) => void;
+    };
+  }) => void;
+  getBannerAdvStatus?: () => Promise<{ stickyAdvIsShowing: boolean; reason?: string }>;
+  showBannerAdv?: () => Promise<{ stickyAdvIsShowing: boolean; reason?: string }>;
+  hideBannerAdv?: () => Promise<{ stickyAdvIsShowing: boolean }>;
+};
+
+export type YaAdResult = { shown: boolean; rewarded: boolean; error?: boolean };
+
 /** Snapshot of the platform profile, safe to render from React. */
 export type YaProfile = {
   authorized: boolean;
@@ -80,6 +100,8 @@ type YSDK = {
   getPlayer?: (options?: { scoped?: boolean; signed?: boolean }) => Promise<YaPlayer>;
   /** remote config flags: single flat string map, fetched once at startup */
   getFlags?: (params?: { defaultFlags?: YaFlags; clientFeatures?: YaClientFeature[] }) => Promise<YaFlags>;
+  /** advertising: fullscreen, rewarded video and the sticky banner */
+  adv?: YaAdv;
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -444,6 +466,121 @@ export async function yaGetFlags(
     return flags && typeof flags === 'object' ? { ...defaultFlags, ...flags } : null;
   } catch (err) {
     console.warn('[Yandex SDK] getFlags() failed, keeping local config', err);
+    return null;
+  }
+}
+
+/* ============================== advertising ============================== */
+
+/** Is there anything to show at all (SDK loaded and advertising available)? */
+export function yaAdvAvailable(): boolean {
+  return typeof ysdk?.adv?.showFullscreenAdv === 'function';
+}
+
+/** `adv.showFullscreenAdv()` — resolves when the ad closed (or when the platform refused to show it). */
+export function yaShowFullscreenAdv(): Promise<YaAdResult> {
+  return new Promise((resolve) => {
+    const adv = ysdk?.adv;
+    if (!adv?.showFullscreenAdv) {
+      resolve({ shown: false, rewarded: false, error: true });
+      return;
+    }
+    let settled = false;
+    const settle = (result: YaAdResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    try {
+      adv.showFullscreenAdv({
+        callbacks: {
+          onClose: (wasShown) => settle({ shown: wasShown === true, rewarded: false }),
+          // onError may arrive without onClose: never leave the game waiting behind an ad
+          onError: (error) => {
+            console.warn('[Yandex SDK] fullscreen ad error', error);
+            settle({ shown: false, rewarded: false, error: true });
+          },
+        },
+      });
+    } catch (err) {
+      console.warn('[Yandex SDK] showFullscreenAdv() threw', err);
+      settle({ shown: false, rewarded: false, error: true });
+    }
+  });
+}
+
+/** `adv.showRewardedVideo()` — `rewarded` is only true when the platform counted the view. */
+export function yaShowRewardedVideo(): Promise<YaAdResult> {
+  return new Promise((resolve) => {
+    const adv = ysdk?.adv;
+    if (!adv?.showRewardedVideo) {
+      resolve({ shown: false, rewarded: false, error: true });
+      return;
+    }
+    let settled = false;
+    let rewarded = false;
+    const settle = (result: YaAdResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    try {
+      adv.showRewardedVideo({
+        callbacks: {
+          onRewarded: () => {
+            rewarded = true;
+          },
+          onClose: (wasShown) => settle({ shown: wasShown === true, rewarded: rewarded && wasShown === true }),
+          onError: (error) => {
+            console.warn('[Yandex SDK] rewarded video error', error);
+            settle({ shown: false, rewarded: false, error: true });
+          },
+        },
+      });
+    } catch (err) {
+      console.warn('[Yandex SDK] showRewardedVideo() threw', err);
+      settle({ shown: false, rewarded: false, error: true });
+    }
+  });
+}
+
+export type YaBannerStatus = { showing: boolean; reason?: string };
+
+/** `adv.getBannerAdvStatus()` — null when banner control is unavailable. */
+export async function yaGetBannerAdvStatus(): Promise<YaBannerStatus | null> {
+  const adv = ysdk?.adv;
+  if (!adv?.getBannerAdvStatus) return null;
+  try {
+    const status = await adv.getBannerAdvStatus();
+    return { showing: status?.stickyAdvIsShowing === true, reason: status?.reason };
+  } catch (err) {
+    console.warn('[Yandex SDK] getBannerAdvStatus() failed', err);
+    return null;
+  }
+}
+
+/** `adv.showBannerAdv()` — on by default; used here to bring the banner back in the menu. */
+export async function yaShowBannerAdv(): Promise<YaBannerStatus | null> {
+  const adv = ysdk?.adv;
+  if (!adv?.showBannerAdv) return null;
+  try {
+    const status = await adv.showBannerAdv();
+    return { showing: status?.stickyAdvIsShowing === true, reason: status?.reason };
+  } catch (err) {
+    console.warn('[Yandex SDK] showBannerAdv() failed', err);
+    return null;
+  }
+}
+
+/** `adv.hideBannerAdv()` — used while a run is on, so the banner never covers the HUD. */
+export async function yaHideBannerAdv(): Promise<YaBannerStatus | null> {
+  const adv = ysdk?.adv;
+  if (!adv?.hideBannerAdv) return null;
+  try {
+    const status = await adv.hideBannerAdv();
+    return { showing: status?.stickyAdvIsShowing === true };
+  } catch (err) {
+    console.warn('[Yandex SDK] hideBannerAdv() failed', err);
     return null;
   }
 }

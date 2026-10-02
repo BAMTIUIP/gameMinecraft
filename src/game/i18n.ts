@@ -11,6 +11,15 @@ export const LANGS: Array<{ id: Lang; label: string; flag: string }> = [
 ];
 
 const EN = {
+  adRevived: 'SECOND WIND',
+  adRevivedSub: 'Rewarded video: the shift continues',
+  watchAdRevive: 'WATCH AD · CONTINUE',
+  watchAdReviveSub: '+{sec} sec and half health',
+  adBadge: 'AD',
+  adNotShown: 'The ad is not available right now',
+  adThanks: 'Thanks! Reward granted',
+  reviveLimit: 'No more revives in this shift',
+
   profileYandex: 'YANDEX PROFILE',
   profileGuest: 'GUEST',
   profileCloudOn: 'Progress is stored in the cloud — continue on any device.',
@@ -467,6 +476,15 @@ const EN = {
 type Dict = typeof EN;
 
 const RU: Dict = {
+  adRevived: 'ВТОРОЕ ДЫХАНИЕ',
+  adRevivedSub: 'Видеореклама: смена продолжается',
+  watchAdRevive: 'СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ',
+  watchAdReviveSub: '+{sec} сек и половина здоровья',
+  adBadge: 'РЕКЛАМА',
+  adNotShown: 'Реклама сейчас недоступна',
+  adThanks: 'Спасибо! Награда начислена',
+  reviveLimit: 'Больше возрождений в этой смене нет',
+
   profileYandex: 'ПРОФИЛЬ ЯНДЕКС',
   profileGuest: 'ГОСТЬ',
   profileCloudOn: 'Прогресс хранится в облаке — можно продолжить с любого устройства.',
@@ -904,6 +922,15 @@ const RU: Dict = {
 };
 
 const FR: Dict = {
+  adRevived: 'SECOND SOUFFLE',
+  adRevivedSub: 'Vidéo récompensée : la session continue',
+  watchAdRevive: 'VOIR UNE PUB · CONTINUER',
+  watchAdReviveSub: '+{sec} s et la moitié de la vie',
+  adBadge: 'PUB',
+  adNotShown: 'La publicité est indisponible pour le moment',
+  adThanks: 'Merci ! Récompense accordée',
+  reviveLimit: 'Plus de réanimation pour cette session',
+
   profileYandex: 'PROFIL YANDEX',
   profileGuest: 'INVITÉ',
   profileCloudOn: 'Progression stockée dans le cloud — reprenez sur n’importe quel appareil.',
@@ -1341,6 +1368,15 @@ const FR: Dict = {
 };
 
 const DE: Dict = {
+  adRevived: 'ZWEITER ATEM',
+  adRevivedSub: 'Rewarded Video: die Schicht geht weiter',
+  watchAdRevive: 'WERBUNG ANSEHEN · WEITER',
+  watchAdReviveSub: '+{sec} Sek. und halbe Gesundheit',
+  adBadge: 'WERBUNG',
+  adNotShown: 'Werbung ist gerade nicht verfügbar',
+  adThanks: 'Danke! Belohnung gutgeschrieben',
+  reviveLimit: 'Keine Wiederbelebung mehr in dieser Schicht',
+
   profileYandex: 'YANDEX-PROFIL',
   profileGuest: 'GAST',
   profileCloudOn: 'Fortschritt liegt in der Cloud — weiter auf jedem Gerät.',

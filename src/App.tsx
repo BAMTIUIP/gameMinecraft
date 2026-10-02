@@ -7,7 +7,7 @@ import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Sc
 import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, type ScoreEntry } from './ui/scores';
 import Inventory from './ui/Inventory';
 import { EMPTY_STATS, type Slot } from './game/items';
-import { getLang, initLang, setLang, type Lang } from './game/i18n';
+import { getLang, initLang, setLang, t, type Lang } from './game/i18n';
 import {
   initYandex,
   yaGameplayStart,
@@ -21,8 +21,13 @@ import {
   type YaProfile,
 } from './game/yandex';
 import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
-import { allFlags, loadFlags } from './game/flags';
+import { allFlags, flagBool, loadFlags } from './game/flags';
+import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { storageGet, storageSet } from './game/storage';
+
+/** rewarded-video revive: how much breathing room it buys, and how often per run */
+const REVIVE_SECONDS = 60;
+const MAX_REVIVES_PER_RUN = 2;
 
 const INITIAL_HUD: HudState = {
   phase: 'loading',
@@ -103,11 +108,16 @@ export default function App() {
   const [cloudSavedAt, setCloudSavedAt] = useState(0);
   // Remote config (ysdk.getFlags): rendered from the local configuration until the remote one lands
   const [flags, setFlags] = useState(() => allFlags());
+  // Advertising: the results screen may offer a rewarded video, and ads must not be requested twice
+  const [adBusy, setAdBusy] = useState(false);
+  const [adNotice, setAdNotice] = useState<string | null>(null);
+  const [revivesUsed, setRevivesUsed] = useState(0);
 
   useEffect(() => {
     if (!hostRef.current) return;
     setIsTouch(window.matchMedia?.('(pointer: coarse)').matches ?? false);
     setLangUi(initLang());
+    markAdSessionStart(); // the grace period before the first fullscreen ad starts now
 
     // Yandex Games: auto-detect the user's language from the platform (rule 2.14).
     // An explicit in-game choice (saved in safeStorage) always wins.
@@ -189,8 +199,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** shift length of explore mode: a remote-config knob (flag game.exploreMinutes) */
-  const exploreSeconds = Math.max(60, Math.round((Number(flags['game.exploreMinutes']) || 20) * 60));
+  /**
+   * Shift length of explore mode: a remote-config knob (flag game.exploreMinutes). The floor keeps a
+   * broken config (0, negative, garbage) from ending runs instantly.
+   */
+  const exploreSeconds = Math.max(15, Math.round((Number(flags['game.exploreMinutes']) || 20) * 60));
 
   useEffect(() => {
     engineRef.current?.setRunTime(exploreSeconds);
@@ -312,12 +325,46 @@ export default function App() {
   );
 
   const play = useCallback(() => {
+    setRevivesUsed(0);
     engineRef.current?.startRun(survival ? undefined : exploreSeconds);
   }, [survival, exploreSeconds]);
-  const restart = useCallback(() => {
+
+  /**
+   * Restarting is a user action on a stopped-gameplay screen — the one place requirement 4.4 suggests
+   * for a fullscreen ad. `showFullscreenAd` is a no-op when the flags, the cooldown or the platform
+   * say no, and the run starts either way.
+   */
+  const restart = useCallback(async () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    setAdBusy(true);
+    setAdNotice(null);
+    await showFullscreenAd();
+    setAdBusy(false);
+    setRevivesUsed(0);
     // restarting a sandbox stays a sandbox; survival itself is endless too
-    engineRef.current?.startRun(survival ? undefined : exploreSeconds, engineRef.current?.sandbox ?? false);
+    engine.startRun(survival ? undefined : exploreSeconds, engine.sandbox);
   }, [survival, exploreSeconds]);
+
+  /**
+   * Rewarded video: the only ad the player asks for. The reward is applied only when the platform
+   * confirmed the view (`rewarded`), otherwise the screen says so and nothing changes.
+   */
+  const watchAdRevive = useCallback(async () => {
+    if (adBusy) return;
+    setAdBusy(true);
+    setAdNotice(null);
+    const outcome = await showRewardedAd();
+    setAdBusy(false);
+    if (outcome.rewarded) {
+      if (engineRef.current?.reviveAfterAd(REVIVE_SECONDS)) {
+        setRevivesUsed((n) => n + 1);
+        setAdNotice(t('adThanks'));
+      }
+      return;
+    }
+    setAdNotice(t('adNotShown'));
+  }, [adBusy]);
   const createWorld = useCallback(() => {
     engineRef.current?.startRun(undefined, true);
     setHasSave(Engine.hasSavedWorld());
@@ -354,6 +401,11 @@ export default function App() {
       window.removeEventListener('pagehide', onHide);
     };
   }, []);
+
+  // The sticky banner belongs to menus, not to a run in progress: it must never cover the HUD.
+  useEffect(() => {
+    void syncBanner(hud.phase === 'menu' || hud.phase === 'gameover');
+  }, [hud.phase]);
 
   /**
    * Sign-in is offered, never forced: the button explains the benefit first (requirement 1.2),
@@ -471,6 +523,11 @@ export default function App() {
           onRestart={restart}
           onQuit={quit}
           isRecord={isRecord}
+          onRevive={watchAdRevive}
+          canRevive={revivesUsed < MAX_REVIVES_PER_RUN && flagBool('adv.enabled') && flagBool('adv.rewarded.enabled')}
+          adBusy={adBusy}
+          adNotice={adNotice}
+          reviveSeconds={REVIVE_SECONDS}
         />
       )}
     </div>

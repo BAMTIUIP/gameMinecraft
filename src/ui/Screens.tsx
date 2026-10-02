@@ -900,6 +900,11 @@ export function GameOverScreen({
   onRestart,
   onQuit,
   isRecord,
+  onRevive,
+  canRevive,
+  adBusy,
+  adNotice,
+  reviveSeconds,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -909,6 +914,12 @@ export function GameOverScreen({
   onRestart: () => void;
   onQuit: () => void;
   isRecord: boolean;
+  /** rewarded video: continue the run instead of ending it (user action, never automatic) */
+  onRevive: () => void;
+  canRevive: boolean;
+  adBusy: boolean;
+  adNotice: string | null;
+  reviveSeconds: number;
 }) {
   const [shown, setShown] = useState(0);
   const rafRef = useRef(0);
@@ -983,13 +994,33 @@ export function GameOverScreen({
           </div>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
-            <button onClick={onRestart} className="btn-mc notch flex items-center gap-2 bg-gradient-to-b from-moss to-[#4d8c31] px-7 py-3.5 text-xl text-pit-950">
+            <button
+              onClick={onRestart}
+              disabled={adBusy}
+              className="btn-mc notch flex items-center gap-2 bg-gradient-to-b from-moss to-[#4d8c31] px-7 py-3.5 text-xl text-pit-950 disabled:opacity-60"
+            >
               <PlayIcon size={18} /> {t('mineAgain')}
             </button>
+            {canRevive && (
+              <button
+                onClick={onRevive}
+                disabled={adBusy}
+                className="btn-mc notch flex flex-col items-start gap-0.5 bg-gradient-to-b from-[#62e8dc] to-[#2f9c96] px-5 py-2.5 text-left text-pit-950 disabled:opacity-60"
+              >
+                <span className="flex items-center gap-2 font-display text-base leading-none">
+                  <span className="border border-pit-950/40 bg-pit-950/15 px-1 py-0.5 font-display text-[8px] tracking-widest">
+                    {t('adBadge')}
+                  </span>
+                  {t('watchAdRevive')}
+                </span>
+                <span className="text-[10px] leading-snug opacity-80">{t('watchAdReviveSub').replace('{sec}', String(reviveSeconds))}</span>
+              </button>
+            )}
             <button onClick={onQuit} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-5 py-3.5 text-base text-white/85">
               {t('mainMenu')}
             </button>
             <span className="font-display text-[10px] tracking-[0.24em] text-white/30">[R] · [ESC]</span>
+            {adNotice && <span className="font-display text-[10px] tracking-[0.2em] text-copper">{adNotice}</span>}
           </div>
         </div>
 

@@ -29,6 +29,8 @@ export const LOCAL_FLAGS: YaFlags = {
   /** seconds between two fullscreen ads */
   'adv.interstitialCooldownSec': '180',
   'adv.rewarded.enabled': 'true',
+  /** sticky banner control through the SDK (Console option «Использовать API для показа sticky-баннера») */
+  'adv.banner.enabled': 'true',
   /** shop / in-app purchases (used by src/game/shop.ts) */
   'shop.enabled': 'true',
   /** explore-mode shift length in minutes */

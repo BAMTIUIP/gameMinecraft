@@ -91,6 +91,41 @@
             },
           };
         },
+        adv: {
+          // Real ads are asynchronous: onOpen, then the player closes them. Callbacks resolve the
+          // game's promises, so the mock closes itself after a moment like a filled ad would.
+          showFullscreenAdv: ({ callbacks } = {}) => {
+            record('adv.showFullscreenAdv');
+            window.__yaAdv = { kind: 'fullscreen', callbacks };
+            window.__yaAdvTimer = setTimeout(() => {
+              callbacks?.onOpen?.();
+              callbacks?.onClose?.(seed.adsFill !== false);
+            }, 250);
+          },
+          showRewardedVideo: ({ callbacks } = {}) => {
+            record('adv.showRewardedVideo');
+            window.__yaAdv = { kind: 'rewarded', callbacks };
+            window.__yaAdvTimer = setTimeout(() => {
+              callbacks?.onOpen?.();
+              if (seed.rewarded !== false) callbacks?.onRewarded?.();
+              callbacks?.onClose?.(seed.adsFill !== false);
+            }, 250);
+          },
+          getBannerAdvStatus: async () => {
+            record('adv.getBannerAdvStatus');
+            return { stickyAdvIsShowing: window.__yaBanner ?? false };
+          },
+          showBannerAdv: async () => {
+            record('adv.showBannerAdv');
+            window.__yaBanner = true;
+            return { stickyAdvIsShowing: true };
+          },
+          hideBannerAdv: async () => {
+            record('adv.hideBannerAdv');
+            window.__yaBanner = false;
+            return { stickyAdvIsShowing: false };
+          },
+        },
         auth: {
           openAuthDialog: async () => {
             record('auth.openAuthDialog');

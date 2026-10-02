@@ -637,6 +637,8 @@ export class Engine {
   private volcanoSmokeTimer = 0;
   private desertWindTimer = 0;
   private hurtTimer = 0;
+  /** seconds of immunity granted by a rewarded-video revive (0 = normal play) */
+  private reviveShield = 0;
   private bob = 0;
   private stepSmooth = 0;
   private fovTarget = 72;
@@ -2888,6 +2890,7 @@ if (tpClipActive > 0.5) {
     this.flash = 0;
     this.warnTick = 0;
     this.hurtTimer = 0;
+    this.reviveShield = 0;
     this.inLava = false;
     this.cactusCooldown = 0;
     this.particles.length = 0;
@@ -3124,6 +3127,38 @@ if (tpClipActive > 0.5) {
     this.syncHud(true);
   }
 
+  /**
+   * Reward of a rewarded video: continue the same run instead of ending it. Called by the app after
+   * `onRewarded` fired, so the platform really counted the view (see src/game/ads.ts).
+   */
+  reviveAfterAd(seconds = 60): boolean {
+    if (this.phase !== 'gameover') return false;
+    const cause = this.deathCause;
+    this.phase = 'playing';
+    this.deathCause = null;
+    this.killedBy = null;
+    this.flash = 0;
+    this.sleeping = false;
+    this.sleepDark = 0;
+    this.mining = false;
+    this.placing = false;
+    this.inventoryOpen = false;
+    this.health = Math.max(this.health, 50);
+    if (this.runTime > 0) this.timeLeft = Math.max(this.timeLeft, seconds);
+    // death in lava or in the void would repeat instantly, so those two come back at the spawn
+    if (cause === 'lava' || cause === 'fall') {
+      this.pos.set(this.spawnX, this.spawnY, this.spawnZ);
+      this.vel.set(0, 0, 0);
+    }
+    this.reviveShield = 3;
+    this.pushBanner(t('adRevived'), t('adRevivedSub'), '#5fe8dc');
+    sfx.upgrade();
+    stopMusic(0.3);
+    this.requestLock();
+    this.syncHud(true);
+    return true;
+  }
+
   private gameOverState(): HudState['deathCause'] {
     return this.deathCause;
   }
@@ -3346,6 +3381,7 @@ if (tpClipActive > 0.5) {
     this.updateTutorialTip(dt);
     this.updateCraftReadyTip(dt);
     this.hurtTimer = Math.max(0, this.hurtTimer - dt);
+    this.reviveShield = Math.max(0, this.reviveShield - dt);
     this.flash = Math.max(0, this.flash - dt * 2.4);
     this.syncHud(false);
   }
@@ -3697,6 +3733,9 @@ if (tpClipActive > 0.5) {
 
   private damage(amount: number, cause: 'lava' | 'fall' | 'mob') {
     if (this.phase !== 'playing') return;
+    // right after a rewarded revive the player can land right in the middle of a mob pack:
+    // a couple of seconds of immunity are better than an instant second death
+    if (this.reviveShield > 0) return;
     this.health -= amount;
     if (amount > 3) {
       this.hurtTimer = 0.3;
