@@ -167,6 +167,37 @@ async function openGame(seed) {
     }
     window.__yaCalls = [];
     window.__yaMockSeed = s;
+    // Requirement 1.3 is about the game's audio really stopping: the check replaces the AudioContext
+    // with a spy that records suspend()/resume() and flips its own state, so focus events can be
+    // verified without speakers.
+    window.__audioSpy = { created: 0, suspends: 0, resumes: 0 };
+    const RealAC = window.AudioContext || window.webkitAudioContext;
+    if (RealAC) {
+      const SpyAC = function (...args) {
+        const instance = new RealAC(...args);
+        let state = 'running';
+        Object.defineProperty(instance, 'state', {
+          get: () => state,
+          configurable: true,
+        });
+        instance.suspend = () => {
+          window.__audioSpy.suspends += 1;
+          state = 'suspended';
+          return Promise.resolve();
+        };
+        instance.resume = () => {
+          window.__audioSpy.resumes += 1;
+          state = 'running';
+          return Promise.resolve();
+        };
+        window.__audioSpy.created += 1;
+        window.__audioSpy.last = instance;
+        return instance;
+      };
+      SpyAC.prototype = RealAC.prototype;
+      window.AudioContext = SpyAC;
+      if (window.webkitAudioContext) window.webkitAudioContext = SpyAC;
+    }
   }, seed);
   const calls = () => page.evaluate(() => window.__yaCalls ?? []);
   const names = (log) => log.map((c) => c.name);
@@ -576,6 +607,53 @@ async function scenarioProgress() {
     15_000,
   );
   check(backToMenu, 'После выбора аккаунта игра возвращается в главное меню');
+
+  // ===================== 9d. sound stops outside the game (requirement 1.3) =====================
+  await game.page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
+  const audioReady = await game.waitFor(
+    'Звуковая система инициализирована',
+    () => (window.__audioSpy?.created ?? 0) > 0,
+    10_000,
+  );
+  check(audioReady, 'Звук инициализируется после действия игрока');
+  const suspendsBefore = await game.page.evaluate(() => window.__audioSpy.suspends);
+  await game.page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  const blurSilenced = await game.waitFor(
+    'Звук остановлен при потере фокуса',
+    (before) => window.__audioSpy.suspends > before,
+    10_000,
+    suspendsBefore,
+  );
+  check(blurSilenced, 'Потеря фокуса окна останавливает звук (AudioContext.suspend)');
+  await game.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  const focusRestored = await game.waitFor(
+    'Звук вернулся с фокусом',
+    () => window.__audioSpy.resumes > 0,
+    10_000,
+  );
+  check(focusRestored, 'Возврат фокуса возобновляет звук');
+  const suspendsBeforeHidden = await game.page.evaluate(() => window.__audioSpy.suspends);
+  await game.page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  const hiddenSilenced = await game.waitFor(
+    'Звук остановлен в скрытой вкладке',
+    (before) => window.__audioSpy.suspends > before,
+    10_000,
+    suspendsBeforeHidden,
+  );
+  check(hiddenSilenced, 'Скрытая вкладка (свёрнутое окно, меню вкладок) глушит звук');
+  await game.page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  const visibleRestored = await game.waitFor(
+    'Звук вернулся на вкладке',
+    () => window.__audioSpy.resumes >= 2,
+    10_000,
+  );
+  check(visibleRestored, 'Возвращение на вкладку включает звук обратно');
 
   // ===================== 10. local mirrors and console health =====================
   check((await game.storageValue('orerush.totals.v1')) !== null, 'Локальное зеркало статистики создано');

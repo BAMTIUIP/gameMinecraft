@@ -14,7 +14,7 @@
  * When there is no SDK at all (itch, own hosting, `npm run dev`) everything degrades to a no-op.
  */
 
-import { resumeAudio, suspendAudio } from './audio';
+import { holdAudioForAd } from './audio';
 import { flagBool, flagNumber } from './flags';
 import {
   yaAdvAvailable,
@@ -71,14 +71,14 @@ export async function showFullscreenAd(): Promise<AdOutcome> {
   if (fullscreenCooldownLeft() > 0) return { shown: false, rewarded: false, skipped: 'cooldown' };
 
   inFlight = true;
-  suspendAudio();
+  holdAudioForAd(true);
   try {
     const result = await yaShowFullscreenAdv();
     lastFullscreenAt = Date.now();
     return { shown: result.shown, rewarded: false, skipped: result.error ? 'error' : undefined };
   } finally {
     inFlight = false;
-    resumeAudio();
+    holdAudioForAd(false);
   }
 }
 
@@ -92,13 +92,13 @@ export async function showRewardedAd(): Promise<AdOutcome> {
   if (!yaAdvAvailable()) return { shown: false, rewarded: false, skipped: 'offline' };
 
   inFlight = true;
-  suspendAudio();
+  holdAudioForAd(true);
   try {
     const result = await yaShowRewardedVideo();
     return { shown: result.shown, rewarded: result.rewarded, skipped: result.error ? 'error' : undefined };
   } finally {
     inFlight = false;
-    resumeAudio();
+    holdAudioForAd(false);
   }
 }
 
