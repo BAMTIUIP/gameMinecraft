@@ -7,9 +7,87 @@ let master: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
 let muted = false;
 
+/**
+ * Requirements 1.6.1.6 and 1.6.2.5: «В любых браузерах не отображается системный плеер, вызываемый
+ * игрой» (https://yandex.ru/dev/games/doc/ru/requirements/1/6). The game synthesises every sound with
+ * Web Audio — there is not a single `<audio>`/`<video>` element, no media source and no
+ * `navigator.mediaSession` registration of its own. As a belt-and-braces measure any media session
+ * that some other code (or an earlier version of the page) left behind is cleared: the system player
+ * must never show the game.
+ */
+function clearSystemPlayer() {
+  try {
+    const session = (navigator as Navigator & {
+      mediaSession?: { metadata: unknown; playbackState: string };
+    }).mediaSession;
+    if (!session) return;
+    session.metadata = null;
+    session.playbackState = 'none';
+  } catch {
+    /* the browser has no Media Session API — nothing to clear */
+  }
+}
+
+/**
+ * Requirement 1.3: the game's sound must stop when the page loses focus — window minimised, another
+ * tab chosen, the browser's own tab picker (https://yandex.ru/dev/games/doc/ru/requirements/1/3).
+ * Three independent holds decide whether the audio context may run:
+ *  - the focus hold — the window is blurred or the tab is hidden. It is lifted only by real focus and
+ *    visibility events, so a visible-but-unfocused window (the tab picker, another app in front) stays
+ *    silent;
+ *  - the game hold — the engine's system pause and the platform's pause events (`suspendAudio()` /
+ *    `resumeAudio()`);
+ *  - the ad hold — an ad is on screen, and its own sound must not compete with the game's.
+ * Releasing one hold never resumes the context while another is still active: that is exactly the
+ * "sound keeps playing under an ad" and "sound came back in a background tab" bug class.
+ */
+let focusHold = false;
+let gameHold = false;
+let adHold = false;
+
+function syncAudio() {
+  if (!ctx) return;
+  if (focusHold || gameHold || adHold) {
+    if (ctx.state === 'running') void ctx.suspend();
+  } else if (ctx.state === 'suspended') {
+    void ctx.resume();
+    // the game is audible again: make sure no system player is attached to this audio
+    clearSystemPlayer();
+  }
+}
+
+/** Is the game's audio held back right now (for diagnostics and tests)? */
+export function audioSuspended(): boolean {
+  return focusHold || gameHold || adHold || ctx?.state === 'suspended';
+}
+
+/** Hold the audio while an ad is on screen; release when it closes (see ads.ts). */
+export function holdAudioForAd(on: boolean) {
+  adHold = on;
+  syncAudio();
+}
+
+// Browsers differ in which of the three events they send (and Chrome's tab picker sends none), so the
+// game listens to all of them and holds the audio until focus *and* visibility are back.
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('blur', () => {
+    focusHold = true;
+    syncAudio();
+  });
+  window.addEventListener('focus', () => {
+    focusHold = document.hidden === true;
+    syncAudio();
+  });
+  document.addEventListener?.('visibilitychange', () => {
+    focusHold = document.hidden === true;
+    syncAudio();
+  });
+}
+
 export function initAudio() {
+  clearSystemPlayer(); // requirement 1.6.*.5: the game never hands its audio to the system player
   if (ctx) {
-    if (ctx.state === 'suspended') void ctx.resume();
+    syncAudio();
     return;
   }
   const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -24,12 +102,17 @@ export function initAudio() {
   for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 }
 
-/** suspend / resume the whole audio context (tab hidden ⇄ visible) */
+/**
+ * Pause the game's audio (platform pause, engine system pause). `resumeAudio()` lifts this hold only —
+ * a hidden tab or an ad on screen keeps the silence, because they hold it independently.
+ */
 export function suspendAudio() {
-  if (ctx && ctx.state === 'running') void ctx.suspend();
+  gameHold = true;
+  syncAudio();
 }
 export function resumeAudio() {
-  if (ctx && ctx.state === 'suspended') void ctx.resume();
+  gameHold = false;
+  syncAudio();
 }
 
 export function setMuted(m: boolean) {

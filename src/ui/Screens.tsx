@@ -4,6 +4,13 @@ import type { HudState } from '../game/engine';
 import { getBlockIcon } from '../game/textures';
 import type { ScoreEntry } from './scores';
 import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
+import type { YaProfile } from '../game/yandex';
+import type { LeaderboardView } from '../game/leaderboard';
+import { SHORTCUT_REWARD } from '../game/shortcut';
+import { FitBox } from './FitBox';
+import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
+import type { DailyView } from '../game/daily';
+import { fullscreenAvailable } from '../game/params';
 import {
   BagIcon,
   ClockIcon,
@@ -177,6 +184,142 @@ function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: s
   );
 }
 
+/* ============================ LEADERBOARD ============================= */
+
+/**
+ * World ranking (ysdk.leaderboards). The platform limits the requests, so the panel does not ask on
+ * its own: it draws whatever App has loaded, and the refresh button is disabled until the game is
+ * allowed to ask again.
+ */
+function LeaderboardTable({
+  view,
+  busy,
+  available,
+  canRefresh,
+  onRefresh,
+}: {
+  view: LeaderboardView | null;
+  busy: boolean;
+  available: boolean;
+  canRefresh: boolean;
+  onRefresh: () => void;
+}) {
+  const rank = view?.userRank ?? 0;
+  return (
+    <div className="sunken notch overflow-hidden">
+      <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-[#2b4a5c] to-[#1f3644] px-2.5 py-1.5">
+        <span className="flex min-w-0 items-center gap-1.5 font-display text-xs tracking-widest text-[#62e8dc]">
+          <TrophyIcon size={13} />
+          <span className="truncate">{view?.title ?? t('lbTabWorld')}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={busy || !canRefresh || !available}
+          className="shrink-0 border border-white/15 px-1.5 py-0.5 font-display text-[9px] tracking-widest text-white/60 transition-colors hover:text-white disabled:opacity-40"
+        >
+          {busy ? t('lbLoading') : t('lbRetry')}
+        </button>
+      </div>
+
+      {!available ? (
+        <div className="px-2.5 py-3 text-[11px] leading-snug text-white/45">{t('lbOffline')}</div>
+      ) : !view ? (
+        <div className="px-2.5 py-3 text-[11px] leading-snug text-white/45">{busy ? t('lbLoading') : t('lbError')}</div>
+      ) : view.rows.length === 0 ? (
+        <div className="px-2.5 py-3 text-[11px] leading-snug text-white/45">{t('lbEmpty')}</div>
+      ) : (
+        <div className="max-h-[38vh] overflow-y-auto">
+          {view.rows.map((row, i) => (
+            <div
+              key={`${row.rank}-${row.name}-${i}`}
+              className={`flex items-center gap-2 border-b border-white/5 px-2.5 py-1.5 text-[11px] transition-colors ${
+                row.me ? 'bg-[#62e8dc]/15' : i % 2 ? 'bg-white/[0.02]' : ''
+              }`}
+            >
+              <span className={`w-5 font-display text-sm ${row.rank === 1 ? 'text-torch' : 'text-white/35'}`}>{row.rank}</span>
+              {row.avatar ? (
+                <img src={row.avatar} alt="" className="h-5 w-5 shrink-0 border border-white/15 object-cover" />
+              ) : (
+                <span className="h-5 w-5 shrink-0 border border-white/10 bg-white/5" aria-hidden="true" />
+              )}
+              <span className={`flex-1 truncate font-display text-sm tracking-wide ${row.me ? 'text-[#62e8dc]' : 'text-white/85'} ${row.hidden ? 'italic text-white/35' : ''}`}>
+                {row.hidden ? t('lbHiddenPlayer') : row.name}
+                {row.me && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ {t('lbYou')}</span>}
+              </span>
+              <span className="w-16 text-right font-display text-base tabular-nums text-white">{row.score.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 bg-white/[0.03] px-2.5 py-1.5">
+        <span className="font-display text-[10px] tracking-wider text-white/45">
+          {available && view ? (rank > 0 ? t('lbYourRank').replace('{n}', String(rank)) : t('lbNoRank')) : t('lbRefreshed')}
+        </span>
+        {rank > 0 && <span className="font-display text-[9px] text-white/25">{t('lbRefreshed')}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Tabs above the score table: the local shifts the game always keeps, and the world ranking. */
+function ScorePanel({
+  scores,
+  highlight,
+  leaderboard,
+  leaderboardBusy,
+  leaderboardAvailable,
+  leaderboardCooldown,
+  onLoadLeaderboard,
+}: {
+  scores: ScoreEntry[];
+  highlight?: string;
+  leaderboard: LeaderboardView | null;
+  leaderboardBusy: boolean;
+  leaderboardAvailable: boolean;
+  leaderboardCooldown: number;
+  onLoadLeaderboard: () => void;
+}) {
+  const [tab, setTab] = useState<'local' | 'world'>('local');
+  useEffect(() => {
+    if (tab === 'world') onLoadLeaderboard();
+  }, [tab, onLoadLeaderboard]);
+
+  if (!leaderboardAvailable && !leaderboard) return <ScoreTable scores={scores} highlight={highlight} />;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex gap-px">
+        {(['local', 'world'] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={tab === id}
+            onClick={() => setTab(id)}
+            className={`notch flex-1 px-2 py-1 font-display text-[10px] tracking-widest transition-colors ${
+              tab === id ? 'bg-torch text-pit-950' : 'bg-white/5 text-white/45 hover:text-white/75'
+            }`}
+          >
+            {t(id === 'local' ? 'lbTabLocal' : 'lbTabWorld')}
+          </button>
+        ))}
+      </div>
+      {tab === 'local' ? (
+        <ScoreTable scores={scores} highlight={highlight} />
+      ) : (
+        <LeaderboardTable
+          view={leaderboard}
+          busy={leaderboardBusy}
+          available={leaderboardAvailable}
+          canRefresh={leaderboardCooldown <= 0}
+          onRefresh={onLoadLeaderboard}
+        />
+      )}
+    </div>
+  );
+}
+
 /* =============================== LOADING =============================== */
 export function LoadingScreen({ progress }: { progress: number }) {
   const pct = Math.round(progress * 100);
@@ -207,6 +350,85 @@ export function LoadingScreen({ progress }: { progress: number }) {
 }
 
 /* =============================== START =============================== */
+/**
+ * Yandex profile card: avatar + nick from the platform, cloud-progress state, and — for a player
+ * who has not signed in — the sign-in offer. Requirement 1.2 asks to explain the benefit before
+ * opening the platform dialog, so the button expands into a short explanation first.
+ */
+function ProfileCard({
+  profile,
+  restored,
+  onSignIn,
+}: {
+  profile: YaProfile;
+  restored: boolean;
+  onSignIn: () => void;
+}) {
+  const [explaining, setExplaining] = useState(false);
+  const name = profile.name || t('profileGuest');
+  return (
+    <div className="bevel-flat notch p-3">
+      <div className="flex items-center gap-3">
+        <div className="relative h-11 w-11 shrink-0 overflow-hidden border border-white/15 bg-black/40">
+          {profile.photo ? (
+            <img src={profile.photo} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center font-display text-lg text-white/45">?</span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[10px] tracking-[0.28em] text-white/40">
+            <span className="text-[#ff3f2e]">◉</span> {t('profileYandex')}
+          </div>
+          <div className="truncate font-display text-base leading-tight text-white/90">{name}</div>
+          <div className="mt-0.5 text-[10px] leading-snug text-white/45">
+            {profile.authorized ? t('profileCloudOn') : t('profileCloudOff')}
+          </div>
+        </div>
+        {restored && (
+          <span className="shrink-0 border border-moss/60 bg-moss/15 px-1.5 py-1 font-display text-[8px] tracking-widest text-moss">
+            {t('profileRestored')}
+          </span>
+        )}
+      </div>
+
+      {!profile.authorized && (
+        <div className="mt-2.5 border-t border-white/10 pt-2.5">
+          {explaining ? (
+            <>
+              <p className="text-[11px] leading-relaxed text-white/60">{t('signInBenefit')}</p>
+              <div className="mt-2 flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={onSignIn}
+                  className="btn-mc notch flex-1 bg-gradient-to-b from-[#ff5a4a] to-[#c5362a] px-3 py-2 text-xs text-white"
+                >
+                  {t('signInContinue')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExplaining(false)}
+                  className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2 text-xs text-white/80"
+                >
+                  {t('signInCancel')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setExplaining(true)}
+              className="btn-mc notch w-full bg-gradient-to-b from-[#ff5a4a] to-[#c5362a] px-3 py-2.5 text-xs text-white"
+            >
+              {t('signIn')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StartScreen({
   scores,
   onPlay,
@@ -225,6 +447,28 @@ export function StartScreen({
   hasSave,
   onCreateWorld,
   onContinueWorld,
+  profile,
+  onSignIn,
+  cloudSavedAt,
+  shopEnabled,
+  diamonds,
+  shopPrices,
+  paymentsAvailable,
+  onBuyPack,
+  leaderboard,
+  leaderboardBusy,
+  leaderboardAvailable,
+  leaderboardCooldown,
+  onLoadLeaderboard,
+  canShortcut,
+  onShortcut,
+  shortcutNote,
+  promo,
+  daily,
+  onClaimDaily,
+  dailyNote,
+  fullscreen,
+  onFullscreen,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -243,10 +487,59 @@ export function StartScreen({
   hasSave: boolean;
   onCreateWorld: () => void;
   onContinueWorld: () => void;
+  /** Yandex profile, or null when the game runs outside Yandex Games (card is hidden then) */
+  profile: YaProfile | null;
+  onSignIn: () => void;
+  /** timestamp of the cloud profile that was pulled on this boot, 0 when nothing was restored */
+  cloudSavedAt: number;
+  /** remote-config flag shop.enabled: the shop button disappears when the flag turns it off */
+  shopEnabled: boolean;
+  /** in-game currency balance (bought with real money, spent on rewards) */
+  diamonds: number;
+  /** prices from the Yandex Console catalogue, keyed by product id */
+  shopPrices: ShopCatalog;
+  /** true when the payment flow exists (inside Yandex Games with purchases connected) */
+  paymentsAvailable: boolean;
+  /** opens the payment frame; the promise resolves when it closes */
+  onBuyPack: (productId: string) => Promise<BuyResult>;
+  /** world ranking from ysdk.leaderboards, null until the first successful request */
+  leaderboard: LeaderboardView | null;
+  leaderboardBusy: boolean;
+  leaderboardAvailable: boolean;
+  /** milliseconds until the platform allows the next getEntries call (0 = now) */
+  leaderboardCooldown: number;
+  onLoadLeaderboard: () => void;
+  /** the platform can show the desktop-shortcut dialog on this device (shortcut.canShowPrompt) */
+  canShortcut: boolean;
+  onShortcut: () => void;
+  /** result of the shortcut dialog: added (with the reward) / dismissed / failed */
+  shortcutNote: string | null;
+  /** promo deep link: the shop should open on this product, with the campaign banner visible */
+  promo: { productId: string | null; promoId: string } | null;
+  /** daily reward: availability, current streak and the amount already computed from server time */
+  daily: DailyView;
+  onClaimDaily: () => void;
+  /** result of the claim: '+25 ◆ за сегодня' or a note that the platform was unreachable */
+  dailyNote: string | null;
+  /** is the browser in fullscreen right now (sdk-params); the toggle lives in the settings dialog */
+  fullscreen: boolean;
+  onFullscreen: () => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
   const [shopTab, setShopTab] = useState<ShopFilter>('all');
+  const [promoProductId, setPromoProductId] = useState<string | null>(null);
+
+  // A promo banner in the catalogue opens the game with `referrer=promo`: take the player straight
+  // to the promised screen instead of leaving them on the main menu (sdk-environment).
+  useEffect(() => {
+    if (!promo) return;
+    setShopTab(promo.productId ? (SHOP_PRODUCTS.find((product) => product.id === promo.productId)?.category ?? 'diamonds') : 'diamonds');
+    setPromoProductId(promo.productId);
+    setShowShop(true);
+  }, [promo]);
+  const [buying, setBuying] = useState<string | null>(null);
+  const [shopNotice, setShopNotice] = useState<string | null>(null);
   const filteredShopProducts = shopTab === 'all'
     ? SHOP_PRODUCTS
     : SHOP_PRODUCTS.filter((product) => product.category === shopTab);
@@ -256,21 +549,22 @@ export function StartScreen({
   ];
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain">
+    <div className="absolute inset-0 z-30 overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,rgba(38,55,43,.52)_0%,rgba(6,10,9,.88)_58%,rgba(4,7,6,.97)_100%)]" />
       <div className="pointer-events-none absolute inset-0 grain opacity-35" />
 
-      <div className="relative mx-auto flex min-h-full w-full max-w-[1600px] items-center justify-center px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
-        <div className="grid w-full grid-cols-1 items-center gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] xl:gap-10">
+      {/* FitBox keeps the whole menu on screen at short window sizes (requirement 1.10) */}
+      <FitBox className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
+        <div className="menu-grid grid w-full grid-cols-1 items-center gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] xl:gap-10">
           {/* Centered title and primary choices */}
-          <main className="pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col items-center text-center">
-            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.38em] text-torch/80 sm:text-[11px] sm:tracking-[0.46em]">
+          <main className="menu-main pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col items-center text-center">
+            <div className="menu-eyebrow mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.38em] text-torch/80 sm:text-[11px] sm:tracking-[0.46em]">
               <span className="h-px w-7 bg-torch/60 sm:w-10" />
               {t('tagline')}
               <span className="h-px w-7 bg-torch/60 sm:w-10" />
             </div>
 
-            <h1 className="font-display leading-[0.8]">
+            <h1 className="menu-title font-display leading-[0.8]">
               <span className="block text-[clamp(3.4rem,10vw,7.5rem)] text-transparent" style={{ WebkitTextStroke: '3px #f4b942' }}>
                 ORE
               </span>
@@ -284,7 +578,7 @@ export function StartScreen({
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/75 sm:mt-4 sm:text-base lg:text-lg">{t('intro')}</p>
 
             {/* Mode selection and fresh-world generation stay together as the main menu's first action row. */}
-            <section className="mt-5 w-full max-w-[900px]" aria-label={t('mode')}>
+            <section className="menu-modes mt-5 w-full max-w-[900px]" aria-label={t('mode')}>
               <div className="mb-2 flex items-center justify-center gap-2 text-[10px] tracking-[0.28em] text-white/50 sm:text-[11px] sm:tracking-[0.34em]">
                 <CubeIcon size={13} className="text-torch" /> {t('mode')}
               </div>
@@ -329,7 +623,7 @@ export function StartScreen({
             </section>
 
             {/* Custom world is deliberately directly beneath the mode/world choices. */}
-            <section className="bevel-flat notch mt-3 flex w-full max-w-[900px] flex-col items-center gap-2.5 p-3 sm:flex-row sm:justify-between sm:gap-4 sm:px-4">
+            <section className="menu-custom bevel-flat notch mt-3 flex w-full max-w-[900px] flex-col items-center gap-2.5 p-3 sm:flex-row sm:justify-between sm:gap-4 sm:px-4">
               <div className="min-w-0 text-center sm:text-left">
                 <div className="font-display text-xs tracking-[0.13em] text-[#9dbdff] sm:text-sm sm:tracking-widest">
                   ∞ {t('createYourWorld')}
@@ -356,18 +650,43 @@ export function StartScreen({
               </div>
             </section>
 
-            <div className="mt-4 grid w-full max-w-[900px] grid-cols-3 items-stretch gap-1.5 sm:mt-5 sm:gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShopTab('all');
-                  setShowShop(true);
-                }}
-                className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
-              >
-                <span aria-hidden="true" className="font-display text-lg leading-none text-[#62e8dc] sm:text-xl">◆</span>
-                <span>{t('shop')}</span>
-              </button>
+            <button
+              type="button"
+              data-daily-bonus="1"
+              disabled={!daily.available}
+              onClick={onClaimDaily}
+              title={daily.available ? t('dailyTitle') : t('dailyClaimed')}
+              className={`menu-daily mt-4 flex w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
+                daily.available
+                  ? 'border-[#f4b942]/60 bg-[#f4b942]/[0.12] text-[#f4b942] hover:bg-[#f4b942]/20'
+                  : 'border-white/10 bg-black/20 text-white/40'
+              }`}
+            >
+              <span aria-hidden="true">◆</span>
+              <span>
+                {dailyNote ??
+                  (daily.available
+                    ? `${t('dailyTitle')} · +${daily.amount} · ${t('dailyStreak').replace('{n}', String(daily.streak))}`
+                    : t('dailyClaimed'))}
+              </span>
+            </button>
+
+            <div
+              className={`menu-actions mt-1.5 grid w-full max-w-[900px] items-stretch gap-1.5 sm:mt-3 sm:gap-3 ${shopEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}
+            >
+              {shopEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShopTab('all');
+                    setShowShop(true);
+                  }}
+                  className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
+                >
+                  <span aria-hidden="true" className="font-display text-lg leading-none text-[#62e8dc] sm:text-xl">◆</span>
+                  <span>{t('shop')}</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onPlay}
@@ -386,9 +705,17 @@ export function StartScreen({
           </main>
 
           {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
-          <aside className="pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
-            <ScoreTable scores={scores} />
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
+          <aside className="menu-aside pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
+            {profile && <ProfileCard profile={profile} restored={cloudSavedAt > 0} onSignIn={onSignIn} />}
+            <ScorePanel
+              scores={scores}
+              leaderboard={leaderboard}
+              leaderboardBusy={leaderboardBusy}
+              leaderboardAvailable={leaderboardAvailable}
+              leaderboardCooldown={leaderboardCooldown}
+              onLoadLeaderboard={onLoadLeaderboard}
+            />
+            <div className="menu-guide grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
               <div className="bevel-flat notch p-3">
                 <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
                   <BagIcon size={13} /> {t('guideTitle')} <span className="text-white/30">· {t('guideSub')}</span>
@@ -441,7 +768,7 @@ export function StartScreen({
             </div>
           </aside>
         </div>
-      </div>
+      </FitBox>
 
       {showShop && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
@@ -460,11 +787,13 @@ export function StartScreen({
                 <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{t('shopSubtitle')}</p>
               </div>
               <div className="hidden min-w-28 border border-[#62e8dc]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
-                <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopDemoBalance')}</div>
-                <div className="font-display text-lg leading-tight text-[#62e8dc]">◆ 0</div>
-                <div className="text-[8px] text-white/35">{t('shopBalance')}</div>
+                <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopBalance')}</div>
+                <div className="font-display text-lg leading-tight text-[#62e8dc]">◆ {diamonds.toLocaleString()}</div>
+                <div className="text-[8px] text-white/35">{t('shopBalanceHint')}</div>
               </div>
-              <div className="flex shrink-0 items-center gap-1 border border-[#62e8dc]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#62e8dc] sm:hidden">◆ 0</div>
+              <div className="flex shrink-0 items-center gap-1 border border-[#62e8dc]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#62e8dc] sm:hidden">
+                ◆ {diamonds.toLocaleString()}
+              </div>
               <button
                 type="button"
                 aria-label={t('close')}
@@ -479,12 +808,24 @@ export function StartScreen({
               <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
               <div className="min-w-0 flex-1">
                 <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
-                <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">{t('shopMockNotice')}</p>
+                <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">
+                  {paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
+                </p>
               </div>
               <span className="shrink-0 border border-white/10 bg-black/20 px-1.5 py-1 font-display text-[8px] tracking-widest text-white/45 sm:px-2 sm:text-[9px]">
-                {t('shopMockBadge')}
+                {paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
               </span>
             </div>
+
+            {promo && (
+              <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.08] px-2.5 py-2 text-[10px] leading-snug text-white/70 sm:mx-4 sm:text-xs">
+                <span className="text-[#f4b942]">★</span>
+                <span className="min-w-0 flex-1">
+                  <b className="font-display tracking-wide text-[#f4b942]">{t('promoBanner').replace('{id}', promo.promoId)}</b>
+                  <span className="ml-1.5 text-white/50">{t('promoHint')}</span>
+                </span>
+              </div>
+            )}
 
             <nav aria-label={t('shop')} className="shop-tabs mt-2 flex shrink-0 gap-1.5 overflow-x-auto px-2 pb-1 sm:mt-3 sm:gap-2 sm:px-4">
               {SHOP_TABS.map((tab) => {
@@ -513,24 +854,39 @@ export function StartScreen({
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
                 {filteredShopProducts.map((product) => {
-                  const priceLabel = product.diamondAmount !== undefined
-                    ? `${product.diamondAmount.toLocaleString()} ◆`
-                    : product.diamondCost !== undefined
-                      ? `${product.diamondCost.toLocaleString()} ◆`
-                      : product.freeDrop
-                        ? t('shopFree')
-                        : t('shopPriceSoon');
+                  // packs are real purchases: the price comes from the Console catalogue, together
+                  // with the portal-currency icon (requirement 1.13.2 forbids hardcoding it)
+                  const catalogPrice = shopPrices.get(product.id);
+                  const promoted = promoProductId === product.id;
+                  const purchasable = paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined;
+                  const priceLabel = catalogPrice
+                    ? catalogPrice.label
+                    : product.diamondAmount !== undefined
+                      ? `${product.diamondAmount.toLocaleString()} ◆`
+                      : product.diamondCost !== undefined
+                        ? `${product.diamondCost.toLocaleString()} ◆`
+                        : product.freeDrop
+                          ? t('shopFree')
+                          : t('shopPriceSoon');
                   return (
                     <article
                       key={product.id}
                       className="flex min-h-[220px] flex-col border bg-gradient-to-b from-[#172126] to-[#0c1215] p-2.5 shadow-[0_6px_18px_rgba(0,0,0,.24)] sm:min-h-[235px] sm:p-3"
-                      style={{ borderColor: `${product.accent}45` }}
+                      style={{
+                        borderColor: promoted ? '#f4b942' : `${product.accent}45`,
+                        boxShadow: promoted ? '0 0 0 1px #f4b94255, 0 6px 22px rgba(244,185,66,.18)' : undefined,
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
                           {product.rarityKey && (
                             <span className="border border-white/10 bg-black/25 px-1.5 py-1 font-display text-[8px] tracking-wide sm:text-[9px]" style={{ color: product.accent }}>
                               {t(product.rarityKey)}
+                            </span>
+                          )}
+                          {promoted && (
+                            <span className="border border-[#f4b942]/50 bg-[#f4b942]/10 px-1.5 py-1 font-display text-[8px] tracking-wide text-[#f4b942] sm:text-[9px]">
+                              ★ {t('promoBadge')}
                             </span>
                           )}
                           {product.badgeKey && (
@@ -564,18 +920,41 @@ export function StartScreen({
 
                       <div className="mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
                         <div>
-                          <div className="font-display text-sm leading-tight" style={{ color: product.accent }}>{priceLabel}</div>
-                          {product.rubles !== undefined && (
-                            <div className="mt-0.5 font-display text-xs text-white/65">{product.rubles} ₽</div>
+                          <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }}>
+                            {catalogPrice?.currencyIcon && (
+                              <img src={catalogPrice.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
+                            )}
+                            {priceLabel}
+                          </div>
+                          {catalogPrice && product.diamondAmount !== undefined && (
+                            <div className="mt-0.5 text-[10px] text-white/55">{product.diamondAmount.toLocaleString()} ◆</div>
                           )}
                         </div>
                         <button
                           type="button"
-                          disabled
-                          title={t('shopMockNotice')}
-                          className="notch shrink-0 cursor-not-allowed border-[3px] border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] px-2.5 py-2 font-display text-[9px] tracking-wide text-white/45 opacity-80 sm:px-3 sm:text-[10px]"
+                          disabled={!purchasable || buying !== null}
+                          title={purchasable ? t('shopBuy') : t('shopSoonHint')}
+                          onClick={async () => {
+                            if (!purchasable) return;
+                            setBuying(product.id);
+                            setShopNotice(null);
+                            const result = await onBuyPack(product.id);
+                            setBuying(null);
+                            setShopNotice(
+                              result.ok
+                                ? t('shopPurchaseDone').replace('{n}', String(DIAMOND_PACKS[product.id]))
+                                : result.reason === 'cancelled'
+                                  ? t('shopPurchaseCancelled')
+                                  : t('shopPurchaseFailed'),
+                            );
+                          }}
+                          className={`notch shrink-0 border-[3px] px-2.5 py-2 font-display text-[9px] tracking-wide sm:px-3 sm:text-[10px] ${
+                            purchasable
+                              ? 'border-black/70 bg-gradient-to-b from-[#5fd8cf] to-[#2f9c96] text-pit-950 hover:brightness-110 disabled:opacity-60'
+                              : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
+                          }`}
                         >
-                          {t('shopSoon')}
+                          {purchasable ? (buying === product.id ? t('shopBuying') : t('shopBuy')) : t('shopSoon')}
                         </button>
                       </div>
                     </article>
@@ -585,7 +964,7 @@ export function StartScreen({
             </div>
 
             <footer className="shrink-0 border-t border-white/10 bg-black/25 px-3 py-2 text-center text-[9px] leading-snug text-white/35 sm:px-4 sm:py-2.5 sm:text-[10px]">
-              {t('shopMockNotice')}
+              {shopNotice ?? (paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice'))}
             </footer>
           </section>
         </div>
@@ -652,6 +1031,37 @@ export function StartScreen({
                   )}
                 </div>
               </div>
+
+              {(canShortcut || shortcutNote || fullscreenAvailable()) && (
+                <div className="sm:col-span-2">
+                  <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('platformLabel')}</div>
+                  <div className="rounded-sm border border-white/10 bg-black/20 p-3">
+                    {/* sdk-params: the platform's own button sits in the catalogue corner, so the game
+                        offers its own toggle — always from a click, as browsers require */}
+                    {fullscreenAvailable() && (
+                      <button
+                        type="button"
+                        onClick={onFullscreen}
+                        className="btn-mc notch mr-2 bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2.5 text-xs text-white/90"
+                      >
+                        ⛶ {fullscreen ? t('fullscreenOn') : t('fullscreenOff')}
+                      </button>
+                    )}
+                    {canShortcut && (
+                      <button
+                        type="button"
+                        onClick={onShortcut}
+                        className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2.5 text-xs text-white/90"
+                      >
+                        ★ {t('shortcutCta')}
+                      </button>
+                    )}
+                    <div className="mt-2 text-[11px] leading-relaxed text-white/55">
+                      {shortcutNote ?? t('shortcutSub').replace('{n}', String(SHORTCUT_REWARD))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="sm:col-span-2">
                 <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('controls')}</div>
@@ -804,6 +1214,21 @@ export function GameOverScreen({
   onRestart,
   onQuit,
   isRecord,
+  onRevive,
+  canRevive,
+  adBusy,
+  adNotice,
+  reviveSeconds,
+  diamonds,
+  diamondPrice,
+  onDiamondRevive,
+  myRank,
+  squadNote,
+  canRate,
+  onRate,
+  reviewNote,
+  onCopyResult,
+  copyNote,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -813,6 +1238,29 @@ export function GameOverScreen({
   onRestart: () => void;
   onQuit: () => void;
   isRecord: boolean;
+  /** rewarded video: continue the run instead of ending it (user action, never automatic) */
+  onRevive: () => void;
+  canRevive: boolean;
+  adBusy: boolean;
+  adNotice: string | null;
+  reviveSeconds: number;
+  /** in-game currency balance and the price of the paid alternative to the rewarded video */
+  diamonds: number;
+  diamondPrice: number;
+  onDiamondRevive: () => void;
+  /** place in the Yandex leaderboard (undefined = no leaderboard, null = no result yet) */
+  myRank?: number | null;
+  /** closing line under the squad table: the shift was published / teammates are local */
+  squadNote?: string | null;
+  /** copies the share line to the clipboard (sdk-params) */
+  onCopyResult: (text: string) => void;
+  /** feedback of the copy button: «Итог скопирован» or an honest "clipboard is unavailable" */
+  copyNote: string | null;
+  /** the platform allows asking this player to rate the game (ysdk.feedback.canReview → true) */
+  canRate?: boolean;
+  onRate?: () => void;
+  /** shown after the rating dialog was opened: thanks, or "maybe next time" */
+  reviewNote?: string | null;
 }) {
   const [shown, setShown] = useState(0);
   const rafRef = useRef(0);
@@ -852,9 +1300,10 @@ export function GameOverScreen({
           : t('overFall');
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-pit-950/85 backdrop-blur-[2px]">
+    <div className="absolute inset-0 z-30 overflow-hidden bg-pit-950/85 backdrop-blur-[2px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
-      <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col gap-5 p-4 sm:p-7 lg:flex-row lg:items-center">
+      {/* FitBox: the run report and all of its buttons stay on screen at any window size (1.10) */}
+      <FitBox className="mx-auto w-full max-w-5xl items-start p-4 sm:p-7 lg:items-center">
         <div className="anim-rise flex-1">
           <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.4em]" style={{ color: accent }}>
             <span className="h-px w-8" style={{ background: accent }} />
@@ -876,6 +1325,12 @@ export function GameOverScreen({
                 {t('newBest')}
               </div>
             )}
+            {myRank !== undefined && (
+              <div className="mt-2 flex items-center gap-1.5 font-display text-[11px] tracking-[0.2em] text-[#62e8dc]/90">
+                <TrophyIcon size={12} />
+                {myRank && myRank > 0 ? t('lbYourRank').replace('{n}', String(myRank)) : t('lbNoRank')}
+              </div>
+            )}
 
             <div className="mt-4 grid grid-cols-2 gap-px bg-white/5 sm:grid-cols-5">
               <Stat icon={<CubeIcon size={12} />} label={t('mined')} value={String(hud.blocksMined)} color="#e8efe9" />
@@ -884,16 +1339,100 @@ export function GameOverScreen({
               <Stat icon={<HeartIcon size={12} />} label={t('ores')} value={String(hud.oresFound)} color="#5fe8dc" />
               <Stat icon={<TrophyIcon size={12} />} label={t('kills')} value={String(hud.kills)} color="#e2564a" />
             </div>
+
+            {/* the shift's squad: teammates replayed from asynchronous multiplayer sessions */}
+            {hud.squad.length > 0 && (
+              <div className="mt-3 border-t border-white/10 pt-2">
+                <div className="mb-1 flex items-center gap-1.5 font-display text-[10px] tracking-[0.2em] text-[#62e8dc]">
+                  <span aria-hidden="true">◆</span> {t('squadTitle')} · {hud.squad.length + 1}
+                </div>
+                <ul className="flex flex-col gap-0.5">
+                  {hud.squad.map((mate) => (
+                    <li key={mate.id} className="flex items-center gap-2 text-[11px]">
+                      <span
+                        aria-hidden="true"
+                        className="h-2 w-2 shrink-0"
+                        style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
+                      <span className="font-display text-[10px] tabular-nums text-white/45">
+                        {t('squadBlocks').replace('{n}', String(mate.blocks))}
+                      </span>
+                      {mate.finished && <span className="text-[9px] tracking-widest text-torch">{t('squadFinished')}</span>}
+                    </li>
+                  ))}
+                </ul>
+                {squadNote && <div className="mt-1 text-[10px] leading-snug text-white/35">{squadNote}</div>}
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">
-            <button onClick={onRestart} className="btn-mc notch flex items-center gap-2 bg-gradient-to-b from-moss to-[#4d8c31] px-7 py-3.5 text-xl text-pit-950">
+            <button
+              onClick={onRestart}
+              disabled={adBusy}
+              className="btn-mc notch flex items-center gap-2 bg-gradient-to-b from-moss to-[#4d8c31] px-7 py-3.5 text-xl text-pit-950 disabled:opacity-60"
+            >
               <PlayIcon size={18} /> {t('mineAgain')}
             </button>
+            {canRevive && (
+              <button
+                onClick={onRevive}
+                disabled={adBusy}
+                className="btn-mc notch flex flex-col items-start gap-0.5 bg-gradient-to-b from-[#62e8dc] to-[#2f9c96] px-5 py-2.5 text-left text-pit-950 disabled:opacity-60"
+              >
+                <span className="flex items-center gap-2 font-display text-base leading-none">
+                  <span className="border border-pit-950/40 bg-pit-950/15 px-1 py-0.5 font-display text-[8px] tracking-widest">
+                    {t('adBadge')}
+                  </span>
+                  {t('watchAdRevive')}
+                </span>
+                <span className="text-[10px] leading-snug opacity-80">{t('watchAdReviveSub').replace('{sec}', String(reviveSeconds))}</span>
+              </button>
+            )}
             <button onClick={onQuit} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-5 py-3.5 text-base text-white/85">
               {t('mainMenu')}
             </button>
+            {canRate && (
+              <button
+                onClick={onRate}
+                className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2 text-xs text-white/80"
+              >
+                ★ {t('reviewCta')}
+              </button>
+            )}
+            {/* sdk-params: clipboard.writeText — one click puts the shift's summary on the clipboard */}
+            <button
+              onClick={() =>
+                onCopyResult(
+                  t('shareTemplate')
+                    .replace('{mode}', t(hud.survival ? 'survival' : 'explorer'))
+                    .replace('{score}', String(hud.score))
+                    .replace('{blocks}', String(hud.blocksMined))
+                    .replace('{depth}', String(hud.deepest)),
+                )
+              }
+              className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2 text-xs text-white/80"
+            >
+              ⧉ {t('copyResult')}
+            </button>
+            {reviewNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{reviewNote}</span>}
+            {copyNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{copyNote}</span>}
             <span className="font-display text-[10px] tracking-[0.24em] text-white/30">[R] · [ESC]</span>
+            {diamondPrice > 0 && (
+              <button
+                onClick={onDiamondRevive}
+                disabled={adBusy || diamonds < diamondPrice}
+                title={diamonds < diamondPrice ? t('notEnoughDiamonds') : undefined}
+                className="btn-mc notch flex flex-col items-start gap-0.5 bg-gradient-to-b from-[#8ee9e2] to-[#3aa9a3] px-5 py-2.5 text-left text-pit-950 disabled:opacity-50"
+              >
+                <span className="font-display text-base leading-none">
+                  {t('continueWithDiamonds').replace('{n}', String(diamondPrice))}
+                </span>
+                <span className="text-[10px] leading-snug opacity-80">◆ {diamonds.toLocaleString()}</span>
+              </button>
+            )}
+            {adNotice && <span className="font-display text-[10px] tracking-[0.2em] text-copper">{adNotice}</span>}
           </div>
         </div>
 
@@ -910,7 +1449,7 @@ export function GameOverScreen({
           </div>
           <ScoreTable scores={scores} highlight={token} />
         </div>
-      </div>
+      </FitBox>
     </div>
   );
 }

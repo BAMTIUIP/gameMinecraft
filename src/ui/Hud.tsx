@@ -71,9 +71,11 @@ type Props = {
   onBag: () => void;
   onCaptureMouse: () => void;
   isTouch: boolean;
+  /** remote-config flag ui.showFps */
+  showFps: boolean;
 };
 
-export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag, onCaptureMouse, isTouch }: Props) {
+export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag, onCaptureMouse, isTouch, showFps }: Props) {
   const scoreRef = useRef<HTMLDivElement>(null);
   const prevScore = useRef(hud.score);
   const [bump, setBump] = useState(0);
@@ -318,7 +320,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         )}
       </div>
 
-      {/* ---------------- TOP RIGHT: score + tier + buttons ---------------- */}
+      {/* ---------------- TOP RIGHT: score + tier + buttons + squad ---------------- */}
       <div className="absolute right-2 top-2 flex flex-col items-end gap-1.5 sm:right-4 sm:top-4 sm:gap-2">
         <div className="bevel-flat notch px-3 py-1 text-right sm:px-4 sm:py-2">
           <div className="text-[9px] tracking-[0.28em] text-white/45 sm:text-[10px]">{t('score').toUpperCase()}</div>
@@ -339,6 +341,38 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           </span>
           <span className="font-display text-[11px] text-white/40">{PICKAXE_TIERS[hud.tier].speed.toFixed(1)}x</span>
         </div>
+
+        {/* teammates from asynchronous multiplayer sessions (survival co-op, up to five) */}
+        {hud.squad.length > 0 && (hud.phase === 'playing' || hud.phase === 'paused') && (
+          <section
+            aria-label={t('squadTitle')}
+            className="bevel-flat notch w-[11.5rem] px-2 py-1.5 text-left sm:w-48"
+          >
+            <div className="mb-1 flex items-center gap-1.5 font-display text-[9px] tracking-[0.2em] text-[#62e8dc] sm:text-[10px]">
+              <span aria-hidden="true">◆</span> {t('squadTitle')}
+              <span className="ml-auto text-white/35">{hud.squad.length + 1}</span>
+            </div>
+            <ul className="flex flex-col gap-0.5">
+              {hud.squad.map((mate) => (
+                <li key={mate.id} className="flex items-center gap-1.5 text-[10px] sm:text-[11px]">
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 shrink-0"
+                    style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
+                  {mate.finished ? (
+                    <span className="shrink-0 text-[8px] tracking-widest text-torch">{t('squadFinished')}</span>
+                  ) : (
+                    <span className="shrink-0 font-display tabular-nums text-white/45">
+                      {t('squadBlocks').replace('{n}', String(mate.blocks))}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <div className="pointer-events-auto flex gap-1.5">
           <button
@@ -428,13 +462,13 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           isTouch ? 'bottom-44' : 'bottom-4 sm:bottom-6'
         }`}
       >
-        <div className="pointer-events-auto flex gap-0.5 p-1 sm:gap-1.5 sm:p-1.5">
+        <div className="hotbar-row pointer-events-auto">
           {/* always render 10 fixed cells; empty ones are dim placeholders */}
           {Array.from({ length: 10 }, (_, i) => hud.hotbar[i] ?? null).map((slot, i) =>
             slot === null ? (
               <div
                 key={`empty-${i}`}
-                className="notch relative flex h-10 w-10 items-center justify-center sm:h-14 sm:w-14"
+                className="hotbar-cell notch relative flex items-center justify-center"
                 style={{
                   background: 'linear-gradient(180deg,#141c17,#0c1210)',
                   border: '3px solid #06090a',
@@ -493,8 +527,8 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         )}
       </div>
 
-      {/* ---------------- FPS ---------------- */}
-      <div className="absolute bottom-1 right-2 font-display text-[10px] text-white/25">{hud.fps} FPS</div>
+      {/* ---------------- FPS (remote-config flag ui.showFps) ---------------- */}
+      {showFps && <div className="absolute bottom-1 right-2 font-display text-[10px] text-white/25">{hud.fps} FPS</div>}
     </div>
   );
 
@@ -503,7 +537,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             <button
               key={slot.id}
               onClick={() => onSelect(i)}
-              className={`hotbar-slot notch relative flex h-10 w-10 items-center justify-center sm:h-14 sm:w-14 ${
+              className={`hotbar-cell hotbar-slot notch relative flex items-center justify-center ${
                 i === hud.selected ? 'active' : ''
               }`}
               style={{
