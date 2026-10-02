@@ -8,6 +8,7 @@ import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
 import { SHORTCUT_REWARD } from '../game/shortcut';
 import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
+import type { DailyView } from '../game/daily';
 import {
   BagIcon,
   ClockIcon,
@@ -461,6 +462,9 @@ export function StartScreen({
   onShortcut,
   shortcutNote,
   promo,
+  daily,
+  onClaimDaily,
+  dailyNote,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -508,6 +512,11 @@ export function StartScreen({
   shortcutNote: string | null;
   /** promo deep link: the shop should open on this product, with the campaign banner visible */
   promo: { productId: string | null; promoId: string } | null;
+  /** daily reward: availability, current streak and the amount already computed from server time */
+  daily: DailyView;
+  onClaimDaily: () => void;
+  /** result of the claim: '+25 ◆ за сегодня' or a note that the platform was unreachable */
+  dailyNote: string | null;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
@@ -633,8 +642,29 @@ export function StartScreen({
               </div>
             </section>
 
+            <button
+              type="button"
+              data-daily-bonus="1"
+              disabled={!daily.available}
+              onClick={onClaimDaily}
+              title={daily.available ? t('dailyTitle') : t('dailyClaimed')}
+              className={`mt-4 flex w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
+                daily.available
+                  ? 'border-[#f4b942]/60 bg-[#f4b942]/[0.12] text-[#f4b942] hover:bg-[#f4b942]/20'
+                  : 'border-white/10 bg-black/20 text-white/40'
+              }`}
+            >
+              <span aria-hidden="true">◆</span>
+              <span>
+                {dailyNote ??
+                  (daily.available
+                    ? `${t('dailyTitle')} · +${daily.amount} · ${t('dailyStreak').replace('{n}', String(daily.streak))}`
+                    : t('dailyClaimed'))}
+              </span>
+            </button>
+
             <div
-              className={`mt-4 grid w-full max-w-[900px] items-stretch gap-1.5 sm:mt-5 sm:gap-3 ${shopEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}
+              className={`mt-1.5 grid w-full max-w-[900px] items-stretch gap-1.5 sm:mt-3 sm:gap-3 ${shopEnabled ? 'grid-cols-3' : 'grid-cols-2'}`}
             >
               {shopEnabled && (
                 <button

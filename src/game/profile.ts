@@ -55,7 +55,25 @@ export type CloudProfile = {
    * player from being paid twice for it (see shop.deliverPendingPurchases).
    */
   deliveredPurchases?: string[];
+  /** last day the daily bonus was claimed (UTC `YYYY-MM-DD`) and the streak behind it */
+  daily?: { last: string; streak: number };
 };
+
+/**
+ * A feature module can contribute its own fields to the cloud profile: the daily bonus keeps its
+ * date here, and the shop keeps the delivered purchase tokens. Registration keeps those modules free
+ * to import this one for `markProfileDirty`, with no import cycle.
+ */
+export type CloudPart = {
+  collect(): Record<string, unknown>;
+  apply(cloud: CloudProfile): void;
+};
+
+const cloudParts: CloudPart[] = [];
+
+export function registerCloudPart(part: CloudPart) {
+  cloudParts.push(part);
+}
 
 export type StatKey =
   | 'blocksMined'
@@ -134,7 +152,9 @@ const STATS_INTERVAL_MS = 3_000;
 
 /** Build the fresh cloud payload from what the game currently has locally. */
 function collect(): CloudProfile {
+  const extra = Object.assign({}, ...cloudParts.map((part) => part.collect()));
   return {
+    ...(extra as Partial<CloudProfile>),
     v: 1,
     savedAt: yaServerTime(),
     name: storageGet(NAME_KEY) ?? undefined,
@@ -303,6 +323,7 @@ function applyCloud(cloud: CloudProfile) {
     diamonds = Math.max(diamonds, Math.floor(cloud.diamonds));
     storageSet(DIAMONDS_KEY, String(diamonds));
   }
+  for (const part of cloudParts) part.apply(cloud);
   if (Array.isArray(cloud.deliveredPurchases) && cloud.deliveredPurchases.length) {
     // tokens are only ever added, so the union is the safe merge
     const merged = [...new Set([...deliveredPurchases(), ...cloud.deliveredPurchases])].slice(-DELIVERED_LIMIT);

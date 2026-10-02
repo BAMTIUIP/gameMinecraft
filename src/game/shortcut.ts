@@ -17,7 +17,7 @@
 
 import { addDiamonds } from './profile';
 import { storageGet, storageSet } from './storage';
-import { yaCanShowShortcutPrompt, yaShowShortcutPrompt } from './yandex';
+import { yaCanShowShortcutPrompt, yaServerTime, yaShowShortcutPrompt } from './yandex';
 
 const STORAGE_KEY = 'orerush.shortcut.v1';
 /** Do not offer the dialog again for this long after it was shown. */
@@ -70,7 +70,7 @@ export async function shortcutOffer(): Promise<ShortcutOffer> {
   if (promptedThisSession) return { available: false, reason: 'done' };
   const saved = state();
   if (saved.accepted) return { available: false, reason: 'accepted' };
-  if (Date.now() - saved.at < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
+  if (yaServerTime() - saved.at < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
   if (offerCache) return offerCache;
 
   const canShow = await yaCanShowShortcutPrompt();
@@ -93,7 +93,7 @@ export async function requestShortcut(): Promise<ShortcutResult> {
 
   offerCache = { available: false, reason: 'done' };
   const alreadyAccepted = state().accepted;
-  saveState({ at: Date.now(), accepted: alreadyAccepted || result.accepted });
+  saveState({ at: yaServerTime(), accepted: alreadyAccepted || result.accepted });
   if (result.accepted && !alreadyAccepted) {
     // a one-time thank-you: 'grant', so it does not count towards the paid-diamonds statistics
     addDiamonds(SHORTCUT_REWARD, 'grant');

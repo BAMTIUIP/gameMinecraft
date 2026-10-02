@@ -34,6 +34,7 @@ import {
 import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
+import { claimDailyReward, dailyReward, type DailyView } from './game/daily';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
 import {
@@ -165,6 +166,9 @@ export default function App() {
   const [shortcutNote, setShortcutNote] = useState<string | null>(null);
   /** promo deep link: opening the game from a catalogue banner lands on the promised screen */
   const [promo, setPromo] = useState<{ productId: string | null; promoId: string } | null>(null);
+  /** daily reward: recomputed from the trusted clock, refreshed after each claim */
+  const [daily, setDaily] = useState<DailyView>(() => dailyReward());
+  const [dailyNote, setDailyNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -214,6 +218,9 @@ export default function App() {
       // shop itself — route the player to that screen instead of the main menu.
       const action = promoAction();
       if (action?.kind === 'shop') setPromo({ productId: action.productId, promoId: action.promoId });
+      // Daily reward (sdk-server-time): counted by the trusted clock and stored in the cloud profile,
+      // so a system-clock rollback cannot bring the bonus back.
+      setDaily(dailyReward());
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -571,6 +578,12 @@ export default function App() {
   }, [leaderboard]);
 
   /** Opens the desktop-shortcut dialog and credits the one-time reward when it was accepted. */
+  const addDaily = useCallback(() => {
+    const result = claimDailyReward();
+    setDaily(dailyReward());
+    setDailyNote(result.ok ? t('dailyTaken').replace('{n}', String(result.amount)) : t('dailyClaimed'));
+  }, []);
+
   const addShortcut = useCallback(async () => {
     setShortcutNote(null);
     const result = await requestShortcut();
@@ -683,6 +696,9 @@ export default function App() {
           onShortcut={addShortcut}
           shortcutNote={shortcutNote}
           promo={promo}
+          daily={daily}
+          onClaimDaily={addDaily}
+          dailyNote={dailyNote}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (

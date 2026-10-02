@@ -52,7 +52,8 @@
           // promo deep link, same shape the platform passes for a catalogue banner
           referrer: seed.referrer ?? undefined,
         },
-        serverTime: () => Date.now(),
+        // the trusted clock: the test can shift it without touching the device clock
+        serverTime: () => Date.now() + (seed.serverTimeOffsetMs ?? 0),
         features: {
           LoadingAPI: { ready: () => record('LoadingAPI.ready') },
           GameplayAPI: {
@@ -129,7 +130,7 @@
               return keys ? Object.fromEntries(keys.filter((k) => k in cloud).map((k) => [k, cloud[k]])) : { ...cloud };
             },
             setData: async (data, flush) => {
-              record('player.setData', { keys: Object.keys(data), flush: flush ?? false });
+              record('player.setData', { keys: Object.keys(data), flush: flush ?? false, daily: data['orerush.profile']?.daily ?? null });
               Object.assign(cloud, data);
             },
             getStats: async (keys) => {

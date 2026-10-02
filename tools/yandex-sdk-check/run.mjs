@@ -721,10 +721,96 @@ async function scenarioPromo() {
   await plain.page.close();
 }
 
+/* ---------------------- scenario D: daily reward (server time) ---------------------- */
+
+/**
+ * The daily bonus is counted by `ysdk.serverTime()`, not by the device clock, and its date lives in
+ * the cloud profile. Day one: a click pays 25 diamonds, the record goes to the cloud, a second click
+ * pays nothing. Day two: another device (and another server day, faked with a clock offset while the
+ * browser clock stays put) sees yesterday's claim in the cloud and offers the grown bonus.
+ */
+async function scenarioDaily() {
+  const DAY_MS = 86_400_000;
+  const first = await openGame({ lang: 'ru' });
+  const bonusButton = await first.waitFor(
+    'Кнопка ежедневного бонуса',
+    () => {
+      const button = document.querySelector('[data-daily-bonus]');
+      return !!button && /ЕЖЕДНЕВНЫЙ БОНУС/.test(button.textContent ?? '') && !button.disabled;
+    },
+    30_000,
+  );
+  check(bonusButton, 'В меню есть активная кнопка ежедневного бонуса');
+  const before = await first.storageValue('orerush.diamonds.v1');
+  check(before === null || before === '0', 'До первого бонуса алмазов нет', String(before));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const claimed = await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
+  check(claimed, 'Клик по ежедневному бонусу сделан');
+  const stored = await first.waitFor(
+    'Запись о бонусе',
+    (d) => {
+      const raw = window.localStorage.getItem('orerush.daily.v1');
+      if (!raw) return false;
+      try {
+        return JSON.parse(raw).last === d;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+    today,
+  );
+  check(stored, 'Дата бонуса (UTC) записана в хранилище', today);
+  const balance = await first.storageValue('orerush.diamonds.v1');
+  check(balance === '25', 'Ежедневный бонус начислил 25 алмазов', String(balance));
+  const claimedLabel = await first.page.evaluate(() => {
+    const button = document.querySelector('[data-daily-bonus]');
+    return !!button && button.disabled && /\+25/.test(button.textContent ?? '');
+  });
+  check(claimedLabel, 'Кнопка бонуса заблокирована и показывает начисленные алмазы');
+  await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
+  await wait(400);
+  const again = await first.storageValue('orerush.diamonds.v1');
+  check(again === '25', 'Повторный клик в тот же день ничего не начисляет', String(again));
+  const cloudRecord = await first.waitFor(
+    'Бонус в облаке',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'player.setData' && c.arg?.daily?.last),
+    15_000,
+  );
+  check(cloudRecord, 'Дата бонуса уходит в облачный профиль (player.setData)');
+  await first.page.close();
+
+  // the next server day on another device: the browser clock is untouched, the platform clock moved
+  const nextDay = await openGame({
+    lang: 'ru',
+    serverTimeOffsetMs: DAY_MS,
+    data: {
+      'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, daily: { last: today, streak: 1 } },
+    },
+  });
+  const grown = await nextDay.waitFor(
+    'Бонус второго дня',
+    () => {
+      const button = document.querySelector('[data-daily-bonus]');
+      return !!button && /\+30/.test(button.textContent ?? '') && /серия 2/.test(button.textContent ?? '');
+    },
+    30_000,
+  );
+  check(grown, 'На следующий день бонус вырос до 30 алмазов за серию 2 (по серверному времени)');
+  const notClaimedYet = await nextDay.page.evaluate(() => {
+    const button = document.querySelector('[data-daily-bonus]');
+    return !!button && !button.disabled;
+  });
+  check(notClaimedYet, 'Бонус нового дня ещё не отмечен как полученный');
+  await nextDay.page.close();
+}
+
 try {
   await scenarioProgress();
   await scenarioShop();
   await scenarioPromo();
+  await scenarioDaily();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

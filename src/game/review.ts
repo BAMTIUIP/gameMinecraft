@@ -14,7 +14,7 @@
  * `REVIEW_ALREADY_REQUESTED`, `REVIEW_WAS_REQUESTED`), and the answer is cached for the session.
  */
 
-import { yaCanReview, yaRequestReview, type YaReviewReason } from './yandex';
+import { yaCanReview, yaRequestReview, yaServerTime, type YaReviewReason } from './yandex';
 import { storageGet, storageSet } from './storage';
 
 const STORAGE_KEY = 'orerush.review.v1';
@@ -51,7 +51,7 @@ export function resetReviewState() {
  */
 export async function reviewOffer(): Promise<ReviewOffer> {
   if (requestedThisSession) return { available: false, reason: 'done' };
-  if (Date.now() - lastAskedAt() < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
+  if (yaServerTime() - lastAskedAt() < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
   if (offerCache) return offerCache;
 
   const answer = await yaCanReview();
@@ -72,6 +72,6 @@ export async function requestGameReview(): Promise<ReviewResult> {
   const result = await yaRequestReview();
   if (!result) return 'failed'; // nothing was shown: stay silent and allow a retry next session
   offerCache = { available: false, reason: 'done' };
-  storageSet(STORAGE_KEY, JSON.stringify({ at: Date.now(), sent: result.sent }));
+  storageSet(STORAGE_KEY, JSON.stringify({ at: yaServerTime(), sent: result.sent }));
   return result.sent ? 'sent' : 'dismissed';
 }
