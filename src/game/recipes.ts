@@ -46,6 +46,19 @@ import {
   SAND,
   TORCH,
   BIRCH_LOG,
+  PALM_LOG,
+  LADDER_OAK,
+  LADDER_BIRCH,
+  LADDER_PALM,
+  LADDER_RED,
+  LADDER_BLUE,
+  LADDER_YELLOW,
+  LADDER_GREEN,
+  LADDER_PINK,
+  LADDER_PURPLE,
+  LADDER_WHITE,
+  LADDER_STONE,
+  LADDER_IRON,
   CRAFTING_TABLE,
   NETHERITE,
   NETHERITE_INGOT,
@@ -65,6 +78,7 @@ import {
 } from './blocks';
 import {
   AXE_TOOLS,
+  BOW_TOOLS,
   HOE_TOOLS,
   PICK_TOOLS,
   SHOVEL_TOOLS,
@@ -90,6 +104,7 @@ import type { Item, Material, Slot } from './items';
 
 export {
   AXE_TOOLS,
+  BOW_TOOLS,
   HOE_TOOLS,
   PICK_TOOLS,
   SHOVEL_TOOLS,
@@ -183,7 +198,7 @@ export function toolSellPrice(id: number): number {
     axe: [20, 60, 130, 190, 320, 620],
     shovel: [15, 35, 80, 120, 210, 420],
     hoe: [15, 35, 80, 120, 210, 420],
-    bow: [30],
+    bow: [35, 75, 150, 225, 390, 620],
   };
   return tables[spec.kind]?.[spec.tier] ?? 30;
 }
@@ -226,6 +241,69 @@ const TOOL_RECIPES: Recipe[] = [
   ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('axe', tier)]),
   ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('shovel', tier)]),
   ...TOOL_MATERIALS.flatMap((_, tier) => [toolRecipe('hoe', tier)]),
+];
+
+function bowRecipe(tier: number): Recipe {
+  const id = BOW_TOOLS[tier];
+  const material = TOOL_MATERIALS[tier];
+  let inputs: Array<[number, number]>;
+  if (tier === 0) {
+    inputs = [[PLANKS, 3], [LEAVES, 4]];
+  } else {
+    const upgradeMaterial = tier === 1 ? COBBLE : tier === 2 ? IRON : tier === 3 ? GOLD : tier === 4 ? DIAMOND : NETHERITE_INGOT;
+    const materialCount = tier === 1 ? 3 : tier === 5 ? 1 : 2;
+    inputs = [[BOW_TOOLS[tier - 1], 1], [upgradeMaterial, materialCount], [PLANKS, tier >= 4 ? 1 : 2]];
+  }
+  return {
+    key: tier === 0 ? 'bow' : `bow_${material.key}`,
+    name: toolLabelForId(id),
+    desc: toolRecipeDesc(id),
+    inputs,
+    kind: 'bow',
+    tier,
+    toolId: id,
+    accent: material.edge,
+    hotkey: '',
+    group: 'tools',
+  };
+}
+
+const BOW_RECIPES: Recipe[] = TOOL_MATERIALS.map((_, tier) => bowRecipe(tier));
+
+function ladderRecipe(
+  key: string,
+  id: number,
+  inputs: Array<[number, number]>,
+  outputCount: number,
+  accent: string,
+  desc: string,
+): Recipe {
+  return {
+    key,
+    name: blockName(id, BLOCKS[id]?.name ?? 'LADDER'),
+    desc,
+    inputs,
+    out: [id, outputCount],
+    kind: 'blocks',
+    accent,
+    hotkey: '',
+    group: 'blocks',
+  };
+}
+
+const LADDER_RECIPES: Recipe[] = [
+  ladderRecipe('ladder_oak', LADDER_OAK, [[PLANKS, 4]], 2, '#a87439', 'Two light wooden ladders, ready to mount on a solid wall.'),
+  ladderRecipe('ladder_birch', LADDER_BIRCH, [[BIRCH_LOG, 2]], 2, '#d8bd83', 'Pale birch rails with a clean grain.'),
+  ladderRecipe('ladder_palm', LADDER_PALM, [[PALM_LOG, 2]], 2, '#b58a4e', 'Tropical palm rails, light enough for a long climb.'),
+  ladderRecipe('ladder_red', LADDER_RED, [[LADDER_OAK, 1], [FLOWER_RED, 1]], 1, '#d55248', 'Dye an oak ladder with a red flower.'),
+  ladderRecipe('ladder_blue', LADDER_BLUE, [[LADDER_OAK, 1], [FLOWER_BLUE, 1]], 1, '#5d91df', 'Dye an oak ladder with a blue flower.'),
+  ladderRecipe('ladder_yellow', LADDER_YELLOW, [[LADDER_OAK, 1], [FLOWER_YELLOW, 1]], 1, '#e4c144', 'Dye an oak ladder with a yellow flower.'),
+  ladderRecipe('ladder_green', LADDER_GREEN, [[LADDER_OAK, 1], [LEAVES, 2]], 1, '#68aa59', 'Stain an oak ladder with crushed green leaves.'),
+  ladderRecipe('ladder_pink', LADDER_PINK, [[LADDER_OAK, 1], [FLOWER_PINK, 1]], 1, '#e186b1', 'Dye an oak ladder with a pink flower.'),
+  ladderRecipe('ladder_purple', LADDER_PURPLE, [[LADDER_OAK, 1], [FLOWER_PURPLE, 1]], 1, '#9d70d1', 'Dye an oak ladder with a purple flower.'),
+  ladderRecipe('ladder_white', LADDER_WHITE, [[LADDER_OAK, 1], [FLOWER_WHITE, 1]], 1, '#e7e4dc', 'Bleach an oak ladder with a white daisy.'),
+  ladderRecipe('ladder_stone', LADDER_STONE, [[COBBLE, 5], [PLANKS, 2]], 2, '#9da5ac', 'A heavy stone ladder reinforced with oak rungs.'),
+  ladderRecipe('ladder_iron', LADDER_IRON, [[IRON, 4], [PLANKS, 2]], 2, '#c2d1d7', 'A reinforced iron ladder with durable wooden rungs.'),
 ];
 
 export const RECIPES: Recipe[] = [
@@ -317,20 +395,7 @@ export const RECIPES: Recipe[] = [
     group: 'tools',
   },
 
-  {
-    key: 'bow',
-    name: 'BOW',
-    desc: toolRecipeDesc(TOOL_BOW),
-    inputs: [
-      [PLANKS, 3],
-      [LEAVES, 4],
-    ],
-    kind: 'bow',
-    toolId: TOOL_BOW,
-    accent: '#93c95d',
-    hotkey: '',
-    group: 'tools',
-  },
+  ...BOW_RECIPES,
   {
     key: 'arrows',
     name: 'ARROWS ×8',
@@ -673,6 +738,7 @@ export const RECIPES: Recipe[] = [
     hotkey: '',
     group: 'blocks',
   },
+  ...LADDER_RECIPES,
 
   // ---------------- armour ----------------
   // Full leather set: the game uses leaves as its early-game hide/fibre resource.
@@ -867,7 +933,10 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all'> {
 export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: Array<[number, number]> } | null {
   const tool = getToolSpec(id);
   if (tool) {
-    if (tool.kind === 'bow') return { inputsUsed: 1, outputs: [[PLANKS, 2], [LEAVES, 2]] };
+    if (tool.kind === 'bow') {
+      if (tool.tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2], [LEAVES, 2]] };
+      return { inputsUsed: 1, outputs: [[PLANKS, 1], [MATERIAL_ITEMS[tool.tier], 1]] };
+    }
     if (tool.tier === 0) return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
     const materialId = MATERIAL_ITEMS[tool.tier];
     const materialCount = tool.kind === 'pickaxe' || tool.kind === 'axe' || tool.kind === 'hoe' ? 2 : 1;
@@ -919,6 +988,24 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
       return { inputsUsed: 1, outputs: [[COBBLE, 1]] };
     case FENCE_IRON:
       return { inputsUsed: 1, outputs: [[COBBLE, 1]] };
+    case LADDER_OAK:
+      return { inputsUsed: 1, outputs: [[PLANKS, 2]] };
+    case LADDER_BIRCH:
+      return { inputsUsed: 1, outputs: [[BIRCH_LOG, 1]] };
+    case LADDER_PALM:
+      return { inputsUsed: 1, outputs: [[PALM_LOG, 1]] };
+    case LADDER_RED:
+    case LADDER_BLUE:
+    case LADDER_YELLOW:
+    case LADDER_GREEN:
+    case LADDER_PINK:
+    case LADDER_PURPLE:
+    case LADDER_WHITE:
+      return { inputsUsed: 1, outputs: [[LADDER_OAK, 1]] };
+    case LADDER_STONE:
+      return { inputsUsed: 1, outputs: [[COBBLE, 3]] };
+    case LADDER_IRON:
+      return { inputsUsed: 1, outputs: [[IRON, 2]] };
     case LAMP_RED:
       return { inputsUsed: 1, outputs: [[FLOWER_RED, 1], [GLASS, 1]] };
     case LAMP_BLUE:

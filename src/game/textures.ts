@@ -3,6 +3,8 @@ import { mulberry32 } from './noise';
 import {
   T,
   BLOCKS,
+  LADDER_PALETTE,
+  isLadder,
   TORCH,
   BED,
   DOOR_WOOD,
@@ -2057,6 +2059,30 @@ export function getBlockIcon(id: number): string {
     const [bx, by] = tileOrigin(botTile);
     ctx.drawImage(atlas, tx, ty, TILE, TILE, 12, 2, 24, 22);
     ctx.drawImage(atlas, bx, by, TILE, TILE, 12, 24, 24, 22);
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
+  if (isLadder(id)) {
+    // Front-facing pixel-art rails and rungs, tinted by wood, dye, stone, or iron tier.
+    const palette = LADDER_PALETTE[id];
+    const color = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
+    const dark = color(palette.dark);
+    const light = color(palette.light);
+    const fill = (x: number, y: number, w: number, h: number, col: string) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(x, y, w, h);
+    };
+    fill(8, 5, 9, 38, dark);
+    fill(31, 5, 9, 38, dark);
+    fill(10, 6, 4, 36, light);
+    fill(33, 6, 4, 36, light);
+    for (const y of [9, 18, 27, 36]) {
+      fill(12, y, 24, 6, dark);
+      fill(13, y, 22, 3, light);
+      fill(12, y + 4, 24, 2, dark);
+    }
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;

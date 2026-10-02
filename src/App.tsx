@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Engine, RUN_TIME, SESSION_LENGTHS, type DomRefs, type HudState } from './game/engine';
+import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
 import { initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMuted, stopMusic } from './game/audio';
 import Hud from './ui/Hud';
 import TouchControls from './ui/TouchControls';
@@ -23,7 +23,7 @@ const INITIAL_HUD: HudState = {
   phase: 'loading',
   loading: 0,
   score: 0,
-  timeLeft: RUN_TIME,
+  timeLeft: EXPLORATION_RUN_TIME,
   health: 100,
   combo: 0,
   comboMult: 1,
@@ -42,9 +42,12 @@ const INITIAL_HUD: HudState = {
   locked: false,
   lockFailed: false,
   freeLook: true,
-  runTime: RUN_TIME,
+  runTime: EXPLORATION_RUN_TIME,
   inventoryOpen: false,
-  craftHint: null,
+  tutorialTip: null,
+  explorationObjectives: [],
+  objectiveIndex: 0,
+  objectiveCount: 0,
   inventory: [],
   craftable: [],
   lastCraft: null,
@@ -85,13 +88,6 @@ export default function App() {
   const [isRecord, setIsRecord] = useState(false);
   const [muted, setMutedUi] = useState(false);
   const [music, setMusicUi] = useState(true);
-  const [sessionId, setSessionId] = useState<string>(() => {
-    try {
-      return localStorage.getItem('orerush.session') || 'sprint';
-    } catch {
-      return 'sprint';
-    }
-  });
   const [freeLook, setFreeLookUi] = useState(true);
   const [isTouch, setIsTouch] = useState(false);
   const [hasSave, setHasSave] = useState(false);
@@ -103,8 +99,6 @@ export default function App() {
       return true;
     }
   });
-
-  const sessionSecs = SESSION_LENGTHS.find((s) => s.id === sessionId)?.time ?? RUN_TIME;
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -141,7 +135,7 @@ export default function App() {
     engineRef.current = eng;
     eng.mount();
     eng.setDom(domRef.current);
-    eng.setRunTime(SESSION_LENGTHS.find((s) => s.id === sessionId)?.time ?? RUN_TIME);
+    eng.setRunTime(EXPLORATION_RUN_TIME);
     eng.setSurvival(survival);
     setFreeLookUi(eng.freeLookEnabled);
     setEngine(eng);
@@ -198,18 +192,6 @@ export default function App() {
     else if (!next) stopMusic(0.35);
   }, []);
 
-  const pickSession = useCallback((id: string) => {
-    const s = SESSION_LENGTHS.find((x) => x.id === id);
-    if (!s) return;
-    setSessionId(id);
-    try {
-      localStorage.setItem('orerush.session', id);
-    } catch {
-      /* ignore */
-    }
-    engineRef.current?.setRunTime(s.time);
-  }, []);
-
   const pickLang = useCallback((l: Lang) => {
     setLang(l);
     setLangUi(l);
@@ -223,6 +205,7 @@ export default function App() {
       /* ignore */
     }
     engineRef.current?.setSurvival(s);
+    engineRef.current?.setRunTime(EXPLORATION_RUN_TIME);
   }, []);
 
   const equip = useCallback((uid: string) => engineRef.current?.equip(uid), []);
@@ -297,12 +280,12 @@ export default function App() {
   );
 
   const play = useCallback(() => {
-    engineRef.current?.startRun(survival ? undefined : sessionSecs);
-  }, [sessionSecs, survival]);
+    engineRef.current?.startRun(survival ? undefined : EXPLORATION_RUN_TIME);
+  }, [survival]);
   const restart = useCallback(() => {
     // restarting a sandbox stays a sandbox; survival itself is endless too
-    engineRef.current?.startRun(survival ? undefined : sessionSecs, engineRef.current?.sandbox ?? false);
-  }, [sessionSecs, survival]);
+    engineRef.current?.startRun(survival ? undefined : EXPLORATION_RUN_TIME, engineRef.current?.sandbox ?? false);
+  }, [survival]);
   const createWorld = useCallback(() => {
     engineRef.current?.startRun(undefined, true);
     setHasSave(Engine.hasSavedWorld());
@@ -359,9 +342,6 @@ export default function App() {
           scores={scores}
           onPlay={play}
           onNewWorld={newWorld}
-          sessions={SESSION_LENGTHS}
-          sessionId={sessionId}
-          onSession={pickSession}
           music={music}
           onMusic={toggleMusic}
           muted={muted}

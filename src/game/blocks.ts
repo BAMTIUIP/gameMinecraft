@@ -122,6 +122,41 @@ export const NETHERITE_INGOT = 109;
 /** tilled soil created by a hoe; it drops dirt when broken */
 export const FARMLAND = 126;
 
+// Placeable climbable ladders: natural woods plus flower-dyed color variants.
+export const LADDER_OAK = 127;
+export const LADDER_BIRCH = 128;
+export const LADDER_PALM = 129;
+export const LADDER_RED = 130;
+export const LADDER_BLUE = 131;
+export const LADDER_YELLOW = 132;
+export const LADDER_GREEN = 133;
+export const LADDER_PINK = 134;
+export const LADDER_PURPLE = 135;
+export const LADDER_WHITE = 136;
+export const LADDER_STONE = 137;
+export const LADDER_IRON = 138;
+export const LADDER_IDS = [
+  LADDER_OAK, LADDER_BIRCH, LADDER_PALM, LADDER_RED, LADDER_BLUE,
+  LADDER_YELLOW, LADDER_GREEN, LADDER_PINK, LADDER_PURPLE, LADDER_WHITE,
+  LADDER_STONE, LADDER_IRON,
+] as const;
+// The 12 ladder IDs are intentionally contiguous so this frequent geometry/collision predicate stays O(1).
+export const isLadder = (id: number) => id >= LADDER_OAK && id <= LADDER_IRON;
+export const LADDER_PALETTE: Record<number, { dark: number; light: number }> = {
+  [LADDER_OAK]: { dark: 0x52351f, light: 0xa87439 },
+  [LADDER_BIRCH]: { dark: 0x7a623e, light: 0xd8bd83 },
+  [LADDER_PALM]: { dark: 0x5a4328, light: 0xb58a4e },
+  [LADDER_RED]: { dark: 0x662b2b, light: 0xd55248 },
+  [LADDER_BLUE]: { dark: 0x263d69, light: 0x5d91df },
+  [LADDER_YELLOW]: { dark: 0x705721, light: 0xe4c144 },
+  [LADDER_GREEN]: { dark: 0x2c4c32, light: 0x68aa59 },
+  [LADDER_PINK]: { dark: 0x60344e, light: 0xe186b1 },
+  [LADDER_PURPLE]: { dark: 0x44305c, light: 0x9d70d1 },
+  [LADDER_WHITE]: { dark: 0x70716f, light: 0xe7e4dc },
+  [LADDER_STONE]: { dark: 0x41454a, light: 0x9da5ac },
+  [LADDER_IRON]: { dark: 0x37434a, light: 0xc2d1d7 },
+};
+
 /** biome-skinned treasure chests are non-solid block entities stored in the world grid. */
 export const CHEST_PLAINS = 110;
 export const CHEST_WINTER = 111;
@@ -163,6 +198,32 @@ export const baseChestId = (id: number) => (isOpenChest(id) ? id - CHEST_OPEN_OF
 
 export const isOreBlock = (id: number) =>
   (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
+
+/** Minimum pickaxe tier (wood=0, stone=1, iron=2, diamond=4) for mining stone and ore/block tiers. */
+const MIN_PICKAXE_TIER: Partial<Record<number, number>> = {
+  [STONE]: 0,
+  [COBBLE]: 0,
+  [COAL_ORE]: 1,
+  [COAL_BLOCK]: 1,
+  [IRON_ORE]: 1,
+  [IRON_BLOCK]: 1,
+  [QUARTZ_ORE]: 1,
+  [GOLD_ORE]: 2,
+  [GOLD_BLOCK]: 2,
+  // Diamond ore follows the iron-pick progression; its compressed block needs diamond.
+  [DIAMOND_ORE]: 2,
+  [VOLCANIC_STONE]: 2,
+  [REDSTONE_ORE]: 4,
+  [LAPIS_ORE]: 4,
+  [EMERALD_ORE]: 4,
+  [REDSTONE_BLOCK]: 4,
+  [LAPIS_BLOCK]: 4,
+  [EMERALD_BLOCK]: 4,
+  [DIAMOND_BLOCK]: 4,
+  [NETHERITE_ORE]: 4,
+};
+
+export const minimumPickaxeTier = (id: number): number | null => MIN_PICKAXE_TIER[id] ?? null;
 
 export const isMineralItem = (id: number) =>
   (id >= COAL && id <= DIAMOND) ||
@@ -226,6 +287,8 @@ export function blockClass(id: number): BlockClass {
     case PEDESTAL_GOLD:
     case DOOR_IRON:
     case FENCE_IRON:
+    case LADDER_STONE:
+    case LADDER_IRON:
       return 'stone';
     case DIRT:
     case GRASS:
@@ -255,11 +318,26 @@ export function blockClass(id: number): BlockClass {
     case CRAFTING_TABLE:
     case CACTUS:
     case CACTUS_PALE:
+    case LADDER_OAK:
+    case LADDER_BIRCH:
+    case LADDER_PALM:
+    case LADDER_RED:
+    case LADDER_BLUE:
+    case LADDER_YELLOW:
+    case LADDER_GREEN:
+    case LADDER_PINK:
+    case LADDER_PURPLE:
+    case LADDER_WHITE:
       return 'wood';
     default:
       return 'other';
   }
 }
+
+/** The deliberately small hand-mining whitelist; every other solid block needs a tool. */
+export const canBreakByHand = (id: number) =>
+  id === DIRT || id === GRASS || id === SNOW_GRASS || id === FARMLAND || id === SAND ||
+  id === CACTUS || id === CACTUS_PALE || isFlower(id) || blockClass(id) === 'wood';
 
 export const T = {
   grassTop: 0,
@@ -454,7 +532,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.coalItem,
     hardness: 1.5,
     score: 45,
-    timeBonus: 1.5,
+    timeBonus: 2,
     solid: false,
     breakable: false,
     drop: 0,
@@ -466,7 +544,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.ironIngot,
     hardness: 1.9,
     score: 110,
-    timeBonus: 2.5,
+    timeBonus: 3.5,
     solid: false,
     breakable: false,
     drop: 0,
@@ -478,7 +556,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.goldIngot,
     hardness: 2.1,
     score: 240,
-    timeBonus: 4,
+    timeBonus: 5,
     solid: false,
     breakable: false,
     drop: 0,
@@ -490,7 +568,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.diamondGem,
     hardness: 2.6,
     score: 620,
-    timeBonus: 7,
+    timeBonus: 9,
     solid: false,
     breakable: false,
     drop: 0,
@@ -619,12 +697,23 @@ export const BLOCKS: BlockDef[] = [
     side: T.netheriteOre,
     hardness: 3.6,
     score: 900,
-    timeBonus: 10,
+    timeBonus: 12,
     drop: NETHERITE,
     tint: [110, 70, 55],
   }),
   d({ id: HONEY, name: 'Honey', side: T.honey, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [244, 180, 60] }),
-  d({ id: NETHERITE, name: 'Netherite Scrap', side: T.netherite, hardness: 1, score: 100, solid: false, breakable: false, drop: 0, tint: [90, 60, 50] }),
+  d({
+    id: NETHERITE,
+    name: 'Netherite Scrap',
+    side: T.netherite,
+    hardness: 1,
+    score: 100,
+    timeBonus: 12,
+    solid: false,
+    breakable: false,
+    drop: 0,
+    tint: [90, 60, 50],
+  }),
   d({ id: WOOL, name: 'Wool', side: T.wool, hardness: 0.4, score: 5, tint: [238, 238, 235] }),
   d({ id: FEATHER, name: 'Feather', side: T.feather, hardness: 1, score: 4, solid: false, breakable: false, drop: 0, tint: [240, 240, 244] }),
   d({ id: TURTLE_SHELL, name: 'Turtle Shell', side: T.turtleShell, hardness: 1, score: 30, solid: false, breakable: false, drop: 0, tint: [77, 140, 90] }),
@@ -708,7 +797,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.coal,
     hardness: 1.5,
     score: 45,
-    timeBonus: 1.5,
+    timeBonus: 2,
     drop: COAL,
     tint: [70, 68, 72],
   }),
@@ -718,7 +807,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.iron,
     hardness: 1.9,
     score: 110,
-    timeBonus: 2.5,
+    timeBonus: 3.5,
     drop: IRON,
     tint: [206, 168, 130],
   }),
@@ -728,7 +817,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.redstoneOre,
     hardness: 2.0,
     score: 160,
-    timeBonus: 3.0,
+    timeBonus: 4,
     drop: REDSTONE,
     tint: [215, 36, 36],
   }),
@@ -738,7 +827,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.gold,
     hardness: 2.1,
     score: 240,
-    timeBonus: 4.0,
+    timeBonus: 5,
     drop: GOLD,
     tint: [250, 214, 92],
   }),
@@ -748,7 +837,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.lapisOre,
     hardness: 2.0,
     score: 190,
-    timeBonus: 3.5,
+    timeBonus: 4.5,
     drop: LAPIS,
     tint: [45, 92, 220],
   }),
@@ -758,7 +847,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.diamond,
     hardness: 2.6,
     score: 620,
-    timeBonus: 7.0,
+    timeBonus: 9,
     drop: DIAMOND,
     tint: [96, 232, 224],
   }),
@@ -768,7 +857,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.emeraldOre,
     hardness: 2.7,
     score: 700,
-    timeBonus: 8.0,
+    timeBonus: 10,
     drop: EMERALD,
     tint: [40, 216, 96],
   }),
@@ -778,7 +867,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.quartzOre,
     hardness: 1.8,
     score: 150,
-    timeBonus: 3.0,
+    timeBonus: 4,
     drop: QUARTZ,
     tint: [236, 226, 216],
   }),
@@ -839,7 +928,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.redstone,
     hardness: 1.0,
     score: 160,
-    timeBonus: 3.0,
+    timeBonus: 4,
     solid: false,
     breakable: false,
     drop: 0,
@@ -851,7 +940,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.lapis,
     hardness: 1.0,
     score: 190,
-    timeBonus: 3.5,
+    timeBonus: 4.5,
     solid: false,
     breakable: false,
     drop: 0,
@@ -863,7 +952,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.emerald,
     hardness: 1.0,
     score: 700,
-    timeBonus: 8.0,
+    timeBonus: 10,
     solid: false,
     breakable: false,
     drop: 0,
@@ -875,7 +964,7 @@ export const BLOCKS: BlockDef[] = [
     side: T.quartz,
     hardness: 1.0,
     score: 150,
-    timeBonus: 3.0,
+    timeBonus: 4,
     solid: false,
     breakable: false,
     drop: 0,
@@ -907,6 +996,18 @@ export const BLOCKS: BlockDef[] = [
   d({ id: CHEST_VOLCANIC_OPEN, name: 'Ember Treasure Chest (open)', side: T.volcanicStone, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [74, 59, 61] }),
   d({ id: CHEST_UNDERWATER_OPEN, name: 'Barnacled Sea Chest (open)', side: T.netherite, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [75, 121, 107] }),
   d({ id: FARMLAND, name: 'Farmland', top: T.farmland, side: T.dirt, bottom: T.dirt, hardness: 0.45, score: 2, drop: DIRT, tint: [116, 79, 54] }),
+  d({ id: LADDER_OAK, name: 'Oak Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [155, 105, 54] }),
+  d({ id: LADDER_BIRCH, name: 'Birch Ladder', side: T.birchLogSide, hardness: 0.35, score: 2, solid: false, tint: [210, 184, 126] }),
+  d({ id: LADDER_PALM, name: 'Palm Ladder', side: T.palmLogSide, hardness: 0.35, score: 2, solid: false, tint: [174, 132, 73] }),
+  d({ id: LADDER_RED, name: 'Red Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [213, 82, 72] }),
+  d({ id: LADDER_BLUE, name: 'Blue Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [93, 145, 223] }),
+  d({ id: LADDER_YELLOW, name: 'Yellow Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [228, 193, 68] }),
+  d({ id: LADDER_GREEN, name: 'Green Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [104, 170, 90] }),
+  d({ id: LADDER_PINK, name: 'Pink Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [225, 134, 177] }),
+  d({ id: LADDER_PURPLE, name: 'Purple Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [158, 112, 210] }),
+  d({ id: LADDER_WHITE, name: 'White Ladder', side: T.planks, hardness: 0.35, score: 2, solid: false, tint: [231, 228, 220] }),
+  d({ id: LADDER_STONE, name: 'Stone Ladder', side: T.cobble, hardness: 0.6, score: 3, solid: false, tint: [157, 165, 172] }),
+  d({ id: LADDER_IRON, name: 'Iron Ladder', side: T.iron, hardness: 0.8, score: 4, solid: false, tint: [194, 209, 215] }),
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
@@ -917,6 +1018,7 @@ export const isCutout = (id: number) =>
   id === FENCE_WOOD ||
   id === FENCE_STONE ||
   id === FENCE_IRON ||
+  isLadder(id) ||
   isLeafId(id);
 
 /** world props the player can interact with E */
@@ -940,9 +1042,9 @@ export const isBreakable = (id: number) => BLOCKS[id]?.breakable ?? false;
 
 export const PICKAXE_TIERS = [
   { name: 'WOOD', speed: 1.0, mult: 1.0, at: 0, color: '#c28b4f' },
-  { name: 'STONE', speed: 1.7, mult: 1.15, at: 250, color: '#aeb9c0' },
-  { name: 'IRON', speed: 2.6, mult: 1.4, at: 1100, color: '#e0e5dc' },
-  { name: 'GOLD', speed: 3.3, mult: 1.3, at: 1800, color: '#f5c548' },
-  { name: 'DIAMOND', speed: 4.0, mult: 1.8, at: 3200, color: '#51e1d2' },
-  { name: 'NETHERITE', speed: 4.8, mult: 2.1, at: 5400, color: '#ff7045' },
+  { name: 'STONE', speed: 1.4, mult: 1.12, at: 250, color: '#aeb9c0' },
+  { name: 'IRON', speed: 1.9, mult: 1.28, at: 1100, color: '#e0e5dc' },
+  { name: 'GOLD', speed: 2.25, mult: 1.2, at: 1800, color: '#f5c548' },
+  { name: 'DIAMOND', speed: 2.65, mult: 1.55, at: 3200, color: '#51e1d2' },
+  { name: 'NETHERITE', speed: 3.0, mult: 1.8, at: 5400, color: '#ff7045' },
 ] as const;

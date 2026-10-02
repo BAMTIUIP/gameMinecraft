@@ -74,6 +74,69 @@ const Row = ({ k, v, accent }: { k: React.ReactNode; v: React.ReactNode; accent?
   </div>
 );
 
+type ShopCategory = 'diamonds' | 'pets' | 'gear' | 'drops' | 'boosters' | 'skins';
+type ShopFilter = 'all' | ShopCategory;
+type ShopProduct = {
+  id: string;
+  category: ShopCategory;
+  titleKey: TKey;
+  descriptionKey: TKey;
+  icon: string;
+  accent: string;
+  diamondAmount?: number;
+  rubles?: number;
+  diamondCost?: number;
+  freeDrop?: boolean;
+  badgeKey?: TKey;
+  rarityKey?: TKey;
+  anyMode?: boolean;
+  accountBound?: boolean;
+};
+
+const SHOP_TABS: ReadonlyArray<{ id: ShopFilter; labelKey: TKey }> = [
+  { id: 'all', labelKey: 'shopTabAll' },
+  { id: 'diamonds', labelKey: 'shopTabDiamonds' },
+  { id: 'pets', labelKey: 'shopTabPets' },
+  { id: 'gear', labelKey: 'shopTabGear' },
+  { id: 'drops', labelKey: 'shopTabDrops' },
+  { id: 'boosters', labelKey: 'shopTabBoosters' },
+  { id: 'skins', labelKey: 'shopTabSkins' },
+];
+
+const SHOP_PRODUCTS: readonly ShopProduct[] = [
+  { id: 'diamonds-100', category: 'diamonds', titleKey: 'shopPack100Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 100, rubles: 99 },
+  { id: 'diamonds-599', category: 'diamonds', titleKey: 'shopPack599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 599, rubles: 499 },
+  { id: 'diamonds-1599', category: 'diamonds', titleKey: 'shopPack1599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 1599, rubles: 999, rarityKey: 'shopRarityRare' },
+  { id: 'diamonds-5999', category: 'diamonds', titleKey: 'shopPack5999Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#b895ff', diamondAmount: 5999, rubles: 1999, rarityKey: 'shopRarityEpic' },
+
+  { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#e7a84b', diamondCost: 79, anyMode: true },
+  { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '🦉', accent: '#b895ff', diamondCost: 399, anyMode: true, rarityKey: 'shopRarityRare' },
+  { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#c98b5b', diamondCost: 99, anyMode: true },
+  { id: 'pet-capybara', category: 'pets', titleKey: 'shopPetCapybaraTitle', descriptionKey: 'shopPetCapybaraDesc', icon: '🦫', accent: '#c98b5b', diamondCost: 499, anyMode: true, rarityKey: 'shopRarityRare' },
+  { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#9ca9ba', diamondCost: 899, anyMode: true, rarityKey: 'shopRarityEpic' },
+
+  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
+  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
+  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
+  { id: 'diamond-pickaxe', category: 'gear', titleKey: 'shopDiamondPickaxeTitle', descriptionKey: 'shopDiamondPickaxeDesc', icon: '⛏', accent: '#62e8dc', diamondCost: 2999, rarityKey: 'shopRarityLegendary' },
+  { id: 'diamond-armor', category: 'gear', titleKey: 'shopDiamondArmorTitle', descriptionKey: 'shopDiamondArmorDesc', icon: '🛡', accent: '#62e8dc', diamondCost: 4999, rarityKey: 'shopRarityLegendary' },
+
+  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '🎁', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
+  { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
+  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '🎁', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
+  { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', badgeKey: 'shopWeekly', rarityKey: 'shopRarityCommon' },
+  { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', badgeKey: 'shopWeekly', rarityKey: 'shopRarityRare' },
+  { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', badgeKey: 'shopWeekly', rarityKey: 'shopRarityEpic' },
+
+  { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', accountBound: true },
+  { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', accountBound: true },
+  { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', accountBound: true },
+
+  { id: 'skin-miner', category: 'skins', titleKey: 'shopSkinMinerTitle', descriptionKey: 'shopSkinMinerDesc', icon: '♟', accent: '#e7a84b' },
+  { id: 'skin-arctic', category: 'skins', titleKey: 'shopSkinArcticTitle', descriptionKey: 'shopSkinArcticDesc', icon: '♟', accent: '#62e8dc' },
+  { id: 'skin-nomad', category: 'skins', titleKey: 'shopSkinNomadTitle', descriptionKey: 'shopSkinNomadDesc', icon: '♟', accent: '#b895ff' },
+];
+
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
   return (
     <div className="sunken notch overflow-hidden">
@@ -143,77 +206,11 @@ export function LoadingScreen({ progress }: { progress: number }) {
   );
 }
 
-/* ---------------- session dropdown ---------------- */
-function SessionDropdown({
-  sessions,
-  sessionId,
-  onSession,
-}: {
-  sessions: ReadonlyArray<{ id: string; labelKey: TKey; time: number; sub: string; accent: string }>;
-  sessionId: string;
-  onSession: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const cur = sessions.find((s) => s.id === sessionId) ?? sessions[0];
-  return (
-    <div className="relative w-64">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="notch flex w-full items-center justify-between px-4 py-3 transition-all duration-150 hover:brightness-125"
-        style={{
-          background: `linear-gradient(180deg, ${cur.accent}26, rgba(10,14,12,.94))`,
-          border: `3px solid ${cur.accent}`,
-          boxShadow: `0 0 18px ${cur.accent}30`,
-        }}
-      >
-        <span className="flex items-baseline gap-2.5">
-          <span className="font-display text-2xl leading-none tabular-nums" style={{ color: cur.accent }}>
-            {fmtMinutes(cur.time)}
-          </span>
-          <span className="font-display text-[10px] tracking-widest text-white/55">{t(cur.labelKey)}</span>
-        </span>
-        <svg viewBox="0 0 12 8" width="14" height="9" className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
-          <path d="M1 1l5 5 5-5" fill="none" stroke={cur.accent} strokeWidth="2.4" />
-        </svg>
-      </button>
-
-      {open && (
-        <div className="anim-pop absolute left-0 right-0 top-full z-40 mt-1.5 overflow-hidden bevel notch">
-          {sessions.map((s) => {
-            const on = s.id === sessionId;
-            return (
-              <button
-                key={s.id}
-                onClick={() => {
-                  onSession(s.id);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors ${
-                  on ? '' : 'hover:bg-white/5'
-                }`}
-                style={{ background: on ? `${s.accent}22` : undefined, borderLeft: `4px solid ${on ? s.accent : 'transparent'}` }}
-              >
-                <span className="font-display text-lg leading-none tabular-nums" style={{ color: s.accent }}>
-                  {fmtMinutes(s.time)}
-                </span>
-                <span className="font-display text-[10px] tracking-widest text-white/45">{t(s.labelKey)}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* =============================== START =============================== */
 export function StartScreen({
   scores,
   onPlay,
   onNewWorld,
-  sessions,
-  sessionId,
-  onSession,
   music,
   onMusic,
   muted,
@@ -232,9 +229,6 @@ export function StartScreen({
   scores: ScoreEntry[];
   onPlay: () => void;
   onNewWorld: () => void;
-  sessions: ReadonlyArray<{ id: string; labelKey: TKey; time: number; sub: string; accent: string }>;
-  sessionId: string;
-  onSession: (id: string) => void;
   music: boolean;
   onMusic: () => void;
   muted: boolean;
@@ -250,265 +244,465 @@ export function StartScreen({
   onCreateWorld: () => void;
   onContinueWorld: () => void;
 }) {
-  const [showHelp, setShowHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showShop, setShowShop] = useState(false);
+  const [shopTab, setShopTab] = useState<ShopFilter>('all');
+  const filteredShopProducts = shopTab === 'all'
+    ? SHOP_PRODUCTS
+    : SHOP_PRODUCTS.filter((product) => product.category === shopTab);
+  const modes = [
+    { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
+    { id: 'explorer', on: false, label: t('explorer'), sub: t('explorerSub'), accent: '#5fe8dc', icon: '✦' },
+  ];
+
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(100deg,rgba(6,10,9,.94)_0%,rgba(6,10,9,.82)_38%,rgba(6,10,9,.35)_68%,rgba(6,10,9,.55)_100%)]" />
-      <div className="pointer-events-none absolute inset-0 grain opacity-40" />
+    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,rgba(38,55,43,.52)_0%,rgba(6,10,9,.88)_58%,rgba(4,7,6,.97)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 grain opacity-35" />
 
-      <div className="relative flex min-h-full flex-col gap-6 p-4 sm:p-7 lg:flex-row lg:items-stretch lg:justify-between lg:gap-10">
-        {/* ---- left: identity + CTA ---- */}
-        <div className="pointer-events-auto flex max-w-xl flex-col justify-center">
-          <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold tracking-[0.42em] text-torch/80">
-            <span className="h-px w-8 bg-torch/60" />
-            {t('tagline')}
-          </div>
-
-          <h1 className="font-display leading-[0.82]">
-            <span className="block text-[clamp(3.4rem,13vw,8.5rem)] text-transparent text-outline" style={{ WebkitTextStroke: '3px #f4b942' }}>
-              ORE
-            </span>
-            <span
-              className="anim-flicker -mt-2 block text-[clamp(3.4rem,13vw,8.5rem)] text-torch text-shadow-hard sm:-mt-4"
-              style={{ textShadow: '0 0 44px rgba(244,185,66,.45), 5px 5px 0 #05080a' }}
-            >
-              RUSH
-            </span>
-          </h1>
-
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-white/65 sm:text-base">{t('intro')}</p>
-
-          {/* ---- shift length: dropdown (explorer only; survival is endless) ---- */}
-          {!survival && (
-            <div className="mt-5">
-              <div className="mb-2 flex items-center gap-2 text-[10px] tracking-[0.3em] text-white/40">
-                <ClockIcon size={12} className="text-torch" /> {t('shiftLength')}
-              </div>
-              <SessionDropdown sessions={sessions} sessionId={sessionId} onSession={onSession} />
+      <div className="relative mx-auto flex min-h-full w-full max-w-[1600px] items-center justify-center px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
+        <div className="grid w-full grid-cols-1 items-center gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] xl:gap-10">
+          {/* Centered title and primary choices */}
+          <main className="pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col items-center text-center">
+            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.38em] text-torch/80 sm:text-[11px] sm:tracking-[0.46em]">
+              <span className="h-px w-7 bg-torch/60 sm:w-10" />
+              {t('tagline')}
+              <span className="h-px w-7 bg-torch/60 sm:w-10" />
             </div>
-          )}
 
-          {/* ---- game mode ---- */}
-          <div className="mt-4">
-            <div className="mb-2 flex items-center gap-2 text-[10px] tracking-[0.3em] text-white/40">
-              <CubeIcon size={12} className="text-torch" /> {t('mode')}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
-                { on: false, label: t('explorer'), sub: t('explorerSub'), accent: '#5fe8dc', icon: '✦' },
-              ].map((m) => {
-                const sel = m.on === survival;
-                return (
-                  <button
-                    key={m.label}
-                    onClick={() => onMode(m.on)}
-                    className={`notch flex-1 px-3.5 py-2.5 text-left transition-all duration-150 ${
-                      sel ? '-translate-y-0.5' : 'hover:-translate-y-0.5 hover:brightness-125'
-                    }`}
-                    style={{
-                      minWidth: 150,
-                      background: sel
-                        ? `linear-gradient(180deg, ${m.accent}2e, rgba(10,14,12,.92))`
-                        : 'linear-gradient(180deg,#1b241f,#101713)',
-                      border: `3px solid ${sel ? m.accent : '#06090a'}`,
-                      boxShadow: sel
-                        ? `inset 2px 2px 0 rgba(255,255,255,.12), 0 0 20px ${m.accent}38`
-                        : 'inset 2px 2px 0 rgba(255,255,255,.06), inset -2px -2px 0 rgba(0,0,0,.45)',
-                    }}
-                  >
-                    <div className="font-display text-lg leading-none" style={{ color: sel ? m.accent : '#dbe3dc' }}>
-                      {m.icon} {m.label}
-                    </div>
-                    <div className="mt-1 text-[10px] leading-tight" style={{ color: sel ? `${m.accent}bb` : '#6c7b71' }}>
-                      {m.sub}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ---- language ---- */}
-          <div className="mt-4">
-            <div className="mb-2 text-[10px] tracking-[0.3em] text-white/40">{t('language')}</div>
-            <div className="flex gap-2">
-              {LANGS.map((l) => {
-                const sel = l.id === lang;
-                return (
-                  <button
-                    key={l.id}
-                    onClick={() => onLang(l.id)}
-                    className={`notch flex items-center gap-2 px-3 py-2 font-display text-xs tracking-widest transition-all duration-150 hover:-translate-y-0.5 ${
-                      sel ? 'text-pit-950' : 'text-white/45'
-                    }`}
-                    style={{
-                      background: sel ? 'linear-gradient(180deg,#f4d07a,#c99a2e)' : 'linear-gradient(180deg,#1b241f,#101713)',
-                      border: `3px solid ${sel ? '#f4b942' : '#06090a'}`,
-                      boxShadow: sel ? '0 0 16px rgba(244,185,66,.3)' : 'inset 2px 2px 0 rgba(255,255,255,.05)',
-                    }}
-                  >
-                    <span className="text-sm">{l.flag}</span>
-                    {l.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ---- options ---- */}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Toggle on={music} onClick={onMusic} icon={<MusicIcon off={!music} size={14} />} label={music ? t('musicOn') : t('musicOff')} />
-            <Toggle on={!muted} onClick={onMute} icon={<SoundIcon muted={muted} size={14} />} label={muted ? t('sfxOff') : t('sfxOn')} />
-            {!isTouch && (
-              <Toggle
-                on={freeLook}
-                onClick={onFreeLook}
-                icon={<EyeIcon size={14} />}
-                label={freeLook ? t('freeLookOn') : t('freeLookOff')}
-              />
-            )}
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <button
-              onClick={onPlay}
-              className="btn-mc notch flex items-center gap-3 bg-gradient-to-b from-moss to-[#4d8c31] px-8 py-4 text-2xl text-pit-950 sm:text-3xl"
-            >
-              <PlayIcon size={22} />
-              {t('play')}
-            </button>
-            <button
-              onClick={() => setShowHelp((v) => !v)}
-              className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-5 py-4 text-base text-white/85"
-            >
-              {showHelp ? t('hideControls') : t('controls')}
-            </button>
-            <button
-              onClick={onNewWorld}
-              className="btn-mc notch bg-gradient-to-b from-copper to-[#7d4522] px-5 py-4 text-base text-pit-950"
-            >
-              {t('newWorld')}
-            </button>
-          </div>
-
-          {/* ---- my world: sandbox без таймера ---- */}
-          <div className="bevel-flat notch mt-5 p-3">
-            <div className="mb-1 flex items-center gap-2 font-display text-sm tracking-widest text-[#8fb8ff]">
-              ∞ {t('myWorld')}
-            </div>
-            <div className="mb-2.5 text-[11px] leading-relaxed text-white/45">{t('myWorldSub')}</div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={onCreateWorld}
-                className="btn-mc notch bg-gradient-to-b from-[#5e8cff] to-[#3a5cb0] px-5 py-3 text-base text-pit-950"
+            <h1 className="font-display leading-[0.8]">
+              <span className="block text-[clamp(3.4rem,10vw,7.5rem)] text-transparent" style={{ WebkitTextStroke: '3px #f4b942' }}>
+                ORE
+              </span>
+              <span
+                className="anim-flicker -mt-1 block text-[clamp(3.4rem,10vw,7.5rem)] text-torch sm:-mt-3"
+                style={{ textShadow: '0 0 44px rgba(244,185,66,.42), 5px 5px 0 #05080a' }}
               >
-                {t('createWorld')}
-              </button>
-              {hasSave && (
-                <button
-                  onClick={onContinueWorld}
-                  className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-5 py-3 text-base text-white/85"
-                >
-                  {t('continueWorld')}
-                </button>
-              )}
-            </div>
-          </div>
+                RUSH
+              </span>
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/75 sm:mt-4 sm:text-base lg:text-lg">{t('intro')}</p>
 
-          {showHelp && (
-            <div className="bevel notch anim-rise mt-5 grid gap-4 p-4 sm:grid-cols-2">
-              <div>
-                <div className="mb-2 font-display text-xs tracking-widest text-torch">{t('keyboard')}</div>
-                <div className="space-y-1.5">
-                  <Row k={<><Key>W</Key><Key>A</Key><Key>S</Key><Key>D</Key></>} v={t('move')} />
-                  <Row k={<Key>SPACE</Key>} v={t('jump')} />
-                  <Row k={<Key wide>SHIFT</Key>} v={t('sprint')} />
-                  <Row k={<Key wide>LMB</Key>} v={t('mineHold')} />
-                  <Row k={<Key wide>RMB</Key>} v={t('placeBlock')} />
-                  <Row k={<><Key>1</Key>–<Key>9</Key></>} v={t('selectSlot')} />
-                  <Row k={<Key>I</Key>} v={t('bag')} />
-                  <Row k={<Key>ESC</Key>} v={t('pause')} />
-                </div>
-                <div className="mt-3 border-t border-white/10 pt-2 text-[11px] leading-relaxed text-white/45">
-                  {t('lockNote')}
-                </div>
+            {/* Mode selection and fresh-world generation stay together as the main menu's first action row. */}
+            <section className="mt-5 w-full max-w-[900px]" aria-label={t('mode')}>
+              <div className="mb-2 flex items-center justify-center gap-2 text-[10px] tracking-[0.28em] text-white/50 sm:text-[11px] sm:tracking-[0.34em]">
+                <CubeIcon size={13} className="text-torch" /> {t('mode')}
               </div>
-              <div>
-                <div className="mb-2 font-display text-xs tracking-widest text-torch">{t('touch')}</div>
-                <div className="space-y-1.5">
-                  <Row k={<Key wide>◉</Key>} v={t('stickMove')} />
-                  <Row k={<Key wide>⇄</Key>} v={t('dragLook')} />
-                  <Row k={<Key wide>⛏</Key>} v={t('holdDig')} />
-                  <Row k={<Key wide>▲</Key>} v={t('hopBlock')} />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ---- right: records + ore guide ---- */}
-        <div className="pointer-events-auto flex w-full max-w-sm flex-col gap-4 lg:w-[340px]">
-          <ScoreTable scores={scores} />
-          <div className="bevel-flat notch p-3">
-            <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
-              <BagIcon size={13} /> {t('guideTitle')} <span className="text-white/30">· {t('guideSub')}</span>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {[
-                { n: 'STONE', c: '#9aa0a6', ing: [[4, 3], [12, 2]] },
-                { n: 'IRON', c: '#e6c39a', ing: [[6, 3], [12, 2]] },
-                { n: 'DIAMOND', c: '#5fe8dc', ing: [[8, 3], [12, 2]] },
-              ].map((p) => (
-                <div key={p.n} className="flex items-center gap-2">
-                  <PickIcon size={15} style={{ color: p.c }} />
-                  <span className="w-16 font-display text-[11px]" style={{ color: p.c }}>
-                    {matName(p.n)}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    {p.ing.map(([id, n]) => (
-                      <span key={id} className="flex items-center gap-0.5">
-                        <img src={getBlockIcon(id)} alt="" className="pixelated h-5 w-5" draggable={false} />
-                        <span className="font-display text-[10px] text-white/50">×{n}</span>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+                {modes.map((m) => {
+                  const selected = m.on === survival;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => onMode(m.on)}
+                      className="notch flex min-h-[5.3rem] flex-col items-center justify-center px-2 py-2.5 transition-all duration-150 hover:-translate-y-0.5 hover:brightness-125 sm:min-h-[6.4rem] sm:px-3"
+                      style={{
+                        background: selected
+                          ? `linear-gradient(180deg, ${m.accent}32, rgba(10,14,12,.96))`
+                          : 'linear-gradient(180deg,#1b241f,#101713)',
+                        border: `3px solid ${selected ? m.accent : '#06090a'}`,
+                        boxShadow: selected
+                          ? `inset 2px 2px 0 rgba(255,255,255,.12), 0 0 20px ${m.accent}35`
+                          : 'inset 2px 2px 0 rgba(255,255,255,.06), inset -2px -2px 0 rgba(0,0,0,.45)',
+                      }}
+                    >
+                      <span className="font-display text-base leading-tight sm:text-xl" style={{ color: selected ? m.accent : '#dbe3dc' }}>
+                        <span className="mr-1.5">{m.icon}</span>{m.label}
                       </span>
-                    ))}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 border-t border-white/10 pt-1.5 text-[10px] leading-relaxed text-white/40">
-              {t('guideMore')}
-            </div>
-          </div>
+                      <span className="mt-1 text-[10px] leading-snug sm:text-xs" style={{ color: selected ? `${m.accent}bb` : '#819087' }}>
+                        {m.sub}
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={onNewWorld}
+                  className="notch col-span-2 flex min-h-[4.5rem] items-center justify-center gap-2.5 bg-gradient-to-b from-copper to-[#7d4522] px-3 py-2.5 text-pit-950 transition-all duration-150 hover:-translate-y-0.5 hover:brightness-110 sm:col-span-1 sm:min-h-[6.4rem] sm:flex-col sm:gap-1.5"
+                >
+                  <span className="font-display text-xl leading-none sm:text-2xl">↻</span>
+                  <span className="font-display text-xs leading-tight sm:text-sm">{t('generateWorld')}</span>
+                </button>
+              </div>
+            </section>
 
-          <div className="bevel-flat notch p-3">
-            <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-white/60">
-              <PickIcon size={13} className="text-copper" /> {t('oreTableTitle')}
+            {/* Custom world is deliberately directly beneath the mode/world choices. */}
+            <section className="bevel-flat notch mt-3 flex w-full max-w-[900px] flex-col items-center gap-2.5 p-3 sm:flex-row sm:justify-between sm:gap-4 sm:px-4">
+              <div className="min-w-0 text-center sm:text-left">
+                <div className="font-display text-xs tracking-[0.13em] text-[#9dbdff] sm:text-sm sm:tracking-widest">
+                  ∞ {t('createYourWorld')}
+                </div>
+                <div className="mt-1 text-xs leading-relaxed text-white/55 sm:text-sm">{t('myWorldSub')}</div>
+              </div>
+              <div className="flex shrink-0 flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={onCreateWorld}
+                  className="btn-mc notch bg-gradient-to-b from-[#6d95ff] to-[#3a5cb0] px-4 py-2.5 text-xs text-pit-950 sm:px-5 sm:py-3 sm:text-sm"
+                >
+                  {t('createWorld')}
+                </button>
+                {hasSave && (
+                  <button
+                    type="button"
+                    onClick={onContinueWorld}
+                    className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-4 py-2.5 text-xs text-white/85 sm:px-5 sm:py-3 sm:text-sm"
+                  >
+                    {t('continueWorld')}
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <div className="mt-4 grid w-full max-w-[900px] grid-cols-3 items-stretch gap-1.5 sm:mt-5 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShopTab('all');
+                  setShowShop(true);
+                }}
+                className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
+              >
+                <span aria-hidden="true" className="font-display text-lg leading-none text-[#62e8dc] sm:text-xl">◆</span>
+                <span>{t('shop')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onPlay}
+                className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-moss to-[#4d8c31] px-2 py-3 text-sm text-pit-950 sm:gap-2.5 sm:px-6 sm:py-3.5 sm:text-2xl"
+              >
+                <PlayIcon size={20} /> {t('play')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-pit-500 to-pit-700 px-1.5 py-3 text-[10px] text-white/85 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
+              >
+                <span aria-hidden="true" className="text-base leading-none sm:text-lg">⚙</span> {t('settings')}
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-              {[5, 6, 7, 8, 3, 9].map((id) => (
-                <div key={id} className="flex items-center gap-2">
-                  <img src={getBlockIcon(id)} alt="" className="pixelated h-7 w-7" draggable={false} />
-                  <div className="leading-tight">
-                    <div className="font-display text-[11px] text-white/80">{blockName(id, BLOCK_LABEL[id])}</div>
-                    <div className="font-display text-[10px] text-torch">
-                      {BLOCK_SCORE[id]} {t('pts')} · +{BLOCK_TIME[id]}
-                      {t('secShort')}
+          </main>
+
+          {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
+          <aside className="pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
+            <ScoreTable scores={scores} />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
+              <div className="bevel-flat notch p-3">
+                <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
+                  <BagIcon size={13} /> {t('guideTitle')} <span className="text-white/30">· {t('guideSub')}</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {[
+                    { n: 'STONE', c: '#9aa0a6', ing: [[4, 3], [12, 2]] },
+                    { n: 'IRON', c: '#e6c39a', ing: [[6, 3], [12, 2]] },
+                    { n: 'DIAMOND', c: '#5fe8dc', ing: [[8, 3], [12, 2]] },
+                  ].map((p) => (
+                    <div key={p.n} className="flex items-center gap-2">
+                      <PickIcon size={15} style={{ color: p.c }} />
+                      <span className="w-16 font-display text-[11px]" style={{ color: p.c }}>
+                        {matName(p.n)}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        {p.ing.map(([id, count]) => (
+                          <span key={id} className="flex items-center gap-0.5">
+                            <img src={getBlockIcon(id)} alt="" className="pixelated h-5 w-5" draggable={false} />
+                            <span className="font-display text-[10px] text-white/50">×{count}</span>
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 border-t border-white/10 pt-1.5 text-[10px] leading-relaxed text-white/40">
+                  {t('guideMore')}
+                </div>
+              </div>
+
+              <div className="bevel-flat notch p-3">
+                <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-white/60">
+                  <PickIcon size={13} className="text-copper" /> {t('oreTableTitle')}
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  {[5, 6, 7, 8, 3, 9].map((id) => (
+                    <div key={id} className="flex items-center gap-2">
+                      <img src={getBlockIcon(id)} alt="" className="pixelated h-7 w-7" draggable={false} />
+                      <div className="leading-tight">
+                        <div className="font-display text-[11px] text-white/80">{blockName(id, BLOCK_LABEL[id])}</div>
+                        <div className="font-display text-[10px] text-torch">
+                          {BLOCK_SCORE[id]} {t('pts')} · +{BLOCK_TIME[id]}{t('secShort')}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      {showShop && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shop-title"
+            className="bevel notch my-auto flex max-h-[94vh] w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
+          >
+            <header className="flex shrink-0 items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-[#15242b] via-[#182229] to-[#241c32] p-3 sm:gap-4 sm:p-5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#62e8dc]/45 bg-[#62e8dc]/10 font-display text-2xl text-[#62e8dc] sm:h-14 sm:w-14 sm:text-3xl">
+                ◆
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{t('shop')}</h2>
+                <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{t('shopSubtitle')}</p>
+              </div>
+              <div className="hidden min-w-28 border border-[#62e8dc]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
+                <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopDemoBalance')}</div>
+                <div className="font-display text-lg leading-tight text-[#62e8dc]">◆ 0</div>
+                <div className="text-[8px] text-white/35">{t('shopBalance')}</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 border border-[#62e8dc]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#62e8dc] sm:hidden">◆ 0</div>
+              <button
+                type="button"
+                aria-label={t('close')}
+                onClick={() => setShowShop(false)}
+                className="btn-mc notch flex h-9 shrink-0 items-center justify-center bg-gradient-to-b from-pit-500 to-pit-700 px-3 text-sm text-white/85 sm:h-11 sm:px-4 sm:text-base"
+              >
+                × <span className="ml-1 hidden sm:inline">{t('close')}</span>
+              </button>
+            </header>
+
+            <div className="mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
+              <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
+                <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">{t('shopMockNotice')}</p>
+              </div>
+              <span className="shrink-0 border border-white/10 bg-black/20 px-1.5 py-1 font-display text-[8px] tracking-widest text-white/45 sm:px-2 sm:text-[9px]">
+                {t('shopMockBadge')}
+              </span>
+            </div>
+
+            <nav aria-label={t('shop')} className="shop-tabs mt-2 flex shrink-0 gap-1.5 overflow-x-auto px-2 pb-1 sm:mt-3 sm:gap-2 sm:px-4">
+              {SHOP_TABS.map((tab) => {
+                const selected = shopTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setShopTab(tab.id)}
+                    className={`notch shrink-0 px-2.5 py-2 font-display text-[9px] tracking-wide transition-all sm:px-3.5 sm:text-[10px] ${selected ? 'text-[#071012]' : 'bg-[#151d21] text-white/55 hover:text-white/85'}`}
+                    style={selected ? { background: 'linear-gradient(180deg,#83eee3,#43bbb5)', border: '3px solid #62e8dc', boxShadow: '0 0 14px rgba(98,232,220,.2)' } : { border: '3px solid #06090a' }}
+                  >
+                    {t(tab.labelKey)}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {shopTab === 'boosters' && (
+              <div className="mx-2 mt-1 flex shrink-0 items-start gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.06] px-2.5 py-2 text-[10px] leading-snug text-white/65 sm:mx-4 sm:text-xs">
+                <span className="text-[#f4b942]">⚡</span>{t('shopBoosterInfo')}
+              </div>
+            )}
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
+                {filteredShopProducts.map((product) => {
+                  const priceLabel = product.diamondAmount !== undefined
+                    ? `${product.diamondAmount.toLocaleString()} ◆`
+                    : product.diamondCost !== undefined
+                      ? `${product.diamondCost.toLocaleString()} ◆`
+                      : product.freeDrop
+                        ? t('shopFree')
+                        : t('shopPriceSoon');
+                  return (
+                    <article
+                      key={product.id}
+                      className="flex min-h-[220px] flex-col border bg-gradient-to-b from-[#172126] to-[#0c1215] p-2.5 shadow-[0_6px_18px_rgba(0,0,0,.24)] sm:min-h-[235px] sm:p-3"
+                      style={{ borderColor: `${product.accent}45` }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-wrap gap-1">
+                          {product.rarityKey && (
+                            <span className="border border-white/10 bg-black/25 px-1.5 py-1 font-display text-[8px] tracking-wide sm:text-[9px]" style={{ color: product.accent }}>
+                              {t(product.rarityKey)}
+                            </span>
+                          )}
+                          {product.badgeKey && (
+                            <span className="border border-white/10 bg-black/25 px-1.5 py-1 font-display text-[8px] tracking-wide text-white/50 sm:text-[9px]">
+                              {t(product.badgeKey)}
+                            </span>
+                          )}
+                          {product.anyMode && (
+                            <span className="border border-[#93c95d]/25 bg-[#93c95d]/[0.06] px-1.5 py-1 font-display text-[8px] tracking-wide text-[#a8d78a] sm:text-[9px]">
+                              {t('shopAnyMode')}
+                            </span>
+                          )}
+                          {product.accountBound && (
+                            <span className="border border-[#f4b942]/25 bg-[#f4b942]/[0.06] px-1.5 py-1 font-display text-[8px] tracking-wide text-[#f4cb75] sm:text-[9px]">
+                              {t('shopAccountBound')}
+                            </span>
+                          )}
+                        </div>
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/10 bg-black/20 font-display text-xl sm:h-10 sm:w-10 sm:text-2xl" style={{ color: product.accent }}>
+                          {product.icon}
+                        </span>
+                      </div>
+
+                      <h3 className="mt-2 font-display text-sm leading-tight text-white sm:text-base">{t(product.titleKey)}</h3>
+                      {product.diamondAmount !== undefined && (
+                        <div className="mt-1 font-display text-lg leading-none text-[#62e8dc] sm:text-xl">
+                          {product.diamondAmount.toLocaleString()} <span className="text-xs">◆ {t('shopBalance')}</span>
+                        </div>
+                      )}
+                      <p className="mt-1.5 flex-1 text-[10px] leading-relaxed text-white/55 sm:text-[11px]">{t(product.descriptionKey)}</p>
+
+                      <div className="mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
+                        <div>
+                          <div className="font-display text-sm leading-tight" style={{ color: product.accent }}>{priceLabel}</div>
+                          {product.rubles !== undefined && (
+                            <div className="mt-0.5 font-display text-xs text-white/65">{product.rubles} ₽</div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled
+                          title={t('shopMockNotice')}
+                          className="notch shrink-0 cursor-not-allowed border-[3px] border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] px-2.5 py-2 font-display text-[9px] tracking-wide text-white/45 opacity-80 sm:px-3 sm:text-[10px]"
+                        >
+                          {t('shopSoon')}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+
+            <footer className="shrink-0 border-t border-white/10 bg-black/25 px-3 py-2 text-center text-[9px] leading-snug text-white/35 sm:px-4 sm:py-2.5 sm:text-[10px]">
+              {t('shopMockNotice')}
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-pit-950/85 px-3 py-4 backdrop-blur-sm sm:px-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            className="bevel notch my-auto max-h-[92vh] w-[min(94vw,720px)] overflow-y-auto p-4 shadow-[0_16px_60px_rgba(0,0,0,.7)] sm:p-6"
+          >
+            <header className="mb-5 flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <h2 id="settings-title" className="flex items-center gap-2 font-display text-2xl text-torch sm:text-3xl">
+                <span aria-hidden="true">⚙</span> {t('settings')}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowSettings(false)}
+                className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2 text-xs text-white/85 sm:px-4 sm:text-sm"
+              >
+                × {t('close')}
+              </button>
+            </header>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('language')}</div>
+                <div className="flex flex-wrap gap-2">
+                  {LANGS.map((l) => {
+                    const selected = l.id === lang;
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => onLang(l.id)}
+                        className={`notch flex items-center gap-1.5 px-2.5 py-2 font-display text-[10px] tracking-wide transition-all hover:-translate-y-0.5 sm:px-3 sm:text-xs ${selected ? 'text-pit-950' : 'text-white/55'}`}
+                        style={{
+                          background: selected ? 'linear-gradient(180deg,#f4d07a,#c99a2e)' : 'linear-gradient(180deg,#1b241f,#101713)',
+                          border: `3px solid ${selected ? '#f4b942' : '#06090a'}`,
+                        }}
+                      >
+                        <span className="text-sm">{l.flag}</span>{l.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('settings')}</div>
+                <div className="flex flex-wrap gap-2">
+                  <Toggle on={music} onClick={onMusic} icon={<MusicIcon off={!music} size={14} />} label={music ? t('musicOn') : t('musicOff')} />
+                  <Toggle on={!muted} onClick={onMute} icon={<SoundIcon muted={muted} size={14} />} label={muted ? t('sfxOff') : t('sfxOn')} />
+                  {!isTouch && (
+                    <Toggle
+                      on={freeLook}
+                      onClick={onFreeLook}
+                      icon={<EyeIcon size={14} />}
+                      label={freeLook ? t('freeLookOn') : t('freeLookOff')}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="sm:col-span-2">
+                <div className="mb-2 font-display text-[10px] tracking-[0.3em] text-white/45">{t('controls')}</div>
+                <div className="grid gap-4 rounded-sm border border-white/10 bg-black/20 p-3 sm:grid-cols-2 sm:p-4">
+                  <div>
+                    <div className="mb-2 font-display text-xs tracking-widest text-torch">{t('keyboard')}</div>
+                    <div className="space-y-1.5">
+                      <Row k={<><Key>W</Key><Key>A</Key><Key>S</Key><Key>D</Key></>} v={t('move')} />
+                      <Row k={<Key>V</Key>} v={t('togglePerspective')} />
+                      <Row k={<Key>SPACE</Key>} v={t('jump')} />
+                      <Row k={<Key wide>SHIFT</Key>} v={t('sprint')} />
+                      <Row k={<Key wide>LMB</Key>} v={t('mineHold')} />
+                      <Row k={<Key wide>RMB</Key>} v={t('placeBlock')} />
+                      <Row k={<><Key>1</Key>–<Key>9</Key></>} v={t('selectSlot')} />
+                      <Row k={<Key>I</Key>} v={t('bag')} />
+                      <Row k={<Key>ESC</Key>} v={t('pause')} />
+                    </div>
+                    <div className="mt-3 border-t border-white/10 pt-2 text-[11px] leading-relaxed text-white/45">{t('lockNote')}</div>
+                  </div>
+                  <div>
+                    <div className="mb-2 font-display text-xs tracking-widest text-torch">{t('touch')}</div>
+                    <div className="space-y-1.5">
+                      <Row k={<Key wide>◉</Key>} v={t('stickMove')} />
+                      <Row k={<Key wide>⇄</Key>} v={t('dragLook')} />
+                      <Row k={<Key wide>⛏</Key>} v={t('holdDig')} />
+                      <Row k={<Key wide>▲</Key>} v={t('hopBlock')} />
                     </div>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
+
+            <div className="mt-5 flex justify-end border-t border-white/10 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowSettings(false)}
+                className="btn-mc notch bg-gradient-to-b from-moss to-[#4d8c31] px-5 py-2.5 font-display text-sm text-pit-950"
+              >
+                {t('close')}
+              </button>
+            </div>
+          </section>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 const BLOCK_LABEL: Record<number, string> = { 3: 'Stone', 5: 'Coal', 6: 'Iron', 7: 'Gold', 8: 'Diamond', 9: 'Oak Log' };
 const BLOCK_SCORE: Record<number, string> = { 3: '6', 5: '45', 6: '110', 7: '240', 8: '620', 9: '14' };
-const BLOCK_TIME: Record<number, string> = { 3: '0', 5: '1.5', 6: '2.5', 7: '4', 8: '7', 9: '0' };
+const BLOCK_TIME: Record<number, string> = { 3: '0', 5: '2', 6: '3.5', 7: '5', 8: '9', 9: '0' };
 
 /* =============================== PAUSE =============================== */
 export function PauseScreen({
@@ -558,7 +752,6 @@ export function PauseScreen({
             className="btn-mc notch flex items-center justify-center gap-2 bg-gradient-to-b from-torch to-[#a8761f] py-3 text-base text-pit-950"
           >
             <BagIcon size={16} /> {t('workbench')}
-            {hud.craftHint ? ` · ${hud.craftHint}` : ''}
           </button>
           {hud.sandbox && (
             <button

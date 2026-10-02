@@ -908,7 +908,8 @@ function Recipes({
                 ready ? 'hover:translate-x-1' : 'opacity-45'
               } ${justCrafted ? 'anim-pop' : ''}`}
               style={{
-                animationDelay: `${140 + i * 34}ms`,
+                // Keep the expanded recipe list responsive: stagger the entrance briefly, not for several seconds.
+                animationDelay: `${Math.min(420, 80 + i * 8)}ms`,
                 background: ready
                   ? `linear-gradient(90deg, ${r.accent}22, rgba(255,255,255,.02) 55%)`
                   : 'rgba(255,255,255,.015)',
@@ -959,19 +960,30 @@ function Recipes({
                 {r.inputs.map(([id, n]) => {
                   const have = hud.inventory.find((x) => x.id === id)?.count ?? 0;
                   const ok = have >= n;
+                  const inputSpec = getToolSpec(id);
+                  const inputBlock = BLOCKS[id];
+                  const inputName = inputSpec ? toolLabelForId(id) : blockName(id, inputBlock?.name ?? `#${id}`);
                   return (
                     <span
                       key={id}
                       className="flex items-center gap-0.5"
-                      title={`${blockName(id, BLOCKS[id].name)}: ${have}/${n}`}
+                      title={`${inputName}: ${have}/${n}`}
                     >
-                      <img
-                        src={getBlockIcon(id)}
-                        alt=""
-                        className="pixelated h-6 w-6"
-                        style={{ filter: ok ? 'none' : 'grayscale(1) brightness(.55)' }}
-                        draggable={false}
-                      />
+                      {inputSpec ? (
+                        <span className="flex h-6 w-6 items-center justify-center" style={{ filter: ok ? 'none' : 'grayscale(1) brightness(.55)' }}>
+                          <ToolSprite id={id} size={22} />
+                        </span>
+                      ) : inputBlock ? (
+                        <img
+                          src={getBlockIcon(id)}
+                          alt=""
+                          className="pixelated h-6 w-6"
+                          style={{ filter: ok ? 'none' : 'grayscale(1) brightness(.55)' }}
+                          draggable={false}
+                        />
+                      ) : (
+                        <span className="flex h-6 w-6 items-center justify-center font-display text-[9px] text-white/50">?</span>
+                      )}
                       <span className={`font-display text-xs ${ok ? 'text-moss' : 'text-blood'}`}>
                         {have}/{n}
                       </span>
@@ -997,7 +1009,7 @@ function Recipes({
       </div>
 
       <div className="mt-2 border-t border-white/10 pt-2 text-[10px] tracking-wide text-white/35">
-        <span className="text-torch">I</span> / <span className="text-torch">ESC</span> {t('closeHint')}
+        <span className="text-torch">TAB</span> / <span className="text-torch">I</span> / <span className="text-torch">ESC</span> {t('closeHint')}
       </div>
     </>
   );
