@@ -161,7 +161,7 @@ const layoutCss = readFileSync(path.join(root, 'src/index.css'), 'utf8');
 ok(/\.hotbar-row\s*\{[^}]*width:\s*min\(/s.test(layoutCss), 'Хотбар занимает доступную ширину (десять слотов не вылезают за экран)');
 ok(/\.hotbar-cell\s*\{[^}]*flex:/s.test(layoutCss) && /aspect-ratio:\s*1/.test(layoutCss), 'Слоты хотбара делят ширину и остаются квадратными');
 ok(/orientation:\s*landscape/.test(layoutCss) && /max-height:\s*520px/.test(layoutCss), 'Для телефона в альбомной ориентации есть компактная раскладка');
-ok(/orientation:\s*landscape\) and \(max-height:\s*420px/.test(layoutCss) && /hud-vitals-coordinates[\s\S]*hud-information--fps \{ display: none/s.test(layoutCss), 'В коротком альбомном окне вторичные показатели скрываются ради здоровья и миссии');
+ok(/orientation:\s*landscape\) and \(max-height:\s*560px/.test(layoutCss) && /hud-vitals-coordinates[\s\S]*hud-information--fps \{ display: none/s.test(layoutCss), 'В коротком альбомном окне вторичные показатели скрываются ради здоровья и миссии');
 ok(/hud-objective-row--locked/.test(layoutCss) && /hud-objective-reward/.test(layoutCss) && /hud-objective-progress/.test(layoutCss), 'Короткая панель миссий сохраняет текущую цель без наград и прогресс-бара');
 ok(/max-width:\s*700px/.test(layoutCss), 'Для узких экранов есть своя раскладка');
 

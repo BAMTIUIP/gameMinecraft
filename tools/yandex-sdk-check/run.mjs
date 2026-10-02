@@ -1472,7 +1472,12 @@ async function scenarioLayout() {
   await game.waitFor('Смена на телефоне', () => !!document.querySelector('canvas'), 30_000);
   const missionVisible = await game.waitFor('Панель миссий в забеге', () => !!document.querySelector('.hud-objective-panel'), 30_000);
   check(missionVisible, 'В исследователе отображается панель миссий');
-  for (const vp of [LAYOUT_VIEWPORTS[0], LAYOUT_VIEWPORTS[1], LAYOUT_VIEWPORTS[3]]) {
+  for (const vp of [
+    LAYOUT_VIEWPORTS[0],
+    LAYOUT_VIEWPORTS[1],
+    { name: 'короткое окно браузера 1000×500 (альбомная)', width: 1000, height: 500 },
+    LAYOUT_VIEWPORTS[3],
+  ]) {
     await game.page.setViewport({ width: vp.width, height: vp.height });
     await wait(500);
     const report = await layoutReport(game.page);

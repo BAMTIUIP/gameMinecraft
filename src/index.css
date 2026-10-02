@@ -436,9 +436,9 @@ input[type='text'] {
   .hud-touch .hud-tutorial-panel { max-height: min(24dvh, 8rem); }
 }
 
-/* A browser's top/bottom chrome can leave a very short landscape playfield. Keep the vital bar and
+/* Browser chrome leaves a shorter playfield than the physical screen suggests. Keep the vital bar and
    current mission above the hotbar; secondary coordinates/counters and tutorial copy give way. */
-@media (orientation: landscape) and (max-height: 420px) {
+@media (orientation: landscape) and (max-height: 560px) {
   .hud-touch .hud-information--top-left {
     top: max(0.5rem, env(safe-area-inset-top)) !important;
     gap: 0.3rem !important;
