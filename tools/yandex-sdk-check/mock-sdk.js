@@ -70,6 +70,18 @@
           });
           return { ...(params?.defaultFlags ?? {}), ...(seed.flags ?? {}) };
         },
+        // rating the game: canReview() gates requestReview(), both recorded for the check
+        feedback: {
+          canReview: async () => {
+            record('feedback.canReview');
+            if (seed.reviewAllowed === false) return { value: false, reason: seed.reviewReason ?? 'GAME_RATED' };
+            return { value: true };
+          },
+          requestReview: async () => {
+            record('feedback.requestReview');
+            return { feedbackSent: seed.reviewSent !== false };
+          },
+        },
         // asynchronous multiplayer: sessions are pre-seeded by the check, commits and pushes are recorded
         multiplayer: {
           sessions: {

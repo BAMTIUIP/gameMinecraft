@@ -374,6 +374,36 @@ async function scenarioProgress() {
   );
   check(profileFlushed, 'Рекорды забега ушли в облачный профиль (player.setData)');
 
+  // ===================== 6c. rating the game =====================
+  const reviewChecked = await game.waitFor(
+    'Проверка возможности оценить игру',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'feedback.canReview'),
+    15_000,
+  );
+  check(reviewChecked, 'На экране итогов игра спрашивает платформу о возможности оценки (feedback.canReview)');
+  const reviewButton = await game.page.evaluate(() =>
+    [...document.querySelectorAll('button')].some((b) => /ОЦЕНИТЬ ИГРУ|RATE THE GAME|ÉVALUER LE JEU|SPIEL BEWERTEN/i.test(b.textContent ?? '')),
+  );
+  check(reviewButton, 'Кнопка «оценить игру» появилась на экране итогов');
+  const reviewClicked = await game.clickByText(/ОЦЕНИТЬ ИГРУ|RATE THE GAME|ÉVALUER LE JEU|SPIEL BEWERTEN/);
+  check(reviewClicked, 'Кнопка оценки нажата');
+  const reviewRequested = await game.waitFor(
+    'Диалог оценки',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'feedback.requestReview'),
+    10_000,
+  );
+  check(reviewRequested, 'Клик открыл диалог оценки (feedback.requestReview)');
+  const thanksShown = await game.waitFor(
+    'Благодарность за оценку',
+    () => /Спасибо! Ваш отзыв|Thanks! Your feedback|Merci ! Votre avis|Danke! Deine Meinung/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(thanksShown, 'После оценки игрок видит благодарность');
+  const reviewGone = await game.page.evaluate(() =>
+    [...document.querySelectorAll('button')].some((b) => /ОЦЕНИТЬ ИГРУ|RATE THE GAME|ÉVALUER LE JEU|SPIEL BEWERTEN/i.test(b.textContent ?? '')),
+  );
+  check(reviewGone === false, 'Кнопка исчезла — за сессию игру оценивают один раз');
+
   // ===================== 7. the results screen offers both revives =====================
   const bothRevives = await game.page.evaluate(() => {
     const text = document.body.innerText ?? '';
@@ -421,6 +451,10 @@ async function scenarioProgress() {
     150_000,
   );
   check(newShift, 'Следующая смена тоже доходит до экрана итогов');
+  const reviewAgain = await game.page.evaluate(() =>
+    [...document.querySelectorAll('button')].some((b) => /ОЦЕНИТЬ ИГРУ|RATE THE GAME|ÉVALUER LE JEU|SPIEL BEWERTEN/i.test(b.textContent ?? '')),
+  );
+  check(reviewAgain === false, 'На следующем экране итогов оценку больше не предлагают (раз за сессию)');
   const startsBeforeAd = game.count(await game.calls(), 'GameplayAPI.start');
   const reviveClicked = await game.clickByText(/СМОТРЕТЬ РЕКЛАМУ|WATCH AD|WERBUNG|VOIR UNE PUB/);
   check(reviveClicked, 'Кнопка rewarded-видео предложена на экране итогов');

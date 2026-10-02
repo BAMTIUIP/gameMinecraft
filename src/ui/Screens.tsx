@@ -1114,6 +1114,9 @@ export function GameOverScreen({
   onDiamondRevive,
   myRank,
   squadNote,
+  canRate,
+  onRate,
+  reviewNote,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -1137,6 +1140,11 @@ export function GameOverScreen({
   myRank?: number | null;
   /** closing line under the squad table: the shift was published / teammates are local */
   squadNote?: string | null;
+  /** the platform allows asking this player to rate the game (ysdk.feedback.canReview → true) */
+  canRate?: boolean;
+  onRate?: () => void;
+  /** shown after the rating dialog was opened: thanks, or "maybe next time" */
+  reviewNote?: string | null;
 }) {
   const [shown, setShown] = useState(0);
   const rafRef = useRef(0);
@@ -1268,6 +1276,15 @@ export function GameOverScreen({
             <button onClick={onQuit} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-5 py-3.5 text-base text-white/85">
               {t('mainMenu')}
             </button>
+            {canRate && (
+              <button
+                onClick={onRate}
+                className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-4 py-2 text-xs text-white/80"
+              >
+                ★ {t('reviewCta')}
+              </button>
+            )}
+            {reviewNote && <span className="font-display text-[10px] tracking-[0.2em] text-[#8ee9e2]">{reviewNote}</span>}
             <span className="font-display text-[10px] tracking-[0.24em] text-white/30">[R] · [ESC]</span>
             {diamondPrice > 0 && (
               <button

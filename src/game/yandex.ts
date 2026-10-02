@@ -146,6 +146,16 @@ export type YaLeaderboardEntries = {
   entries: YaLeaderboardEntry[];
 };
 
+/** Why the platform refuses to show the rating dialog (`ysdk.feedback.canReview()`). */
+export type YaReviewReason = 'NO_AUTH' | 'GAME_RATED' | 'REVIEW_ALREADY_REQUESTED' | 'REVIEW_WAS_REQUESTED' | 'UNKNOWN';
+
+export type YaFeedback = {
+  /** the docs require this check before requestReview(): only authorised players who have not rated */
+  canReview: () => Promise<{ value: boolean; reason?: YaReviewReason }>;
+  /** opens the platform's rating dialog; `feedbackSent` = the player actually rated the game */
+  requestReview: () => Promise<{ feedbackSent?: boolean; sentFeedback?: boolean }>;
+};
+
 /** One recorded moment of someone else's shift, as the platform stores it. */
 export type YaSessionTransaction = {
   id?: string;
@@ -237,6 +247,8 @@ type YSDK = {
   leaderboards?: YaLeaderboards;
   /** asynchronous multiplayer sessions: opponent replays are recorded and published here */
   multiplayer?: { sessions?: YaMultiplayerSessions };
+  /** rating the game: canReview() first, requestReview() once per session */
+  feedback?: YaFeedback;
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -895,6 +907,41 @@ export async function yaGetLeaderboardEntries(
     return result && Array.isArray(result.entries) ? result : null;
   } catch (err) {
     console.warn('[Yandex SDK] leaderboards.getEntries() failed', name, err);
+    return null;
+  }
+}
+
+/* ================================ reviews ================================= */
+
+/*
+ * `ysdk.feedback` (https://yandex.ru/dev/games/doc/ru/sdk/sdk-review). The rating dialog may be shown
+ * once per session and only after canReview() said yes, so both calls are wrapped here and the pacing
+ * lives in src/game/review.ts.
+ */
+
+/** `feedback.canReview()` — null when the method is missing (an old SDK build or outside Yandex). */
+export async function yaCanReview(): Promise<{ value: boolean; reason?: YaReviewReason } | null> {
+  if (!ysdk?.feedback?.canReview) return null;
+  try {
+    const result = await ysdk.feedback.canReview();
+    return { value: result?.value === true, ...(result?.reason ? { reason: result.reason } : {}) };
+  } catch (err) {
+    console.warn('[Yandex SDK] feedback.canReview() failed', err);
+    return null;
+  }
+}
+
+/**
+ * `feedback.requestReview()` — opens the dialog. Returns null when the call failed; otherwise whether
+ * the player rated the game (`feedbackSent`; some builds name the field `sentFeedback`).
+ */
+export async function yaRequestReview(): Promise<{ sent: boolean } | null> {
+  if (!ysdk?.feedback?.requestReview) return null;
+  try {
+    const result = await ysdk.feedback.requestReview();
+    return { sent: result?.feedbackSent === true || result?.sentFeedback === true };
+  } catch (err) {
+    console.warn('[Yandex SDK] feedback.requestReview() failed', err);
     return null;
   }
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
+import { requestGameReview, reviewOffer } from './game/review';
 import {
   coopEnabled,
   publishCoopSession,
@@ -154,6 +155,9 @@ export default function App() {
   const [myRank, setMyRank] = useState<number | null | undefined>(undefined);
   /** a line under the squad table on the results screen: published / local teammates / nothing */
   const [squadNote, setSquadNote] = useState<string | null>(null);
+  /** rating dialog: the platform decides who may be asked, the results screen only offers the button */
+  const [canRate, setCanRate] = useState(false);
+  const [reviewNote, setReviewNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -377,6 +381,10 @@ export default function App() {
       } else {
         setMyRank(undefined);
       }
+      // Rating the game: ask the platform whether this player may be asked at all (once per session),
+      // and only then offer the button — the dialog itself opens from a click, never on its own.
+      void reviewOffer().then((offer) => setCanRate(offer.available));
+
       // Asynchronous co-op: publish the shift so other players can replay it as a teammate. A revive
       // keeps the recorder running, so the next push carries the longer session instead of a copy.
       const published = publishCoopSession({ score: hud.score, depth: hud.deepest, blocks: hud.blocksMined });
@@ -548,6 +556,14 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [leaderboard]);
 
+  /** Opens the platform's rating dialog (docs: only from a user action, once per session). */
+  const rateGame = useCallback(async () => {
+    setCanRate(false);
+    const result = await requestGameReview();
+    if (result === 'sent') setReviewNote(t('reviewThanks'));
+    else if (result === 'dismissed') setReviewNote(t('reviewDismissed'));
+  }, []);
+
   /** Opens the Yandex payment frame and settles the balance when it closes. */
   const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
     const result = await buyDiamondPack(productId);
@@ -692,6 +708,9 @@ export default function App() {
           onDiamondRevive={reviveWithDiamonds}
           myRank={myRank}
           squadNote={squadNote}
+          canRate={canRate}
+          onRate={rateGame}
+          reviewNote={reviewNote}
         />
       )}
     </div>
