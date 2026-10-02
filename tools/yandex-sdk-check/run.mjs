@@ -1372,6 +1372,17 @@ async function layoutReport(page) {
       }
     }
 
+    const hudHotbarOverlaps = [];
+    const hotbar = document.querySelector('.hud-hotbar');
+    const topLeftInfo = document.querySelector('.hud-information--top-left');
+    if (hotbar && topLeftInfo) {
+      const a = topLeftInfo.getBoundingClientRect();
+      const b = hotbar.getBoundingClientRect();
+      const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (w > 1 && h > 1) hudHotbarOverlaps.push(`${topLeftInfo.className} × ${hotbar.className}`);
+    }
+
     let swipeBlocked = null;
     try {
       const target = document.querySelector('button') ?? document.body;
@@ -1395,6 +1406,7 @@ async function layoutReport(page) {
       cut,
       overlaps,
       hudControlOverlaps,
+      hudHotbarOverlaps,
       swipeBlocked,
     };
   });
@@ -1468,6 +1480,7 @@ async function scenarioLayout() {
     check(report.cut.length === 0, `Забег: HUD и кнопки не обрезаны (${vp.name})`, report.cut.slice(0, 4).join(' | '));
     check(report.overlaps.length === 0, `Забег: элементы не накладываются (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
     check(report.hudControlOverlaps.length === 0, `Забег: HUD не перекрывает сенсорные органы (${vp.name})`, report.hudControlOverlaps.slice(0, 4).join(' | '));
+    check(report.hudHotbarOverlaps.length === 0, `Забег: левая информационная панель не перекрывает хотбар (${vp.name})`, report.hudHotbarOverlaps.join(' | '));
     check(report.scroll[0] <= 1 && report.scroll[1] <= 1, `Забег: у страницы нет прокрутки (${vp.name})`, `scroll ${report.scroll.join('×')}`);
   }
   const touches = await game.page.evaluate(() => {

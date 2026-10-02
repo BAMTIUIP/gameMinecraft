@@ -436,6 +436,31 @@ input[type='text'] {
   .hud-touch .hud-tutorial-panel { max-height: min(24dvh, 8rem); }
 }
 
+/* A browser's top/bottom chrome can leave a very short landscape playfield. Keep the vital bar and
+   current mission above the hotbar; secondary coordinates/counters and tutorial copy give way. */
+@media (orientation: landscape) and (max-height: 420px) {
+  .hud-touch .hud-information--top-left {
+    top: max(0.5rem, env(safe-area-inset-top)) !important;
+    gap: 0.3rem !important;
+  }
+  .hud-touch .hud-vitals-coordinates,
+  .hud-touch .hud-vitals-stats,
+  .hud-touch .hud-tutorial-panel,
+  .hud-touch .hud-information--fps { display: none !important; }
+  .hud-touch .hud-health-panel { gap: 0.35rem; padding: 0.25rem 0.4rem; }
+  .hud-touch .hud-objective-panel {
+    max-height: 3.25rem;
+    margin-top: 0.2rem;
+    padding: 0.25rem 0.4rem;
+  }
+  .hud-touch .hud-objective-panel > header { margin-bottom: 0.2rem; padding-bottom: 0.1rem; }
+  .hud-touch .hud-objective-panel > div { gap: 0.2rem; }
+  .hud-touch .hud-objective-row--complete,
+  .hud-touch .hud-objective-row--locked,
+  .hud-touch .hud-objective-reward,
+  .hud-touch .hud-objective-progress { display: none; }
+}
+
 /* Lift the ten-slot bar above the touch clusters; reserve the home-indicator area. */
 @media (pointer: coarse) {
   .hud-hotbar { bottom: max(11.5rem, calc(env(safe-area-inset-bottom) + 10.5rem)) !important; }

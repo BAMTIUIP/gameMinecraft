@@ -118,7 +118,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
 
       {/* ---------------- TOP LEFT: vitals + mission ---------------- */}
       <div className="hud-information hud-information--top-left absolute left-2 top-2 flex flex-col gap-1.5 sm:left-4 sm:top-4 sm:gap-2">
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2">
+        <div className="hud-health-panel bevel-flat notch flex items-center gap-2 px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2">
           <HeartIcon size={16} className="text-blood drop-shadow-[0_0_6px_rgba(226,86,74,.7)]" />
           <div className="sunken relative h-3.5 w-28 overflow-hidden sm:h-4 sm:w-44">
             <div
@@ -136,7 +136,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         </div>
 
         {/* position + a compass needle that points home */}
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/50 sm:px-3">
+        <div className="hud-vitals-coordinates bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/50 sm:px-3">
           <span className="relative flex h-4 w-4 items-center justify-center">
             <svg
               viewBox="0 0 24 24"
@@ -160,7 +160,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           </span>
         </div>
 
-        <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/60 sm:px-3 sm:text-xs">
+        <div className="hud-vitals-stats bevel-flat notch flex items-center gap-2 px-2 py-1 text-[11px] tracking-widest text-white/60 sm:px-3 sm:text-xs">
           <DepthIcon size={14} className="text-copper" />
           <span>
             {t('depth')} <b className="font-display text-sm text-torch sm:text-base">{hud.deepest}</b>
@@ -205,7 +205,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
               {hud.explorationObjectives.map((objective) => (
                 <div
                   key={objective.id}
-                  className={`border-l-2 pl-2 ${
+                  className={`hud-objective-row hud-objective-row--${objective.status} border-l-2 pl-2 ${
                     objective.status === 'active'
                       ? 'border-[#93c95d] bg-[#93c95d]/[0.07]'
                       : objective.status === 'complete'
@@ -226,11 +226,11 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                       </span>
                     )}
                   </div>
-                  <div className="ml-4 mt-0.5 font-display text-[8px] tracking-wide text-white/45 sm:text-[9px]">
+                  <div className="hud-objective-reward ml-4 mt-0.5 font-display text-[8px] tracking-wide text-white/45 sm:text-[9px]">
                     {objectiveReward(objective.rewardScore, objective.rewardSeconds)}
                   </div>
                   {objective.status === 'active' && (
-                    <div className="sunken ml-4 mt-1 h-1 overflow-hidden">
+                    <div className="hud-objective-progress sunken ml-4 mt-1 h-1 overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-[#6b9e41] to-[#b5d86e] transition-[width] duration-200"
                         style={{ width: `${Math.min(100, (objective.progress / objective.target) * 100)}%` }}
