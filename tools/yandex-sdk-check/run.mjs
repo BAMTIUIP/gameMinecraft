@@ -242,6 +242,43 @@ async function scenarioProgress() {
   check(consumeAt >= 0, 'Токен покупки погашен (payments.consumePurchase)');
   check(saveAt >= 0 && saveAt < consumeAt, 'Награда сохранена в облако ДО погашения покупки (порядок из документации)');
 
+  // ===================== 2b. world ranking in the menu =====================
+  const worldTab = await game.page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')].find((b) =>
+      /МИРОВОЙ РЕЙТИНГ|WORLD RANKING|CLASSEMENT MONDIAL|WELTRANGLISTE/i.test(b.textContent ?? ''),
+    );
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+  check(worldTab, 'Вкладка мирового рейтинга есть в меню');
+  const topLoaded = await game.waitFor(
+    'Топ рейтинга',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'leaderboards.getEntries'),
+    15_000,
+  );
+  check(topLoaded, 'Открытие вкладки запрашивает топ (leaderboards.getEntries)');
+  const lbCall = (await game.calls()).find((c) => c.name === 'leaderboards.getEntries')?.arg;
+  check(lbCall?.name === 'orerush-best-score', 'Запрос уходит к лидерборду из Консоли', String(lbCall?.name));
+  check(
+    (lbCall?.options?.quantityTop ?? 99) <= 20 && (lbCall?.options?.quantityAround ?? 99) <= 10,
+    'quantityTop и quantityAround в пределах, разрешённых документацией',
+    JSON.stringify(lbCall?.options),
+  );
+  const lbRowsShown = await game.page.evaluate(() => {
+    const text = document.body.innerText ?? '';
+    return /DEEP DIGGER/.test(text) && /Игрок скрыт|Hidden player|Joueur masqué|Verborgener Spieler/.test(text);
+  });
+  check(lbRowsShown, 'Топ и скрытый игрок отрисованы в таблице');
+  const lbRankShown = await game.page.evaluate(() =>
+    /Ваше место: #3|Your place: #3|Votre place : #3|Dein Platz: #3/.test(document.body.innerText ?? ''),
+  );
+  check(lbRankShown, 'Своё место в рейтинге показано под таблицей');
+  check(
+    !(await game.calls()).some((c) => c.name === 'ysdk.getLeaderboards'),
+    'Устаревший ysdk.getLeaderboards() не вызывается',
+  );
+
   // ===================== 3. explorer mode from the remote config =====================
   const modeClicked = await game.page.evaluate(() => {
     const section = [...document.querySelectorAll('section[aria-label]')][0];
@@ -314,6 +351,22 @@ async function scenarioProgress() {
     15_000,
   );
   check(statsFlushed, 'По итогам забега статистика ушла в player.incrementStats/setStats');
+  // ===================== 6b. the finished run goes to the leaderboard =====================
+  const scoreSent = await game.waitFor(
+    'Результат в лидерборде',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'leaderboards.setScore'),
+    15_000,
+  );
+  check(scoreSent, 'Итог забега уходит в лидерборд (leaderboards.setScore)');
+  const scoreCall = (await game.calls()).filter((c) => c.name === 'leaderboards.setScore').at(-1)?.arg;
+  check(scoreCall?.name === 'orerush-best-score' && Number.isFinite(scoreCall?.score), 'setScore получает имя лидерборда и счёт', JSON.stringify(scoreCall));
+  const rankOnResults = await game.waitFor(
+    'Место на экране итогов',
+    () => /Ваше место: #3|Your place: #3|Votre place : #3|Dein Platz: #3/.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(rankOnResults, 'Экран итогов показывает место в мировом рейтинге');
+
   const profileFlushed = await game.waitFor(
     'Рекорды в облачном профиле',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.setData' && (c.arg?.keys ?? []).includes('orerush.profile')),

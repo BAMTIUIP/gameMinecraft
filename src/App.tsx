@@ -24,6 +24,15 @@ import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfil
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
+import {
+  getLeaderboardView,
+  leaderboardAvailable,
+  leaderboardCooldownLeft,
+  loadLeaderboard,
+  loadMyRank,
+  submitLeaderboardScore,
+  type LeaderboardView,
+} from './game/leaderboard';
 import { storageGet, storageSet } from './game/storage';
 
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
@@ -117,6 +126,12 @@ export default function App() {
   const [diamonds, setDiamonds] = useState(0);
   const [shopPrices, setShopPrices] = useState<ShopCatalog>(() => new Map());
   const [canPay, setCanPay] = useState(false);
+  // leaderboard: the platform keeps the rating, the game only submits results and draws the top
+  const [leaderboard, setLeaderboard] = useState<LeaderboardView | null>(null);
+  const [lbBusy, setLbBusy] = useState(false);
+  const [lbAvailable, setLbAvailable] = useState(false);
+  const [lbCooldown, setLbCooldown] = useState(0);
+  const [myRank, setMyRank] = useState<number | null | undefined>(undefined);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -158,6 +173,7 @@ export default function App() {
         if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
       }
       setDiamonds(diamondsBalance());
+      setLbAvailable(leaderboardAvailable());
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -323,6 +339,17 @@ export default function App() {
       });
       markProfileDirty({ scores: next.filter((e) => !e.token.startsWith('seed-')), best: totals.bestScore, totals, name: name || 'MINER' });
       void flushProfile(true);
+      // Leaderboard: the docs allow setScore for authorised players only, and at most once a second
+      // — submitLeaderboardScore() checks both and coalesces a burst. The place is then shown on the
+      // results screen; without a leaderboard (outside Yandex) the line stays hidden.
+      if (leaderboardAvailable()) {
+        void (async () => {
+          await submitLeaderboardScore(hud.score, `${hud.blocksMined} BLK · ${hud.tierName}`);
+          setMyRank(await loadMyRank());
+        })();
+      } else {
+        setMyRank(undefined);
+      }
     } else {
       savedRef.current = false;
     }
@@ -436,6 +463,26 @@ export default function App() {
     if (snapshot.cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
   }, []);
 
+  /**
+   * World ranking: loaded when the player opens the tab (and by the refresh button). The module
+   * itself keeps the platform's 20-requests-per-5-minutes limit, so calling it never breaks it.
+   */
+  const loadWorldRanking = useCallback(async () => {
+    if (!leaderboardAvailable()) return;
+    setLbBusy(true);
+    const view = await loadLeaderboard();
+    setLeaderboard(view ?? getLeaderboardView());
+    setLbCooldown(leaderboardCooldownLeft());
+    setLbBusy(false);
+  }, []);
+
+  // the refresh button unlocks itself once the platform allows the next request
+  useEffect(() => {
+    if (!leaderboard) return;
+    const id = window.setInterval(() => setLbCooldown(leaderboardCooldownLeft()), 1000);
+    return () => window.clearInterval(id);
+  }, [leaderboard]);
+
   /** Opens the Yandex payment frame and settles the balance when it closes. */
   const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
     const result = await buyDiamondPack(productId);
@@ -517,6 +564,11 @@ export default function App() {
           shopPrices={shopPrices}
           paymentsAvailable={canPay}
           onBuyPack={buyPack}
+          leaderboard={leaderboard}
+          leaderboardBusy={lbBusy}
+          leaderboardAvailable={lbAvailable}
+          leaderboardCooldown={lbCooldown}
+          onLoadLeaderboard={loadWorldRanking}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (
@@ -573,6 +625,7 @@ export default function App() {
           diamonds={diamonds}
           diamondPrice={REVIVE_DIAMOND_PRICE}
           onDiamondRevive={reviveWithDiamonds}
+          myRank={myRank}
         />
       )}
     </div>

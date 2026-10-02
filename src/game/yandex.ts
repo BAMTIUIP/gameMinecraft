@@ -113,6 +113,52 @@ export type YaPayments = {
   consumePurchase: (purchaseToken: string) => Promise<void>;
 };
 
+/** One row of a leaderboard (`ysdk.leaderboards.*`). */
+export type YaLeaderboardEntry = {
+  rank: number;
+  score: number;
+  extraData?: string;
+  player?: {
+    publicName?: string;
+    uniqueID?: string;
+    getAvatarSrc?: (size?: 'small' | 'medium' | 'large') => string;
+    getAvatarSrcSet?: (size?: 'small' | 'medium' | 'large') => string;
+  };
+};
+
+export type YaLeaderboardDescription = {
+  name: string;
+  appID?: string;
+  default?: boolean;
+  title?: Record<string, string>;
+  description?: {
+    invert_sort_order?: boolean;
+    sort_order?: string;
+    score_format?: { options?: { decimal_offset?: number }; type?: 'numeric' | 'time' };
+  };
+};
+
+export type YaLeaderboardEntries = {
+  leaderboard: YaLeaderboardDescription;
+  ranges?: Array<{ start: number; size: number }>;
+  /** 0 when the player is not in the leaderboard or when the request excluded them */
+  userRank?: number;
+  entries: YaLeaderboardEntry[];
+};
+
+/** `ysdk.leaderboards` — the modern entry point (`getLeaderboards()` is deprecated). */
+export type YaLeaderboards = {
+  getDescription: (leaderboardName: string) => Promise<YaLeaderboardDescription>;
+  /** authorised players only, at most one request per second */
+  setScore: (leaderboardName: string, score: number, extraData?: string) => Promise<void>;
+  /** authorised players only; rejects with LEADERBOARD_PLAYER_NOT_PRESENT for a player without a score */
+  getPlayerEntry: (leaderboardName: string) => Promise<YaLeaderboardEntry>;
+  getEntries: (
+    leaderboardName: string,
+    options?: { includeUser?: boolean; quantityAround?: number; quantityTop?: number },
+  ) => Promise<YaLeaderboardEntries>;
+};
+
 /** Snapshot of the platform profile, safe to render from React. */
 export type YaProfile = {
   authorized: boolean;
@@ -135,6 +181,8 @@ type YSDK = {
   /** in-app purchases: preload with getPayments() and/or use directly */
   payments?: YaPayments;
   getPayments?: (options?: { signed?: boolean }) => Promise<YaPayments>;
+  /** leaderboards: used directly, `getLeaderboards()` is deprecated */
+  leaderboards?: YaLeaderboards;
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -708,6 +756,86 @@ export async function yaConsumePurchase(purchaseToken: string): Promise<boolean>
   } catch (err) {
     console.warn('[Yandex SDK] consumePurchase() failed', err);
     return false;
+  }
+}
+
+/* ============================== leaderboards ============================== */
+
+/*
+ * `ysdk.leaderboards` is used directly: the docs mark `ysdk.getLeaderboards()` as deprecated.
+ * Every method is rate-limited by the platform (`setScore` — 1/s, `getPlayerEntry` — 60/5 min,
+ * `getEntries` — 20/5 min), so the pacing lives one level above, in src/game/leaderboard.ts.
+ */
+
+export function yaLeaderboards(): YaLeaderboards | null {
+  return ysdk?.leaderboards ?? null;
+}
+
+export function yaLeaderboardAvailable(): boolean {
+  return Boolean(ysdk?.leaderboards);
+}
+
+/** `ysdk.isAvailableMethod('leaderboards.setScore')` — the docs ask to check before scoring. */
+export async function yaIsAvailableMethod(method: string): Promise<boolean> {
+  if (!ysdk?.isAvailableMethod) return true; // older builds: assume yes and let the call decide
+  try {
+    return (await ysdk.isAvailableMethod(method)) === true;
+  } catch (err) {
+    console.warn('[Yandex SDK] isAvailableMethod() failed', method, err);
+    return false;
+  }
+}
+
+export async function yaGetLeaderboardDescription(name: string): Promise<YaLeaderboardDescription | null> {
+  const leaderboards = yaLeaderboards();
+  if (!leaderboards?.getDescription) return null;
+  try {
+    return (await leaderboards.getDescription(name)) ?? null;
+  } catch (err) {
+    // a missing leaderboard answers 404 — the Console must have it under this technical name
+    console.warn('[Yandex SDK] leaderboards.getDescription() failed', name, err);
+    return null;
+  }
+}
+
+/** Post the player's score; false when the platform refused (unauthorised, rate limit, no board). */
+export async function yaSetLeaderboardScore(name: string, score: number, extraData?: string): Promise<boolean> {
+  const leaderboards = yaLeaderboards();
+  if (!leaderboards?.setScore) return false;
+  try {
+    await leaderboards.setScore(name, score, extraData);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] leaderboards.setScore() failed', name, err);
+    return false;
+  }
+}
+
+/** The player's own row, or null when they have no score yet / are not authorised. */
+export async function yaGetLeaderboardPlayerEntry(name: string): Promise<YaLeaderboardEntry | null> {
+  const leaderboards = yaLeaderboards();
+  if (!leaderboards?.getPlayerEntry) return null;
+  try {
+    return (await leaderboards.getPlayerEntry(name)) ?? null;
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code !== 'LEADERBOARD_PLAYER_NOT_PRESENT') console.warn('[Yandex SDK] leaderboards.getPlayerEntry() failed', name, err);
+    return null;
+  }
+}
+
+export async function yaGetLeaderboardEntries(
+  name: string,
+  options?: { includeUser?: boolean; quantityAround?: number; quantityTop?: number },
+): Promise<YaLeaderboardEntries | null> {
+  const leaderboards = yaLeaderboards();
+  if (!leaderboards?.getEntries) return null;
+  try {
+    const result = await leaderboards.getEntries(name, options);
+    return result && Array.isArray(result.entries) ? result : null;
+  } catch (err) {
+    console.warn('[Yandex SDK] leaderboards.getEntries() failed', name, err);
+    return null;
   }
 }
 

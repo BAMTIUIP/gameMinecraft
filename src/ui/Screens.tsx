@@ -5,6 +5,7 @@ import { getBlockIcon } from '../game/textures';
 import type { ScoreEntry } from './scores';
 import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
 import type { YaProfile } from '../game/yandex';
+import type { LeaderboardView } from '../game/leaderboard';
 import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
 import {
   BagIcon,
@@ -179,6 +180,142 @@ function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: s
   );
 }
 
+/* ============================ LEADERBOARD ============================= */
+
+/**
+ * World ranking (ysdk.leaderboards). The platform limits the requests, so the panel does not ask on
+ * its own: it draws whatever App has loaded, and the refresh button is disabled until the game is
+ * allowed to ask again.
+ */
+function LeaderboardTable({
+  view,
+  busy,
+  available,
+  canRefresh,
+  onRefresh,
+}: {
+  view: LeaderboardView | null;
+  busy: boolean;
+  available: boolean;
+  canRefresh: boolean;
+  onRefresh: () => void;
+}) {
+  const rank = view?.userRank ?? 0;
+  return (
+    <div className="sunken notch overflow-hidden">
+      <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-[#2b4a5c] to-[#1f3644] px-2.5 py-1.5">
+        <span className="flex min-w-0 items-center gap-1.5 font-display text-xs tracking-widest text-[#62e8dc]">
+          <TrophyIcon size={13} />
+          <span className="truncate">{view?.title ?? t('lbTabWorld')}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={busy || !canRefresh || !available}
+          className="shrink-0 border border-white/15 px-1.5 py-0.5 font-display text-[9px] tracking-widest text-white/60 transition-colors hover:text-white disabled:opacity-40"
+        >
+          {busy ? t('lbLoading') : t('lbRetry')}
+        </button>
+      </div>
+
+      {!available ? (
+        <div className="px-2.5 py-3 text-[11px] leading-snug text-white/45">{t('lbOffline')}</div>
+      ) : !view ? (
+        <div className="px-2.5 py-3 text-[11px] leading-snug text-white/45">{busy ? t('lbLoading') : t('lbError')}</div>
+      ) : view.rows.length === 0 ? (
+        <div className="px-2.5 py-3 text-[11px] leading-snug text-white/45">{t('lbEmpty')}</div>
+      ) : (
+        <div className="max-h-[38vh] overflow-y-auto">
+          {view.rows.map((row, i) => (
+            <div
+              key={`${row.rank}-${row.name}-${i}`}
+              className={`flex items-center gap-2 border-b border-white/5 px-2.5 py-1.5 text-[11px] transition-colors ${
+                row.me ? 'bg-[#62e8dc]/15' : i % 2 ? 'bg-white/[0.02]' : ''
+              }`}
+            >
+              <span className={`w-5 font-display text-sm ${row.rank === 1 ? 'text-torch' : 'text-white/35'}`}>{row.rank}</span>
+              {row.avatar ? (
+                <img src={row.avatar} alt="" className="h-5 w-5 shrink-0 border border-white/15 object-cover" />
+              ) : (
+                <span className="h-5 w-5 shrink-0 border border-white/10 bg-white/5" aria-hidden="true" />
+              )}
+              <span className={`flex-1 truncate font-display text-sm tracking-wide ${row.me ? 'text-[#62e8dc]' : 'text-white/85'} ${row.hidden ? 'italic text-white/35' : ''}`}>
+                {row.hidden ? t('lbHiddenPlayer') : row.name}
+                {row.me && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ {t('lbYou')}</span>}
+              </span>
+              <span className="w-16 text-right font-display text-base tabular-nums text-white">{row.score.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 bg-white/[0.03] px-2.5 py-1.5">
+        <span className="font-display text-[10px] tracking-wider text-white/45">
+          {available && view ? (rank > 0 ? t('lbYourRank').replace('{n}', String(rank)) : t('lbNoRank')) : t('lbRefreshed')}
+        </span>
+        {rank > 0 && <span className="font-display text-[9px] text-white/25">{t('lbRefreshed')}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Tabs above the score table: the local shifts the game always keeps, and the world ranking. */
+function ScorePanel({
+  scores,
+  highlight,
+  leaderboard,
+  leaderboardBusy,
+  leaderboardAvailable,
+  leaderboardCooldown,
+  onLoadLeaderboard,
+}: {
+  scores: ScoreEntry[];
+  highlight?: string;
+  leaderboard: LeaderboardView | null;
+  leaderboardBusy: boolean;
+  leaderboardAvailable: boolean;
+  leaderboardCooldown: number;
+  onLoadLeaderboard: () => void;
+}) {
+  const [tab, setTab] = useState<'local' | 'world'>('local');
+  useEffect(() => {
+    if (tab === 'world') onLoadLeaderboard();
+  }, [tab, onLoadLeaderboard]);
+
+  if (!leaderboardAvailable && !leaderboard) return <ScoreTable scores={scores} highlight={highlight} />;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex gap-px">
+        {(['local', 'world'] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={tab === id}
+            onClick={() => setTab(id)}
+            className={`notch flex-1 px-2 py-1 font-display text-[10px] tracking-widest transition-colors ${
+              tab === id ? 'bg-torch text-pit-950' : 'bg-white/5 text-white/45 hover:text-white/75'
+            }`}
+          >
+            {t(id === 'local' ? 'lbTabLocal' : 'lbTabWorld')}
+          </button>
+        ))}
+      </div>
+      {tab === 'local' ? (
+        <ScoreTable scores={scores} highlight={highlight} />
+      ) : (
+        <LeaderboardTable
+          view={leaderboard}
+          busy={leaderboardBusy}
+          available={leaderboardAvailable}
+          canRefresh={leaderboardCooldown <= 0}
+          onRefresh={onLoadLeaderboard}
+        />
+      )}
+    </div>
+  );
+}
+
 /* =============================== LOADING =============================== */
 export function LoadingScreen({ progress }: { progress: number }) {
   const pct = Math.round(progress * 100);
@@ -314,6 +451,11 @@ export function StartScreen({
   shopPrices,
   paymentsAvailable,
   onBuyPack,
+  leaderboard,
+  leaderboardBusy,
+  leaderboardAvailable,
+  leaderboardCooldown,
+  onLoadLeaderboard,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -347,6 +489,13 @@ export function StartScreen({
   paymentsAvailable: boolean;
   /** opens the payment frame; the promise resolves when it closes */
   onBuyPack: (productId: string) => Promise<BuyResult>;
+  /** world ranking from ysdk.leaderboards, null until the first successful request */
+  leaderboard: LeaderboardView | null;
+  leaderboardBusy: boolean;
+  leaderboardAvailable: boolean;
+  /** milliseconds until the platform allows the next getEntries call (0 = now) */
+  leaderboardCooldown: number;
+  onLoadLeaderboard: () => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
@@ -498,7 +647,14 @@ export function StartScreen({
           {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
           <aside className="pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
             {profile && <ProfileCard profile={profile} restored={cloudSavedAt > 0} onSignIn={onSignIn} />}
-            <ScoreTable scores={scores} />
+            <ScorePanel
+              scores={scores}
+              leaderboard={leaderboard}
+              leaderboardBusy={leaderboardBusy}
+              leaderboardAvailable={leaderboardAvailable}
+              leaderboardCooldown={leaderboardCooldown}
+              onLoadLeaderboard={onLoadLeaderboard}
+            />
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
               <div className="bevel-flat notch p-3">
                 <div className="mb-2 flex items-center gap-1.5 font-display text-xs tracking-widest text-torch">
@@ -956,6 +1112,7 @@ export function GameOverScreen({
   diamonds,
   diamondPrice,
   onDiamondRevive,
+  myRank,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -975,6 +1132,8 @@ export function GameOverScreen({
   diamonds: number;
   diamondPrice: number;
   onDiamondRevive: () => void;
+  /** place in the Yandex leaderboard (undefined = no leaderboard, null = no result yet) */
+  myRank?: number | null;
 }) {
   const [shown, setShown] = useState(0);
   const rafRef = useRef(0);
@@ -1036,6 +1195,12 @@ export function GameOverScreen({
             {isRecord && (
               <div className="anim-pop mt-2 inline-block bg-torch px-2 py-0.5 font-display text-xs tracking-widest text-pit-950">
                 {t('newBest')}
+              </div>
+            )}
+            {myRank !== undefined && (
+              <div className="mt-2 flex items-center gap-1.5 font-display text-[11px] tracking-[0.2em] text-[#62e8dc]/90">
+                <TrophyIcon size={12} />
+                {myRank && myRank > 0 ? t('lbYourRank').replace('{n}', String(myRank)) : t('lbNoRank')}
               </div>
             )}
 

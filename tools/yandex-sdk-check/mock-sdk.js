@@ -21,6 +21,25 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  const leaderboardDescription = () => ({
+    appID: '0',
+    default: true,
+    name: 'orerush-best-score',
+    title: { ru: 'ЛУЧШИЕ ШАХТЁРЫ', en: 'TOP MINERS' },
+    description: { invert_sort_order: false, sort_order: 'DESC', score_format: { type: 'numeric', options: { decimal_offset: 0 } } },
+  });
+
+  // the top plus the player's row and a hidden player, like the real getEntries(includeUser) answer
+  const leaderboardEntries = () => {
+    const entries = [
+      { rank: 1, score: 15_000, player: { publicName: 'DEEP DIGGER', uniqueID: 'uid-1', getAvatarSrc: () => '' } },
+      { rank: 2, score: 9_000, player: { publicName: 'CLOUD MINER', uniqueID: 'uid-2' } },
+      { rank: 3, score: seed.leaderboardBest ?? 5000, player: { publicName: seed.name ?? 'MOCK PLAYER', uniqueID: seed.uid ?? 'mock-uid' } },
+      { rank: 4, score: 0, player: { publicName: '', uniqueID: 'uid-hidden' } },
+    ];
+    return { leaderboard: leaderboardDescription(), ranges: [{ start: 0, size: entries.length }], userRank: 3, entries };
+  };
+
   window.YaGames = {
     init: async (options) => {
       record('YaGames.init', options ?? null);
@@ -90,6 +109,34 @@
               return { ...stats };
             },
           };
+        },
+        isAvailableMethod: async (method) => {
+          record('ysdk.isAvailableMethod', method);
+          return method === 'leaderboards.setScore' ? seed.leaderboardScoring !== false : true;
+        },
+        // ysdk.leaderboards is the current API: the game must not call the deprecated getLeaderboards()
+        leaderboards: {
+          getDescription: async (name) => {
+            record('leaderboards.getDescription', name);
+            return leaderboardDescription();
+          },
+          getEntries: async (name, options) => {
+            record('leaderboards.getEntries', { name, options: options ?? null });
+            return leaderboardEntries();
+          },
+          getPlayerEntry: async (name) => {
+            record('leaderboards.getPlayerEntry', name);
+            if (seed.leaderboardRanked === false) {
+              const err = new Error('player not present');
+              err.code = 'LEADERBOARD_PLAYER_NOT_PRESENT';
+              throw err;
+            }
+            return { rank: 3, score: seed.leaderboardBest ?? 5000, extraData: '', player: { publicName: seed.name ?? 'MOCK PLAYER', uniqueID: seed.uid ?? 'mock-uid' } };
+          },
+          setScore: async (name, score, extraData) => {
+            record('leaderboards.setScore', { name, score, extraData: extraData ?? '' });
+            seed.leaderboardBest = Math.max(seed.leaderboardBest ?? 0, score);
+          },
         },
         payments: null, // filled by getPayments() below
         getPayments: async () => {
