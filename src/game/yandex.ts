@@ -1,3 +1,8 @@
+
+import { hasSafeStorage, installSafeStorage } from './storage';
+
+export { hasSafeStorage };
+
 /**
  * Yandex Games SDK bridge.
  *
@@ -28,10 +33,46 @@ export type YaEnvironment = {
   referrer?: { type: 'promo'; promoId: string; intent?: string; inappId?: string };
 };
 
+/** Payment activity of a Yandex Games user, used to pick the right monetisation offer. */
+export type YaPayingStatus = 'paying' | 'partially_paying' | 'not_paying' | 'unknown';
+
+/**
+ * `ysdk.getPlayer()` object — profile + cloud saves + numeric stats
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-player). Every method may reject (network, rate
+ * limit, no signed access), so all calls here are wrapped and degrade to null/false.
+ */
+export type YaPlayer = {
+  isAuthorized: () => boolean;
+  getUniqueID: () => string;
+  getName: () => string;
+  getPhoto: (size: 'small' | 'medium' | 'large') => string;
+  getPayingStatus: () => YaPayingStatus;
+  getData: (keys?: string[]) => Promise<Record<string, unknown>>;
+  setData: (data: Record<string, unknown>, flush?: boolean) => Promise<void>;
+  getStats: (keys?: string[]) => Promise<Record<string, number>>;
+  setStats: (stats: Record<string, number>) => Promise<void>;
+  incrementStats: (increments: Record<string, number>) => Promise<Record<string, number>>;
+};
+
+/** Snapshot of the platform profile, safe to render from React. */
+export type YaProfile = {
+  authorized: boolean;
+  id: string;
+  name: string;
+  photo: string;
+  paying: YaPayingStatus;
+};
+
 type YSDK = {
   environment: YaEnvironment;
   /** Server-synchronised Unix timestamp in milliseconds (tamper-resistant). */
   serverTime?: () => number;
+  /** interface language / auth / profile; rate-limited (getPlayer: 20 calls per 5 minutes) */
+  getPlayer?: (options?: { scoped?: boolean; signed?: boolean }) => Promise<YaPlayer>;
+  auth?: { openAuthDialog?: () => Promise<void> };
+  /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
+  getStorage?: () => Promise<Storage>;
+  isAvailableMethod?: (method: string) => Promise<boolean>;
   features?: {
     LoadingAPI?: { ready?: () => void };
     GameplayAPI?: { start?: () => void; stop?: () => void };
@@ -146,6 +187,7 @@ export function initYandex(): Promise<YSDK | null> {
       return null;
     }
     subscribePauseResume(ysdk); // first thing after init: don't miss a platform pause
+    void applySafeStorage(ysdk); // iOS-safe localStorage, as early as possible
     flush(); // replay what the game reported while the SDK was starting up
     return ysdk;
   })();
@@ -204,4 +246,184 @@ export function yaGameplayStart() {
 export function yaGameplayStop() {
   gameplayActive = false;
   flush();
+}
+
+/* ===================== storage (safeStorage) ===================== */
+
+/**
+ * `ysdk.getStorage()` — a localStorage-compatible store that the platform keeps reliable on iOS
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-player#progress-loss). Inside an uploaded archive the
+ * SDK already wraps localStorage itself; this covers the "own domain" integration, where it does not.
+ */
+async function applySafeStorage(ysdk: YSDK) {
+  if (!ysdk.getStorage) return;
+  try {
+    const storage = await ysdk.getStorage();
+    if (storage && typeof storage.getItem === 'function') installSafeStorage(storage);
+  } catch (err) {
+    console.warn('[Yandex SDK] getStorage() failed, keeping native localStorage', err);
+  }
+}
+
+// alias for the imported helper so the SDK wrapper above can share its name with the import
+
+/* ===================== player: profile, auth, cloud data ===================== */
+
+let playerPromise: Promise<YaPlayer | null> | null = null;
+let profile: YaProfile | null = null;
+let lastProfileFetch = 0;
+
+/** True when the game runs inside Yandex Games (SDK initialised). */
+export function yaAvailable(): boolean {
+  return ysdk !== null;
+}
+
+/**
+ * `ysdk.getPlayer()` — memoised: the method is rate-limited to 20 calls per 5 minutes
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-player#limits), so the object is created once and
+ * reused. `fallbackToSigned: false`: this game verifies nothing on its own server yet, so plain
+ * (unsigned) data keeps working for everyone.
+ */
+export function yaGetPlayer(): Promise<YaPlayer | null> {
+  if (playerPromise) return playerPromise;
+  playerPromise = (async () => {
+    if (!ysdk?.getPlayer) return null;
+    try {
+      return await ysdk.getPlayer();
+    } catch (err) {
+      console.warn('[Yandex SDK] getPlayer() failed', err);
+      return null;
+    }
+  })();
+  return playerPromise;
+}
+
+/**
+ * Read the platform profile (name, avatar, authorisation, paying status) and cache it for the UI.
+ * Refreshes at most once per 20 s, so callers may fire it freely; pass force=true after
+ * openAuthDialog() to pick up the just-authorised user.
+ */
+export async function yaRefreshProfile(force = false): Promise<YaProfile | null> {
+  const now = Date.now();
+  if (!force && profile && now - lastProfileFetch < 20_000) return profile;
+  const player = await yaGetPlayer();
+  if (!player) return profile;
+  try {
+    lastProfileFetch = now;
+    const authorized = player.isAuthorized();
+    profile = {
+      authorized,
+      id: safeString(() => player.getUniqueID()),
+      // an unauthorised player has no name/photo: keep them empty, the game falls back to its own
+      name: authorized ? safeString(() => player.getName()) : '',
+      photo: authorized ? safeString(() => player.getPhoto('small')) : '',
+      paying: safeString(() => player.getPayingStatus()) as YaPayingStatus || 'unknown',
+    };
+    return profile;
+  } catch (err) {
+    console.warn('[Yandex SDK] profile read failed', err);
+    return profile;
+  }
+}
+
+/** Cached profile, readable synchronously from React (null before the first refresh resolves). */
+export function yaProfile(): YaProfile | null {
+  return profile;
+}
+
+/**
+ * `ysdk.auth.openAuthDialog()`. Returns true when the player is authorised afterwards. The game
+ * must explain the benefits before calling it (requirement 1.2), so the call is only reachable from
+ * the explicit "sign in" button in the menu.
+ */
+export async function yaOpenAuthDialog(): Promise<boolean> {
+  const dialog = ysdk?.auth?.openAuthDialog;
+  if (!dialog) return false;
+  try {
+    await dialog.call(ysdk!.auth);
+  } catch (err) {
+    // the player closed the window / refused — this is a normal outcome, not an error state
+    console.info('[Yandex SDK] auth dialog closed', err);
+    return false;
+  }
+  playerPromise = null; // the Player object must be re-created for the authorised user
+  const next = await yaRefreshProfile(true);
+  return next?.authorized ?? false;
+}
+
+/** `player.getData(keys)` — cloud saves. null when unavailable (outside Yandex, network, rate limit). */
+export async function yaCloudGet(keys?: string[]): Promise<Record<string, unknown> | null> {
+  const player = await yaGetPlayer();
+  if (!player) return null;
+  try {
+    const data = await player.getData(keys);
+    return data && typeof data === 'object' ? data : null;
+  } catch (err) {
+    console.warn('[Yandex SDK] player.getData() failed', err);
+    return null;
+  }
+}
+
+/**
+ * `player.setData(data, flush)` — 200 KB per player, 100 requests per 5 minutes: the caller
+ * (game/profile.ts) batches and throttles writes instead of calling this per change.
+ */
+export async function yaCloudSet(data: Record<string, unknown>, flush = false): Promise<boolean> {
+  const player = await yaGetPlayer();
+  if (!player) return false;
+  try {
+    await player.setData(data, flush);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] player.setData() failed', err);
+    return false;
+  }
+}
+
+/** `player.incrementStats()` — numeric lifetime counters (60 requests per minute). */
+export async function yaStatsIncrement(increments: Record<string, number>): Promise<boolean> {
+  const player = await yaGetPlayer();
+  if (!player) return false;
+  try {
+    await player.incrementStats(increments);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] player.incrementStats() failed', err);
+    return false;
+  }
+}
+
+/** `player.getStats()` — the player's stored numeric counters. */
+export async function yaStatsGet(keys?: string[]): Promise<Record<string, number> | null> {
+  const player = await yaGetPlayer();
+  if (!player) return null;
+  try {
+    const stats = await player.getStats(keys);
+    return stats && typeof stats === 'object' ? stats : null;
+  } catch (err) {
+    console.warn('[Yandex SDK] player.getStats() failed', err);
+    return null;
+  }
+}
+
+/** `player.setStats()` — overwrite numeric counters (absolute values). */
+export async function yaStatsSet(stats: Record<string, number>): Promise<boolean> {
+  const player = await yaGetPlayer();
+  if (!player) return false;
+  try {
+    await player.setStats(stats);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] player.setStats() failed', err);
+    return false;
+  }
+}
+
+function safeString(read: () => string): string {
+  try {
+    const value = read();
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
 }

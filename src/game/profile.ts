@@ -1,0 +1,347 @@
+/**
+ * Cloud progress: what exactly the game keeps in the Yandex Games cloud
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-player#ingame-data).
+ *
+ * Split of responsibilities:
+ *  - **cloud (`player.setData`, 200 KB per player)** — the compact player profile: nick, records
+ *    table, chosen mode/language and lifetime counters. This is what makes "continue on another
+ *    device" work;
+ *  - **local (`safeStorage`)** — the full voxel world of "My World". An RLE-packed world is orders
+ *    of magnitude larger than 200 KB, so it physically cannot live in the cloud; the docs tell you
+ *    to use your own server for that, and the game honestly says so in the UI;
+ *  - **stats (`player.setStats` / `incrementStats`, numbers only)** — the same counters, so the
+ *    platform sees progress and can build its own analytics.
+ *
+ * Rate limits are the tricky part (setData: 100 per 5 min, stats: 60 per min), so every write goes
+ * through a queue here: changes are coalesced and flushed at most once per few seconds, plus
+ * immediately on the moments that matter (run over, save, tab hidden).
+ */
+
+import { getLang, setLang, type Lang } from './i18n';
+import { loadScores, saveScores, type ScoreEntry } from '../ui/scores';
+import {
+  yaAvailable,
+  yaCloudGet,
+  yaCloudSet,
+  yaProfile,
+  yaRefreshProfile,
+  yaServerTime,
+  yaStatsIncrement,
+  yaStatsGet,
+  yaStatsSet,
+  type YaProfile,
+} from './yandex';
+import { storageGet, storageSet } from './storage';
+
+const CLOUD_KEY = 'orerush.profile'; // single key: one getData/setData pair instead of a swarm
+const LOCAL_STAMP_KEY = 'orerush.profile.savedAt';
+const NAME_KEY = 'orerush.playername.v1';
+
+/** compact enough for the 200 KB budget: profile + records, no world data */
+export type CloudProfile = {
+  v: 1;
+  savedAt: number;
+  name?: string;
+  best?: number;
+  scores?: ScoreEntry[];
+  mode?: 'survival' | 'explorer';
+  lang?: Lang;
+  totals?: Partial<Record<StatKey, number>>;
+};
+
+export type StatKey =
+  | 'blocksMined'
+  | 'oresFound'
+  | 'runs'
+  | 'deaths'
+  | 'deepest'
+  | 'bestScore'
+  | 'kills'
+  | 'playSeconds';
+
+export type ProfileSnapshot = {
+  /** platform profile (Yandex) or null when running outside Yandex Games */
+  platform: YaProfile | null;
+  /** true when the platform cloud profile was applied over the local one */
+  cloudApplied: boolean;
+};
+
+type Listener = (snapshot: ProfileSnapshot) => void;
+const listeners = new Set<Listener>();
+let snapshot: ProfileSnapshot = { platform: null, cloudApplied: false };
+
+export function onProfileChange(fn: Listener): () => void {
+  listeners.add(fn);
+  fn(snapshot);
+  return () => listeners.delete(fn);
+}
+
+function emit() {
+  for (const fn of [...listeners]) {
+    try {
+      fn(snapshot);
+    } catch (err) {
+      console.error('[profile] listener failed', err);
+    }
+  }
+}
+
+/* ----------------------------- local mirrors ----------------------------- */
+
+function localStamp(): number {
+  const raw = storageGet(LOCAL_STAMP_KEY);
+  const value = raw ? Number(raw) : 0;
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** the player's own name choice always wins over an auto-filled platform nick */
+function hasOwnName(): boolean {
+  return storageGet(NAME_KEY) !== null;
+}
+
+function localScores(): ScoreEntry[] {
+  // seed rows are demo content, not the player's progress: never upload them
+  return loadScores().filter((entry) => !entry.token.startsWith('seed-'));
+}
+
+/* --------------------------------- queue --------------------------------- */
+
+let pendingData: CloudProfile | null = null;
+let pendingStats: Partial<Record<StatKey, number>> = {}; // additive counters → incrementStats
+let pendingPeaks: Partial<Record<StatKey, number>> = {}; // lifetime best/deepest → setStats
+let flushTimer: number | null = null;
+let statsTimer: number | null = null;
+let lastFlush = 0;
+let lastStatsFlush = 0;
+
+const PEAK_STATS: StatKey[] = ['bestScore', 'deepest'];
+
+// setData: 100 requests / 5 min → one request per 3 s is far below the limit; stats: 60 / min → same
+const FLUSH_INTERVAL_MS = 3_000;
+const STATS_INTERVAL_MS = 3_000;
+
+/** Build the fresh cloud payload from what the game currently has locally. */
+function collect(): CloudProfile {
+  return {
+    v: 1,
+    savedAt: yaServerTime(),
+    name: storageGet(NAME_KEY) ?? undefined,
+    scores: localScores().slice(0, 8),
+    ...(storageGet('orerush.mode') ? { mode: storageGet('orerush.mode') as 'survival' | 'explorer' } : {}),
+    lang: getLang(),
+  };
+}
+
+/** Queue a cloud write; flush=false lets it ride along with the next batched request. */
+export function markProfileDirty(patch?: Partial<CloudProfile>) {
+  if (!yaAvailable()) return;
+  const base = pendingData ?? collect();
+  pendingData = { ...base, ...patch, v: 1, savedAt: yaServerTime() };
+  scheduleFlush();
+}
+
+/**
+ * Queue numeric counters. Additive keys go to `incrementStats`, lifetime peaks (best score,
+ * deepest block) to `setStats` — incrementing a "best" value would be wrong, it is not a counter.
+ */
+export function bumpStats(increments: Partial<Record<StatKey, number>>) {
+  if (!yaAvailable()) return;
+  for (const [key, value] of Object.entries(increments) as Array<[StatKey, number]>) {
+    if (!Number.isFinite(value) || value === 0) continue;
+    if (PEAK_STATS.includes(key)) pendingPeaks[key] = Math.max(pendingPeaks[key] ?? totals[key], value);
+    else pendingStats[key] = (pendingStats[key] ?? 0) + value;
+  }
+  if (Object.keys(pendingStats).length === 0 && Object.keys(pendingPeaks).length === 0) return;
+  if (statsTimer === null) {
+    const wait = Math.max(0, STATS_INTERVAL_MS - (Date.now() - lastStatsFlush));
+    statsTimer = window.setTimeout(() => {
+      statsTimer = null;
+      void flushStats();
+    }, wait);
+  }
+}
+
+function scheduleFlush() {
+  if (flushTimer !== null) return;
+  const wait = Math.max(0, FLUSH_INTERVAL_MS - (Date.now() - lastFlush));
+  flushTimer = window.setTimeout(() => {
+    flushTimer = null;
+    void flushProfile();
+  }, wait);
+}
+
+/** Send everything that has piled up. `immediate` also asks the platform to write right away. */
+export async function flushProfile(immediate = false): Promise<void> {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  const payload = pendingData;
+  pendingData = null;
+
+  if (payload) {
+    lastFlush = Date.now();
+    storageSet(LOCAL_STAMP_KEY, String(payload.savedAt));
+    const ok = await yaCloudSet({ [CLOUD_KEY]: payload }, immediate);
+    // on failure the payload is not silently dropped: it is re-queued for the next attempt
+    if (!ok) pendingData = payload;
+  }
+
+  await flushStats();
+  emit();
+}
+
+async function flushStats() {
+  const stats = pendingStats;
+  const peaks = pendingPeaks;
+  pendingStats = {};
+  pendingPeaks = {};
+  if (!Object.keys(stats).length && !Object.keys(peaks).length) return;
+  lastStatsFlush = Date.now();
+
+  const ok = Object.keys(stats).length ? await yaStatsIncrement(stats) : true;
+  if (!ok) {
+    for (const [key, value] of Object.entries(stats) as Array<[StatKey, number]>) {
+      pendingStats[key] = (pendingStats[key] ?? 0) + value;
+    }
+  }
+  if (Object.keys(peaks).length) {
+    const absolute: Record<string, number> = {};
+    for (const [key, value] of Object.entries(peaks) as Array<[StatKey, number]>) {
+      absolute[key] = Math.max(value, totals[key]);
+    }
+    const peaksOk = await yaStatsSet(absolute);
+    // a failed peak write is retried from the local totals on the next run end
+    if (!peaksOk) for (const key of Object.keys(absolute) as StatKey[]) pendingPeaks[key] = Math.max(pendingPeaks[key] ?? 0, absolute[key]);
+  }
+}
+
+/* ---------------------------------- boot --------------------------------- */
+
+let started = false;
+
+/**
+ * Called once the SDK is up: pull the cloud profile, merge it with the local one (the newer
+ * `savedAt` wins) and remember the platform profile for the UI. Safe to call outside Yandex: it
+ * then only reports `platform: null` and does nothing else.
+ */
+export async function startProfileSync(): Promise<ProfileSnapshot> {
+  if (started) return snapshot;
+  started = true;
+
+  const platform = await yaRefreshProfile();
+  snapshot = { platform, cloudApplied: false };
+
+  if (!yaAvailable()) {
+    emit();
+    return snapshot;
+  }
+
+  const remote = await yaCloudGet([CLOUD_KEY]);
+  const cloud = remote?.[CLOUD_KEY] as CloudProfile | undefined;
+  const stamp = localStamp();
+
+  const cloudOurs = cloud && cloud.v === 1;
+  if (cloudOurs && cloud.savedAt > stamp) {
+    applyCloud(cloud);
+    snapshot = { ...snapshot, cloudApplied: true };
+  } else {
+    // local is newer (or the cloud is empty): make sure the cloud learns about this player
+    markProfileDirty();
+  }
+
+  // numeric stats live next to the data blob: pull them too, so peaks never regress when the
+  // same account plays on a second device
+  const stats = await yaStatsGet();
+  if (stats) applyTotals(stats as Partial<Record<StatKey, number>>);
+  if (cloudOurs && cloud.totals) applyTotals(cloud.totals);
+
+  // the local mirror keeps lifetime counters available offline and on the next boot
+  storageSet(TOTALS_KEY, JSON.stringify(totals));
+
+  // platform nick/avatar can now be shown in the menu
+  snapshot = { ...snapshot, platform: yaProfile() };
+  emit();
+  return snapshot;
+}
+
+/** Adopt cloud data: records, nick (only if the player never chose one), mode, language, counters. */
+function applyCloud(cloud: CloudProfile) {
+  if (Array.isArray(cloud.scores) && cloud.scores.length) saveScores(cloud.scores.slice(0, 8));
+  if (cloud.name && !hasOwnName()) storageSet(NAME_KEY, cloud.name);
+  if (cloud.mode && storageGet('orerush.mode') === null) storageSet('orerush.mode', cloud.mode);
+  if (cloud.lang && storageGet('orerush.lang') === null) setLang(cloud.lang);
+  if (cloud.totals) applyTotals(cloud.totals);
+  storageSet(LOCAL_STAMP_KEY, String(cloud.savedAt));
+}
+
+/* ----------------------------- lifetime totals ---------------------------- */
+
+const TOTALS_KEY = 'orerush.totals.v1';
+
+export type Totals = Record<StatKey, number>;
+
+const EMPTY_TOTALS: Totals = {
+  blocksMined: 0,
+  oresFound: 0,
+  runs: 0,
+  deaths: 0,
+  deepest: 0,
+  bestScore: 0,
+  kills: 0,
+  playSeconds: 0,
+};
+
+let totals: Totals = loadTotals();
+
+function loadTotals(): Totals {
+  const raw = storageGet(TOTALS_KEY);
+  if (!raw) return { ...EMPTY_TOTALS };
+  try {
+    const parsed = JSON.parse(raw) as Partial<Totals>;
+    const merged = { ...EMPTY_TOTALS };
+    for (const key of Object.keys(merged) as StatKey[]) {
+      const value = parsed[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) merged[key] = value;
+    }
+    return merged;
+  } catch {
+    return { ...EMPTY_TOTALS };
+  }
+}
+
+function applyTotals(remote: Partial<Record<StatKey, number>>) {
+  for (const key of Object.keys(totals) as StatKey[]) {
+    const value = remote[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > totals[key]) totals[key] = value;
+  }
+  storageSet(TOTALS_KEY, JSON.stringify(totals));
+}
+
+/** Lifetime counters: max() for "best" style keys, sum() for counters. Local mirror is instant. */
+export function addTotals(increments: Partial<Record<StatKey, number>>) {
+  let changed = false;
+  for (const [key, value] of Object.entries(increments) as Array<[StatKey, number]>) {
+    if (!Number.isFinite(value) || value === 0) continue;
+    const isPeak = key === 'bestScore' || key === 'deepest';
+    const next = isPeak ? Math.max(totals[key], value) : totals[key] + value;
+    if (next !== totals[key]) {
+      totals[key] = next;
+      changed = true;
+    }
+  }
+  if (!changed) return totals;
+  storageSet(TOTALS_KEY, JSON.stringify(totals));
+  bumpStats(increments);
+  markProfileDirty({ totals });
+  return totals;
+}
+
+export function getTotals(): Totals {
+  return { ...totals };
+}
+
+/** progress made inside a run is mirrored into the cloud payload as absolute lifetime values */
+export function setProfileTotals(peaks: Partial<Record<StatKey, number>>) {
+  addTotals(peaks);
+}

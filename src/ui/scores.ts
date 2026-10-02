@@ -1,4 +1,5 @@
 import { yaServerTime } from '../game/yandex';
+import { storageGet, storageSet } from '../game/storage';
 
 export type ScoreEntry = {
   name: string;
@@ -19,7 +20,7 @@ const MAX = 8;
 
 export function loadScores(): ScoreEntry[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = storageGet(KEY);
     if (!raw) return seedScores();
     const parsed = JSON.parse(raw) as ScoreEntry[];
     if (!Array.isArray(parsed) || !parsed.length) return seedScores();
@@ -52,11 +53,7 @@ function seedScores(): ScoreEntry[] {
 }
 
 export function saveScores(list: ScoreEntry[]) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX)));
-  } catch {
-    /* ignore */
-  }
+  storageSet(KEY, JSON.stringify(list.slice(0, MAX)));
 }
 
 export function submitScore(entry: ScoreEntry): ScoreEntry[] {
@@ -75,17 +72,9 @@ export function updateName(token: string, name: string): ScoreEntry[] {
 }
 
 export function loadPlayerName(): string {
-  try {
-    return localStorage.getItem(NAME_KEY) || 'MINER';
-  } catch {
-    return 'MINER';
-  }
+  return storageGet(NAME_KEY) || 'MINER';
 }
 
 export function savePlayerName(name: string) {
-  try {
-    localStorage.setItem(NAME_KEY, name);
-  } catch {
-    /* ignore */
-  }
+  storageSet(NAME_KEY, name);
 }

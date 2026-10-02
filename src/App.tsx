@@ -7,7 +7,7 @@ import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Sc
 import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, type ScoreEntry } from './ui/scores';
 import Inventory from './ui/Inventory';
 import { EMPTY_STATS, type Slot } from './game/items';
-import { initLang, setLang, type Lang } from './game/i18n';
+import { getLang, initLang, setLang, type Lang } from './game/i18n';
 import {
   initYandex,
   yaGameplayStart,
@@ -16,8 +16,12 @@ import {
   yaLoadingReady,
   yaOnPause,
   yaOnResume,
+  yaOpenAuthDialog,
   yaServerTime,
+  type YaProfile,
 } from './game/yandex';
+import { addTotals, flushProfile, markProfileDirty, onProfileChange, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { storageGet, storageSet } from './game/storage';
 
 const INITIAL_HUD: HudState = {
   phase: 'loading',
@@ -92,13 +96,10 @@ export default function App() {
   const [isTouch, setIsTouch] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [lang, setLangUi] = useState<Lang>('en');
-  const [survival, setSurvivalUi] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('orerush.mode') !== 'explorer';
-    } catch {
-      return true;
-    }
-  });
+  const [survival, setSurvivalUi] = useState<boolean>(() => storageGet('orerush.mode') !== 'explorer');
+  // Yandex profile: avatar/nick in the menu, cloud-progress notice, sign-in button
+  const [profile, setProfile] = useState<YaProfile | null>(null);
+  const [cloudSavedAt, setCloudSavedAt] = useState(0);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -106,21 +107,25 @@ export default function App() {
     setLangUi(initLang());
 
     // Yandex Games: auto-detect the user's language from the platform (rule 2.14).
-    // An explicit in-game choice (saved in localStorage) always wins.
-    void initYandex().then(() => {
+    // An explicit in-game choice (saved in safeStorage) always wins.
+    void initYandex().then(async () => {
       const platformLang = yaLang();
-      if (!platformLang) return;
-      let hasManualChoice = false;
-      try {
-        hasManualChoice = localStorage.getItem('orerush.lang') !== null;
-      } catch {
-        /* ignore */
-      }
-      if (!hasManualChoice) {
+      if (platformLang && storageGet('orerush.lang') === null) {
         const mapped: Lang =
           platformLang === 'ru' ? 'ru' : platformLang === 'fr' ? 'fr' : platformLang === 'de' ? 'de' : 'en';
         setLang(mapped);
         setLangUi(mapped);
+      }
+      // Cloud profile: pull records/settings made on another device and report our own progress.
+      // Outside Yandex this resolves immediately with platform: null.
+      const snapshot = await startProfileSync();
+      setProfile(snapshot.platform);
+      if (snapshot.cloudApplied) {
+        setScores(loadScores());
+        setName(loadPlayerName());
+        setSurvivalUi(storageGet('orerush.mode') !== 'explorer');
+        setLangUi(getLang());
+        setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
       }
     });
     const loaded = loadScores();
@@ -195,15 +200,14 @@ export default function App() {
   const pickLang = useCallback((l: Lang) => {
     setLang(l);
     setLangUi(l);
+    markProfileDirty({ lang: l });
   }, []);
 
   const pickMode = useCallback((s: boolean) => {
     setSurvivalUi(s);
-    try {
-      localStorage.setItem('orerush.mode', s ? 'survival' : 'explorer');
-    } catch {
-      /* ignore */
-    }
+    storageSet('orerush.mode', s ? 'survival' : 'explorer');
+    // the chosen mode travels to the cloud, so another device opens the same way
+    markProfileDirty({ mode: s ? 'survival' : 'explorer' });
     engineRef.current?.setSurvival(s);
     engineRef.current?.setRunTime(EXPLORATION_RUN_TIME);
   }, []);
@@ -251,19 +255,33 @@ export default function App() {
       setToken(t);
       setIsRecord(hud.score > bestRef.current);
       bestRef.current = Math.max(bestRef.current, hud.score);
-      setScores(
-        submitScore({
-          name: name || 'MINER',
-          score: hud.score,
-          blocks: hud.blocksMined,
-          tier: hud.tierName,
-          depth: hud.deepest,
-          combo: hud.bestCombo,
-          runTime: hud.runTime,
-          date: serverNow,
-          token: t,
-        }),
-      );
+      const next = submitScore({
+        name: name || 'MINER',
+        score: hud.score,
+        blocks: hud.blocksMined,
+        tier: hud.tierName,
+        depth: hud.deepest,
+        combo: hud.bestCombo,
+        runTime: hud.runTime,
+        date: serverNow,
+        token: t,
+      });
+      setScores(next);
+      // Cloud progress: lifetime counters (player.setStats/incrementStats) plus the profile blob
+      // with the fresh records table. A finished run is a natural sync point, so it is flushed
+      // immediately instead of waiting for the debounce.
+      const totals = addTotals({
+        runs: 1,
+        deaths: hud.deathCause && hud.deathCause !== 'time' ? 1 : 0,
+        blocksMined: hud.blocksMined,
+        oresFound: hud.oresFound,
+        kills: hud.kills,
+        deepest: hud.deepest,
+        bestScore: hud.score,
+        playSeconds: Math.max(0, Math.round(hud.runTime - hud.timeLeft)),
+      });
+      markProfileDirty({ scores: next.filter((e) => !e.token.startsWith('seed-')), best: totals.bestScore, totals, name: name || 'MINER' });
+      void flushProfile(true);
     } else {
       savedRef.current = false;
     }
@@ -275,6 +293,7 @@ export default function App() {
       setName(n);
       savePlayerName(n);
       if (token) setScores(updateName(token, n));
+      markProfileDirty({ name: n });
     },
     [token],
   );
@@ -306,6 +325,36 @@ export default function App() {
   const craft = useCallback((key: string) => engineRef.current?.craft(key), []);
   const openInventory = useCallback(() => engineRef.current?.openInventory(), []);
   const closeInventory = useCallback(() => engineRef.current?.closeInventory(), []);
+
+  // live profile updates (avatar appears after the first getPlayer, sign-in refreshes it)
+  useEffect(() => onProfileChange((snap: ProfileSnapshot) => setProfile(snap.platform)), []);
+
+  // leaving the tab (or the platform pausing us) is the last safe moment to push progress
+  useEffect(() => {
+    const onHide = () => {
+      if (document.hidden) void flushProfile(true);
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+    };
+  }, []);
+
+  /**
+   * Sign-in is offered, never forced: the button explains the benefit first (requirement 1.2),
+   * and after a successful dialog the profile is re-read and the cloud merge re-runs.
+   */
+  const signIn = useCallback(async () => {
+    const ok = await yaOpenAuthDialog();
+    if (!ok) return;
+    const snapshot = await startProfileSync();
+    setProfile(snapshot.platform);
+    setScores(loadScores());
+    setName(loadPlayerName());
+    if (snapshot.cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
+  }, []);
 
   const playing = hud.phase === 'playing' || hud.phase === 'paused';
 
@@ -356,6 +405,9 @@ export default function App() {
           hasSave={hasSave}
           onCreateWorld={createWorld}
           onContinueWorld={continueWorld}
+          profile={profile}
+          onSignIn={signIn}
+          cloudSavedAt={cloudSavedAt}
         />
       )}
       {hud.phase === 'playing' && hud.inventoryOpen && (

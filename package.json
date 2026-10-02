@@ -10,7 +10,9 @@
     "yandex:check": "node scripts/package-yandex.mjs --check",
     "yandex:zip": "npm run build && node scripts/package-yandex.mjs --zip",
     "yandex:proxy": "npx --yes @yandex-games/sdk-dev-proxy -p dist --dev-mode=true",
-    "package:yandex": "npm run yandex:zip"
+    "package:yandex": "npm run yandex:zip",
+    "yandex:sdk-check": "node tools/yandex-sdk-check/run.mjs",
+    "test:profile": "node tools/tests/run.mjs profile.test.ts"
   },
   "dependencies": {
     "clsx": "2.1.1",
@@ -20,12 +22,14 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@sparticuz/chromium": "^131.0.1",
     "@tailwindcss/vite": "4.1.17",
     "@types/node": "22.19.17",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "5.1.1",
+    "puppeteer-core": "^23.11.1",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3",
     "vite": "7.3.6",

@@ -1,4 +1,5 @@
 import { getToolSpec } from './tools';
+import { storageGet, storageSet } from './storage';
 
 export type Lang = 'en' | 'ru' | 'fr' | 'de';
 
@@ -10,6 +11,16 @@ export const LANGS: Array<{ id: Lang; label: string; flag: string }> = [
 ];
 
 const EN = {
+  profileYandex: 'YANDEX PROFILE',
+  profileGuest: 'GUEST',
+  profileCloudOn: 'Progress is stored in the cloud — continue on any device.',
+  profileCloudOff: 'Records and progress are kept only in this browser.',
+  profileRestored: 'RESTORED',
+  signIn: 'SIGN IN WITH YANDEX',
+  signInBenefit: 'Signing in saves records, settings and lifetime stats in the Yandex cloud, so progress moves to another device, and your Yandex nick and avatar appear in the game.',
+  signInContinue: 'CONTINUE',
+  signInCancel: 'LATER',
+
   tagline: 'INFINITE VOXEL WORLD',
   intro:
     'Mine from the first or third person, follow ore veins into the dark, explore a living voxel world, and survive the night. Every pickup buys you seconds; every haul unlocks better gear.',
@@ -456,6 +467,16 @@ const EN = {
 type Dict = typeof EN;
 
 const RU: Dict = {
+  profileYandex: 'ПРОФИЛЬ ЯНДЕКС',
+  profileGuest: 'ГОСТЬ',
+  profileCloudOn: 'Прогресс хранится в облаке — можно продолжить с любого устройства.',
+  profileCloudOff: 'Рекорды и прогресс сохраняются только в этом браузере.',
+  profileRestored: 'ВОССТАНОВЛЕНО',
+  signIn: 'ВОЙТИ ЧЕРЕЗ ЯНДЕКС',
+  signInBenefit: 'Вход сохранит рекорды, настройки и общую статистику в облаке Яндекса: прогресс переносится на другое устройство, а в игре появятся ваш ник и аватар из Яндекса.',
+  signInContinue: 'ПРОДОЛЖИТЬ',
+  signInCancel: 'ПОЗЖЕ',
+
   tagline: 'БЕСКОНЕЧНЫЙ ВОКСЕЛЬНЫЙ МИР',
   intro:
     'Добывай ресурсы от первого или третьего лица, исследуй бесконечный воксельный мир, следуй за рудными жилами и переживи ночь. Каждый найденный ресурс даёт секунды, а добыча открывает лучшее снаряжение.',
@@ -883,6 +904,16 @@ const RU: Dict = {
 };
 
 const FR: Dict = {
+  profileYandex: 'PROFIL YANDEX',
+  profileGuest: 'INVITÉ',
+  profileCloudOn: 'Progression stockée dans le cloud — reprenez sur n’importe quel appareil.',
+  profileCloudOff: 'Records et progression ne sont conservés que dans ce navigateur.',
+  profileRestored: 'RESTAURÉ',
+  signIn: 'SE CONNECTER AVEC YANDEX',
+  signInBenefit: 'La connexion enregistre records, réglages et statistiques dans le cloud Yandex : la progression suit sur un autre appareil, et votre pseudo et avatar Yandex apparaissent dans le jeu.',
+  signInContinue: 'CONTINUER',
+  signInCancel: 'PLUS TARD',
+
   tagline: 'MONDE VOXEL INFINI',
   intro:
     "Mine à la première ou à la troisième personne, suis les filons dans l’obscurité, explore un monde voxel vivant et survis à la nuit. Chaque ressource ramassée ajoute du temps; chaque butin débloque un meilleur équipement.",
@@ -1310,6 +1341,16 @@ const FR: Dict = {
 };
 
 const DE: Dict = {
+  profileYandex: 'YANDEX-PROFIL',
+  profileGuest: 'GAST',
+  profileCloudOn: 'Fortschritt liegt in der Cloud — weiter auf jedem Gerät.',
+  profileCloudOff: 'Rekorde und Fortschritt bleiben nur in diesem Browser.',
+  profileRestored: 'WIEDERHERGESTELLT',
+  signIn: 'MIT YANDEX ANMELDEN',
+  signInBenefit: 'Anmelden speichert Rekorde, Einstellungen und Statistiken in der Yandex-Cloud: Der Fortschritt wandert auf ein anderes Gerät, und Nickname samt Avatar aus Yandex erscheinen im Spiel.',
+  signInContinue: 'WEITER',
+  signInCancel: 'SPÄTER',
+
   tagline: 'UNENDLICHE VOXEL-WELT',
   intro:
     'Baue in Ego- oder Third-Person ab, folge den Erzadern in die Dunkelheit, erkunde eine lebendige Voxelwelt und überlebe die Nacht. Jeder Fund bringt Zeit; jede Ausbeute schaltet bessere Ausrüstung frei.',
@@ -1756,11 +1797,7 @@ function syncDocument(l: Lang) {
 
 export function setLang(l: Lang) {
   current = l;
-  try {
-    localStorage.setItem('orerush.lang', l);
-  } catch {
-    /* ignore */
-  }
+  storageSet('orerush.lang', l);
   syncDocument(l);
   listeners.forEach((fn) => fn());
 }
@@ -1768,7 +1805,7 @@ export function setLang(l: Lang) {
 export function initLang(): Lang {
   let l: Lang = 'en';
   try {
-    const saved = localStorage.getItem('orerush.lang') as Lang | null;
+    const saved = storageGet('orerush.lang') as Lang | null;
     if (saved && DICTS[saved]) l = saved;
     else {
       const nav = navigator.language.slice(0, 2);

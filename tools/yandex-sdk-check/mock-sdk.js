@@ -1,0 +1,96 @@
+/**
+ * Mock of the Yandex Games SDK for the automated check (`npm run yandex:sdk-check`).
+ *
+ * It is served instead of the real /sdk.js, implements the same surface as
+ * https://yandex.ru/dev/games/doc/ru/sdk/sdk-overview and records every call into
+ * window.__yaCalls, so the check can assert on the init/loader/gameplay sequence without
+ * a developer console open. Not part of the game archive: only tools/ use it.
+ */
+(() => {
+  const calls = [];
+  window.__yaCalls = calls;
+  const record = (name, arg) => {
+    calls.push({ name, arg: arg === undefined ? null : arg, t: performance.now() });
+  };
+
+  // pre-seeded cloud data / player name, set by the check through evaluateOnNewDocument
+  const seed = window.__yaMockSeed ?? {};
+  const cloud = { ...(seed.data ?? {}) };
+  let stats = { ...(seed.stats ?? {}) };
+  let authorized = seed.authorized ?? true;
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  window.YaGames = {
+    init: async (options) => {
+      record('YaGames.init', options ?? null);
+      await sleep(10); // let the game's own init overlap, like the real SDK
+      return {
+        environment: {
+          app: { id: '0' },
+          i18n: { lang: seed.lang ?? 'en' },
+          payload: seed.payload ?? null,
+        },
+        serverTime: () => Date.now(),
+        features: {
+          LoadingAPI: { ready: () => record('LoadingAPI.ready') },
+          GameplayAPI: {
+            start: () => record('GameplayAPI.start'),
+            stop: () => record('GameplayAPI.stop'),
+          },
+        },
+        on: (event, listener) => {
+          record('ysdk.on', event);
+          window.__yaEmit ??= {};
+          (window.__yaEmit[event] ??= []).push(listener);
+        },
+        isAvailableMethod: async (method) => {
+          record('ysdk.isAvailableMethod', method);
+          return true;
+        },
+        getStorage: async () => {
+          record('ysdk.getStorage');
+          return window.localStorage;
+        },
+        getPlayer: async (options) => {
+          record('ysdk.getPlayer', options ?? null);
+          await sleep(5);
+          return {
+            isAuthorized: () => authorized,
+            getUniqueID: () => seed.uid ?? 'mock-uid',
+            getName: () => seed.name ?? 'MOCK PLAYER',
+            getPhoto: (size) => `data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=${size}`,
+            getPayingStatus: () => seed.paying ?? 'not_paying',
+            getData: async (keys) => {
+              record('player.getData', keys ?? null);
+              return keys ? Object.fromEntries(keys.filter((k) => k in cloud).map((k) => [k, cloud[k]])) : { ...cloud };
+            },
+            setData: async (data, flush) => {
+              record('player.setData', { keys: Object.keys(data), flush: flush ?? false });
+              Object.assign(cloud, data);
+            },
+            getStats: async (keys) => {
+              record('player.getStats', keys ?? null);
+              return keys ? Object.fromEntries(keys.map((k) => [k, stats[k] ?? 0])) : { ...stats };
+            },
+            setStats: async (next) => {
+              record('player.setStats', next);
+              Object.assign(stats, next);
+            },
+            incrementStats: async (inc) => {
+              record('player.incrementStats', inc);
+              for (const [k, v] of Object.entries(inc)) stats[k] = (stats[k] ?? 0) + v;
+              return { ...stats };
+            },
+          };
+        },
+        auth: {
+          openAuthDialog: async () => {
+            record('auth.openAuthDialog');
+            authorized = true;
+          },
+        },
+      };
+    },
+  };
+})();

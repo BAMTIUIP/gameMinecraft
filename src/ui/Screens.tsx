@@ -4,6 +4,7 @@ import type { HudState } from '../game/engine';
 import { getBlockIcon } from '../game/textures';
 import type { ScoreEntry } from './scores';
 import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
+import type { YaProfile } from '../game/yandex';
 import {
   BagIcon,
   ClockIcon,
@@ -207,6 +208,85 @@ export function LoadingScreen({ progress }: { progress: number }) {
 }
 
 /* =============================== START =============================== */
+/**
+ * Yandex profile card: avatar + nick from the platform, cloud-progress state, and — for a player
+ * who has not signed in — the sign-in offer. Requirement 1.2 asks to explain the benefit before
+ * opening the platform dialog, so the button expands into a short explanation first.
+ */
+function ProfileCard({
+  profile,
+  restored,
+  onSignIn,
+}: {
+  profile: YaProfile;
+  restored: boolean;
+  onSignIn: () => void;
+}) {
+  const [explaining, setExplaining] = useState(false);
+  const name = profile.name || t('profileGuest');
+  return (
+    <div className="bevel-flat notch p-3">
+      <div className="flex items-center gap-3">
+        <div className="relative h-11 w-11 shrink-0 overflow-hidden border border-white/15 bg-black/40">
+          {profile.photo ? (
+            <img src={profile.photo} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center font-display text-lg text-white/45">?</span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[10px] tracking-[0.28em] text-white/40">
+            <span className="text-[#ff3f2e]">◉</span> {t('profileYandex')}
+          </div>
+          <div className="truncate font-display text-base leading-tight text-white/90">{name}</div>
+          <div className="mt-0.5 text-[10px] leading-snug text-white/45">
+            {profile.authorized ? t('profileCloudOn') : t('profileCloudOff')}
+          </div>
+        </div>
+        {restored && (
+          <span className="shrink-0 border border-moss/60 bg-moss/15 px-1.5 py-1 font-display text-[8px] tracking-widest text-moss">
+            {t('profileRestored')}
+          </span>
+        )}
+      </div>
+
+      {!profile.authorized && (
+        <div className="mt-2.5 border-t border-white/10 pt-2.5">
+          {explaining ? (
+            <>
+              <p className="text-[11px] leading-relaxed text-white/60">{t('signInBenefit')}</p>
+              <div className="mt-2 flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={onSignIn}
+                  className="btn-mc notch flex-1 bg-gradient-to-b from-[#ff5a4a] to-[#c5362a] px-3 py-2 text-xs text-white"
+                >
+                  {t('signInContinue')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExplaining(false)}
+                  className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2 text-xs text-white/80"
+                >
+                  {t('signInCancel')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setExplaining(true)}
+              className="btn-mc notch w-full bg-gradient-to-b from-[#ff5a4a] to-[#c5362a] px-3 py-2.5 text-xs text-white"
+            >
+              {t('signIn')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StartScreen({
   scores,
   onPlay,
@@ -225,6 +305,9 @@ export function StartScreen({
   hasSave,
   onCreateWorld,
   onContinueWorld,
+  profile,
+  onSignIn,
+  cloudSavedAt,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -243,6 +326,11 @@ export function StartScreen({
   hasSave: boolean;
   onCreateWorld: () => void;
   onContinueWorld: () => void;
+  /** Yandex profile, or null when the game runs outside Yandex Games (card is hidden then) */
+  profile: YaProfile | null;
+  onSignIn: () => void;
+  /** timestamp of the cloud profile that was pulled on this boot, 0 when nothing was restored */
+  cloudSavedAt: number;
 }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showShop, setShowShop] = useState(false);
@@ -387,6 +475,7 @@ export function StartScreen({
 
           {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
           <aside className="pointer-events-auto mx-auto flex w-full max-w-[680px] flex-col gap-3 xl:max-w-none xl:gap-4">
+            {profile && <ProfileCard profile={profile} restored={cloudSavedAt > 0} onSignIn={onSignIn} />}
             <ScoreTable scores={scores} />
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1 xl:gap-4">
               <div className="bevel-flat notch p-3">

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { storageGet, storageSet } from './storage';
 import {
   AIR,
   BED,
@@ -691,7 +692,7 @@ export class Engine {
     this.container = container;
     this.onHud = onHud;
     try {
-      const saved = JSON.parse(localStorage.getItem(TUTORIAL_STORAGE_KEY) ?? '[]') as unknown;
+      const saved = JSON.parse(storageGet(TUTORIAL_STORAGE_KEY) ?? '[]') as unknown;
       if (Array.isArray(saved)) {
         for (const id of saved) if (typeof id === 'string') this.tutorialSeen.add(id);
       }
@@ -2622,7 +2623,7 @@ if (tpClipActive > 0.5) {
 
   static hasSavedWorld(): boolean {
     try {
-      return localStorage.getItem(Engine.SAVE_KEY) !== null;
+      return storageGet(Engine.SAVE_KEY) !== null;
     } catch {
       return false;
     }
@@ -2686,7 +2687,7 @@ if (tpClipActive > 0.5) {
         firstSurvivalDay: this.firstSurvivalDay,
         chunks,
       };
-      localStorage.setItem(Engine.SAVE_KEY, JSON.stringify(data));
+      if (!storageSet(Engine.SAVE_KEY, JSON.stringify(data))) throw new Error('save failed');
       this.pushBanner(t('worldSaved'), '', '#93c95d');
       sfx.upgrade();
       return true;
@@ -2701,7 +2702,7 @@ if (tpClipActive > 0.5) {
   loadWorld(): boolean {
     let data: ReturnType<typeof JSON.parse>;
     try {
-      const raw = localStorage.getItem(Engine.SAVE_KEY);
+      const raw = storageGet(Engine.SAVE_KEY);
       if (!raw) return false;
       data = JSON.parse(raw);
     } catch {
@@ -8820,7 +8821,7 @@ if (tpClipActive > 0.5) {
     this.tutorialTip = entry.tip;
     this.tutorialTipTimer = 5.5;
     try {
-      localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify([...this.tutorialSeen]));
+      storageSet(TUTORIAL_STORAGE_KEY, JSON.stringify([...this.tutorialSeen]));
     } catch {
       // Keep the hint visible even when storage is unavailable.
     }
