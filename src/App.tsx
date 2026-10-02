@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
+import {
+  coopEnabled,
+  publishCoopSession,
+  squadMembers,
+  startCoopRound,
+  stopCoopRound,
+  tickCoop,
+  type CoopSink,
+} from './game/multiplayer';
 import { initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMuted, stopMusic } from './game/audio';
 import Hud from './ui/Hud';
 import TouchControls from './ui/TouchControls';
@@ -39,8 +48,19 @@ import { storageGet, storageSet } from './game/storage';
 const REVIVE_SECONDS = 60;
 const MAX_REVIVES_PER_RUN = 2;
 
+/** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
+function coopSink(engine: Engine): CoopSink {
+  return {
+    spawn: (seeds) => engine.setCompanions(seeds),
+    move: (id, pose) => engine.moveCompanion(id, pose),
+    finish: (id) => engine.finishCompanion(id),
+    clear: () => engine.clearCompanions(),
+  };
+}
+
 const INITIAL_HUD: HudState = {
   phase: 'loading',
+  squad: [],
   loading: 0,
   score: 0,
   timeLeft: EXPLORATION_RUN_TIME,
@@ -132,6 +152,8 @@ export default function App() {
   const [lbAvailable, setLbAvailable] = useState(false);
   const [lbCooldown, setLbCooldown] = useState(0);
   const [myRank, setMyRank] = useState<number | null | undefined>(undefined);
+  /** a line under the squad table on the results screen: published / local teammates / nothing */
+  const [squadNote, setSquadNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -216,9 +238,14 @@ export default function App() {
     // Yandex Games pauses / resumes the game on its own — ad or purchase window, tab switch, minimised
     // window, focus moved to another window — and calls GameplayAPI.stop()/start() for it. The game has
     // to follow, or the gameplay indicator says "playing" over a frozen game (and "stopped" over a live one)
+    // Asynchronous co-op: the engine reports the player's pose a few times per second while a shift
+    // runs; the module decides what to record and where the local teammates wander.
+    eng.onPose((pose) => tickCoop(pose));
+
     const offYaPause = yaOnPause(() => eng.systemPause());
     const offYaResume = yaOnResume(() => eng.systemResume());
     return () => {
+      eng.onPose(null);
       offYaPause();
       offYaResume();
       window.removeEventListener('pointerdown', unlock);
@@ -308,8 +335,8 @@ export default function App() {
       if (savedRef.current) return;
       savedRef.current = true;
       const serverNow = yaServerTime();
-      const t = `run-${serverNow}-${Math.floor(Math.random() * 1e6)}`;
-      setToken(t);
+      const runToken = `run-${serverNow}-${Math.floor(Math.random() * 1e6)}`;
+      setToken(runToken);
       setIsRecord(hud.score > bestRef.current);
       bestRef.current = Math.max(bestRef.current, hud.score);
       const next = submitScore({
@@ -321,7 +348,7 @@ export default function App() {
         combo: hud.bestCombo,
         runTime: hud.runTime,
         date: serverNow,
-        token: t,
+        token: runToken,
       });
       setScores(next);
       // Cloud progress: lifetime counters (player.setStats/incrementStats) plus the profile blob
@@ -350,6 +377,10 @@ export default function App() {
       } else {
         setMyRank(undefined);
       }
+      // Asynchronous co-op: publish the shift so other players can replay it as a teammate. A revive
+      // keeps the recorder running, so the next push carries the longer session instead of a copy.
+      const published = publishCoopSession({ score: hud.score, depth: hud.deepest, blocks: hud.blocksMined });
+      setSquadNote(published ? t('squadPublished') : squadMembers().some((mate) => mate.kind === 'bot') ? t('squadLocal') : null);
     } else {
       savedRef.current = false;
     }
@@ -366,10 +397,35 @@ export default function App() {
     [token],
   );
 
+  /**
+   * Co-op is a survival-mode feature: every place that actually starts a shift calls this (never a
+   * phase effect — a revive from the results screen must not spin up a second squad). The module
+   * loads opponent sessions from the platform, or hands out local teammates outside Yandex Games.
+   */
+  const beginCoop = useCallback(async () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (!survival || !coopEnabled()) {
+      engine.clearCompanions();
+      return;
+    }
+    setSquadNote(null);
+    const squad = await startCoopRound(coopSink(engine));
+    if (!squad.length) engine.clearCompanions();
+  }, [survival]);
+
+  /** Leaving the world ends the recorded session and removes the teammates. */
+  const endCoop = useCallback(() => {
+    stopCoopRound();
+    engineRef.current?.clearCompanions();
+    setSquadNote(null);
+  }, []);
+
   const play = useCallback(() => {
     setRevivesUsed(0);
     engineRef.current?.startRun(survival ? undefined : exploreSeconds);
-  }, [survival, exploreSeconds]);
+    void beginCoop();
+  }, [survival, exploreSeconds, beginCoop]);
 
   /**
    * Restarting is a user action on a stopped-gameplay screen — the one place requirement 4.4 suggests
@@ -386,7 +442,8 @@ export default function App() {
     setRevivesUsed(0);
     // restarting a sandbox stays a sandbox; survival itself is endless too
     engine.startRun(survival ? undefined : exploreSeconds, engine.sandbox);
-  }, [survival, exploreSeconds]);
+    void beginCoop();
+  }, [survival, exploreSeconds, beginCoop]);
 
   /**
    * Rewarded video: the only ad the player asks for. The reward is applied only when the platform
@@ -410,15 +467,22 @@ export default function App() {
   const createWorld = useCallback(() => {
     engineRef.current?.startRun(undefined, true);
     setHasSave(Engine.hasSavedWorld());
-  }, []);
+    void beginCoop();
+  }, [beginCoop]);
   const continueWorld = useCallback(() => {
-    if (engineRef.current?.loadWorld()) setHasSave(true);
-  }, []);
+    if (engineRef.current?.loadWorld()) {
+      setHasSave(true);
+      void beginCoop();
+    }
+  }, [beginCoop]);
   const saveWorld = useCallback(() => {
     if (engineRef.current?.saveWorld()) setHasSave(true);
   }, []);
   const resume = useCallback(() => engineRef.current?.resume(), []);
-  const quit = useCallback(() => engineRef.current?.toMenu(), []);
+  const quit = useCallback(() => {
+    endCoop();
+    engineRef.current?.toMenu();
+  }, [endCoop]);
   const newWorld = useCallback(() => {
     engineRef.current?.regenerate();
   }, []);
@@ -430,6 +494,7 @@ export default function App() {
 
   // live profile updates (avatar appears after the first getPlayer, sign-in refreshes it)
   useEffect(() => onProfileChange((snap: ProfileSnapshot) => setProfile(snap.platform)), []);
+
 
   // leaving the tab (or the platform pausing us) is the last safe moment to push progress
   useEffect(() => {
@@ -626,6 +691,7 @@ export default function App() {
           diamondPrice={REVIVE_DIAMOND_PRICE}
           onDiamondRevive={reviveWithDiamonds}
           myRank={myRank}
+          squadNote={squadNote}
         />
       )}
     </div>

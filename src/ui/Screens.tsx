@@ -1113,6 +1113,7 @@ export function GameOverScreen({
   diamondPrice,
   onDiamondRevive,
   myRank,
+  squadNote,
 }: {
   hud: HudState;
   scores: ScoreEntry[];
@@ -1134,6 +1135,8 @@ export function GameOverScreen({
   onDiamondRevive: () => void;
   /** place in the Yandex leaderboard (undefined = no leaderboard, null = no result yet) */
   myRank?: number | null;
+  /** closing line under the squad table: the shift was published / teammates are local */
+  squadNote?: string | null;
 }) {
   const [shown, setShown] = useState(0);
   const rafRef = useRef(0);
@@ -1211,6 +1214,32 @@ export function GameOverScreen({
               <Stat icon={<HeartIcon size={12} />} label={t('ores')} value={String(hud.oresFound)} color="#5fe8dc" />
               <Stat icon={<TrophyIcon size={12} />} label={t('kills')} value={String(hud.kills)} color="#e2564a" />
             </div>
+
+            {/* the shift's squad: teammates replayed from asynchronous multiplayer sessions */}
+            {hud.squad.length > 0 && (
+              <div className="mt-3 border-t border-white/10 pt-2">
+                <div className="mb-1 flex items-center gap-1.5 font-display text-[10px] tracking-[0.2em] text-[#62e8dc]">
+                  <span aria-hidden="true">◆</span> {t('squadTitle')} · {hud.squad.length + 1}
+                </div>
+                <ul className="flex flex-col gap-0.5">
+                  {hud.squad.map((mate) => (
+                    <li key={mate.id} className="flex items-center gap-2 text-[11px]">
+                      <span
+                        aria-hidden="true"
+                        className="h-2 w-2 shrink-0"
+                        style={{ background: mate.health > 50 ? '#7fe06a' : mate.health > 25 ? '#e8c14a' : '#e2564a' }}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-display tracking-wide text-white/85">{mate.name}</span>
+                      <span className="font-display text-[10px] tabular-nums text-white/45">
+                        {t('squadBlocks').replace('{n}', String(mate.blocks))}
+                      </span>
+                      {mate.finished && <span className="text-[9px] tracking-widest text-torch">{t('squadFinished')}</span>}
+                    </li>
+                  ))}
+                </ul>
+                {squadNote && <div className="mt-1 text-[10px] leading-snug text-white/35">{squadNote}</div>}
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex flex-wrap items-end gap-3">

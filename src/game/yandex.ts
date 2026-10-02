@@ -146,6 +146,58 @@ export type YaLeaderboardEntries = {
   entries: YaLeaderboardEntry[];
 };
 
+/** One recorded moment of someone else's shift, as the platform stores it. */
+export type YaSessionTransaction = {
+  id?: string;
+  payload?: unknown;
+  /** milliseconds from the start of that session, pauses taken out */
+  time?: number;
+};
+
+/** An opponent session returned by `sessions.init()`: who played, how, and how it went. */
+export type YaMultiplayerSession = {
+  id: string;
+  meta?: { meta1?: number; meta2?: number; meta3?: number };
+  player?: { avatar?: string; name?: string };
+  timeline?: YaSessionTransaction[];
+};
+
+/** The `meta1..meta3` ranges used both to pick opponents and to publish our own result. */
+export type YaMultiplayerMeta = { min?: number; max?: number };
+
+export type YaMultiplayerInitParams = {
+  /** how many opponent sessions to load; the platform returns at most 10 */
+  count?: number;
+  /** true = the SDK replays transactions through `multiplayer-sessions-*` events */
+  isEventBased?: boolean;
+  /** caps how long a long opponent pause is replayed, ms */
+  maxOpponentTurnTime?: number;
+  /** at least one of meta1..meta3 must be given, together with count > 0, or nothing is loaded */
+  meta?: { meta1?: YaMultiplayerMeta; meta2?: YaMultiplayerMeta; meta3?: YaMultiplayerMeta };
+};
+
+/**
+ * `ysdk.multiplayer.sessions` — asynchronous multiplayer
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-multiplayer-sessions).
+ *
+ * Instead of a live server the platform records a timeline of transactions during a run, stores it,
+ * and replays it for the next player: `commit()` queues a payload, `push()` publishes the timeline.
+ * A session may be at most 200 KB, so the game commits sparsely (see src/game/multiplayer.ts).
+ */
+export type YaMultiplayerSessions = {
+  init: (params?: YaMultiplayerInitParams) => Promise<YaMultiplayerSession[]>;
+  commit: (payload: object) => void;
+  /** `meta1..meta3` describe the finished shift (score, depth, blocks); at least one is required */
+  push: (meta: { meta1?: number; meta2?: number; meta3?: number }) => Promise<void>;
+};
+
+export type YaMultiplayerEvents = {
+  /** a batch of opponent transactions that are due right now */
+  transaction: (data: { opponentId: string; transactions: YaSessionTransaction[] }) => void;
+  /** an opponent's recorded session has ended */
+  finish: (opponentId: string) => void;
+};
+
 /** `ysdk.leaderboards` — the modern entry point (`getLeaderboards()` is deprecated). */
 export type YaLeaderboards = {
   getDescription: (leaderboardName: string) => Promise<YaLeaderboardDescription>;
@@ -183,6 +235,8 @@ type YSDK = {
   getPayments?: (options?: { signed?: boolean }) => Promise<YaPayments>;
   /** leaderboards: used directly, `getLeaderboards()` is deprecated */
   leaderboards?: YaLeaderboards;
+  /** asynchronous multiplayer sessions: opponent replays are recorded and published here */
+  multiplayer?: { sessions?: YaMultiplayerSessions };
   auth?: { openAuthDialog?: () => Promise<void> };
   /** safeStorage: a localStorage-compatible store that survives iOS clean-ups */
   getStorage?: () => Promise<Storage>;
@@ -191,8 +245,14 @@ type YSDK = {
     LoadingAPI?: { ready?: () => void };
     GameplayAPI?: { start?: () => void; stop?: () => void };
   };
-  /** platform events: the game must pause on `game_api_pause` and resume on `game_api_resume` */
-  on?: (event: 'game_api_pause' | 'game_api_resume', listener: () => void) => unknown;
+  /**
+   * Platform events: the game must pause on `game_api_pause` and resume on `game_api_resume`;
+   * `multiplayer-sessions-*` deliver opponent replay data (see YaMultiplayerEvents).
+   */
+  on?: (
+    event: 'game_api_pause' | 'game_api_resume' | 'multiplayer-sessions-transaction' | 'multiplayer-sessions-finish',
+    listener: (payload?: never) => void,
+  ) => unknown;
 };
 
 declare global {
@@ -837,6 +897,83 @@ export async function yaGetLeaderboardEntries(
     console.warn('[Yandex SDK] leaderboards.getEntries() failed', name, err);
     return null;
   }
+}
+
+/* ========================= asynchronous multiplayer ========================= */
+
+export function yaMultiplayerSessions(): YaMultiplayerSessions | null {
+  return ysdk?.multiplayer?.sessions ?? null;
+}
+
+export function yaMultiplayerAvailable(): boolean {
+  return Boolean(yaMultiplayerSessions()?.init && yaMultiplayerSessions()?.commit);
+}
+
+/**
+ * `sessions.init()` — loads opponent sessions (their recorded timelines) before the shift starts.
+ * Fails quietly: a broken multiplayer must never keep the player from playing.
+ */
+export async function yaMultiplayerInit(params: YaMultiplayerInitParams): Promise<YaMultiplayerSession[]> {
+  const sessions = yaMultiplayerSessions();
+  if (!sessions?.init) return [];
+  try {
+    const loaded = await sessions.init(params);
+    return Array.isArray(loaded) ? loaded.filter((s) => s && typeof s.id === 'string') : [];
+  } catch (err) {
+    console.warn('[Yandex SDK] multiplayer.sessions.init() failed', err);
+    return [];
+  }
+}
+
+/** `sessions.commit(payload)` — queue one transaction; the SDK fills in its id and time. */
+export function yaMultiplayerCommit(payload: object): boolean {
+  const sessions = yaMultiplayerSessions();
+  if (!sessions?.commit) return false;
+  try {
+    sessions.commit(payload);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] multiplayer.sessions.commit() failed', err);
+    return false;
+  }
+}
+
+/** `sessions.push(meta)` — publish the finished shift so it can be replayed for other players. */
+export async function yaMultiplayerPush(meta: { meta1?: number; meta2?: number; meta3?: number }): Promise<boolean> {
+  const sessions = yaMultiplayerSessions();
+  if (!sessions?.push) return false;
+  try {
+    await sessions.push(meta);
+    return true;
+  } catch (err) {
+    console.warn('[Yandex SDK] multiplayer.sessions.push() failed', err);
+    return false;
+  }
+}
+
+/**
+ * Subscribe to the replay events (used when `isEventBased: true`). Returns an unsubscribe function;
+ * outside Yandex Games it is a no-op.
+ */
+export function yaOnMultiplayer(events: Partial<YaMultiplayerEvents>): () => void {
+  if (!ysdk?.on) return () => undefined;
+  const onTransaction = (payload?: never) => {
+    const data = payload as unknown as { opponentId?: string; transactions?: YaSessionTransaction[] };
+    if (!data?.opponentId || !Array.isArray(data.transactions)) return;
+    events.transaction?.({ opponentId: data.opponentId, transactions: data.transactions });
+  };
+  const onFinish = (payload?: never) => {
+    const opponentId = typeof payload === 'string' ? payload : (payload as unknown as { opponentId?: string })?.opponentId;
+    if (opponentId) events.finish?.(opponentId);
+  };
+  try {
+    ysdk.on('multiplayer-sessions-transaction', onTransaction);
+    ysdk.on('multiplayer-sessions-finish', onFinish);
+  } catch (err) {
+    console.warn('[Yandex SDK] multiplayer event subscription failed', err);
+    return () => undefined;
+  }
+  return () => undefined; // the SDK's on() has no matching off(): the handler filters by session id
 }
 
 function safeString(read: () => string): string {

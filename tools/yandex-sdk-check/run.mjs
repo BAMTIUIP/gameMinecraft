@@ -438,6 +438,12 @@ async function scenarioProgress() {
   );
   check(rewardedRevive, 'После награды забег продолжился (GameplayAPI.start)');
 
+  // ===================== 9b. without recorded sessions the shift stays solo =====================
+  check(
+    !(await game.calls()).some((c) => c.name === 'multiplayer.push'),
+    'Без записанных транзакций смена не публикуется (push)',
+  );
+
   // ===================== 10. local mirrors and console health =====================
   check((await game.storageValue('orerush.totals.v1')) !== null, 'Локальное зеркало статистики создано');
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
@@ -454,6 +460,16 @@ async function scenarioShop() {
     name: 'SHOPPER',
     flags: { 'shop.enabled': 'true', 'game.exploreMinutes': '0.25' },
     purchases: [],
+    // pre-recorded opponent sessions: the SDK replays them as teammates during the survival shift
+    multiplayerSessions: [
+      {
+        id: 'opp-1',
+        meta: { meta1: 1200, meta2: 30 },
+        player: { name: 'DEEP DIGGER', avatar: '' },
+        timeline: [{ payload: { x: 30, y: 20, z: 30, yaw: 0, health: 90, blocks: 12 }, time: 0 }],
+      },
+      { id: 'opp-2', meta: { meta1: 700 }, player: { name: 'CLOUD MINER' }, timeline: [] },
+    ],
     adsFill: true,
     rewarded: true,
   });
@@ -504,6 +520,71 @@ async function scenarioShop() {
 
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
   check(fatal.length === 0, 'Магазин работает без ошибок в консоли', fatal.slice(0, 3).join(' | '));
+
+  // ===================== co-op survival (asynchronous multiplayer) =====================
+  await game.clickByText(/ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/); // the shop overlay, if it is still open
+  const runStarted = await game.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/);
+  check(runStarted, 'Смена выживания запускается для проверки кооператива');
+
+  const sessionsLoaded = await game.waitFor(
+    'Загрузка сессий оппонентов',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'multiplayer.init'),
+    20_000,
+  );
+  check(sessionsLoaded, 'Старт смены запрашивает сессии оппонентов (multiplayer.init)');
+  const initArg = (await game.calls()).find((c) => c.name === 'multiplayer.init')?.arg;
+  check(initArg?.count > 0 && !!initArg?.meta?.meta1, 'init() вызван с count > 0 и диапазоном meta1', JSON.stringify(initArg?.meta));
+  check(initArg?.isEventBased === true, 'Сессии загружены в событийном режиме (isEventBased: true)', String(initArg?.isEventBased));
+  check(
+    (await game.calls()).some((c) => c.name === 'ysdk.on' && c.arg === 'multiplayer-sessions-transaction'),
+    'Игра подписана на multiplayer-sessions-transaction',
+  );
+
+  const squadPanel = await game.waitFor(
+    'Панель отряда в HUD',
+    () => /ОТРЯД|SQUAD|ÉQUIPE|TRUPP/.test(document.body.innerText ?? ''),
+    15_000,
+  );
+  check(squadPanel, 'Панель отряда появилась в забеге');
+  const squadNames = await game.page.evaluate(() => {
+    const text = document.body.innerText ?? '';
+    return { deep: /DEEP DIGGER/.test(text), cloud: /CLOUD MINER/.test(text) };
+  });
+  check(squadNames.deep && squadNames.cloud, 'Имена напарников из сессий показаны в панели', JSON.stringify(squadNames));
+  const poseCommitted = await game.waitFor(
+    'Запись позы в сессию',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'multiplayer.commit'),
+    20_000,
+  );
+  check(poseCommitted, 'Поза игрока записывается транзакциями (multiplayer.commit)');
+
+  // the SDK replays an opponent: the panel must pick up the recorded counters
+  await game.page.evaluate(() =>
+    (window.__yaEmit?.['multiplayer-sessions-transaction'] ?? []).forEach((fn) =>
+      fn({
+        opponentId: 'opp-2',
+        transactions: [{ payload: { x: 34, y: 21, z: 29, yaw: 1.2, health: 44, blocks: 42 }, time: 1000 }],
+      }),
+    ),
+  );
+  const blocksShown = await game.waitFor(
+    'Счётчики напарника обновились',
+    () => /42 (БЛК|BLK)/.test(document.body.innerText ?? ''),
+    15_000,
+  );
+  check(blocksShown, 'Транзакция соперника дошла до панели отряда (блоки 42)');
+  await game.page.evaluate(() =>
+    (window.__yaEmit?.['multiplayer-sessions-finish'] ?? []).forEach((fn) => fn('opp-1')),
+  );
+  const finishShown = await game.waitFor(
+    'Отметка о финише соперника',
+    () => /ФИНИШ|FINISHED|TERMINÉ|FERTIG/.test(document.body.innerText ?? ''),
+    15_000,
+  );
+  check(finishShown, 'Событие multiplayer-sessions-finish отмечает напарника в панели');
+
+  const coopErrors = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
+  check(coopErrors.length === 0, 'Кооператив работает без ошибок в консоли', coopErrors.slice(0, 2).join(' | '));
 
   await game.page.close();
 }

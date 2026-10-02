@@ -70,6 +70,18 @@
           });
           return { ...(params?.defaultFlags ?? {}), ...(seed.flags ?? {}) };
         },
+        // asynchronous multiplayer: sessions are pre-seeded by the check, commits and pushes are recorded
+        multiplayer: {
+          sessions: {
+            init: async (params) => {
+              record('multiplayer.init', params ?? null);
+              if (seed.multiplayerFails) throw new Error('multiplayer unavailable');
+              return (seed.multiplayerSessions ?? []).map((session) => ({ ...session }));
+            },
+            commit: (payload) => record('multiplayer.commit', payload),
+            push: async (meta) => record('multiplayer.push', meta),
+          },
+        },
         isAvailableMethod: async (method) => {
           record('ysdk.isAvailableMethod', method);
           return true;

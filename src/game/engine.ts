@@ -191,6 +191,32 @@ import {
 
 export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
 
+/**
+ * A teammate replayed from an asynchronous multiplayer session
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-multiplayer-sessions): the SDK hands back timelines of
+ * other players, the engine draws them as ghost miners in the same world so a survival shift can be
+ * played by a squad of up to five.
+ */
+export type CompanionSeed = { id: string; name: string; color?: string };
+
+/** A single recorded moment of a teammate (`multiplayer-sessions-transaction` payload). */
+export type CompanionPose = { x: number; y: number; z: number; yaw?: number; health?: number; blocks?: number };
+
+/** What the engine reports into the recorder each tick: enough to replay the run later. */
+export type PlayerPose = { x: number; y: number; z: number; yaw: number; health: number; blocks: number };
+
+/** Live state of one teammate, for the squad panel and the results table. */
+export type CompanionStatus = {
+  id: string;
+  name: string;
+  health: number;
+  blocks: number;
+  /** distance to the player in blocks, rounded */
+  distance: number;
+  /** the recorded session of this teammate ended */
+  finished: boolean;
+};
+
 export type TutorialIcon = 'pickaxe' | 'sword' | 'bow' | 'axe' | 'shovel' | 'hoe' | 'anvil' | 'ladder' | 'trader' | 'workbench';
 export type TutorialTip = {
   title: string;
@@ -290,6 +316,8 @@ export type HudState = {
   lockFailed: boolean;
   freeLook: boolean;
   runTime: number;
+  /** teammates replayed from asynchronous multiplayer sessions (empty outside co-op) */
+  squad: CompanionStatus[];
   inventoryOpen: boolean;
   tutorialTip: TutorialTip | null;
   explorationObjectives: HudObjective[];
@@ -403,6 +431,162 @@ type Drop = {
   /** durable tool instance carried by this drop */
   toolInstance?: ToolInstance | null;
 };
+
+/* =========================== co-op rig helpers =========================== */
+
+/** free the GPU memory of a generated object (companion rigs are rebuilt, never pooled) */
+function disposeObject(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(mat)) for (const m of mat) m.dispose();
+    else mat?.dispose();
+    const sprite = o as THREE.Sprite;
+    const map = (sprite.material as THREE.SpriteMaterial | undefined)?.map;
+    if (map) map.dispose();
+  });
+}
+
+function idHue(id: string) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+  return h / 360;
+}
+
+/** one teammate: a blocky miner with a name tag and a health bar, walked by updateCompanions() */
+type CompanionRig = {
+  name: string;
+  group: THREE.Group;
+  leftArm: THREE.Object3D;
+  rightArm: THREE.Object3D;
+  leftLeg: THREE.Object3D;
+  rightLeg: THREE.Object3D;
+  tag: THREE.Sprite;
+  bar: THREE.Sprite;
+  health: number;
+  blocks: number;
+  finished: boolean;
+  moving: boolean;
+  target: THREE.Vector3;
+  yawTarget: number;
+  phase: number;
+  bob: number;
+  setHealth: (hp: number) => void;
+};
+
+function buildCompanionRig(seed: CompanionSeed): CompanionRig {
+  const hue = idHue(seed.id);
+  const shirt = new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(seed.color ? idHue(seed.color) : hue, 0.45, 0.46) });
+  const shirtDark = new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(seed.color ? idHue(seed.color) : hue, 0.5, 0.33) });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
+  const pants = new THREE.MeshLambertMaterial({ color: 0x37415c });
+  const boots = new THREE.MeshLambertMaterial({ color: 0x2a221c });
+  const hair = new THREE.MeshLambertMaterial({ color: 0x3b2a1e });
+
+  const group = new THREE.Group();
+  const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = group) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    return mesh;
+  };
+
+  box(0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
+  box(0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
+  const head = new THREE.Group();
+  head.position.set(0, 1.62, -0.02);
+  box(0.46, 0.46, 0.46, skin, 0, 0, 0, head);
+  box(0.48, 0.14, 0.48, hair, 0, 0.23, 0, head);
+  box(0.48, 0.2, 0.08, hair, 0, 0.1, -0.25, head);
+  group.add(head);
+
+  const limb = (side: number, kind: 'arm' | 'leg') => {
+    const g2 = new THREE.Group();
+    if (kind === 'arm') {
+      g2.position.set(0.43 * side, 1.34, 0);
+      box(0.18, 0.62, 0.2, shirt, 0, -0.28, 0, g2);
+      box(0.18, 0.18, 0.2, skin, 0, -0.68, 0, g2);
+    } else {
+      g2.position.set(0.16 * side, 0.66, 0);
+      box(0.22, 0.62, 0.24, pants, 0, -0.31, 0, g2);
+      box(0.23, 0.16, 0.3, boots, 0, -0.6, -0.02, g2);
+    }
+    group.add(g2);
+    return g2;
+  };
+  const leftArm = limb(-1, 'arm');
+  const rightArm = limb(1, 'arm');
+  const leftLeg = limb(-1, 'leg');
+  const rightLeg = limb(1, 'leg');
+
+  // name tag: a canvas sprite, so a teammate is identifiable from a distance
+  const tagCanvas = document.createElement('canvas');
+  tagCanvas.width = 256;
+  tagCanvas.height = 64;
+  const tctx = tagCanvas.getContext('2d')!;
+  tctx.fillStyle = 'rgba(9,13,17,0.55)';
+  tctx.fillRect(0, 12, 256, 40);
+  tctx.font = 'bold 30px monospace';
+  tctx.textAlign = 'center';
+  tctx.textBaseline = 'middle';
+  tctx.fillStyle = '#eaf6ff';
+  tctx.fillText(seed.name.slice(0, 16).toUpperCase(), 128, 33);
+  const tagTex = new THREE.CanvasTexture(tagCanvas);
+  tagTex.colorSpace = THREE.SRGBColorSpace;
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tagTex, transparent: true, depthTest: true, toneMapped: false }));
+  tag.scale.set(1.9, 0.475, 1);
+  group.add(tag);
+
+  // health bar above the tag, redrawn only when the recorded health actually changes
+  const barCanvas = document.createElement('canvas');
+  barCanvas.width = 128;
+  barCanvas.height = 20;
+  const bctx = barCanvas.getContext('2d')!;
+  const barTex = new THREE.CanvasTexture(barCanvas);
+  barTex.colorSpace = THREE.SRGBColorSpace;
+  const bar = new THREE.Sprite(new THREE.SpriteMaterial({ map: barTex, transparent: true, depthTest: true, toneMapped: false }));
+  bar.scale.set(0.95, 0.15, 1);
+  bar.visible = false;
+  group.add(bar);
+
+  const rig: CompanionRig = {
+    name: seed.name,
+    group,
+    leftArm,
+    rightArm,
+    leftLeg,
+    rightLeg,
+    tag,
+    bar,
+    health: 100,
+    blocks: 0,
+    finished: false,
+    moving: false,
+    target: new THREE.Vector3(),
+    yawTarget: 0,
+    phase: 0,
+    bob: 0,
+    setHealth: () => undefined,
+  };
+
+  let lastDrawn = -1;
+  rig.setHealth = (hp: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(hp)));
+    rig.health = clamped;
+    if (clamped === lastDrawn) return;
+    lastDrawn = clamped;
+    bctx.clearRect(0, 0, 128, 20);
+    bctx.fillStyle = 'rgba(9,13,17,0.65)';
+    bctx.fillRect(0, 0, 128, 20);
+    bctx.fillStyle = clamped > 50 ? '#7fe06a' : clamped > 25 ? '#e8c14a' : '#e2564a';
+    bctx.fillRect(2, 2, Math.max(0, (124 * clamped) / 100), 16);
+    barTex.needsUpdate = true;
+  };
+  rig.setHealth(100);
+
+  return rig;
+}
 
 export class Engine {
   private container: HTMLElement;
@@ -608,6 +792,14 @@ export class Engine {
   private loadProgress = 0;
 
   // ---- player ----
+  /** ghost miners from asynchronous multiplayer sessions; keyed by the platform's opponent id */
+  private companionLayer = new THREE.Group();
+  private companions = new Map<string, CompanionRig>();
+
+  /** the multiplayer recorder listens here: it gets the pose a few times per second while playing */
+  private poseSink: ((pose: PlayerPose) => void) | null = null;
+  private poseAcc = 0;
+
   private pos = new THREE.Vector3(32, 30, 32);
   private vel = new THREE.Vector3();
   private yaw = 0;
@@ -772,6 +964,7 @@ export class Engine {
     this.buildPlayerAvatar();
     this.buildThirdPersonFogCap();
     this.buildFxLayer();
+    this.scene.add(this.companionLayer);
     this.bindInput();
     this.layoutViewModel(w / h);
     this.setRenderDist(this.renderDist);
@@ -3100,6 +3293,11 @@ if (tpClipActive > 0.5) {
     this.syncHud(true);
   }
 
+  /** Register the sink that records what the player does (see src/game/multiplayer.ts). */
+  onPose(fn: ((pose: PlayerPose) => void) | null) {
+    this.poseSink = fn;
+  }
+
   setRunTime(seconds: number) {
     this.runTime = seconds;
     if (this.phase === 'menu' || this.phase === 'loading') this.timeLeft = seconds;
@@ -3205,6 +3403,14 @@ if (tpClipActive > 0.5) {
     else if (this.phase === 'paused') this.updateIdle(dt);
     else this.updateGameOver(dt);
 
+    this.updateCompanions(dt);
+    if (this.poseSink && this.phase === 'playing') {
+      this.poseAcc += dt;
+      if (this.poseAcc >= 0.25) {
+        this.poseAcc = 0;
+        this.poseSink(this.playerPose());
+      }
+    }
     this.render();
   };
 
@@ -9118,6 +9324,12 @@ if (tpClipActive > 0.5) {
       wearKey,
       this.craftSignature(),
       objectiveKey,
+      // the squad panel has to react to teammate health / blocks moving, not just to own stats
+      this.companions.size
+        ? [...this.companions]
+            .map(([id, rig]) => `${id}:${Math.round(rig.health)}:${rig.blocks}:${rig.finished ? 1 : 0}:${Math.round(rig.group.position.distanceTo(this.pos))}`)
+            .join('|')
+        : '-',
     ].join('~');
     if (!force && key === this.lastHudKey) {
       this.writeDom();
@@ -9169,6 +9381,7 @@ if (tpClipActive > 0.5) {
       lockFailed: this.lockFailed,
       freeLook: this.freeLook,
       runTime: this.runTime,
+      squad: this.companionStatus(),
       survival: this.survival,
       daylight: this.daylight,
       timeOfDay: this.clock,
@@ -9239,6 +9452,107 @@ if (tpClipActive > 0.5) {
     this.renderer.render(this.scene, this.camera);
     this.renderer.clearDepth();
     this.renderer.render(this.hudScene, this.hudCamera);
+  }
+
+  /* ========================= asynchronous co-op ========================= */
+
+  /**
+   * Create the ghost miners for the sessions the platform handed over. Called once per run with the
+   * teammates found by `ysdk.multiplayer.sessions.init()`; extra rigs are removed, new ones appear
+   * at the world spawn until their first recorded transaction arrives.
+   */
+  setCompanions(seeds: CompanionSeed[]) {
+    const wanted = new Set(seeds.map((s) => s.id));
+    for (const [id, rig] of [...this.companions]) {
+      if (wanted.has(id)) continue;
+      this.companionLayer.remove(rig.group);
+      disposeObject(rig.group);
+      this.companions.delete(id);
+    }
+    for (const seed of seeds) {
+      if (this.companions.has(seed.id)) continue;
+      const rig = buildCompanionRig(seed);
+      rig.group.position.set(this.pos.x + 1.5, this.pos.y, this.pos.z + 1.5);
+      rig.target.copy(rig.group.position);
+      this.companions.set(seed.id, rig);
+      this.companionLayer.add(rig.group);
+    }
+  }
+
+  /** Move a teammate to a recorded position; the rig walks there instead of teleporting. */
+  moveCompanion(id: string, pose: CompanionPose) {
+    const rig = this.companions.get(id);
+    if (!rig) return;
+    rig.target.set(pose.x, pose.y, pose.z);
+    if (typeof pose.yaw === 'number' && Number.isFinite(pose.yaw)) rig.yawTarget = pose.yaw;
+    if (typeof pose.health === 'number') rig.setHealth(pose.health);
+    if (typeof pose.blocks === 'number') rig.blocks = pose.blocks;
+  }
+
+  clearCompanions() {
+    for (const rig of this.companions.values()) {
+      this.companionLayer.remove(rig.group);
+      disposeObject(rig.group);
+    }
+    this.companions.clear();
+  }
+
+  /** Everything the local player does that a replay needs to reproduce the shift. */
+  playerPose(): PlayerPose {
+    return { x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw, health: this.health, blocks: this.blocksMined };
+  }
+
+  /** Squad panel data: teammates sorted by how close they are to the player. */
+  companionStatus(): CompanionStatus[] {
+    const out: CompanionStatus[] = [];
+    for (const [id, rig] of this.companions) {
+      out.push({
+        id,
+        name: rig.name,
+        health: rig.health,
+        blocks: rig.blocks,
+        distance: Math.round(rig.group.position.distanceTo(this.pos)),
+        finished: rig.finished,
+      });
+    }
+    return out.sort((a, b) => a.distance - b.distance);
+  }
+
+  /** Mark a teammate's recorded session as over (the platform's `multiplayer-sessions-finish`). */
+  finishCompanion(id: string) {
+    const rig = this.companions.get(id);
+    if (rig) rig.finished = true;
+  }
+
+  private updateCompanions(dt: number) {
+    if (!this.companions.size) return;
+    for (const rig of this.companions.values()) {
+      const before = rig.group.position.clone();
+      // teammates walk rather than teleport: a recorded jump (a long pause in the timeline) is
+      // covered at a brisk pace instead of an instant snap
+      rig.group.position.lerp(rig.target, Math.min(1, dt * 4.5));
+      const moved = rig.group.position.distanceTo(before);
+      rig.phase += moved * 4.2 + dt * 1.2;
+      const swing = rig.moving && moved > 0.0005 ? Math.sin(rig.phase * 2.4) * 0.55 : Math.sin(rig.phase * 0.6) * 0.06;
+      rig.leftLeg.rotation.x = swing;
+      rig.rightLeg.rotation.x = -swing;
+      rig.leftArm.rotation.x = -swing * 0.8;
+      rig.rightArm.rotation.x = swing * 0.8;
+      let dy = rig.yawTarget - rig.group.rotation.y;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      rig.group.rotation.y += dy * Math.min(1, dt * 6);
+      const dist = rig.group.position.distanceTo(this.pos);
+      rig.group.visible = dist < 96;
+      rig.tag.visible = dist < 48;
+      rig.bar.visible = dist < 48 && rig.health < 100;
+      if (!rig.group.visible) continue;
+      rig.tag.position.y = 2.25;
+      rig.bar.position.y = 2.02;
+      rig.bob += dt;
+      rig.group.position.y = rig.target.y + (rig.moving && moved > 0.0005 ? Math.abs(Math.sin(rig.phase * 2.4)) * 0.045 : 0);
+      rig.moving = false;
+    }
   }
 
   dispose() {
