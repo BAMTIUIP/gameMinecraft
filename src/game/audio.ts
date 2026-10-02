@@ -8,6 +8,27 @@ let noiseBuf: AudioBuffer | null = null;
 let muted = false;
 
 /**
+ * Requirements 1.6.1.6 and 1.6.2.5: «В любых браузерах не отображается системный плеер, вызываемый
+ * игрой» (https://yandex.ru/dev/games/doc/ru/requirements/1/6). The game synthesises every sound with
+ * Web Audio — there is not a single `<audio>`/`<video>` element, no media source and no
+ * `navigator.mediaSession` registration of its own. As a belt-and-braces measure any media session
+ * that some other code (or an earlier version of the page) left behind is cleared: the system player
+ * must never show the game.
+ */
+function clearSystemPlayer() {
+  try {
+    const session = (navigator as Navigator & {
+      mediaSession?: { metadata: unknown; playbackState: string };
+    }).mediaSession;
+    if (!session) return;
+    session.metadata = null;
+    session.playbackState = 'none';
+  } catch {
+    /* the browser has no Media Session API — nothing to clear */
+  }
+}
+
+/**
  * Requirement 1.3: the game's sound must stop when the page loses focus — window minimised, another
  * tab chosen, the browser's own tab picker (https://yandex.ru/dev/games/doc/ru/requirements/1/3).
  * Three independent holds decide whether the audio context may run:
@@ -30,6 +51,8 @@ function syncAudio() {
     if (ctx.state === 'running') void ctx.suspend();
   } else if (ctx.state === 'suspended') {
     void ctx.resume();
+    // the game is audible again: make sure no system player is attached to this audio
+    clearSystemPlayer();
   }
 }
 
@@ -62,6 +85,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 
 export function initAudio() {
+  clearSystemPlayer(); // requirement 1.6.*.5: the game never hands its audio to the system player
   if (ctx) {
     syncAudio();
     return;

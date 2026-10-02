@@ -171,6 +171,30 @@ async function openGame(seed) {
     // with a spy that records suspend()/resume() and flips its own state, so focus events can be
     // verified without speakers.
     window.__audioSpy = { created: 0, suspends: 0, resumes: 0 };
+    // Requirement 1.6.*.5: the game must not hand audio to the browser's system player. The spy
+    // remembers every attempt to register metadata on the media session.
+    window.__mediaSessionSpy = { metadataWrites: 0, playbackStates: [] };
+    try {
+      Object.defineProperty(navigator, 'mediaSession', {
+        configurable: true,
+        value: {
+          get metadata() {
+            return null;
+          },
+          set metadata(value) {
+            if (value) window.__mediaSessionSpy.metadataWrites += 1;
+          },
+          get playbackState() {
+            return 'none';
+          },
+          set playbackState(value) {
+            window.__mediaSessionSpy.playbackStates.push(value);
+          },
+        },
+      });
+    } catch {
+      /* the browser refuses to redefine it: the check below then only looks at media elements */
+    }
     const RealAC = window.AudioContext || window.webkitAudioContext;
     if (RealAC) {
       const SpyAC = function (...args) {
@@ -654,6 +678,18 @@ async function scenarioProgress() {
     10_000,
   );
   check(visibleRestored, 'Возвращение на вкладку включает звук обратно');
+
+  // ===================== 9e. no system player (requirement 1.6.1.6/1.6.2.5) =====================
+  const mediaElements = await game.page.evaluate(() => document.querySelectorAll('audio, video').length);
+  check(mediaElements === 0, 'В разметке нет ни <audio>, ни <video> (звук — только Web Audio)', String(mediaElements));
+  const sessionRegister = await game.page.evaluate(() => window.__mediaSessionSpy.metadataWrites);
+  check(sessionRegister === 0, 'Игра не регистрирует метаданные в системном плеере', String(sessionRegister));
+  const sessionState = await game.page.evaluate(() => window.__mediaSessionSpy.playbackStates.join(','));
+  check(
+    sessionState === '' || /^(none,)*none$/.test(sessionState),
+    'Медиасессия не переводится в состояние «играет» (только none)',
+    sessionState,
+  );
 
   // ===================== 10. local mirrors and console health =====================
   check((await game.storageValue('orerush.totals.v1')) !== null, 'Локальное зеркало статистики создано');
