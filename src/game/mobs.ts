@@ -120,6 +120,16 @@ export const PASSIVES: MobId[] = ['pig', 'sheep', 'cow', 'chicken'];
 
 export type MobThreatTarget = { id: string; x: number; y: number; z: number };
 
+/** Collision body supplied by the player (or a local companion) while mobs move. */
+export type MobCollisionBody = {
+  x: number;
+  y: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+  height: number;
+};
+
 export type Mob = {
   id: MobId;
   def: MobDef;
@@ -171,6 +181,9 @@ export type Mob = {
   variant: number;
   /** size multiplier for bird / fish models and collision boxes */
   modelSize: number;
+  /** Unscaled local model bounds used for body-vs-world and body-vs-mob collisions. */
+  collisionHalf: number;
+  collisionHeight: number;
   /** parts hidden when a turtle retreats into its shell */
   retractParts: THREE.Object3D[];
   /** generic AI task state (bees: 0 roam, 1 pollinating, 2 flying to hive) */
@@ -1312,6 +1325,71 @@ export class MobSystem {
     return n;
   }
 
+  private estimatedSpawnScale(id: MobId) {
+    if (id === 'bird') return MOBS[id].scale * 1.35;
+    if (id === 'fish') return MOBS[id].scale * 1.5;
+    return MOBS[id].scale;
+  }
+
+  private estimatedSpawnHalf(id: MobId) {
+    const scale = this.estimatedSpawnScale(id);
+    const half = id === 'spider' ? 0.48
+      : id === 'spiderling' ? 0.3
+        : id === 'moose' ? 0.58
+          : id === 'camel' ? 0.5
+            : id === 'cow' || id === 'sheep' || id === 'pig' ? 0.42
+              : id === 'bird' || id === 'bee' ? 0.2
+                : 0.32;
+    return half * scale;
+  }
+
+  private estimatedSpawnHeight(id: MobId) {
+    const scale = this.estimatedSpawnScale(id);
+    const height = id === 'fish' || id === 'jellyfish' ? 0.75
+      : id === 'frog' ? 0.55
+        : id === 'spider' || id === 'spiderling' || id === 'chicken' ? 0.9
+          : MOBS[id].hostile ? 1.85
+            : id === 'camel' ? 2.4
+              : id === 'camel_calf' ? 1.75
+                : id === 'bird' ? 0.9
+                  : id === 'bee' ? 0.7
+                    : 1.3;
+    return height * scale;
+  }
+
+  private spawnClearance(id: MobId | null, other: Mob) {
+    if (id === null) return other.def.aquatic ? 0.2 : 0.72;
+    if ((id === 'calf' && (other.id === 'cow' || other.id === 'calf')) ||
+        (id === 'fawn' && (other.id === 'deer' || other.id === 'roe_deer' || other.id === 'fawn')) ||
+        (id === 'camel_calf' && (other.id === 'camel' || other.id === 'camel_calf'))) return 0.18;
+    if (MOBS[id].hostile || other.def.hostile) return 0.9;
+    if ((id === 'fish' || id === 'jellyfish') && other.def.aquatic) return 0.18;
+    if (id === 'bee' || other.id === 'bee' || id === 'bird' || other.id === 'bird') return 0.48;
+    if (id === 'trader' || other.id === 'trader') return 0.9;
+    return 0.62;
+  }
+
+  private hasSpawnSpace(id: MobId | null, x: number, y: number, z: number, half: number, height: number) {
+    for (const other of this.mobs) {
+      if (!other.alive || other.hidden) continue;
+      const otherHeight = this.mobHeight(other);
+      if (y >= other.y + otherHeight || y + height <= other.y) continue;
+      const minimum = half + this.mobHalf(other) + this.spawnClearance(id, other);
+      const dx = x - other.x;
+      const dz = z - other.z;
+      if (dx * dx + dz * dz < minimum * minimum) return false;
+    }
+    return true;
+  }
+
+  /** Check terrain clearance and keep newly spawned creatures apart from existing ones. */
+  canSpawnAt(id: MobId, x: number, y: number, z: number) {
+    if (![x, y, z].every(Number.isFinite)) return false;
+    const half = this.estimatedSpawnHalf(id);
+    const height = this.estimatedSpawnHeight(id);
+    return !this.collidesBox(x, y, z, half, height) && this.hasSpawnSpace(id, x, y, z, half, height);
+  }
+
   spawn(id: MobId, x: number, y: number, z: number, fishVariant?: number): Mob | null {
     // fish live in a separate budget — schools shouldn't crowd out land life
     if (id === 'fish') {
@@ -1615,8 +1693,30 @@ export class MobSystem {
       feedJaw = rig.mouth;
     }
     const modelSize = (group.userData.modelSize as number | undefined) ?? 1;
-    group.scale.setScalar(def.scale * modelSize);
+    group.updateMatrixWorld(true);
+    const modelBounds = new THREE.Box3().setFromObject(group);
+    const modelDimensions = modelBounds.getSize(new THREE.Vector3());
+    const collisionHalf = Math.max(0.16, Math.max(modelDimensions.x, modelDimensions.z) * 0.5);
+    const collisionHeight = Math.max(0.35, modelDimensions.y);
+    const rootScale = def.scale * modelSize;
+    const worldHalf = collisionHalf * rootScale;
+    const worldHeight = collisionHeight * rootScale;
+    group.scale.setScalar(rootScale);
     group.position.set(x, y, z);
+    if (
+      ![x, y, z].every(Number.isFinite) ||
+      this.collidesBox(x, y, z, worldHalf, worldHeight) ||
+      !this.hasSpawnSpace(id, x, y, z, worldHalf, worldHeight)
+    ) {
+      group.traverse((part) => {
+        const mesh = part as THREE.Mesh;
+        if (mesh.geometry) mesh.geometry.dispose();
+        const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(material)) for (const entry of material) entry.dispose();
+        else material?.dispose();
+      });
+      return null;
+    }
     this.scene.add(group);
     const mob: Mob = {
       id,
@@ -1658,6 +1758,8 @@ export class MobSystem {
       buried: 0,
       variant: 0,
       modelSize,
+      collisionHalf,
+      collisionHeight,
       retractParts: [] as THREE.Object3D[],
       task: 0,
       taskX: 0,
@@ -1750,11 +1852,100 @@ export class MobSystem {
     return false;
   }
 
+  private worldPathBlocked(fromX: number, fromY: number, fromZ: number, x: number, y: number, z: number, half: number, height: number) {
+    const dx = x - fromX;
+    const dy = y - fromY;
+    const dz = z - fromZ;
+    const distance = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+    const stepSize = Math.max(0.035, Math.min(0.12, half * 0.5));
+    const steps = Math.max(1, Math.ceil(distance / stepSize));
+    for (let step = 1; step <= steps; step++) {
+      const t = step / steps;
+      if (this.collidesBox(fromX + dx * t, fromY + dy * t, fromZ + dz * t, half, height)) return true;
+    }
+    return false;
+  }
+
   mobHalf(m: Mob) {
-    return (m.id === 'spider' || m.id === 'spiderling' ? 0.45 : 0.32) * m.def.scale * m.modelSize;
+    return m.collisionHalf * Math.abs(m.group.scale.x);
   }
   mobHeight(m: Mob) {
-    return (m.id === 'fish' || m.id === 'jellyfish' ? 0.75 : m.id === 'frog' ? 0.55 : m.id === 'spider' || m.id === 'spiderling' || m.id === 'chicken' ? 0.9 : m.def.hostile ? 1.85 : m.id === 'camel' ? 2.4 : m.id === 'camel_calf' ? 1.75 : 1.3) * m.def.scale * m.modelSize;
+    return m.collisionHeight * Math.abs(m.group.scale.y);
+  }
+
+  /** A shared body-overlap test for mob movement, player movement and safe bot placement. */
+  collidesWithMob(
+    x: number,
+    y: number,
+    z: number,
+    halfX: number,
+    halfZ: number,
+    height: number,
+    exclude?: Mob,
+    padding = 0,
+    otherBody?: MobCollisionBody,
+  ) {
+    const expandedHalfX = halfX + Math.max(0, padding);
+    const expandedHalfZ = halfZ + Math.max(0, padding);
+    for (const other of this.mobs) {
+      if (other === exclude || !other.alive || other.hidden) continue;
+      const otherHalf = this.mobHalf(other);
+      const otherHeight = this.mobHeight(other);
+      if (y >= other.y + otherHeight || y + height <= other.y) continue;
+      if (
+        x - expandedHalfX < other.x + otherHalf && x + expandedHalfX > other.x - otherHalf &&
+        z - expandedHalfZ < other.z + otherHalf && z + expandedHalfZ > other.z - otherHalf
+      ) return true;
+    }
+    if (otherBody &&
+        y < otherBody.y + otherBody.height && y + height > otherBody.y &&
+        x - expandedHalfX < otherBody.x + otherBody.halfX && x + expandedHalfX > otherBody.x - otherBody.halfX &&
+        z - expandedHalfZ < otherBody.z + otherBody.halfZ && z + expandedHalfZ > otherBody.z - otherBody.halfZ) return true;
+    return false;
+  }
+
+  /** Substep a body path so a large frame delta cannot tunnel through a small creature. */
+  collidesAlongMobPath(
+    fromX: number,
+    fromY: number,
+    fromZ: number,
+    x: number,
+    y: number,
+    z: number,
+    halfX: number,
+    halfZ: number,
+    height: number,
+    exclude?: Mob,
+    padding = 0,
+    otherBody?: MobCollisionBody,
+  ) {
+    const dx = x - fromX;
+    const dy = y - fromY;
+    const dz = z - fromZ;
+    const distance = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+    const stepSize = Math.max(0.035, Math.min(0.12, Math.min(halfX, halfZ) * 0.5));
+    const steps = Math.max(1, Math.ceil(distance / stepSize));
+    for (let step = 1; step <= steps; step++) {
+      const t = step / steps;
+      if (this.collidesWithMob(
+        fromX + dx * t,
+        fromY + dy * t,
+        fromZ + dz * t,
+        halfX,
+        halfZ,
+        height,
+        exclude,
+        padding,
+        otherBody,
+      )) return true;
+    }
+    return false;
+  }
+
+  private mobPathBlocked(m: Mob, x: number, y: number, z: number, half: number, height: number, playerBody?: MobCollisionBody) {
+    return this.collidesAlongMobPath(
+      m.x, m.y, m.z, x, y, z, half, half, height, m, 0, playerBody,
+    );
   }
 
   /** true when the mob's body is submerged */
@@ -1783,8 +1974,8 @@ export class MobSystem {
     return false;
   }
 
-  /** axis-swept AABB movement: no more corner clipping or sinking into terrain */
-  private move(m: Mob, dt: number) {
+  /** Axis-swept AABB movement against terrain, other creatures, and the player. */
+  private move(m: Mob, dt: number, playerBody?: MobCollisionBody) {
     const half = this.mobHalf(m);
     const height = this.mobHeight(m);
 
@@ -1796,13 +1987,25 @@ export class MobSystem {
         m.vy += Math.sin(m.walkPhase) * 0.4 * dt; // gentle bob
         const nx = m.x + m.vx * dt;
         const nz = m.z + m.vz * dt;
-        // stay inside the water body
-        if (this.world.get(Math.floor(nx), Math.floor(m.y + 0.3), Math.floor(m.z)) === WATER) m.x = nx;
+        // Stay in water and sweep the full body through terrain and nearby creatures.
+        if (
+          this.world.get(Math.floor(nx), Math.floor(m.y + 0.3), Math.floor(m.z)) === WATER &&
+          !this.worldPathBlocked(m.x, m.y, m.z, nx, m.y, m.z, half, height) &&
+          !this.mobPathBlocked(m, nx, m.y, m.z, half, height, playerBody)
+        ) m.x = nx;
         else m.vx *= -0.5;
-        if (this.world.get(Math.floor(m.x), Math.floor(m.y + 0.3), Math.floor(nz)) === WATER) m.z = nz;
+        if (
+          this.world.get(Math.floor(m.x), Math.floor(m.y + 0.3), Math.floor(nz)) === WATER &&
+          !this.worldPathBlocked(m.x, m.y, m.z, m.x, m.y, nz, half, height) &&
+          !this.mobPathBlocked(m, m.x, m.y, nz, half, height, playerBody)
+        ) m.z = nz;
         else m.vz *= -0.5;
         const ny = m.y + m.vy * dt;
-        if (this.world.get(Math.floor(m.x), Math.floor(ny + 0.3), Math.floor(m.z)) === WATER) m.y = ny;
+        if (
+          this.world.get(Math.floor(m.x), Math.floor(ny + 0.3), Math.floor(m.z)) === WATER &&
+          !this.worldPathBlocked(m.x, m.y, m.z, m.x, ny, m.z, half, height) &&
+          !this.mobPathBlocked(m, m.x, ny, m.z, half, height, playerBody)
+        ) m.y = ny;
         else m.vy = 0;
         m.onGround = true;
         return;
@@ -1846,8 +2049,15 @@ export class MobSystem {
 
     if (mx !== 0) {
       if (this.pastureBlocked(m, m.x + mx, m.z)) m.vx = 0;
-      else if (!this.collidesBox(m.x + mx, m.y, m.z, half, height)) m.x += mx;
-      else if (m.onGround && this.canStep(m, m.x + mx, m.z) && !this.collidesBox(m.x + mx, m.y + 1.02, m.z, half, height)) {
+      else if (
+        !this.collidesBox(m.x + mx, m.y, m.z, half, height) &&
+        !this.mobPathBlocked(m, m.x + mx, m.y, m.z, half, height, playerBody)
+      ) m.x += mx;
+      else if (
+        m.onGround && this.canStep(m, m.x + mx, m.z) &&
+        !this.collidesBox(m.x + mx, m.y + 1.02, m.z, half, height) &&
+        !this.mobPathBlocked(m, m.x + mx, m.y + 1.02, m.z, half, height, playerBody)
+      ) {
         m.x += mx;
         m.y += 1.02;
         if (m.id === 'tumbleweed') m.vy = Math.max(m.vy, 2.8);
@@ -1858,8 +2068,15 @@ export class MobSystem {
     }
     if (mz !== 0) {
       if (this.pastureBlocked(m, m.x, m.z + mz)) m.vz = 0;
-      else if (!this.collidesBox(m.x, m.y, m.z + mz, half, height)) m.z += mz;
-      else if (m.onGround && this.canStep(m, m.x, m.z + mz) && !this.collidesBox(m.x, m.y + 1.02, m.z + mz, half, height)) {
+      else if (
+        !this.collidesBox(m.x, m.y, m.z + mz, half, height) &&
+        !this.mobPathBlocked(m, m.x, m.y, m.z + mz, half, height, playerBody)
+      ) m.z += mz;
+      else if (
+        m.onGround && this.canStep(m, m.x, m.z + mz) &&
+        !this.collidesBox(m.x, m.y + 1.02, m.z + mz, half, height) &&
+        !this.mobPathBlocked(m, m.x, m.y + 1.02, m.z + mz, half, height, playerBody)
+      ) {
         m.z += mz;
         m.y += 1.02;
         if (m.id === 'tumbleweed') m.vy = Math.max(m.vy, 2.8);
@@ -1879,10 +2096,12 @@ export class MobSystem {
     if (m.id === 'bird' && (m.task === 9 || m.task === 12)) m.onGround = false;
     const my = Math.max(-0.9, Math.min(0.9, m.vy * dt));
     const ny = m.y + my;
-    if (!this.collidesBox(m.x, ny, m.z, half, height)) {
+    const hitsTerrainY = this.worldPathBlocked(m.x, m.y, m.z, m.x, ny, m.z, half, height);
+    const hitsMobY = this.mobPathBlocked(m, m.x, ny, m.z, half, height, playerBody);
+    if (!hitsTerrainY && !hitsMobY) {
       m.y = ny;
       m.onGround = false;
-    } else if (my < 0) {
+    } else if (my < 0 && hitsTerrainY) {
       // land: snap the feet onto the highest solid corner under the box
       const impactVy = m.vy;
       m.y = Math.floor(ny) + 1.001;
@@ -1896,7 +2115,8 @@ export class MobSystem {
         m.onGround = true;
       }
     } else {
-      m.vy = 0; // bonked a ceiling
+      m.vy = 0; // bonked a ceiling or a creature
+      if (my < 0) m.onGround = false;
     }
     if (m.y < -8) m.hp = 0;
   }
@@ -1913,6 +2133,7 @@ export class MobSystem {
     onForage?: (x: number, y: number, z: number) => void,
     onFeed?: (x: number, y: number, z: number, food: number) => void,
     hostileTargets: readonly MobThreatTarget[] = [],
+    playerBody?: MobCollisionBody,
   ) {
     this.tick++;
     // cats scare creepers & spiders — collect their positions once per frame
@@ -1999,7 +2220,7 @@ export class MobSystem {
         m.vx += ((mx7 / md7) * def.speed * 1.3 - m.vx) * Math.min(1, mdt * 9);
         m.vz += ((mz7 / md7) * def.speed * 1.3 - m.vz) * Math.min(1, mdt * 9);
         m.yaw = Math.atan2(-mx7, -mz7);
-        this.move(m, mdt);
+        this.move(m, mdt, playerBody);
         m.group.position.set(m.x, m.y, m.z);
         m.group.rotation.y = m.yaw;
         if (m.taskT <= 0 || md7 < 1.2) m.task = 0;
@@ -2142,7 +2363,7 @@ export class MobSystem {
             m.tx = m.x;
             m.tz = m.z;
             m.think = 1.5;
-            this.move(m, mdt);
+            this.move(m, mdt, playerBody);
             m.group.position.set(m.x, m.y, m.z);
             m.group.rotation.y = m.yaw;
             continue; // skip walking anim while hiding
@@ -2703,7 +2924,7 @@ export class MobSystem {
 
       m.vx += (mx - m.vx) * Math.min(1, mdt * (m.id === 'tumbleweed' ? 4.5 : 9));
       m.vz += (mz - m.vz) * Math.min(1, mdt * (m.id === 'tumbleweed' ? 4.5 : 9));
-      this.move(m, mdt);
+      this.move(m, mdt, playerBody);
 
       if (m.hp <= 0) {
         this.remove(m);
@@ -2878,8 +3099,9 @@ export class MobSystem {
     maxR: number,
     biasAngle: number | null = null,
     groundTypes?: readonly number[],
+    spawnId?: MobId,
   ): [number, number, number] | null {
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 48; i++) {
       const a =
         biasAngle !== null && i < 16
           ? biasAngle + (Math.random() * 2 - 1) * 1.2 // forward cone first…
@@ -2894,7 +3116,9 @@ export class MobSystem {
       if (!isSolid(ground) || ground === CACTUS || ground === CACTUS_PALE ||
         isLeafId(ground) || isLogId(ground) || (groundTypes && !groundTypes.includes(ground))) continue;
       if (isSolid(this.world.get(x, h + 1, z)) || isSolid(this.world.get(x, h + 2, z))) continue;
-      return [x + 0.5, h + 1, z + 0.5];
+      const candidate: [number, number, number] = [x + 0.5, h + 1, z + 0.5];
+      if (!this.canSpawnAt(spawnId ?? 'pig', candidate[0], candidate[1], candidate[2])) continue;
+      return candidate;
     }
     return null;
   }

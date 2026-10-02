@@ -145,6 +145,7 @@ import {
 import { babyGrowthScale, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
+import { companionSpawnIsClear } from './companionSpawn';
 import {
   canSpawnSurvivalHostiles,
   FIRST_SURVIVAL_DAY_SECONDS,
@@ -1634,7 +1635,6 @@ if (tpClipActive > 0.5) {
     // Turn the head partly into depth: one pointed end now leads toward a block,
     // while the other remains visible as a readable pickaxe silhouette.
     this.toolPick.rotation.set(0.18, -0.9, 0.54);
-    this.toolPick.rotateY(Math.PI / 2);
     this.toolPick.position.set(0.02, -0.02, 0.06);
     this.pickGroup.add(this.toolPick);
 
@@ -2229,9 +2229,8 @@ if (tpClipActive > 0.5) {
       // blade leaning into the scene, not flat against the forearm.
       else if (craftedSpec.kind === 'sword') this.toolCrafted.rotation.set(-0.34, -0.68, 0.46);
       else this.toolCrafted.rotation.set(-0.36, 0.15, 0.28);
-      // Roll on the haft axis; the first-person tool bases differ, so the edge-facing roll is signed per tool.
-      if (craftedSpec.kind === 'pickaxe') this.toolCrafted.rotateY(Math.PI / 2);
-      else if (
+      // Keep the earlier pickaxe view-model pose; only roll the other long-handled tools.
+      if (
         craftedSpec.kind === 'axe' ||
         craftedSpec.kind === 'shovel' ||
         craftedSpec.kind === 'hoe'
@@ -3734,7 +3733,7 @@ if (tpClipActive > 0.5) {
             : ['cow', 'sheep', 'chicken', 'rabbit', 'cat', 'deer'];
     const preferredGround = isDry ? [SAND] : biome === 'winter' ? [SNOW_GRASS] : [GRASS];
     for (const id of species) {
-      const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround);
+      const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround, id);
       if (spot) this.mobSys.spawn(id, spot[0], spot[1], spot[2]);
     }
   }
@@ -4173,12 +4172,16 @@ if (tpClipActive > 0.5) {
     for (let y = minY; y <= maxY; y++)
       for (let z = minZ; z <= maxZ; z++)
         for (let x = minX; x <= maxX; x++) if (isSolid(this.world.get(x, y, z))) return true;
-    return false;
+    return this.mobSys.collidesWithMob(px, py, pz, halfX, halfZ, this.playerHeight(crawling));
   }
 
   private moveAxis(axis: 'x' | 'y' | 'z', amount: number) {
     if (amount === 0) return { blocked: false, top: 0 };
     const p = this.pos;
+    const start = p[axis];
+    const startX = p.x;
+    const startY = p.y;
+    const startZ = p.z;
     p[axis] += amount;
     const { halfX, halfZ } = this.playerHalfExtents();
     const minX = Math.floor(p.x - halfX),
@@ -4207,6 +4210,15 @@ if (tpClipActive > 0.5) {
       else if (axis === 'x') p.x = amount > 0 ? best - halfX - eps : best + 1 + halfX + eps;
       else p.z = amount > 0 ? best - halfZ - eps : best + 1 + halfZ + eps;
       this.vel[axis] = 0;
+      if (axis === 'y' && amount < 0) this.onGround = true;
+    }
+    if (this.mobSys.collidesAlongMobPath(
+      startX, startY, startZ, p.x, p.y, p.z, halfX, halfZ, this.playerHeight(),
+    )) {
+      // Sweep intermediate positions so a lag spike cannot carry the player through a small animal.
+      p[axis] = start;
+      this.vel[axis] = 0;
+      blocked = true;
       if (axis === 'y' && amount < 0) this.onGround = true;
     }
     return { blocked, top };
@@ -6972,7 +6984,7 @@ if (tpClipActive > 0.5) {
       // sunlight-proof garrison so the guards survive the day shift
       const picks: MobId[] = s.kind === 'tower' ? ['spider', 'creeper', 'spider'] : ['spider', 'creeper'];
       for (const id of picks) {
-        const p = this.mobSys.findSpawnPoint(s.x, s.z, 2, 7);
+        const p = this.mobSys.findSpawnPoint(s.x, s.z, 2, 7, null, undefined, id);
         if (p) this.mobSys.spawn(id, p[0], p[1], p[2]);
       }
     }
@@ -8388,14 +8400,14 @@ if (tpClipActive > 0.5) {
         const spawnAllowed = canSpawnSurvivalHostiles(this.survivalNight, night, underground);
         const cap = survivalHostileCap(this.survivalNight, night, underground);
         if (spawnAllowed && this.mobSys.count(true) < cap) {
+          // Choose first so both the surface and cave searches use the exact hostile's footprint.
+          const roll = Math.random();
+          const id: MobId =
+            roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
           const p = underground
-            ? this.findCaveSpawn()
-            : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 16, 38);
+            ? this.findCaveSpawn(id)
+            : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 16, 38, null, undefined, id);
           if (p) {
-            // skeletons (melee + archer) now make up 40% of the night
-            const roll = Math.random();
-            const id: MobId =
-              roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
             const m = this.mobSys.spawn(id, p[0], p[1], p[2]);
             if (m && threat > 0) {
               m.maxHp = Math.ceil(m.maxHp * this.hostileHpScale());
@@ -8509,7 +8521,7 @@ if (tpClipActive > 0.5) {
             this.mobSys.spawn('bee', flower[0], flower[1] + 0.3, flower[2]);
         } else {
           const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 8, 26, biasAngle,
-            [GRASS, SAND, STONE, SNOW_GRASS, VOLCANIC_STONE]);
+            [GRASS, SAND, STONE, SNOW_GRASS, VOLCANIC_STONE], 'bird');
           if (p) this.mobSys.spawn('bird', p[0], p[1], p[2]);
         }
       }
@@ -8535,7 +8547,7 @@ if (tpClipActive > 0.5) {
         if (Math.hypot(tr.x - this.pos.x, tr.z - this.pos.z) > 90) this.mobSys.remove(tr);
       }
       if (traders.length < 2) {
-        const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 20, 38, biasAngle);
+        const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 20, 38, biasAngle, undefined, 'trader');
         // never in water — solid dry ground only
         if (p && this.world.get(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])) !== WATER) {
           this.mobSys.spawn('trader', p[0], p[1], p[2]);
@@ -8543,6 +8555,7 @@ if (tpClipActive > 0.5) {
       }
     }
 
+    const playerExtents = this.playerHalfExtents();
     this.mobSys.update(
       dt,
       this.pos.x,
@@ -8559,13 +8572,21 @@ if (tpClipActive > 0.5) {
         this.burst(x, y, z, particles, 2, 0.35, 0.25);
       },
       this.localBotThreatTargets(),
+      {
+        x: this.pos.x,
+        y: this.pos.y,
+        z: this.pos.z,
+        halfX: playerExtents.halfX,
+        halfZ: playerExtents.halfZ,
+        height: this.playerHeight(),
+      },
     );
 
     this.updateCreatureVoices(dt);
   }
 
-  /** dark-cave spawn: air pocket with a solid floor, below the surface, near the player */
-  private findCaveSpawn(): [number, number, number] | null {
+  /** Dark-cave spawn: a clear air pocket with solid floor and creature separation. */
+  private findCaveSpawn(id: MobId): [number, number, number] | null {
     for (let i = 0; i < 18; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = 8 + Math.random() * 16;
@@ -8579,9 +8600,11 @@ if (tpClipActive > 0.5) {
         if (
           isSolid(this.world.get(x, y - 1, z)) &&
           this.world.get(x, y, z) === AIR &&
-          this.world.get(x, y + 1, z) === AIR
+          this.world.get(x, y + 1, z) === AIR &&
+          this.world.get(x, y + 2, z) === AIR
         ) {
-          return [x + 0.5, y, z + 0.5];
+          const candidate: [number, number, number] = [x + 0.5, y, z + 0.5];
+          if (this.mobSys.canSpawnAt(id, candidate[0], candidate[1], candidate[2])) return candidate;
         }
       }
     }
@@ -10105,6 +10128,27 @@ if (tpClipActive > 0.5) {
    * teammates found by `ysdk.multiplayer.sessions.init()`; extra rigs are removed, new ones appear
    * at the world spawn until their first recorded transaction arrives.
    */
+  private findLocalBotSpawn(angle: number): [number, number, number] | null {
+    // Search full rings rather than placing every local survival miner on the same player-relative point.
+    for (let ring = 0; ring <= 20; ring++) {
+      const radius = 2.5 + ring * 0.72;
+      const spokes = ring === 0 ? 12 : 16;
+      for (let spoke = 0; spoke < spokes; spoke++) {
+        const theta = angle + (spoke / spokes) * Math.PI * 2 + ring * 0.17;
+        const x = this.pos.x + Math.cos(theta) * radius;
+        const z = this.pos.z + Math.sin(theta) * radius;
+        const y = this.companionGroundY(x, z, this.pos.y, 4);
+        if (y === null) continue;
+        if (this.mobSys.collidesWithMob(x, y, z, 0.3, 0.3, 1.8, undefined, 0.45)) continue;
+        const occupied = [...this.companions.values()]
+          .filter((other) => !other.dead && Math.abs(other.group.position.y - y) <= 1.8)
+          .map((other) => ({ x: other.group.position.x, z: other.group.position.z }));
+        if (companionSpawnIsClear(x, z, occupied)) return [x, y, z];
+      }
+    }
+    return null;
+  }
+
   setCompanions(seeds: CompanionSeed[]) {
     const wanted = new Set(seeds.map((s) => s.id));
     for (const [id, rig] of [...this.companions]) {
@@ -10119,13 +10163,37 @@ if (tpClipActive > 0.5) {
       const angle = idHue(seed.id) * Math.PI * 2;
       let spawnX = this.pos.x + Math.cos(angle) * 2.5;
       let spawnZ = this.pos.z + Math.sin(angle) * 2.5;
-      let spawnY = rig.localBot ? this.companionGroundY(spawnX, spawnZ, this.pos.y, 4) : null;
-      if (rig.localBot && spawnY === null) {
-        for (let ring = 1; ring <= 5 && spawnY === null; ring++) {
-          const radius = 2.5 + ring * 0.8;
-          spawnX = this.pos.x + Math.cos(angle + ring * 0.7) * radius;
-          spawnZ = this.pos.z + Math.sin(angle + ring * 0.7) * radius;
-          spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 4);
+      let spawnY: number | null = null;
+      if (rig.localBot) {
+        const spawnPoint = this.findLocalBotSpawn(angle);
+        if (spawnPoint) [spawnX, spawnY, spawnZ] = spawnPoint;
+        else {
+          // Last-resort location still gets its own ring and stays well away from the player.
+          const occupied = [...this.companions.values()]
+            .filter((other) => !other.dead)
+            .map((other) => ({ x: other.group.position.x, z: other.group.position.z }));
+          let fallbackFound = false;
+          for (let attempt = 0; attempt < 160; attempt++) {
+            const theta = angle + attempt * 2.399963229728653;
+            const radius = 14 + Math.floor(attempt / 16) * 1.8;
+            const candidateX = this.pos.x + Math.cos(theta) * radius;
+            const candidateZ = this.pos.z + Math.sin(theta) * radius;
+            if (!companionSpawnIsClear(candidateX, candidateZ, occupied)) continue;
+            if (this.mobSys.collidesWithMob(candidateX, this.pos.y, candidateZ, 0.3, 0.3, 1.8, undefined, 0.45)) continue;
+            spawnX = candidateX;
+            spawnZ = candidateZ;
+            spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 12);
+            fallbackFound = true;
+            break;
+          }
+          if (!fallbackFound) {
+            // Four miners cannot exhaust this outer ring, but keep the emergency point separated too.
+            const radius = 48 + this.companions.size * 2;
+            const theta = angle + (this.companions.size + 1) * 2.399963229728653;
+            spawnX = this.pos.x + Math.cos(theta) * radius;
+            spawnZ = this.pos.z + Math.sin(theta) * radius;
+            spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 60);
+          }
         }
       }
       rig.group.position.set(spawnX, spawnY ?? this.pos.y, spawnZ);
@@ -10204,9 +10272,17 @@ if (tpClipActive > 0.5) {
     if (surfaceBlock === WATER || surfaceBlock === LAVA || surfaceY <= 0) return null;
     const groundY = surfaceY + 1.001;
     if (referenceY !== null && Math.abs(groundY - referenceY) > maxDelta) return null;
-    // Keep a two-block-tall body clear of ceilings and branches.
-    for (let y = Math.floor(groundY + 0.02); y <= Math.floor(groundY + 1.78); y++) {
-      if (isSolid(this.world.get(bx, y, bz))) return null;
+    // Keep the miner's full 0.56-block-wide, two-block-tall body clear of ceilings and branches.
+    const minX = Math.floor(x - 0.28);
+    const maxX = Math.floor(x + 0.28);
+    const minZ = Math.floor(z - 0.28);
+    const maxZ = Math.floor(z + 0.28);
+    for (let cy = Math.floor(groundY + 0.02); cy <= Math.floor(groundY + 1.78); cy++) {
+      for (let cz = minZ; cz <= maxZ; cz++) {
+        for (let cx = minX; cx <= maxX; cx++) {
+          if (isSolid(this.world.get(cx, cy, cz))) return null;
+        }
+      }
     }
     return groundY;
   }
