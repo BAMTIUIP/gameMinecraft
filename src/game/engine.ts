@@ -162,6 +162,7 @@ import {
 } from './items';
 import { blockName, matName, pickaxeLabel, rarName, recipeText, toolLabelForId, t, type TKey } from './i18n';
 import { yaServerTime } from './yandex';
+import { deviceKind } from './params';
 
 const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
@@ -676,6 +677,17 @@ export class Engine {
   phase: Phase = 'loading';
   /** the current pause was imposed by the system (hidden tab, focus loss, Yandex) — not chosen by the player */
   private pausedBySystem = false;
+  /**
+   * Requirement 1.6.3: on a TV the remote must be enough to play. The arrows already move (WASD
+   * aliases) and here they also become the look control, since a remote has no mouse; OK (Enter)
+   * digs, a short tap of OK uses or places, and a step exactly one block high is taken
+   * automatically, because a remote reports one press at a time.
+   */
+  private readonly tv = deviceKind() === 'tv';
+  /** when OK was pressed, to tell a hold (dig) from a tap (use/place) */
+  private tvOkDownAt = 0;
+  /** a one-shot placement requested by the remote's OK tap */
+  private placeOnce = false;
   private score = 0;
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
@@ -2465,6 +2477,14 @@ if (tpClipActive > 0.5) {
       return;
     }
     if (this.phase !== 'playing') return;
+    // OK on the remote (requirement 1.6.3): hold to dig, tap to use the thing in front or place the
+    // selected block. The engine reads the same flags the mouse sets, so nothing else has to change.
+    if (this.tv && (c === 'Enter' || c === 'NumpadEnter')) {
+      this.tvOkDownAt = performance.now();
+      this.mining = true;
+      e.preventDefault();
+      return;
+    }
     if (c === 'KeyV') {
       this.togglePerspective();
       return;
@@ -2512,6 +2532,24 @@ if (tpClipActive > 0.5) {
       this.tryPlace();
     }
   };
+  private onKeyUpTv = (e: KeyboardEvent) => {
+    if (!this.tv || (e.code !== 'Enter' && e.code !== 'NumpadEnter')) return;
+    const held = performance.now() - this.tvOkDownAt;
+    this.mining = false;
+    if (held > 260) return; // a hold: that was digging, nothing else to do
+    // a short tap: use what is in front (door, trader, chest) or place the selected block
+    if (!this.interact()) this.placeOnce = true;
+  };
+
+  /** Is there a step exactly one block high in front (walkable with a jump)? */
+  private tvStepAhead(): boolean {
+    const dirX = -Math.sin(this.yaw);
+    const dirZ = -Math.cos(this.yaw);
+    const x = this.pos.x + dirX * 0.6;
+    const z = this.pos.z + dirZ * 0.6;
+    return this.collides(x, this.pos.y, z, this.crawling, this.yaw) && !this.collides(x, this.pos.y + 1.05, z, this.crawling, this.yaw);
+  }
+
   private onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.mining = false;
     if (e.button === 2 || e.button === 1) this.placing = false;
@@ -2608,6 +2646,7 @@ if (tpClipActive > 0.5) {
   private bindInput() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('keyup', this.onKeyUpTv);
     window.addEventListener('blur', this.onBlur);
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('resize', this.onResize);
@@ -3518,7 +3557,10 @@ if (tpClipActive > 0.5) {
     this.updateClock(dt);
     this.updatePlayer(dt);
     this.updateTarget();
-    if (this.placing || this.touchPlace || this.keys['KeyF']) this.tryPlace();
+    if (this.placing || this.placeOnce || this.touchPlace || this.keys['KeyF']) {
+      this.placeOnce = false;
+      this.tryPlace();
+    }
     if (this.attackCd > 0) this.attackCd -= dt;
     this.streamChunks(this.pos.x, this.pos.z);
     this.updateMobs(dt);
@@ -3690,8 +3732,15 @@ if (tpClipActive > 0.5) {
       fz = 0;
     if (k['KeyW'] || k['ArrowUp']) fz += 1;
     if (k['KeyS'] || k['ArrowDown']) fz -= 1;
-    if (k['KeyA'] || k['ArrowLeft']) fx -= 1;
-    if (k['KeyD'] || k['ArrowRight']) fx += 1;
+    // On a TV the remote has four arrows and no mouse: left/right turn the view instead of strafing
+    // (strafe stays on A/D for keyboards), so the whole game can be played from the remote.
+    if (k['KeyA'] || (k['ArrowLeft'] && !this.tv)) fx -= 1;
+    if (k['KeyD'] || (k['ArrowRight'] && !this.tv)) fx += 1;
+    if (this.tv && this.phase === 'playing' && !this.crawling) {
+      const turn = 2.3; // rad/s — comfortable for a remote's repeated presses
+      if (k['ArrowLeft']) this.yaw += turn * dt;
+      if (k['ArrowRight']) this.yaw -= turn * dt;
+    }
     fx += this.touchMove.x;
     fz += -this.touchMove.y;
     // C = crawl (prone, fits 1-block gaps); CTRL = crouch; SHIFT = sprint
@@ -3757,8 +3806,11 @@ if (tpClipActive > 0.5) {
       this.vel.z *= fr;
     }
 
-    // jump — with coyote time so edge-of-a-ledge jumps still feel fair
-    const jumpHeld = (k['Space'] || this.touchJump) && !this.crouching && !this.crawling;
+    // jump — with coyote time so edge-of-a-ledge jumps still feel fair. On a TV a single-block step
+    // is climbed automatically while walking forward: a remote sends one press at a time and the
+    // player should not have to fight the terrain with it.
+    const autoStep = this.tv && fz > 0.1 && this.onGround && this.tvStepAhead();
+    const jumpHeld = (k['Space'] || this.touchJump || autoStep) && !this.crouching && !this.crawling;
     if (jumpHeld && !wasInWater && (this.onGround || this.coyote > 0)) {
       this.vel.y = JUMP_V;
       this.onGround = false;
@@ -9560,6 +9612,7 @@ if (tpClipActive > 0.5) {
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('keyup', this.onKeyUpTv);
     window.removeEventListener('blur', this.onBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
     window.removeEventListener('resize', this.onResize);

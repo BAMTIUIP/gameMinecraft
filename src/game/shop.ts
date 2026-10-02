@@ -15,6 +15,7 @@
  */
 
 import { addDiamonds, flushProfile, getDiamonds, hasDeliveredPurchase, markPurchaseDelivered, spendDiamonds } from './profile';
+import { tvDevice } from './params';
 import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
 
 /** Product ids as they must exist in the Console, mapped to the diamonds they grant. */
@@ -44,8 +45,13 @@ export type BuyResult =
 
 let catalogCache: ShopCatalog | null = null;
 
+/**
+ * Requirement 1.6.3 (TV adaptation): TV games must not sell anything, so in TV mode the game does not
+ * even ask the platform for the payment object — `getPayments()` is never called, `getPurchases()` is
+ * never called and the shop button is hidden in the UI. Real purchases stay available everywhere else.
+ */
 export function paymentsAvailable(): boolean {
-  return yaPaymentsAvailable();
+  return !tvDevice() && yaPaymentsAvailable();
 }
 
 export function diamondsBalance(): number {
@@ -58,6 +64,7 @@ export function diamondsBalance(): number {
  * baked into the UI (useful outside Yandex Games, where the shop is a preview anyway).
  */
 export async function loadShopCatalog(): Promise<ShopCatalog> {
+  if (tvDevice()) return new Map(); // TV: no purchase UI, so no catalogue request either
   if (catalogCache) return catalogCache;
   const catalog: ShopCatalog = new Map();
   const products = await yaGetCatalog();
@@ -91,7 +98,7 @@ export function resetShopCatalog() {
  * diamonds credited — the UI shows a "purchase restored" banner when it is above zero.
  */
 export async function deliverPendingPurchases(): Promise<number> {
-  if (!yaPaymentsAvailable()) return 0;
+  if (tvDevice() || !yaPaymentsAvailable()) return 0;
   const purchases = await yaGetPurchases();
   if (!purchases?.length) return 0;
 

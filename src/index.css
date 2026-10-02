@@ -402,3 +402,14 @@ input[type='text'] {
   .responsive-ui .bevel, .responsive-ui .bevel-flat { border-width: 2px; }
   .responsive-ui .btn-mc { min-height: 44px; }
 }
+
+/* TV remote navigation (requirement 1.6.3): the player has no pointer, so the focused menu item has
+   to be obvious. The class is painted by src/game/remote.ts. */
+.remote-focus,
+button:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #62e8dc;
+  outline-offset: 2px;
+  box-shadow: 0 0 18px rgba(98, 232, 220, 0.45);
+}

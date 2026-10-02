@@ -589,6 +589,15 @@ async function scenarioProgress() {
     }, name);
   const backDelivered = await emit('HISTORY_BACK');
   check(backDelivered > 0, 'Событие HISTORY_BACK (кнопка «Назад» на ТВ) доходит до игры', `подписчиков: ${backDelivered}`);
+  // Requirement 1.6.3: inside a run the first Back press pauses and opens the in-game menu, and only
+  // the second press (inside the double-press window) asks about leaving.
+  const pausedByBack = await game.waitFor(
+    'Пауза по Back',
+    () => /ПАУЗА|PAUSED|EN PAUSE|PAUSIERT/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(pausedByBack, 'Первое нажатие Back во время смены ставит паузу и открывает игровое меню');
+  await emit('HISTORY_BACK');
   const exitDialog = await game.waitFor(
     'Диалог выхода',
     () => /ВЫЙТИ ИЗ ИГРЫ|LEAVE THE GAME|QUITTER LE JEU|SPIEL VERLASSEN/i.test(document.body.innerText ?? ''),
@@ -606,8 +615,17 @@ async function scenarioProgress() {
   check(game.count(await game.calls(), 'ysdk.dispatchEvent') === 0, 'Без подтверждения платформе ничего не отправляется');
   await emit('HISTORY_BACK');
   await game.waitFor('Диалог снова открыт', () => /ВЫЙТИ ИЗ ИГРЫ/i.test(document.body.innerText ?? ''), 10_000);
-  const leaveClicked = await game.clickByText(/^\s*ВЫЙТИ\s*$/);
-  check(leaveClicked, 'Кнопка «Выйти» нажата');
+  // click inside the dialog itself: the pause menu behind it also has a "ВЫЙТИ" button, and the check
+  // must press the one the player actually sees
+  const leaveClicked = await game.page.evaluate(() => {
+    const dialog = document.querySelector('[aria-modal="true"]');
+    const buttons = [...(dialog?.querySelectorAll('button') ?? [])];
+    const button = buttons.find((b) => /^\s*ВЫЙТИ\s*$/.test(b.textContent ?? ''));
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+  check(leaveClicked, 'Кнопка «Выйти» в диалоге нажата');
   const exitSent = await game.waitFor(
     'ysdk.dispatchEvent(EXIT)',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'ysdk.dispatchEvent' && c.arg === 'EXIT'),
@@ -1086,6 +1104,74 @@ async function scenarioDevice() {
   await desktop.page.close();
 }
 
+/* ------------------------- scenario G: TV adaptation (1.6.3) ------------------------- */
+
+/**
+ * Requirement 1.6.3: on a TV the remote alone must be enough. The platform reports the device as
+ * `deviceInfo.type === 'tv'`, which switches the game into the TV layout: the shop disappears and the
+ * payment object is never requested (TV games must not sell anything), the arrows move a visible focus
+ * through the menu and OK activates the focused item, while Back pauses the run on the first press and
+ * offers to leave on the second.
+ */
+async function scenarioTv() {
+  const menu = await openGame({ lang: 'ru', deviceType: 'tv', flags: { 'game.exploreMinutes': '0.25' } });
+  const ready = await menu.waitFor('Меню на ТВ', () => /НАЧАТЬ ДОБЫЧУ/.test(document.body.innerText ?? ''), 30_000);
+  check(ready, 'Игра запускается, когда платформа называет устройство телевизором (deviceInfo.type = tv)');
+
+  const shopHidden = await menu.page.evaluate(() => !/МАГАЗИН/.test(document.body.innerText ?? ''));
+  check(shopHidden, 'На ТВ кнопки магазина нет — инап-покупки запрещены');
+  const paymentsAsked = (await menu.calls()).some((c) => c.name === 'ysdk.getPayments');
+  check(!paymentsAsked, 'На ТВ игра не запрашивает платёжный объект у платформы');
+
+  // arrows paint a visible focus, OK presses the focused item
+  await menu.page.evaluate(() => {
+    window.__clicks = [];
+    document.addEventListener('click', (event) => window.__clicks.push(event.target?.textContent ?? ''), true);
+  });
+  await menu.page.keyboard.press('ArrowDown');
+  const ringShown = await menu.waitFor('Подсветка фокуса', () => !!document.querySelector('.remote-focus'), 5_000);
+  check(ringShown, 'Стрелка пульта ставит подсветку на элемент меню');
+  const focusedBefore = await menu.page.evaluate(() => document.activeElement?.textContent ?? '');
+  await menu.page.keyboard.press('ArrowRight');
+  const focusedAfter = await menu.page.evaluate(() => document.activeElement?.textContent ?? '');
+  const stillPainted = await menu.page.evaluate(() => document.activeElement?.classList.contains('remote-focus') ?? false);
+  check(stillPainted && focusedBefore !== focusedAfter, 'Стрелка переводит фокус на соседний элемент', `${focusedBefore} → ${focusedAfter}`);
+  await menu.page.keyboard.press('Enter');
+  const clicked = await menu.waitFor('OK нажал элемент', () => (window.__clicks ?? []).length > 0, 5_000);
+  check(clicked, 'OK на пульте нажимает выбранный элемент меню');
+  await menu.page.close();
+
+  // Back: the first press pauses the run, the second offers to leave
+  const run = await openGame({ lang: 'ru', deviceType: 'tv', flags: { 'game.exploreMinutes': '0.25' } });
+  await run.waitFor('Меню на ТВ перед сменой', () => /НАЧАТЬ ДОБЫЧУ/.test(document.body.innerText ?? ''), 30_000);
+  await run.clickByText(/НАЧАТЬ ДОБЫЧУ/);
+  const playing = await run.waitFor('Смена началась', () => !/НАЧАТЬ ДОБЫЧУ/.test(document.body.innerText ?? ''), 30_000);
+  check(playing, 'Смена запускается на ТВ');
+  await run.page.evaluate(() => (window.__yaEmit?.HISTORY_BACK ?? []).forEach((fn) => fn()));
+  const paused = await run.waitFor('Пауза по Back', () => /ПАУЗА/.test(document.body.innerText ?? ''), 10_000);
+  check(paused, 'Одиночное нажатие Back ставит паузу и открывает игровое меню');
+  await run.page.evaluate(() => (window.__yaEmit?.HISTORY_BACK ?? []).forEach((fn) => fn()));
+  const exitPrompt = await run.waitFor('Окно выхода', () => /ВЫЙТИ ИЗ ИГРЫ/.test(document.body.innerText ?? ''), 10_000);
+  check(exitPrompt, 'Второе нажатие Back предлагает выйти из игры');
+  const dialogState = await run.page.evaluate(() => {
+    const dialog = document.querySelector('[aria-modal="true"]');
+    const focused = document.activeElement;
+    return {
+      modal: Boolean(dialog),
+      inside: Boolean(dialog && focused && dialog.contains(focused)),
+      label: focused?.textContent ?? '',
+    };
+  });
+  check(dialogState.modal, 'Окно выхода на ТВ — модальный диалог: пульт ходит только по нему');
+  check(dialogState.inside && /ОСТАТЬСЯ/.test(dialogState.label), 'Фокус пульта сразу на безопасной кнопке «Остаться»', dialogState.label);
+  await run.page.keyboard.press('Enter');
+  const dismissed = await run.waitFor('Окно закрылось', () => !/ВЫЙТИ ИЗ ИГРЫ/.test(document.body.innerText ?? ''), 5_000);
+  check(dismissed, 'OK на пульте выбирает «Остаться» и не выходит из игры');
+  const exited = (await run.calls()).some((c) => c.name === 'ysdk.dispatchEvent' && c.arg === 'EXIT');
+  check(!exited, 'Без явного подтверждения платформе не отправляется выход');
+  await run.page.close();
+}
+
 /* ------------------ scenario F: asynchronous SDK connection (sdk-example) ------------------ */
 
 /**
@@ -1127,6 +1213,7 @@ try {
   await scenarioDaily();
   await scenarioDevice();
   await scenarioAsyncSdk();
+  await scenarioTv();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

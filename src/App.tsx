@@ -37,6 +37,7 @@ import { promoAction } from './game/promo';
 import { claimDailyReward, dailyReward, type DailyView } from './game/daily';
 import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformEvents } from './game/platform';
 import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
+import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
 import { markAdSessionStart, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog } from './game/shop';
 import {
@@ -177,6 +178,14 @@ export default function App() {
   const [fullscreen, setFullscreen] = useState(false);
   /** clipboard feedback on the results screen */
   const [copyNote, setCopyNote] = useState<string | null>(null);
+  /** the player is on a TV: requirement 1.6.3 — purchases are not allowed there */
+  const [isTv, setIsTv] = useState(false);
+  /** the last remote Back press, for the "single = pause, double = exit" rule */
+  const lastBackAt = useRef(0);
+  /** live copies for the window-level key handler, which is installed once */
+  const isTvRef = useRef(false);
+  const exitPromptOpenRef = useRef(false);
+  const onPlatformBackRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -225,7 +234,8 @@ export default function App() {
       // Promo deep link (sdk-environment): a banner in the catalogue may promise a discount or the
       // shop itself — route the player to that screen instead of the main menu.
       const action = promoAction();
-      if (action?.kind === 'shop') setPromo({ productId: action.productId, promoId: action.promoId });
+      // Requirement 1.6.3: no purchases on a TV, so a promo link to the shop is ignored there.
+      if (action?.kind === 'shop' && !tvMode()) setPromo({ productId: action.productId, promoId: action.promoId });
       // Daily reward (sdk-server-time): counted by the trusted clock and stored in the cloud profile,
       // so a system-clock rollback cannot bring the bonus back.
       setDaily(dailyReward());
@@ -233,6 +243,7 @@ export default function App() {
       // follow deviceInfo, and the settings toggle needs the platform's fullscreen status.
       setIsTouch(touchDevice());
       setFullscreen(fullscreenOn());
+      setIsTv(tvMode());
     });
     const loaded = loadScores();
     setScores(loaded);
@@ -287,7 +298,38 @@ export default function App() {
     // picker holds our progress sync while it is open, and once it closes the chosen cloud progress
     // is pulled in and the game returns to the menu.
     startPlatformEvents();
-    const offExitPrompt = onExitPrompt(() => setExitPrompt(true));
+    // Remote Back (requirement 1.6.3): a single press during a run pauses and opens the in-game menu,
+    // a second press inside the double-press window asks about leaving, and in any menu the press asks
+    // right away. The same rule covers HISTORY_BACK from the platform and the remote's own Escape-like
+    // Back where the SDK does not report it.
+    const handleBack = () => {
+      const eng = engineRef.current;
+      const phase = eng?.phase ?? 'menu';
+      const action = backIntent(eng?.inventoryOpen ? 'menu' : phase, lastBackAt.current, Date.now());
+      if (action === 'pause') {
+        lastBackAt.current = Date.now();
+        if (eng?.phase === 'playing') eng.pause(); // the player's own pause: the pause menu is open
+        return;
+      }
+      lastBackAt.current = 0;
+      setExitPrompt(true);
+    };
+    onPlatformBackRef.current = handleBack;
+    const offExitPrompt = onExitPrompt(() => onPlatformBackRef.current?.());
+    // Esc is the keyboard's Back for the menus: on a TV the platform reports HISTORY_BACK, but some
+    // remote layouts and browsers send Escape instead, and a player must never be stuck in a menu.
+    // During a run Escape keeps its normal "pause / resume" meaning, so the two never fight.
+    const onBackKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Escape' || e.repeat) return;
+      if (!isTvRef.current || exitPromptOpenRef.current) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      const phase = engineRef.current?.phase ?? 'menu';
+      if (phase === 'playing' || phase === 'paused') return;
+      handleBack();
+    };
+    window.addEventListener('keydown', onBackKey);
+
     const offAccountSwitch = onAccountSwitch((phase) => {
       if (phase === 'opened') {
         pauseProfileSync(true);
@@ -307,6 +349,7 @@ export default function App() {
       offYaResume();
       offExitPrompt();
       offAccountSwitch();
+      window.removeEventListener('keydown', onBackKey);
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
       window.removeEventListener('keydown', onKey);
@@ -558,6 +601,27 @@ export default function App() {
   // live profile updates (avatar appears after the first getPlayer, sign-in refreshes it)
   useEffect(() => onProfileChange((snap: ProfileSnapshot) => setProfile(snap.platform)), []);
 
+  // Remote keys (requirement 1.6.3): arrows move the focus through the menus and OK activates the
+  // focused item. During a run the arrows keep moving the player, so navigation is off there unless
+  // the inventory overlay is open; inputs keep their typing.
+  useEffect(() => {
+    return installRemoteKeys(() => {
+      const eng = engineRef.current;
+      if (!eng) return false;
+      return eng.phase !== 'playing' || eng.inventoryOpen;
+    });
+  }, []);
+
+  useEffect(() => {
+    isTvRef.current = isTv;
+  }, [isTv]);
+  useEffect(() => {
+    exitPromptOpenRef.current = exitPrompt;
+    // A TV player must see where the remote is pointing: when the leave dialog opens, the focus (and
+    // its ring) lands on the safe answer, so a first OK press never leaves the game by accident.
+    if (isTv && exitPrompt) focusFirst();
+  }, [isTv, exitPrompt]);
+
 
   // leaving the tab (or the platform pausing us) is the last safe moment to push progress
   useEffect(() => {
@@ -703,38 +767,9 @@ export default function App() {
 
       {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} />}
 
-      {exitPrompt && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 px-4">
-          <div className="notch w-full max-w-sm border border-white/10 bg-gradient-to-b from-[#172126] to-[#0c1215] p-5 text-center">
-            <h2 className="font-display text-lg text-white sm:text-2xl">{t('exitTitle')}</h2>
-            <p className="mt-1.5 text-[11px] text-white/50 sm:text-xs">{t('exitHint')}</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  confirmExit();
-                  setExitPrompt(false);
-                }}
-                className="btn-mc notch bg-gradient-to-b from-[#c9584f] to-[#8d3129] px-3 py-2.5 text-xs text-white sm:text-sm"
-              >
-                {t('exitConfirm')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  dismissExit();
-                  setExitPrompt(false);
-                }}
-                className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2.5 text-xs text-white/85 sm:text-sm"
-              >
-                {t('exitStay')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (
+        // shopEnabled also asks tvMode() live: the platform may answer before the first render
         <StartScreen
           scores={scores}
           onPlay={play}
@@ -756,7 +791,7 @@ export default function App() {
           profile={profile}
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
-          shopEnabled={flags['shop.enabled'] !== 'false'}
+          shopEnabled={flags['shop.enabled'] !== 'false' && !isTv && !tvMode()}
           diamonds={diamonds}
           shopPrices={shopPrices}
           paymentsAvailable={canPay}
@@ -839,6 +874,45 @@ export default function App() {
           onRate={rateGame}
           reviewNote={reviewNote}
         />
+      )}
+      {/* The leave dialog is the last overlay on purpose: on a TV the remote navigation picks the
+          top-most dialog, so the answer buttons work even when another dialog is open behind it. The
+          safe answer is marked as the preferred one — the first OK press never leaves the game. */}
+      {exitPrompt && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="exit-title"
+        >
+          <div className="notch w-full max-w-sm border border-white/10 bg-gradient-to-b from-[#172126] to-[#0c1215] p-5 text-center">
+            <h2 id="exit-title" className="font-display text-lg text-white sm:text-2xl">{t('exitTitle')}</h2>
+            <p className="mt-1.5 text-[11px] text-white/50 sm:text-xs">{t('exitHint')}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  confirmExit();
+                  setExitPrompt(false);
+                }}
+                className="btn-mc notch bg-gradient-to-b from-[#c9584f] to-[#8d3129] px-3 py-2.5 text-xs text-white sm:text-sm"
+              >
+                {t('exitConfirm')}
+              </button>
+              <button
+                type="button"
+                data-remote-primary
+                onClick={() => {
+                  dismissExit();
+                  setExitPrompt(false);
+                }}
+                className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2.5 text-xs text-white/85 sm:text-sm"
+              >
+                {t('exitStay')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
