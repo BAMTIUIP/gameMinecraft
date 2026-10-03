@@ -333,6 +333,7 @@
           return {
             getCatalog: async () => {
               record('payments.getCatalog');
+              if (Array.isArray(seed.catalog)) return seed.catalog;
               return [
                 {
                   id: 'diamonds-100',

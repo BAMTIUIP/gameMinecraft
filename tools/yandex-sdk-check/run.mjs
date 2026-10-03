@@ -819,6 +819,9 @@ async function scenarioShop() {
     const weaponCards = await select('weapons');
     const armorCards = await select('armor');
     const gemCards = await select('gems');
+    const gemCurrencyIcons = [...document.querySelectorAll('[data-shop-product^="diamonds-"]')].map((card) =>
+      Boolean(card.querySelector('.shop-product-footer img[src]')),
+    );
     const petCards = await select('pets');
     const petsAreWorkInProgress = petCards.length > 0 && [...document.querySelectorAll('[data-shop-product]')].every((card) => {
       const button = card.querySelector('button');
@@ -830,6 +833,7 @@ async function scenarioShop() {
       weaponCards,
       armorCards,
       gemCards,
+      gemCurrencyIcons,
       petCards,
       petsAreWorkInProgress,
     };
@@ -838,6 +842,16 @@ async function scenarioShop() {
   check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
   check(shopCategories?.armorCards?.includes('netherite-armor') && !shopCategories.armorCards.includes('diamond-armor'), 'Категория брони показывает комплект незерита вместо старого алмазного');
   check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('chest-epic'), 'Самоцветы объединяют наборы монет, сундуки и награды');
+  check(
+    shopCategories?.gemCurrencyIcons?.length === 2 && shopCategories.gemCurrencyIcons.every(Boolean),
+    'У каждого активного real-money набора показана иконка валюты из SDK',
+    JSON.stringify(shopCategories?.gemCurrencyIcons),
+  );
+  check(
+    !shopCategories?.gemCards?.includes('diamonds-1599') && !shopCategories?.gemCards?.includes('diamonds-5999'),
+    'Наборы, отсутствующие в getCatalog() (неактивные SKU), не показываются в магазине',
+    shopCategories?.gemCards?.filter((id) => id.startsWith('diamonds-')).join(', '),
+  );
   check(shopCategories?.petCards?.length > 0 && shopCategories.petsAreWorkInProgress, 'Питомцы и скины помечены как «В разработке» и недоступны к выдаче');
 
   // Ordinary-store drops are an ad gate: a shown-but-unrewarded video must leave the claim untouched.
@@ -1036,6 +1050,8 @@ async function scenarioShop() {
   check(consumed, 'После начисления алмазов покупка погашена');
   const newBalance = await game.storageValue('orerush.diamonds.v1');
   check(newBalance === '100', 'Алмазы начислены на баланс', `баланс: ${newBalance}`);
+  const purchasedProductId = (await game.calls()).find((call) => call.name === 'payments.purchase')?.arg?.id;
+  check(purchasedProductId === 'diamonds-100' && newBalance === '100', 'Набор diamonds-100 из карточки начислил именно 100 монет', `${purchasedProductId}: ${newBalance}`);
   const noticeShown = await game.page.evaluate(() => /Покупка совершена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
   check(noticeShown, 'Игрок видит подтверждение покупки');
 
@@ -1193,6 +1209,35 @@ async function scenarioShop() {
   check(coopErrors.length === 0, 'Кооператив работает без ошибок в консоли', coopErrors.slice(0, 2).join(' | '));
 
   await game.page.close();
+
+  // Requirement 1.13.6: an empty Console catalogue means there are no active in-app purchase offers.
+  const emptyCatalog = await openGame({ lang: 'ru', name: 'EMPTY CATALOG', catalog: [] });
+  const emptyCatalogMenu = await emptyCatalog.waitFor(
+    'Меню с пустым каталогом',
+    () => /ВОЙТИ ЧЕРЕЗ ЯНДЕКС|ЕЩЁ РАЗ|MINE NOW|НАЧАТЬ/i.test(document.body.innerText ?? ''),
+    30_000,
+  );
+  check(emptyCatalogMenu, 'Игра запускается с пустым каталогом покупок');
+  const emptyCatalogLoaded = await emptyCatalog.waitFor(
+    'Пустой каталог getCatalog()',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'payments.getCatalog'),
+    15_000,
+  );
+  check(emptyCatalogLoaded, 'Каталог покупок запрошен даже когда в Консоли нет активных товаров');
+  const emptyShopOpened = await emptyCatalog.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
+  check(emptyShopOpened, 'Магазин открывается при пустом каталоге');
+  const noInactiveOffers = await emptyCatalog.waitFor(
+    'Отсутствие неактивных предложений',
+    () => {
+      const dialog = document.querySelector('.shop-dialog');
+      return !!dialog && ![...dialog.querySelectorAll('[data-shop-product]')].some((card) =>
+        (card.getAttribute('data-shop-product') ?? '').startsWith('diamonds-'),
+      );
+    },
+    10_000,
+  );
+  check(noInactiveOffers, 'При пустом каталоге в игре отсутствуют предложения real-money coin packs');
+  await emptyCatalog.page.close();
 }
 
 /* ------------------------ scenario C: promo deep links ------------------------ */

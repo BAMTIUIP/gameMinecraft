@@ -78,6 +78,7 @@ const CATALOG = [
     price: '499 ₽',
     priceValue: '499',
     priceCurrencyCode: 'RUB',
+    getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
   },
   {
     id: 'raw-price-only',
@@ -87,6 +88,15 @@ const CATALOG = [
     price: '',
     priceValue: '7',
     priceCurrencyCode: 'RUB',
+  },
+  {
+    id: 'no-currency-image',
+    title: 'Missing currency icon',
+    description: 'A catalogue row without the SDK currency image',
+    imageURI: '',
+    price: '7 TST',
+    priceValue: '7',
+    priceCurrencyCode: 'TST',
   },
 ];
 
@@ -201,7 +211,14 @@ const {
 await initYandex();
 await startProfileSync();
 ok(paymentsAvailable(), 'Внутри Яндекса платёжный слой считается доступным');
-ok(DIAMOND_PACKS['diamonds-100'] === 100 && DIAMOND_PACKS['diamonds-5999'] === 5999, 'Товары магазина сопоставлены с количеством алмазов');
+ok(
+  DIAMOND_PACKS['diamonds-100'] === 100 &&
+    DIAMOND_PACKS['diamonds-599'] === 599 &&
+    DIAMOND_PACKS['diamonds-1599'] === 1_599 &&
+    DIAMOND_PACKS['diamonds-5999'] === 5_999,
+  'Каждый поддержанный IAP-SKU выдаёт ровно обозначенное количество монет',
+  JSON.stringify(DIAMOND_PACKS),
+);
 
 // --- the catalogue: a transient payments preload failure is retried when the shop is opened -------
 const firstCatalogAttempt = await loadShopCatalog();
@@ -211,8 +228,9 @@ ok(catalogCalls === 1 && getPaymentsCalls === 2, 'При повторном от
 const pack100 = catalog.get('diamonds-100');
 ok(pack100?.label === '99 ₽', 'Цена взята из каталога как есть (п. 1.13.2)', JSON.stringify(pack100));
 ok(pack100?.currencyIcon === 'icon-small.png', 'Иконка портальной валюты взята из getPriceCurrencyImage', String(pack100?.currencyIcon));
-ok(catalog.get('diamonds-599')?.currencyIcon === null, 'Товар без иконки не ломает каталог');
+ok(catalog.get('diamonds-599')?.currencyIcon === 'icon-small.png', 'У каждого отображаемого набора есть иконка валюты из SDK');
 ok(!catalog.has('raw-price-only'), 'Голая priceValue без форматированной валюты не показывается как цена');
+ok(!catalog.has('no-currency-image'), 'Предложение без иконки валюты из SDK не попадает в каталог магазина');
 ok(catalog.get('diamonds-100')?.fromCatalog === true, 'Товар помечен как полученный из каталога');
 await loadShopCatalog();
 ok(catalogCalls === 1, 'Второй вызов берёт каталог из памяти, а не из сети');

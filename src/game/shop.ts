@@ -55,8 +55,8 @@ export type ShopItemBuyResult =
 export type ShopPrice = {
   /** `<цена> <код валюты>` exactly as the Console reports it */
   label: string;
-  /** portal-currency icon URL from the catalogue (null when the catalogue is unavailable) */
-  currencyIcon: string | null;
+  /** Valid portal-currency icon URL from the catalogue; products without one are not offered. */
+  currencyIcon: string;
   fromCatalog: boolean;
 };
 
@@ -117,10 +117,14 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
       if (!product?.id || !label) continue;
       let currencyIcon: string | null = null;
       try {
-        currencyIcon = product.getPriceCurrencyImage?.('small') ?? null;
+        const image = product.getPriceCurrencyImage?.('small');
+        currencyIcon = typeof image === 'string' && image.trim() ? image.trim() : null;
       } catch {
         currencyIcon = null;
       }
+      // Requirement 1.13.2: never display an in-app offer without both the SDK-formatted price and
+      // the portal-currency icon. A broken catalog row is omitted instead of falling back to art/text.
+      if (!currencyIcon) continue;
       catalog.set(product.id, {
         label: product.price,
         currencyIcon,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HudState } from '../game/engine';
 
 import { getBlockIcon } from '../game/textures';
@@ -632,7 +632,18 @@ export function StartScreen({
     return () => window.clearInterval(timer);
   }, []);
   const daily = dailyReward();
-  const filteredShopProducts = SHOP_PRODUCTS.filter((product) => productMatchesShopTab(product, shopTab));
+  // Requirement 1.13.6: a real-money offer must exist in the active Yandex catalogue. Do not show
+  // stale/inactive Console SKUs as disabled pseudo-offers; outside Yandex the shop remains a preview.
+  const visibleShopProducts = useMemo(
+    () => SHOP_PRODUCTS.filter((product) =>
+      shopMode !== 'store' || !paymentsAvailable || product.diamondAmount === undefined || shopPrices.has(product.id),
+    ),
+    [shopMode, paymentsAvailable, shopPrices],
+  );
+  const filteredShopProducts = useMemo(
+    () => visibleShopProducts.filter((product) => productMatchesShopTab(product, shopTab)),
+    [visibleShopProducts, shopTab],
+  );
   const rewardedDrops = rewardedDropStatuses(clockNow);
 
   const centerShopCard = (carousel: HTMLElement, card: HTMLElement) => {
@@ -643,7 +654,7 @@ export function StartScreen({
   };
 
   useEffect(() => {
-    const products = SHOP_PRODUCTS.filter((product) => productMatchesShopTab(product, shopTab));
+    const products = visibleShopProducts.filter((product) => productMatchesShopTab(product, shopTab));
     const targetIndex = products.findIndex((product) => product.id === promoProductId);
     const frame = window.requestAnimationFrame(() => {
       const carousel = shopCarouselRef.current;
@@ -658,7 +669,7 @@ export function StartScreen({
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [shopTab, promoProductId, showShop]);
+  }, [visibleShopProducts, shopTab, promoProductId, showShop]);
 
   const syncActiveShopCard = () => {
     const carousel = shopCarouselRef.current;
