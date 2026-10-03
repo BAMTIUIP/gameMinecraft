@@ -158,6 +158,7 @@ let pendingStats: Partial<Record<StatKey, number>> = {}; // additive counters �
 let pendingPeaks: Partial<Record<StatKey, number>> = {}; // lifetime best/deepest → setStats
 let flushTimer: number | null = null;
 let statsTimer: number | null = null;
+let flushInFlight: Promise<boolean> | null = null;
 let lastFlush = 0;
 let lastStatsFlush = 0;
 
@@ -248,6 +249,30 @@ export async function flushProfile(immediate = false): Promise<boolean> {
     // and therefore does not consume the purchase — the documented "save first, consume second" order
     return false;
   }
+
+  // Serialize writes: a purchase can queue a local save and then immediately queue its delivery token.
+  // The second caller waits for the first payload, then flushes any newer snapshot before it resolves.
+  const current = flushInFlight;
+  if (current) {
+    const result = await current;
+    if (flushInFlight === current) flushInFlight = null;
+    if (syncPaused) return false;
+    if (pendingData || Object.keys(pendingStats).length || Object.keys(pendingPeaks).length) {
+      return flushProfile(immediate);
+    }
+    return result;
+  }
+
+  const run = flushProfileOnce(immediate);
+  flushInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (flushInFlight === run) flushInFlight = null;
+  }
+}
+
+async function flushProfileOnce(immediate: boolean): Promise<boolean> {
   const payload = pendingData;
   pendingData = null;
   let saved = true;
@@ -256,8 +281,8 @@ export async function flushProfile(immediate = false): Promise<boolean> {
     lastFlush = Date.now();
     storageSet(LOCAL_STAMP_KEY, String(payload.savedAt));
     saved = await yaCloudSet({ [CLOUD_KEY]: payload }, immediate);
-    // on failure the payload is not silently dropped: it is re-queued for the next attempt
-    if (!saved) pendingData = payload;
+    // Keep newer changes if any arrived while this write was in flight; otherwise retry this payload.
+    if (!saved && !pendingData) pendingData = payload;
   }
 
   const statsSaved = await flushStats();

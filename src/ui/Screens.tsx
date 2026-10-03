@@ -506,6 +506,7 @@ export function StartScreen({
   developerShopEnabled,
   diamonds,
   shopPrices,
+  onOpenShop,
   paymentsAvailable,
   rewardedAdsEnabled,
   onBuyPack,
@@ -559,6 +560,8 @@ export function StartScreen({
   diamonds: number;
   /** prices from the Yandex Console catalogue, keyed by product id */
   shopPrices: ShopCatalog;
+  /** retries the catalogue request when the shop is opened after an initial failure */
+  onOpenShop: () => void;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
   paymentsAvailable: boolean;
   /** true only when rewarded ads are enabled and the SDK exposes a rewarded-video method */
@@ -616,7 +619,8 @@ export function StartScreen({
     setPromoProductId(promo.productId);
     setShopMode('store');
     setShowShop(true);
-  }, [promo, shopEnabled]);
+    onOpenShop();
+  }, [promo, shopEnabled, onOpenShop]);
   const [buying, setBuying] = useState<string | null>(null);
   const [shopNotice, setShopNotice] = useState<string | null>(null);
   const [clockNow, setClockNow] = useState(() => yaServerTime());
@@ -829,6 +833,7 @@ export function StartScreen({
                     setShopMode('store');
                     setShopTab('all');
                     setShowShop(true);
+                    onOpenShop();
                   }}
                   className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
                 >

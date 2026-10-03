@@ -1025,7 +1025,7 @@ let paymentsPromise: Promise<YaPayments | null> | null = null;
  */
 export function yaGetPayments(): Promise<YaPayments | null> {
   if (paymentsPromise) return paymentsPromise;
-  paymentsPromise = (async () => {
+  const request = (async () => {
     if (!ysdk?.getPayments && !ysdk?.payments) return null;
     try {
       if (ysdk.getPayments) return await ysdk.getPayments();
@@ -1035,7 +1035,13 @@ export function yaGetPayments(): Promise<YaPayments | null> {
       return null;
     }
   })();
-  return paymentsPromise;
+  paymentsPromise = request;
+  // Share an in-flight preload, but don't cache an unavailable result forever: the shop may retry
+  // after a transient network failure when the player opens it again.
+  void request.then((payments) => {
+    if (!payments && paymentsPromise === request) paymentsPromise = null;
+  });
+  return request;
 }
 
 /** Is there a payment flow at all? (the shop hides behind this outside Yandex Games) */

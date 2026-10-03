@@ -67,6 +67,7 @@ export type BuyResult =
   | { ok: false; productId: string; reason: 'unavailable' | 'cancelled' | 'failed'; diamonds: number };
 
 let catalogCache: ShopCatalog | null = null;
+let catalogPromise: Promise<ShopCatalog> | null = null;
 
 /**
  * Requirement 1.6.3 (TV adaptation): TV games must not sell anything, so in TV mode the game does not
@@ -104,30 +105,44 @@ export function buyShopItem(productId: string): ShopItemBuyResult {
 export async function loadShopCatalog(): Promise<ShopCatalog> {
   if (tvDevice()) return new Map(); // TV: no purchase UI, so no catalogue request either
   if (catalogCache) return catalogCache;
-  const catalog: ShopCatalog = new Map();
-  const products = await yaGetCatalog();
-  for (const product of products ?? []) {
-    if (!product?.id) continue;
-    let currencyIcon: string | null = null;
-    try {
-      currencyIcon = product.getPriceCurrencyImage?.('small') ?? null;
-    } catch {
-      currencyIcon = null;
+  if (catalogPromise) return catalogPromise;
+
+  const request = (async () => {
+    const catalog: ShopCatalog = new Map();
+    const products = await yaGetCatalog();
+    for (const product of products ?? []) {
+      const label = typeof product?.price === 'string' ? product.price.trim() : '';
+      // `price` is the Console-formatted `<amount> <currency code>`; never fall back to a bare
+      // `priceValue`, which would hide the portal currency the docs require the game to display.
+      if (!product?.id || !label) continue;
+      let currencyIcon: string | null = null;
+      try {
+        currencyIcon = product.getPriceCurrencyImage?.('small') ?? null;
+      } catch {
+        currencyIcon = null;
+      }
+      catalog.set(product.id, {
+        label: product.price,
+        currencyIcon,
+        fromCatalog: true,
+      });
     }
-    catalog.set(product.id, {
-      label: product.price || product.priceValue,
-      currencyIcon,
-      fromCatalog: true,
-    });
+    // An empty catalogue means the request failed: don't cache it, so the next shop visit retries.
+    if (catalog.size) catalogCache = catalog;
+    return catalog;
+  })();
+  catalogPromise = request;
+  try {
+    return await request;
+  } finally {
+    if (catalogPromise === request) catalogPromise = null;
   }
-  // an empty catalogue means the request failed: do not cache the failure, the next shop visit retries
-  if (catalog.size) catalogCache = catalog;
-  return catalog;
 }
 
 /** Test seam: forget the cached catalogue (used by the unit tests). */
 export function resetShopCatalog() {
   catalogCache = null;
+  catalogPromise = null;
 }
 
 /**
@@ -149,18 +164,20 @@ export async function deliverPendingPurchases(): Promise<number> {
       continue;
     }
 
-    // a token that was already paid out (a previous consume call failed) is only retried, never
-    // credited again — that is what keeps the retry from duplicating the reward
-    if (!hasDeliveredPurchase(purchase.purchaseToken)) {
+    // A token may already be marked locally because an earlier consume or cloud write failed. Never
+    // credit it twice, but always flush the current balance + delivered-token marker before retrying
+    // consume — the marker alone does not prove that the cloud write succeeded.
+    const alreadyDelivered = hasDeliveredPurchase(purchase.purchaseToken);
+    if (!alreadyDelivered) {
       addDiamonds(amount, 'purchase');
       markPurchaseDelivered(purchase.purchaseToken);
-      if (!(await flushProfile(true))) {
-        // nothing reached the platform: do not consume, the next launch starts over
-        console.warn('[shop] could not save the purchase reward, it will be delivered again next launch');
-        continue;
-      }
-      credited += amount;
     }
+    if (!(await flushProfile(true))) {
+      // nothing reached the platform: do not consume, the next launch starts over
+      console.warn('[shop] could not save the purchase reward, it will be delivered again next launch');
+      continue;
+    }
+    if (!alreadyDelivered) credited += amount;
 
     const consumed = await yaConsumePurchase(purchase.purchaseToken);
     if (!consumed) console.warn('[shop] could not consume purchase, delivery will be retried next launch');
@@ -174,7 +191,7 @@ export async function deliverPendingPurchases(): Promise<number> {
  */
 export async function buyDiamondPack(productId: string): Promise<BuyResult> {
   if (!DIAMOND_PACKS[productId]) return { ok: false, productId, reason: 'failed', diamonds: getDiamonds() };
-  if (!yaPaymentsAvailable()) return { ok: false, productId, reason: 'unavailable', diamonds: getDiamonds() };
+  if (!paymentsAvailable()) return { ok: false, productId, reason: 'unavailable', diamonds: getDiamonds() };
 
   const purchase = await yaPurchase(productId, JSON.stringify({ source: 'shop', v: 1 }));
   if (!purchase) return { ok: false, productId, reason: 'cancelled', diamonds: getDiamonds() };

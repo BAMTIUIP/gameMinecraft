@@ -785,6 +785,13 @@ export default function App() {
     else if (result === 'dismissed') setReviewNote(t('reviewDismissed'));
   }, []);
 
+  /** Retry a missing/failed price catalogue when the player opens the shop. */
+  const refreshShopCatalog = useCallback(async () => {
+    if (!paymentsAvailable()) return;
+    const catalog = await loadShopCatalog();
+    if (catalog.size) setShopPrices(catalog);
+  }, []);
+
   /** Opens the Yandex payment frame and settles the balance when it closes. */
   const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
     const result = await buyDiamondPack(productId);
@@ -889,6 +896,7 @@ export default function App() {
           developerShopEnabled={false}
           diamonds={diamonds}
           shopPrices={shopPrices}
+          onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
           rewardedAdsEnabled={rewardedAdsAvailable()}
           onBuyPack={buyPack}

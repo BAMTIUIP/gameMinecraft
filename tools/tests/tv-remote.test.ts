@@ -437,7 +437,7 @@ ok(/toggleFullscreen/.test(read('src/game/params.ts')), 'Полноэкранн�
 ok(/height: 100%/.test(css) || /100vh/.test(css), 'Страница растянута на весь экран');
 
 /* no purchases on a TV: the platform is not even asked for the payment object */
-const { deliverPendingPurchases, loadShopCatalog, paymentsAvailable } = await import('../../src/game/shop');
+const { buyDiamondPack, deliverPendingPurchases, loadShopCatalog, paymentsAvailable } = await import('../../src/game/shop');
 const shop = read('src/game/shop.ts');
 ok(/!tvDevice\(\) && yaPaymentsAvailable\(\)/.test(shop), 'На ТВ магазин объявлен недоступным до обращения к SDK');
 ok(/if \(tvDevice\(\)\) return new Map\(\)/.test(shop), 'Каталог цен на ТВ не запрашивается');
@@ -448,6 +448,8 @@ paymentsCalls = 0;
 ok(paymentsAvailable() === false, 'На ТВ магазин закрыт');
 ok((await loadShopCatalog()).size === 0, 'Каталог покупок на ТВ пуст');
 ok((await deliverPendingPurchases()) === 0, 'Доставка отложенных покупок на ТВ ничего не делает');
+const tvPurchase = await buyDiamondPack('diamonds-100');
+ok(!tvPurchase.ok && tvPurchase.reason === 'unavailable', 'Прямая попытка покупки на ТВ отклоняется до обращения к SDK');
 ok(paymentsCalls === 0, 'Платёжные методы SDK на ТВ не вызываются вовсе', `вызовов: ${paymentsCalls}`);
 deviceType = 'desktop';
 ok(paymentsAvailable() === true, 'На других устройствах покупки остаются доступными');

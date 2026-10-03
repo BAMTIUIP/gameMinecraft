@@ -51,9 +51,13 @@ let unprocessed: TestPurchase[] = []; // what getPurchases() returns
 const recordedPurchases: TestPurchase[] = []; // everything purchase() ever produced
 let purchaseRejects = false;
 let consumeFails = false;
+let getPaymentsFailures = 1; // first preload is transiently unavailable; opening the shop retries
+let getPaymentsCalls = 0;
 let catalogFails = false;
 let catalogCalls = 0;
 let failSetData = false;
+let holdNextSetData = false;
+let releaseHeldSetData: (() => void) | null = null;
 
 const CATALOG = [
   {
@@ -75,6 +79,15 @@ const CATALOG = [
     priceValue: '499',
     priceCurrencyCode: 'RUB',
   },
+  {
+    id: 'raw-price-only',
+    title: 'Malformed catalogue row',
+    description: 'A numeric value without the currency code',
+    imageURI: '',
+    price: '',
+    priceValue: '7',
+    priceCurrencyCode: 'RUB',
+  },
 ];
 
 const player = {
@@ -90,6 +103,10 @@ const player = {
   setData: async (data: Record<string, unknown>, flush?: boolean) => {
     record('player.setData', { keys: Object.keys(data), flush: flush ?? false });
     if (failSetData) throw new Error('network down');
+    if (holdNextSetData) {
+      holdNextSetData = false;
+      await new Promise<void>((resolve) => (releaseHeldSetData = resolve));
+    }
     Object.assign(cloud, data);
   },
   getStats: async () => ({ ...stats }),
@@ -143,7 +160,12 @@ g.YaGames = {
       getPlayer: async () => player,
       getStorage: async () => localStorageStub,
       getPayments: async () => {
+        getPaymentsCalls += 1;
         record('ysdk.getPayments');
+        if (getPaymentsFailures > 0) {
+          getPaymentsFailures -= 1;
+          throw new Error('temporary payment preload failure');
+        }
         return payments;
       },
       features: { LoadingAPI: { ready: () => record('LoadingAPI.ready') }, GameplayAPI: { start() {}, stop() {} } },
@@ -181,13 +203,16 @@ await startProfileSync();
 ok(paymentsAvailable(), 'Внутри Яндекса платёжный слой считается доступным');
 ok(DIAMOND_PACKS['diamonds-100'] === 100 && DIAMOND_PACKS['diamonds-5999'] === 5999, 'Товары магазина сопоставлены с количеством алмазов');
 
-// --- the catalogue: prices come from the Console, and it is fetched once -----------------------
+// --- the catalogue: a transient payments preload failure is retried when the shop is opened -------
+const firstCatalogAttempt = await loadShopCatalog();
+ok(firstCatalogAttempt.size === 0 && getPaymentsCalls === 1, 'Временный сбой getPayments() оставляет каталог недоступным, но не падает');
 let catalog = await loadShopCatalog();
-ok(catalogCalls === 1, 'Каталог запрошен один раз');
+ok(catalogCalls === 1 && getPaymentsCalls === 2, 'При повторном открытии магазина заново запрошены getPayments() и каталог');
 const pack100 = catalog.get('diamonds-100');
 ok(pack100?.label === '99 ₽', 'Цена взята из каталога как есть (п. 1.13.2)', JSON.stringify(pack100));
 ok(pack100?.currencyIcon === 'icon-small.png', 'Иконка портальной валюты взята из getPriceCurrencyImage', String(pack100?.currencyIcon));
 ok(catalog.get('diamonds-599')?.currencyIcon === null, 'Товар без иконки не ломает каталог');
+ok(!catalog.has('raw-price-only'), 'Голая priceValue без форматированной валюты не показывается как цена');
 ok(catalog.get('diamonds-100')?.fromCatalog === true, 'Товар помечен как полученный из каталога');
 await loadShopCatalog();
 ok(catalogCalls === 1, 'Второй вызов берёт каталог из памяти, а не из сети');
@@ -275,10 +300,35 @@ const stuckToken = recordedPurchases.at(-1)!.purchaseToken;
 ok(!recordedPurchases.slice(0, -1).some((p) => p.purchaseToken === stuckToken), 'У неудачной покупки свой токен');
 ok(unprocessed.some((p) => p.purchaseToken === stuckToken), 'Токен остался неконсумированным — покупку восстановит следующий запуск');
 failSetData = false;
+const recoveryStart = calls.length;
 const recovered = await deliverPendingPurchases();
+const recoveryCalls = calls.slice(recoveryStart);
+const recoverySaveAt = recoveryCalls.findIndex((c) => c.name === 'player.setData');
+const recoveryConsumeAt = recoveryCalls.findIndex((c) => c.name === 'payments.consumePurchase');
 const balanceAfterRecovery = diamondsBalance();
 ok(recovered === 0, 'Восстановление уже начисленной покупки не платит второй раз', String(recovered));
+ok(recoverySaveAt >= 0 && recoveryConsumeAt > recoverySaveAt, 'Повторная выдача сначала сохраняет локальный token и баланс в облако, затем consume');
 ok(unprocessed.length === 0 && diamondsBalance() === balanceAfterRecovery, 'Токен всё равно погашается, баланс не растёт');
+const recoveredProfile = cloud['orerush.profile'] as { deliveredPurchases?: string[]; diamonds?: number } | undefined;
+ok(recoveredProfile?.deliveredPurchases?.includes(stuckToken) === true, 'После восстановления облако подтверждает token до его погашения');
+
+// --- overlapping local-save + receipt-save requests are serialized before consume ----------------
+holdNextSetData = true;
+const concurrentStart = calls.length;
+const consumesBeforeConcurrent = count('payments.consumePurchase');
+const concurrentPurchase = buyDiamondPack('diamonds-100');
+for (let i = 0; i < 40 && releaseHeldSetData === null; i += 1) await Promise.resolve();
+ok(releaseHeldSetData !== null, 'Промежуточное сохранение баланса действительно удержано');
+ok(count('payments.consumePurchase') === consumesBeforeConcurrent, 'Покупка не погашается, пока сохранение профиля не завершено');
+releaseHeldSetData?.();
+const concurrentResult = await concurrentPurchase;
+const concurrentCalls = calls.slice(concurrentStart);
+const concurrentLastSave = concurrentCalls.map((c) => c.name).lastIndexOf('player.setData');
+const concurrentConsume = concurrentCalls.findIndex((c) => c.name === 'payments.consumePurchase');
+const concurrentToken = recordedPurchases.at(-1)!.purchaseToken;
+const concurrentCloud = cloud['orerush.profile'] as { deliveredPurchases?: string[]; diamonds?: number } | undefined;
+ok(concurrentResult.ok && concurrentLastSave >= 0 && concurrentConsume > concurrentLastSave, 'Баланс и token успевают сохраниться до consume при параллельных flushProfile');
+ok(concurrentCloud?.deliveredPurchases?.includes(concurrentToken) === true && concurrentCloud.diamonds === diamondsBalance(), 'Последний cloud snapshot содержит token и точный баланс');
 
 // --- the paid revive spends the balance and refuses to go negative ------------------------------
 // bring the balance down below the revive price by actually spending it
