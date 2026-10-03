@@ -928,6 +928,7 @@ export default function App() {
           dailyBusy={dailyBusy}
           dailyNote={dailyNote}
           fullscreen={fullscreen}
+          onSettingsOpen={() => setFullscreen(fullscreenOn())}
           onFullscreen={toggleFull}
           character={characterCustomization}
           onSaveCharacter={saveCharacter}

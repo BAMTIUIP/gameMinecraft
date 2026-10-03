@@ -637,19 +637,29 @@ export function yaServerTime(): number {
  * platform — the caller then falls back to its own guesses.
  */
 export function yaDeviceType(): YaDeviceType | null {
-  const type = ysdk?.deviceInfo?.type;
-  return type === 'desktop' || type === 'mobile' || type === 'tablet' || type === 'tv' ? type : null;
+  try {
+    const type = ysdk?.deviceInfo?.type;
+    return type === 'desktop' || type === 'mobile' || type === 'tablet' || type === 'tv' ? type : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * `ysdk.deviceInfo.isMobile()` / `isTablet()` / `isTV()`. The docs keep both the field and the
- * helpers, so the game asks the helpers when they exist and treats an absent answer as "unknown".
+ * `ysdk.deviceInfo.isMobile()` / `isDesktop()` / `isTablet()` / `isTV()`. The docs keep both the field
+ * and helpers, so the game asks them when they exist and treats an absent answer as "unknown".
  */
-export function yaDeviceFlag(flag: 'mobile' | 'tablet' | 'tv'): boolean | null {
-  const info = ysdk?.deviceInfo;
-  if (!info) return null;
-  const fn = flag === 'mobile' ? info.isMobile : flag === 'tablet' ? info.isTablet : info.isTV;
+export function yaDeviceFlag(flag: 'mobile' | 'desktop' | 'tablet' | 'tv'): boolean | null {
   try {
+    const info = ysdk?.deviceInfo;
+    if (!info) return null;
+    const fn = flag === 'mobile'
+      ? info.isMobile
+      : flag === 'desktop'
+        ? info.isDesktop
+        : flag === 'tablet'
+          ? info.isTablet
+          : info.isTV;
     const value = fn?.call(info);
     return typeof value === 'boolean' ? value : null;
   } catch {
@@ -659,19 +669,25 @@ export function yaDeviceFlag(flag: 'mobile' | 'tablet' | 'tv'): boolean | null {
 
 /** Current fullscreen status as the platform reports it: `'on' | 'off'`, or null without the SDK. */
 export function yaFullscreenStatus(): 'on' | 'off' | null {
-  const fullscreen = ysdk?.screen?.fullscreen;
-  if (!fullscreen) return null;
-  if (fullscreen.status === fullscreen.STATUS_ON || fullscreen.status === 'on') return 'on';
-  if (fullscreen.status === fullscreen.STATUS_OFF || fullscreen.status === 'off') return 'off';
-  return null;
+  try {
+    const fullscreen = ysdk?.screen?.fullscreen;
+    if (!fullscreen) return null;
+    const status = fullscreen.status;
+    if (status === fullscreen.STATUS_ON || status === 'on') return 'on';
+    if (status === fullscreen.STATUS_OFF || status === 'off') return 'off';
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /** Ask the platform for fullscreen. Must be called from a user action (browser rule). */
 export async function yaRequestFullscreen(): Promise<boolean> {
   try {
-    const request = ysdk?.screen?.fullscreen?.request;
+    const fullscreen = ysdk?.screen?.fullscreen;
+    const request = fullscreen?.request;
     if (!request) return false;
-    await request.call(ysdk?.screen?.fullscreen);
+    await request.call(fullscreen);
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] fullscreen request failed', err);
@@ -682,9 +698,10 @@ export async function yaRequestFullscreen(): Promise<boolean> {
 /** …and the way back. */
 export async function yaExitFullscreen(): Promise<boolean> {
   try {
-    const exit = ysdk?.screen?.fullscreen?.exit;
+    const fullscreen = ysdk?.screen?.fullscreen;
+    const exit = fullscreen?.exit;
     if (!exit) return false;
-    await exit.call(ysdk?.screen?.fullscreen);
+    await exit.call(fullscreen);
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] fullscreen exit failed', err);

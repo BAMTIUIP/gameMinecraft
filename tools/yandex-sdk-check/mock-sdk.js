@@ -146,6 +146,10 @@
               record('deviceInfo.isMobile');
               return kind === 'mobile';
             },
+            isDesktop: () => {
+              record('deviceInfo.isDesktop');
+              return kind === 'desktop';
+            },
             isTablet: () => {
               record('deviceInfo.isTablet');
               return kind === 'tablet';

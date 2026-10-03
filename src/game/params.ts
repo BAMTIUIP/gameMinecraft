@@ -48,6 +48,7 @@ export function deviceKind(): YaDeviceType {
   if (yaDeviceFlag('mobile')) return 'mobile';
   if (yaDeviceFlag('tablet')) return 'tablet';
   if (yaDeviceFlag('tv')) return 'tv';
+  if (yaDeviceFlag('desktop')) return 'desktop';
   return guessDevice();
 }
 
@@ -115,8 +116,11 @@ export function fullscreenAvailable(): boolean {
  * Fullscreen API outside. Must be called from a user action — browsers refuse otherwise.
  */
 export async function toggleFullscreen(): Promise<boolean> {
-  if (yaFullscreenStatus() !== null) {
-    const ok = (await yaFullscreenStatus()) === 'on' ? await yaExitFullscreen() : await yaRequestFullscreen();
+  const platformStatus = yaFullscreenStatus();
+  if (platformStatus !== null) {
+    // Invoke the platform method before the first await so the browser's user-activation is preserved.
+    const request = platformStatus === 'on' ? yaExitFullscreen() : yaRequestFullscreen();
+    const ok = await request;
     if (ok) return fullscreenOn();
     // the platform refused: still report the state we are in
     return fullscreenOn();
@@ -151,18 +155,27 @@ export async function copyText(text: string): Promise<boolean> {
   } catch {
     /* the modern API is missing or blocked: try the old trick below */
   }
+  let area: HTMLTextAreaElement | null = null;
+  let appended = false;
   try {
-    const area = document.createElement('textarea');
+    area = document.createElement('textarea');
     area.value = text;
     area.setAttribute('readonly', '');
     area.style.position = 'fixed';
     area.style.opacity = '0';
     document.body.appendChild(area);
+    appended = true;
     area.select();
-    const ok = document.execCommand?.('copy') ?? false;
-    document.body.removeChild(area);
-    return ok;
+    return document.execCommand?.('copy') ?? false;
   } catch {
     return false;
+  } finally {
+    if (appended && area) {
+      try {
+        document.body.removeChild(area);
+      } catch {
+        /* a blocked fallback should not leave its temporary textarea in the game UI */
+      }
+    }
   }
 }

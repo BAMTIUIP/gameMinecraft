@@ -526,6 +526,7 @@ export function StartScreen({
   dailyBusy,
   dailyNote,
   fullscreen,
+  onSettingsOpen,
   onFullscreen,
   character,
   onSaveCharacter,
@@ -595,6 +596,8 @@ export function StartScreen({
   dailyNote: string | null;
   /** is the browser in fullscreen right now (sdk-params); the toggle lives in the settings dialog */
   fullscreen: boolean;
+  /** refreshes the SDK's current fullscreen status when settings open */
+  onSettingsOpen: () => void;
   onFullscreen: () => void;
   /** current avatar choices, loaded from local/cloud profile */
   character: CharacterCustomization;
@@ -850,7 +853,10 @@ export function StartScreen({
               </button>
               <button
                 type="button"
-                onClick={() => setShowSettings(true)}
+                onClick={() => {
+                  onSettingsOpen();
+                  setShowSettings(true);
+                }}
                 className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-pit-500 to-pit-700 px-1.5 py-3 text-[10px] text-white/85 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
               >
                 <span aria-hidden="true" className="text-base leading-none sm:text-lg">⚙</span> {t('settings')}
