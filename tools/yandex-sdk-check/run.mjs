@@ -429,6 +429,11 @@ async function scenarioProgress() {
     150_000,
   );
   check(finished, 'Короткая смена из удалённой конфигурации дошла до экрана итогов');
+  log = await game.calls();
+  check(
+    game.names(log).lastIndexOf('GameplayAPI.stop') > game.names(log).lastIndexOf('GameplayAPI.start'),
+    'GameplayAPI.stop() при переходе забега на экран итогов',
+  );
   const statsFlushed = await game.waitFor(
     'Статистика забега в облаке',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.incrementStats' || c.name === 'player.setStats'),
