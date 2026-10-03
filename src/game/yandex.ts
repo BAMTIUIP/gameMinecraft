@@ -399,14 +399,15 @@ function subscribePauseResume(sdk: YSDK) {
 
 /** Keep one SDK listener per event while at least one game-side subscriber exists. */
 function attachPlatformEvent(event: YaPlatformEvent) {
-  if (platformSubscriptions.has(event) || !platformListeners.get(event)?.size || !ysdk?.on) return;
   const sdk = ysdk;
+  const on = sdk?.on;
+  if (platformSubscriptions.has(event) || !platformListeners.get(event)?.size || !sdk || !on) return;
   const handler: Listener = () => {
     const listeners = platformListeners.get(event);
     if (listeners) emit(listeners, event);
   };
   try {
-    const returned = sdk.on(event, handler);
+    const returned = on.call(sdk, event, handler);
     platformSubscriptions.set(event, () => {
       try {
         if (sdk.off) sdk.off(event, handler);
