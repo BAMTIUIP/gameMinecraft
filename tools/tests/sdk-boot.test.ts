@@ -189,7 +189,7 @@ const thirdCall = advCalls.filter((c) => c.method === 'fullscreen').at(-1);
 const thirdResult = await third;
 ok(thirdResult.skipped === 'error' && thirdResult.shown === false, 'onError сам по себе завершает ожидание', JSON.stringify(thirdResult));
 
-// --- rewarded video: onRewarded then onClose(true) counts; onClose(false) does not ---------------
+// --- rewarded video: onRewarded is authoritative; without it, onClose(false) gives nothing -------
 const rewarded = showRewardedAd();
 await new Promise((r) => setTimeout(r, 10));
 const rewardedCall = advCalls.filter((c) => c.method === 'rewarded').at(-1);
@@ -207,10 +207,9 @@ ok(rewardedResult.rewarded === true, 'onRewarded + onClose(true) дают наг
 const skipped = showRewardedAd();
 await new Promise((r) => setTimeout(r, 10));
 const skippedCall = advCalls.filter((c) => c.method === 'rewarded').at(-1);
-(skippedCall?.callbacks.onRewarded as () => void)?.();
 (skippedCall?.callbacks.onClose as (wasShown: boolean) => void)?.(false);
 const skippedResult = await skipped;
-ok(skippedResult.rewarded === false, 'Закрытие без просмотра награды не даёт', JSON.stringify(skippedResult));
+ok(skippedResult.rewarded === false, 'Закрытие без callback onRewarded не даёт награду', JSON.stringify(skippedResult));
 ok(typeof getTotals().runs === 'number', 'Игровые данные после всех колбэков доступны (игра не сломалась)');
 
 export { passed, failures };

@@ -956,11 +956,13 @@ export function yaShowRewardedVideo(): Promise<YaAdResult> {
               rewarded = true;
             }),
           onClose: (wasShown) =>
-            safeCall('onClose', () => settle({ shown: wasShown === true, rewarded: rewarded && wasShown === true })),
+            safeCall('onClose', () => settle({ shown: wasShown === true, rewarded })),
           onError: (error) =>
             safeCall('onError', () => {
               console.warn('[Yandex SDK] rewarded video error', error);
-              settle({ shown: false, rewarded: false, error: true });
+              // `onRewarded` is the SDK's authoritative confirmation; a later close/error must not
+              // revoke a reward the player has already earned.
+              settle({ shown: false, rewarded, error: true });
             }),
         },
       });

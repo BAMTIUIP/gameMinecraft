@@ -689,7 +689,7 @@ export default function App() {
   // The sticky banner belongs to menus, not to a run in progress: it must never cover the HUD.
   useEffect(() => {
     void syncBanner(hud.phase === 'menu' || hud.phase === 'gameover');
-  }, [hud.phase]);
+  }, [hud.phase, flags['adv.enabled'], flags['adv.banner.enabled']]);
 
   /**
    * Sign-in is offered, never forced: the button explains the benefit first (requirement 1.2),

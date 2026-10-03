@@ -27,7 +27,7 @@ import {
 } from './yandex';
 
 export type AdOutcome = {
-  /** the ad really opened (onOpen fired, and onClose reported wasShown) */
+  /** whether onClose reported wasShown=true */
   shown: boolean;
   /** rewarded video only: the platform counted the view */
   rewarded: boolean;
@@ -41,6 +41,8 @@ const SESSION_GRACE_MS = 30_000; // no fullscreen ad in the first 30 s of a sess
 let lastFullscreenAt = 0;
 let sessionStartedAt = Date.now();
 let inFlight = false;
+let wantedBannerVisible: boolean | null = null;
+let bannerSyncInFlight: Promise<void> | null = null;
 
 /** True when an ad is on screen right now — the game must not start anything interactive. */
 export function adInFlight(): boolean {
@@ -113,11 +115,29 @@ export async function showRewardedAd(): Promise<AdOutcome> {
  * the Console, the game decides — here the banner belongs to the menu (so it never covers the HUD or
  * the crosshair) and is hidden as soon as a run starts.
  */
-export async function syncBanner(visible: boolean): Promise<void> {
-  if (!flagBool('adv.enabled') || !flagBool('adv.banner.enabled')) return;
-  const status = await yaGetBannerAdvStatus();
-  if (!status) return;
-  if (visible === status.showing) return;
-  if (visible) await yaShowBannerAdv();
-  else await yaHideBannerAdv();
+export function syncBanner(visible: boolean): Promise<void> {
+  // A disabled flag must actively hide a banner the platform may already be showing by default.
+  // React phase/flag changes can overlap while the SDK calls are pending, so serialize them and
+  // reconcile again if the desired visibility changes mid-request (the newest phase always wins).
+  wantedBannerVisible = visible && flagBool('adv.enabled') && flagBool('adv.banner.enabled');
+  if (bannerSyncInFlight) return bannerSyncInFlight;
+
+  bannerSyncInFlight = (async () => {
+    try {
+      while (wantedBannerVisible !== null) {
+        const desired = wantedBannerVisible;
+        const status = await yaGetBannerAdvStatus();
+        if (wantedBannerVisible !== desired) continue;
+        if (!status) return;
+        if (desired !== status.showing) {
+          if (desired) await yaShowBannerAdv();
+          else await yaHideBannerAdv();
+        }
+        if (wantedBannerVisible === desired) return;
+      }
+    } finally {
+      bannerSyncInFlight = null;
+    }
+  })();
+  return bannerSyncInFlight;
 }
