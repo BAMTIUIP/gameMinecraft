@@ -38,6 +38,7 @@ Object.defineProperty(globalThis, 'navigator', { value: { language: 'ru', userAc
 
 let canReviewValue = true;
 let canReviewReason: string | undefined;
+let canReviewGate: Promise<void> | null = null;
 let feedbackSent = true;
 let requestThrows = false;
 
@@ -67,6 +68,7 @@ g.YaGames = {
       feedback: {
         canReview: async () => {
           record('feedback.canReview');
+          if (canReviewGate) await canReviewGate;
           return canReviewReason ? { value: canReviewValue, reason: canReviewReason } : { value: canReviewValue };
         },
         requestReview: async () => {
@@ -166,5 +168,24 @@ requestThrows = false;
 resetReviewState();
 const retry = await reviewOffer();
 ok(retry.available === true, 'В следующей сессии оценку снова можно предложить', JSON.stringify(retry));
+
+// --- simultaneous taps cannot make duplicate platform requests ---------------------------------
+storage.delete('orerush.review.v1');
+resetReviewState();
+feedbackSent = true;
+let releaseCanReview!: () => void;
+canReviewGate = new Promise<void>((resolve) => {
+  releaseCanReview = resolve;
+});
+const canReviewCallsBeforeRace = count('feedback.canReview');
+const requestCallsBeforeRace = count('feedback.requestReview');
+const firstTap = requestGameReview();
+const secondTap = requestGameReview();
+releaseCanReview();
+const [firstTapResult, secondTapResult] = await Promise.all([firstTap, secondTap]);
+canReviewGate = null;
+ok(firstTapResult === 'sent' && secondTapResult === 'sent', 'Пара одновременных кликов получает один результат');
+ok(count('feedback.canReview') === canReviewCallsBeforeRace + 1, 'Параллельные клики делят одну проверку canReview()');
+ok(count('feedback.requestReview') === requestCallsBeforeRace + 1, 'Параллельные клики открывают только один SDK-диалог');
 
 export { passed, failures };
