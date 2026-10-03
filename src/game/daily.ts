@@ -5,7 +5,7 @@
  */
 
 import { showRewardedAd, type AdOutcome } from './ads';
-import { addDiamonds, registerCloudPart, markProfileDirty } from './profile';
+import { addDiamonds, registerCloudPart, markProfileDirty, type CloudProfile } from './profile';
 import { storageGet, storageSet } from './storage';
 import { yaServerTime } from './yandex';
 
@@ -35,6 +35,20 @@ export type DailyClaimResult =
   | { ok: false; amount: 0; streak: number; reason: 'ad' | 'claimed' | 'clock' | 'storage' };
 
 let cached: DailyState | null | undefined;
+const MAX_DAILY_STREAK = 1_000_000;
+
+function validUtcDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+}
+
+function normalizedStreak(value: unknown): number {
+  const candidate = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+  return Number.isFinite(candidate)
+    ? Math.max(1, Math.min(MAX_DAILY_STREAK, Math.floor(candidate)))
+    : 1;
+}
 
 /** Today's UTC date (`YYYY-MM-DD`) by the trusted clock. */
 export function utcDay(ms = yaServerTime()): string {
@@ -53,10 +67,10 @@ function parseState(raw: string | null): DailyState | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<DailyState>;
-    if (typeof parsed?.last !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(parsed.last)) return null;
+    if (!validUtcDay(parsed?.last)) return null;
     return {
       last: parsed.last,
-      streak: Number.isFinite(parsed.streak) ? Math.max(1, Math.floor(parsed.streak as number)) : 1,
+      streak: normalizedStreak(parsed.streak),
       at: Number.isFinite(parsed.at) ? (parsed.at as number) : 0,
     };
   } catch {
@@ -137,10 +151,10 @@ export function resetDailyState() {
  * re-claim the day nor shorten the streak.
  */
 export function applyCloudDaily(remote: { last?: unknown; streak?: unknown } | undefined) {
-  if (!remote || typeof remote.last !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(remote.last)) return;
+  if (!remote || !validUtcDay(remote.last)) return;
   const local = dailyState();
   if (local && local.last > remote.last) return; // the local device is ahead: keep its record
-  const streak = Math.max(1, Math.floor(Number(remote.streak) || 1));
+  const streak = normalizedStreak(remote.streak);
   if (local && local.last === remote.last) {
     if (streak <= local.streak) return;
     cached = { ...local, streak };
@@ -151,10 +165,15 @@ export function applyCloudDaily(remote: { last?: unknown; streak?: unknown } | u
   storageSet(STORAGE_KEY, JSON.stringify(cached));
 }
 
+const applyDailyCloudPart = (cloud: CloudProfile) => {
+  applyCloudDaily(cloud.daily);
+};
+
 registerCloudPart({
   collect: () => {
     const state = dailyState();
     return state ? { daily: { last: state.last, streak: state.streak } } : {};
   },
-  apply: (cloud) => applyCloudDaily(cloud.daily),
+  apply: applyDailyCloudPart,
+  mergeStale: applyDailyCloudPart,
 });

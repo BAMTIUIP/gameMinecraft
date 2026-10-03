@@ -55,7 +55,7 @@ const day = (offset: number) => new Date(BASE + offset * DAY_MS).toISOString().s
 const rewarded = async () => ({ shown: true, rewarded: true });
 
 const { initYandex, yaServerTime } = await import('../../src/game/yandex');
-const { getDiamonds, startProfileSync, flushProfile } = await import('../../src/game/profile');
+const { getDiamonds, markProfileDirty, startProfileSync, flushProfile } = await import('../../src/game/profile');
 const {
   DAILY_BASE,
   DAILY_MAX,
@@ -128,14 +128,35 @@ resetDailyState();
 const future = dailyReward();
 ok(!future.available && future.reason === 'clock', 'Запись из будущего безопасно блокирует выплату', JSON.stringify(future));
 
+// Drain the reward-triggered save before arranging the fixture; otherwise its older async flush can
+// overwrite the test's local savedAt marker while startProfileSync is in flight.
+await flushProfile(true);
 storage.set('orerush.daily.v1', JSON.stringify({ last: day(5), streak: 2, at: BASE + 5 * DAY_MS }));
-storage.set('orerush.profile.savedAt', String(BASE + 5 * DAY_MS));
+serverNow = BASE + 6 * DAY_MS + 20_000;
+storage.set('orerush.profile.savedAt', String(serverNow - 10_000));
 resetDailyState();
-serverNow = BASE + 6 * DAY_MS;
-cloudBlob = { 'orerush.profile': { v: 1, savedAt: BASE + 6 * DAY_MS, daily: { last: day(6), streak: 3 } } };
-await startProfileSync();
-ok(dailyState()?.last === day(6) && dailyState()?.streak === 3, 'Облачный профиль применяет более позднюю дату');
+cloudBlob = {
+  'orerush.profile': {
+    v: 1,
+    savedAt: serverNow - 15_000,
+    name: 'CLOUD OLDER PROFILE',
+    daily: { last: day(6), streak: 3 },
+  },
+};
+// Queue an unrelated local edit with an older daily snapshot. Merging must patch the pending payload too.
+markProfileDirty({ name: 'LOCAL NEWER PROFILE' });
+const staleProfile = await startProfileSync();
+ok(!staleProfile.cloudApplied, 'Устаревшая оболочка профиля не заменяет более новые локальные данные');
+ok(dailyState()?.last === day(6) && dailyState()?.streak === 3, 'Облачный claim сливается даже при более новом локальном savedAt');
 ok(!dailyReward().available && dailyReward().reason === 'claimed', 'Claim с другого устройства нельзя получить повторно');
+await flushProfile(true);
+const reconciled = calls.filter((call) => call.name === 'player.setData').at(-1)?.arg as Record<string, { daily?: { last?: string }; name?: string }> | undefined;
+ok(
+  reconciled?.['orerush.profile']?.daily?.last === day(6)
+    && reconciled['orerush.profile'].name === 'LOCAL NEWER PROFILE',
+  'Отправляемый профиль сохраняет cloud-claim вместе с независимым локальным изменением',
+  JSON.stringify(reconciled),
+);
 
 serverNow = BASE + 12 * DAY_MS;
 await watchAndClaimDailyReward(rewarded);
@@ -153,5 +174,10 @@ applyCloudDaily({ last: localAfterClaim.last, streak: 9 });
 ok((dailyState()?.streak ?? 0) === 9, 'При равной дате более длинная серия сохраняется');
 applyCloudDaily({ last: 'not-a-date', streak: 99 });
 ok((dailyState()?.streak ?? 0) === 9, 'Некорректная облачная дата игнорируется');
+applyCloudDaily({ last: '2026-02-30', streak: 99 });
+ok((dailyState()?.streak ?? 0) === 9, 'Несуществующая календарная дата из облака игнорируется');
+storage.set('orerush.daily.v1', JSON.stringify({ last: '2026-02-30', streak: 99, at: BASE }));
+resetDailyState();
+ok(dailyState() === null && dailyReward().available, 'Повреждённая локальная дата не блокирует бонус навсегда');
 
 export { passed, failures };

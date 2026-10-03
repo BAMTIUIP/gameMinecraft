@@ -1267,7 +1267,7 @@ async function scenarioPromo() {
  */
 async function scenarioDaily() {
   const DAY_MS = 86_400_000;
-  const first = await openGame({ lang: 'ru' });
+  const first = await openGame({ lang: 'ru', serverTimeOffsetMs: DAY_MS });
   const bonusButton = await first.waitFor(
     'Кнопка ежедневного бонуса',
     () => {
@@ -1280,7 +1280,9 @@ async function scenarioDaily() {
   const before = await first.storageValue('orerush.diamonds.v1');
   check(before === null || before === '0', 'До первого бонуса алмазов нет', String(before));
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = await first.page.evaluate(() =>
+    new Date(Date.now() + (window.__yaMockSeed.serverTimeOffsetMs ?? 0)).toISOString().slice(0, 10),
+  );
   const adCallsBefore = first.count(await first.calls(), 'adv.showRewardedVideo');
   await first.page.evaluate(() => { window.__yaMockSeed.rewarded = false; });
   const failedClick = await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
@@ -1347,7 +1349,7 @@ async function scenarioDaily() {
   // the next server day on another device: the browser clock is untouched, the platform clock moved
   const nextDay = await openGame({
     lang: 'ru',
-    serverTimeOffsetMs: DAY_MS,
+    serverTimeOffsetMs: 2 * DAY_MS,
     data: {
       'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, daily: { last: today, streak: 1 } },
     },

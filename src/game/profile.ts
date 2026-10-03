@@ -81,6 +81,12 @@ export type CloudProfile = {
 export type CloudPart = {
   collect(): Record<string, unknown>;
   apply(cloud: CloudProfile): void;
+  /**
+   * Reconcile this part even when the enclosing profile timestamp is stale or tied. Only provide
+   * this for monotonic, conflict-safe data (such as claim markers); unrelated local profile fields
+   * must remain untouched.
+   */
+  mergeStale?(cloud: CloudProfile): void;
 };
 
 const cloudParts: CloudPart[] = [];
@@ -326,9 +332,9 @@ async function flushStats(): Promise<boolean> {
 let started = false;
 
 /**
- * Called once the SDK is up: pull the cloud profile, merge it with the local one (the newer
- * `savedAt` wins) and remember the platform profile for the UI. Safe to call outside Yandex: it
- * then only reports `platform: null` and does nothing else.
+ * Called once the SDK is up: pull the cloud profile, choose the newer whole-profile snapshot by
+ * `savedAt`, and also reconcile feature parts that provide a monotonic stale-cloud merge. Remember
+ * the platform profile for the UI. Safe to call outside Yandex: it then only reports `platform: null`.
  */
 export async function startProfileSync(): Promise<ProfileSnapshot> {
   if (started) return snapshot;
@@ -347,11 +353,12 @@ export async function startProfileSync(): Promise<ProfileSnapshot> {
   const stamp = localStamp();
 
   const cloudOurs = cloud && cloud.v === 1;
-  if (cloudOurs && cloud.savedAt > stamp) {
+  if (cloudOurs && Number.isFinite(cloud.savedAt) && cloud.savedAt > stamp) {
     applyCloud(cloud);
     snapshot = { ...snapshot, cloudApplied: true };
   } else {
-    // local is newer (or the cloud is empty): make sure the cloud learns about this player
+    // Keep newer local profile fields, but still reconcile monotonic claims from a stale/equal cloud copy.
+    if (cloudOurs) mergeStaleCloudParts(cloud);
     markProfileDirty();
   }
 
@@ -390,6 +397,20 @@ function applyCloud(cloud: CloudProfile) {
     storageSet(DELIVERED_KEY, JSON.stringify(merged));
   }
   storageSet(LOCAL_STAMP_KEY, String(cloud.savedAt));
+}
+
+/** Merge independently monotonic feature data without adopting stale profile fields. */
+function mergeStaleCloudParts(cloud: CloudProfile) {
+  const mergedParts: Record<string, unknown> = {};
+  for (const part of cloudParts) {
+    if (!part.mergeStale) continue;
+    part.mergeStale(cloud);
+    Object.assign(mergedParts, part.collect());
+  }
+  // A pending snapshot may predate the merge; update just the safe feature fields before it is flushed.
+  if (pendingData && Object.keys(mergedParts).length) {
+    pendingData = { ...pendingData, ...mergedParts };
+  }
 }
 
 /** Hold back (or resume) cloud writes while the platform's account picker is open. */
