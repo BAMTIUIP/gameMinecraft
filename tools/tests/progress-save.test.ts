@@ -105,7 +105,7 @@ function ok(condition: boolean, label: string, detail = '') {
 
 const { initYandex } = await import('../../src/game/yandex');
 const { addDiamonds, addTotals, flushProfile, getDiamonds, getTotals, saveProgressNow, spendDiamonds, startProfileSync } = await import('../../src/game/profile');
-const { claimDailyReward, dailyReward, resetDailyState } = await import('../../src/game/daily');
+const { dailyReward, resetDailyState, watchAndClaimDailyReward } = await import('../../src/game/daily');
 const { loadScores, savePlayerName, submitScore } = await import('../../src/ui/scores');
 
 await initYandex();
@@ -156,7 +156,7 @@ ok(storage.get('orerush.playername.v1') === 'MINER-9', 'Новое имя сох
 // a daily bonus is an action too: the date and the balance are both on disk at once
 resetDailyState();
 ok(dailyReward().available === true, 'Ежедневный бонус готов к начислению');
-const claim = claimDailyReward();
+const claim = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: true }));
 ok(claim.ok === true && storage.get('orerush.daily.v1')?.includes('2026-10-02') === true, 'Дата получения бонуса записана сразу', storage.get('orerush.daily.v1') ?? 'нет');
 ok(Number(storage.get('orerush.diamonds.v1')) === 5 + claim.amount, 'Алмазы бонуса тоже сразу на диске', storage.get('orerush.diamonds.v1') ?? 'нет');
 

@@ -946,6 +946,8 @@ export class Engine {
   /** a one-shot placement requested by the remote's OK tap */
   private placeOnce = false;
   private score = 0;
+  /** One-run score booster purchased from the shop; persisted only with the sandbox world. */
+  private scoreBonusMultiplier = 1;
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
   private health = 100;
@@ -3369,6 +3371,7 @@ if (tpClipActive > 0.5) {
         pitch: this.pitch,
         health: this.health,
         score: this.score,
+        scoreBonusMultiplier: this.scoreBonusMultiplier,
         inventory: Array.from(this.inventory.entries()),
         toolInstances: Array.from(this.toolInstances.values()),
         nextToolInstanceId: this.nextToolInstanceId,
@@ -3438,6 +3441,9 @@ if (tpClipActive > 0.5) {
     this.pitch = data.pitch;
     this.health = data.health;
     this.score = data.score;
+    this.scoreBonusMultiplier = Number.isFinite(data.scoreBonusMultiplier)
+      ? Math.max(1, Math.min(5, Number(data.scoreBonusMultiplier)))
+      : 1;
     this.inventory = new Map(Array.isArray(data.inventory) ? data.inventory : []);
     const desiredToolCounts = new Map<number, number>();
     for (const [id, count] of this.inventory) {
@@ -3556,6 +3562,7 @@ if (tpClipActive > 0.5) {
     if (survivalRun) this.runTime = 0;
     else this.runTime = seconds && seconds > 0 ? seconds : EXPLORATION_RUN_TIME;
     this.score = 0;
+    this.scoreBonusMultiplier = 1;
     this.timeLeft = this.runTime;
     this.explorationObjectives = !survivalRun && !sandbox
       ? EXPLORATION_TASKS.map((task) => ({ ...task, progress: 0 }))
@@ -3714,6 +3721,109 @@ if (tpClipActive > 0.5) {
       return false;
     }
     this.pushBanner(t('shopDropItemsBannerTitle'), t('shopDropItemsBannerSub'), '#62e8dc');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
+  /** Apply paid shop products after a run/world has loaded; the receipts stay queued on save failure. */
+  grantShopProductRewards(products: readonly string[]): boolean {
+    const inventoryBefore = new Map(this.inventory);
+    const hotbarBefore = this.hotbar.slice();
+    const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+    const toolsBefore = new Map(this.toolInstances);
+    const bagBefore = this.bagItems.slice();
+    const nextToolIdBefore = this.nextToolInstanceId;
+    const tierBefore = this.tier;
+    const swordTierBefore = this.swordTier;
+    const scoreBonusBefore = this.scoreBonusMultiplier;
+    let received = 0;
+
+    const grantBlocks = (items: readonly (readonly [number, number])[]) => {
+      for (const [id, count] of items) {
+        if (!BLOCKS[id] || !Number.isInteger(count) || count <= 0) continue;
+        this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+        this.addToHotbar(id);
+        received += count;
+      }
+    };
+    const grantArmorSet = (material: Material, rarity: Rarity, slots: readonly Slot[] = ['head', 'chest', 'legs', 'feet']) => {
+      for (const slot of slots) {
+        this.bagItems.push(ensureGearHid(makeItem(slot, material, rarity, Math.random)));
+        received += 1;
+      }
+    };
+
+    for (const product of products) {
+      switch (product) {
+        case 'armor-uncommon':
+          grantArmorSet('iron', 1);
+          break;
+        case 'armor-rare':
+          grantArmorSet('iron', 2);
+          break;
+        case 'armor-epic':
+          grantArmorSet('netherite', 3);
+          break;
+        case 'netherite-pickaxe':
+          if (this.addToolInstance(PICK_TOOLS[5])) received += 1;
+          break;
+        case 'netherite-armor':
+          grantArmorSet('netherite', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
+          break;
+        // Apply any receipts that were queued by the previous diamond-tier shop unchanged.
+        case 'diamond-pickaxe':
+          if (this.addToolInstance(PICK_TOOLS[4])) received += 1;
+          break;
+        case 'diamond-armor':
+          grantArmorSet('diamond', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
+          break;
+        case 'chest-common':
+          grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8]]);
+          break;
+        case 'chest-rare':
+          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2]]);
+          this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 2, Math.random)));
+          received += 1;
+          break;
+        case 'chest-epic':
+          grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2]]);
+          this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 3, Math.random)));
+          received += 1;
+          break;
+        case 'booster-start':
+          grantBlocks([[PLANKS, 16], [COAL, 8], [COOKED_MEAT, 5], [TORCH, 8]]);
+          if (this.addToolInstance(PICK_TOOLS[1])) received += 1;
+          break;
+        case 'booster-ore':
+          grantBlocks([[IRON, 5], [GOLD, 2], [DIAMOND, 1]]);
+          break;
+        case 'booster-score':
+          this.scoreBonusMultiplier += 0.25;
+          received += 1;
+          break;
+      }
+    }
+    if (!received) return false;
+
+    this.recalcOwnedToolTiers();
+    if (this.sandbox && !this.saveWorld(true)) {
+      this.inventory = inventoryBefore;
+      this.hotbar = hotbarBefore;
+      this.hotbarInstanceIds = hotbarInstancesBefore;
+      this.toolInstances = toolsBefore;
+      this.bagItems = bagBefore;
+      this.nextToolInstanceId = nextToolIdBefore;
+      this.tier = tierBefore;
+      this.swordTier = swordTierBefore;
+      this.scoreBonusMultiplier = scoreBonusBefore;
+      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return false;
+    }
+
+    this.pushBanner(t('shopItemBannerTitle'), t('shopItemBannerSub'), '#f4b942');
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -7996,8 +8106,7 @@ if (tpClipActive > 0.5) {
     const def = BLOCKS[d.id];
     const comboMult = this.comboMult();
     const tierMult = PICKAXE_TIERS[this.tier].mult;
-    const gained = Math.max(1, Math.round(def.score * comboMult * tierMult));
-    this.score += gained;
+    const gained = this.awardScore(Math.max(1, Math.round(def.score * comboMult * tierMult)));
     this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
     this.addToHotbar(d.id);
     if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound++;
@@ -8019,6 +8128,13 @@ if (tpClipActive > 0.5) {
 
   private comboMult() {
     return 1 + Math.min(this.combo, 24) * 0.14;
+  }
+
+  /** Apply active shop score boosts consistently to every score source. */
+  private awardScore(base: number): number {
+    const gained = Math.max(0, Math.round(base * this.scoreBonusMultiplier));
+    this.score += gained;
+    return gained;
   }
 
   private addToHotbar(id: number) {
@@ -8957,8 +9073,7 @@ if (tpClipActive > 0.5) {
     // every arrow you shot into it clatters back out — walk over and re-collect
     for (let i = 0; i < m.stuckArrows; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, ARROW_ITEM);
     m.stuckArrows = 0;
-    const gained = Math.round(def.score * this.comboMult() * (1 + this.stats.greed / 100));
-    this.score += gained;
+    const gained = this.awardScore(Math.round(def.score * this.comboMult() * (1 + this.stats.greed / 100)));
     this.combo++;
     this.comboTimer = 3;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
@@ -9162,8 +9277,7 @@ if (tpClipActive > 0.5) {
       else this.inventory.delete(id);
       if (this.selected === i) this.selected = 0;
     }
-    const gained = toolSellPrice(id);
-    this.score += gained;
+    const gained = this.awardScore(toolSellPrice(id));
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
     sfx.pickup(5);
     this.syncHotbar(true);
@@ -9177,8 +9291,7 @@ if (tpClipActive > 0.5) {
     const it = this.bagItems[i];
     this.bagItems.splice(i, 1);
     const matMul = { leather: 30, iron: 80, gold: 140, diamond: 320, netherite: 900 }[it.material];
-    const gained = Math.round(matMul * (1 + it.rarity * 0.6) + it.affixes.length * 40);
-    this.score += gained;
+    const gained = this.awardScore(Math.round(matMul * (1 + it.rarity * 0.6) + it.affixes.length * 40));
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
     sfx.pickup(6);
     this.syncHud(true);
@@ -9289,9 +9402,8 @@ if (tpClipActive > 0.5) {
       sfx.ui(false);
       return;
     }
-    const gained = this.sellPrice(id) * count;
+    const gained = this.awardScore(this.sellPrice(id) * count);
     this.inventory.set(id, 0);
-    this.score += gained;
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b', gained > 400);
     sfx.pickup(6);
     this.syncHotbar(true);
@@ -9797,20 +9909,21 @@ if (tpClipActive > 0.5) {
 
   private advanceExplorerObjectives() {
     let lastCompleted: ExplorationTask | null = null;
+    let lastScoreAward = 0;
     while (this.objectiveIndex < this.explorationObjectives.length) {
       const task = this.explorationObjectives[this.objectiveIndex];
       if (task.progress < task.target) break;
       lastCompleted = task;
       this.objectiveIndex++;
-      this.score += task.rewardScore;
+      lastScoreAward = this.awardScore(task.rewardScore);
       if (!this.endlessRun) this.timeLeft += task.rewardSeconds;
     }
     if (!lastCompleted) return;
     const rewardTime = `${Math.floor(lastCompleted.rewardSeconds / 60)}:${String(lastCompleted.rewardSeconds % 60).padStart(2, '0')}`;
     const reward = t('objectiveReward')
-      .replace('{score}', String(lastCompleted.rewardScore))
+      .replace('{score}', String(lastScoreAward))
       .replace('{time}', rewardTime);
-    this.popup(this.pos.x, this.pos.y + 1.7, this.pos.z, `+${lastCompleted.rewardScore} · +${lastCompleted.rewardSeconds}${t('secShort')}`, '#93c95d', true);
+    this.popup(this.pos.x, this.pos.y + 1.7, this.pos.z, `+${lastScoreAward} · +${lastCompleted.rewardSeconds}${t('secShort')}`, '#93c95d', true);
     this.pushBanner(t('objectiveComplete'), `${t(lastCompleted.titleKey)} · ${reward}`, '#93c95d');
   }
 

@@ -32,7 +32,7 @@ const ok = (condition: boolean, label: string, detail = '') => {
 
 const { initYandex, yaServerTime } = await import('../../src/game/yandex');
 const { getDiamonds, startProfileSync, flushProfile } = await import('../../src/game/profile');
-const { DAILY_BASE, claimDailyReward, dailyReward, utcDay } = await import('../../src/game/daily');
+const { DAILY_BASE, dailyReward, utcDay, watchAndClaimDailyReward } = await import('../../src/game/daily');
 
 const sdk = await initYandex();
 ok(sdk === null, 'Вне Яндекс Игр SDK не инициализируется (initYandex → null)');
@@ -43,12 +43,14 @@ await startProfileSync();
 const view = dailyReward();
 ok(view.available && view.amount === DAILY_BASE, 'Вне Яндекса ежедневный бонус работает по местному времени', JSON.stringify(view));
 ok(view.today === utcDay(), 'Дата считается тем же способом (UTC YYYY-MM-DD)', view.today);
-const claim = claimDailyReward();
-ok(claim.ok && getDiamonds() === DAILY_BASE, 'Бонус начисляется и без платформы', String(getDiamonds()));
+const failed = await watchAndClaimDailyReward(async () => ({ shown: false, rewarded: false, skipped: 'offline' }));
+ok(!failed.ok && failed.reason === 'ad' && getDiamonds() === 0, 'Вне платформы неуспешная реклама не выдаёт бонус');
+const claim = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: true }));
+ok(claim.ok && getDiamonds() === DAILY_BASE, 'Подтверждённый просмотр начисляет бонус и без платформы', String(getDiamonds()));
 ok(!dailyReward().available, 'Повторно в тот же день бонус не предлагается');
 const balance = getDiamonds();
-claimDailyReward();
-ok(getDiamonds() === balance, 'Второе начисление ничего не меняет', String(getDiamonds()));
+const duplicate = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: true }));
+ok(!duplicate.ok && getDiamonds() === balance, 'Второе начисление ничего не меняет', String(getDiamonds()));
 const flushed = await flushProfile(true);
 ok(flushed, 'Запись профиля вне Яндекса не падает');
 ok(!!storage.get('orerush.daily.v1'), 'Состояние бонуса лежит в локальном хранилище');

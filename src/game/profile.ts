@@ -62,6 +62,12 @@ export type CloudProfile = {
     claims?: Record<string, unknown>;
     pending?: Record<string, unknown>;
     delivered?: unknown[];
+    login?: unknown;
+  };
+  /** one-shot in-game shop purchases awaiting delivery to an engine inventory */
+  shopRewards?: {
+    pending?: unknown[];
+    delivered?: unknown[];
   };
   /** validated by game/character when the cloud character-creator part applies it */
   character?: unknown;

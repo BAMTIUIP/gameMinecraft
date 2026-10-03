@@ -21,7 +21,7 @@ const {
   CHARACTER_EXPRESSIONS,
   CHARACTER_GLASSES,
   CHARACTER_HAIRSTYLES,
-  DEFAULT_CHARACTER_CUSTOMIZATION, 
+  DEFAULT_CHARACTER_CUSTOMIZATION,
   randomCharacterCustomization,
   getCharacterCustomization,
   sanitizeCharacterCustomization,

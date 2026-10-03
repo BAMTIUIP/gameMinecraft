@@ -4,8 +4,8 @@
  * Two rules from the documentation shape everything here:
  *
  *  1. **Save first, consume second.** `payments.consumePurchase()` deletes the purchase for good, so
- *     the diamonds reach the player's cloud data (and the write is flushed) *before* the token is
- *     consumed. A crash in between means the purchase is delivered again, never lost.
+ *     the netherite coins reach the player's cloud data (in the legacy `diamonds` profile field, with
+ *     the write flushed) *before* the token is consumed. A crash in between means the purchase is delivered again, never lost.
  *  2. **Check for unprocessed purchases at every start** (requirement 1.13.1): a payment that went
  *     through while the network died is delivered on the next launch — that is `deliverPendingPurchases()`.
  *
@@ -15,10 +15,11 @@
  */
 
 import { addDiamonds, flushProfile, getDiamonds, hasDeliveredPurchase, markPurchaseDelivered, spendDiamonds } from './profile';
+import { cancelQueuedShopReward, queueShopReward, type ShopRewardProductId } from './shopRewards';
 import { tvDevice } from './params';
 import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
 
-/** Product ids as they must exist in the Console, mapped to the diamonds they grant. */
+/** Legacy Console product ids mapped to the netherite coins credited to the legacy balance field. */
 export const DIAMOND_PACKS: Readonly<Record<string, number>> = {
   'diamonds-100': 100,
   'diamonds-599': 599,
@@ -26,8 +27,30 @@ export const DIAMOND_PACKS: Readonly<Record<string, number>> = {
   'diamonds-5999': 5999,
 };
 
-/** How many diamonds a rewarded-video alternative costs on the results screen. */
+/** Netherite-coin cost of the rewarded-video alternative on the results screen. */
 export const REVIVE_DIAMOND_PRICE = 100;
+
+/** Functional, in-game purchases; receipts are durably queued for the next world/run. */
+export const SHOP_ITEM_PRICES: Readonly<Record<ShopRewardProductId, number>> = {
+  'armor-uncommon': 349,
+  'armor-rare': 899,
+  'armor-epic': 1_999,
+  'netherite-pickaxe': 2_999,
+  'netherite-armor': 4_999,
+  // Keep old in-memory checkout IDs valid while durable pre-upgrade receipts are being applied.
+  'diamond-pickaxe': 2_999,
+  'diamond-armor': 4_999,
+  'chest-common': 199,
+  'chest-rare': 699,
+  'chest-epic': 1_799,
+  'booster-start': 249,
+  'booster-ore': 399,
+  'booster-score': 499,
+};
+
+export type ShopItemBuyResult =
+  | { ok: true; productId: ShopRewardProductId; cost: number; diamonds: number }
+  | { ok: false; productId: string; reason: 'unavailable' | 'not-enough' | 'storage'; diamonds: number };
 
 export type ShopPrice = {
   /** `<цена> <код валюты>` exactly as the Console reports it */
@@ -56,6 +79,21 @@ export function paymentsAvailable(): boolean {
 
 export function diamondsBalance(): number {
   return getDiamonds();
+}
+
+/** Spend netherite coins and durably queue the matching reward receipt. */
+export function buyShopItem(productId: string): ShopItemBuyResult {
+  const cost = SHOP_ITEM_PRICES[productId as ShopRewardProductId];
+  if (!Number.isFinite(cost) || cost <= 0) return { ok: false, productId, reason: 'unavailable', diamonds: getDiamonds() };
+  if (getDiamonds() < cost) return { ok: false, productId, reason: 'not-enough', diamonds: getDiamonds() };
+
+  const receipt = queueShopReward(productId);
+  if (!receipt) return { ok: false, productId, reason: 'storage', diamonds: getDiamonds() };
+  if (!spendDiamonds(cost)) {
+    cancelQueuedShopReward(receipt);
+    return { ok: false, productId, reason: 'not-enough', diamonds: getDiamonds() };
+  }
+  return { ok: true, productId: productId as ShopRewardProductId, cost, diamonds: getDiamonds() };
 }
 
 /**
@@ -94,8 +132,8 @@ export function resetShopCatalog() {
 
 /**
  * Deliver everything the player paid for but never received: iterate the unconsumed purchases, grant
- * the diamonds, flush the data to the cloud and only then consume the token. Returns the number of
- * diamonds credited — the UI shows a "purchase restored" banner when it is above zero.
+ * netherite coins to the legacy balance field, flush the data to the cloud and only then consume the
+ * token. Returns the number of coins credited — the UI shows a "purchase restored" banner when it is above zero.
  */
 export async function deliverPendingPurchases(): Promise<number> {
   if (tvDevice() || !yaPaymentsAvailable()) return 0;
@@ -131,8 +169,8 @@ export async function deliverPendingPurchases(): Promise<number> {
 }
 
 /**
- * Buy a diamond pack: the payment frame opens, and on success the diamonds are credited and saved
- * before the purchase is consumed. Cancelling the frame is a normal outcome and changes nothing.
+ * Buy a legacy-ID coin pack: the payment frame opens, and on success netherite coins are credited
+ * and saved before the purchase is consumed. Cancelling the frame is a normal outcome and changes nothing.
  */
 export async function buyDiamondPack(productId: string): Promise<BuyResult> {
   if (!DIAMOND_PACKS[productId]) return { ok: false, productId, reason: 'failed', diamonds: getDiamonds() };
@@ -154,7 +192,7 @@ export async function buyDiamondPack(productId: string): Promise<BuyResult> {
   return { ok: true, productId, diamonds: getDiamonds() };
 }
 
-/** Diamonds for a mid-run revive (the paid alternative to watching a rewarded video). */
+/** Spend netherite coins on a mid-run revive (the paid alternative to a rewarded video). */
 export function buyRevive(): boolean {
   return spendDiamonds(REVIVE_DIAMOND_PRICE);
 }

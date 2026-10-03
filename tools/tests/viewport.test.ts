@@ -166,7 +166,7 @@ ok(/hud-objective-row--locked/.test(layoutCss) && /hud-objective-reward/.test(la
 ok(/max-width:\s*700px/.test(layoutCss), 'Для узких экранов есть своя раскладка');
 ok(/@media \(orientation: portrait\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*flex-direction: column-reverse/.test(layoutCss), 'На сенсорном телефоне в портрете хотбар выстраивается слева, слот 1 остаётся снизу');
 ok(/@media \(orientation: landscape\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*width: min\(calc\(100vw - 23rem\)/.test(layoutCss), 'В альбомной ориентации хотбар занимает центральный ряд между сенсорными блоками');
-ok(/\.shop-dialog[\s\S]*height: min\(92dvh/.test(layoutCss) && /\.shop-catalog[\s\S]*flex: 1 1 0[\s\S]*overflow-y: auto/.test(layoutCss), 'Магазин фиксирует шапку и отдаёт каталогу оставшуюся прокручиваемую высоту');
+ok(/\.shop-dialog[\s\S]*height: min\(92dvh/.test(layoutCss) && /\.shop-catalog[\s\S]*flex: 1 1 0[\s\S]*overflow: hidden/.test(layoutCss) && /\.shop-carousel[\s\S]*scroll-snap-type: x mandatory[\s\S]*touch-action: pan-x/.test(layoutCss) && /\.shop-category-button/.test(layoutCss), 'Магазин держит категории снизу и листает карточки по горизонтали');
 
 const inventory = readFileSync(path.join(root, 'src/ui/Inventory.tsx'), 'utf8');
 ok(/recipe-card[^`]*flex-wrap/.test(inventory) && /recipe-costs[^`]*flex-wrap/.test(inventory) && /recipe-craft/.test(inventory), 'Карточки крафта переносят ресурсы и кнопку на узкой ширине');

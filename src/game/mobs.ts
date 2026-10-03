@@ -146,9 +146,10 @@ export type Mob = {
   yaw: number;
   hp: number;
   maxHp: number;
-  healthBarBack: THREE.Sprite | null;
+  /** One centered billboard bar; local model-space top keeps it anchored over every species. */
   healthBarFill: THREE.Sprite | null;
   healthBarTimer: number;
+  healthBarTop: number;
   onGround: boolean;
   /** wander target */
   tx: number;
@@ -1698,6 +1699,7 @@ export class MobSystem {
     const modelDimensions = modelBounds.getSize(new THREE.Vector3());
     const collisionHalf = Math.max(0.16, Math.max(modelDimensions.x, modelDimensions.z) * 0.5);
     const collisionHeight = Math.max(0.35, modelDimensions.y);
+    const healthBarTop = Math.max(0.35, modelBounds.max.y);
     const rootScale = def.scale * modelSize;
     const worldHalf = collisionHalf * rootScale;
     const worldHeight = collisionHeight * rootScale;
@@ -1734,9 +1736,9 @@ export class MobSystem {
       yaw: Math.random() * Math.PI * 2,
       hp: def.hp,
       maxHp: def.hp,
-      healthBarBack: null,
       healthBarFill: null,
       healthBarTimer: 0,
+      healthBarTop,
       onGround: false,
       tx: x,
       tz: z,
@@ -1780,47 +1782,38 @@ export class MobSystem {
     return mob;
   }
 
-  /** Show a compact world-space HP bar after the player damages a monster or an animal. */
+  /** Show a single, centered world-space HP bar attached to the mob after it takes damage. */
   showHealthBar(mob: Mob) {
     mob.healthBarTimer = 3.2;
-    const rootScale = Math.max(0.25, mob.def.scale * mob.modelSize);
-    const width = 0.9;
-    const y = 1.42 / rootScale;
-    if (!mob.healthBarBack || !mob.healthBarFill) {
-      mob.healthBarBack = new THREE.Sprite(new THREE.SpriteMaterial({
-        color: 0x171a1c,
-        depthTest: true,
-        depthWrite: false,
-        toneMapped: false,
-      }));
-      mob.healthBarBack.scale.set(width / rootScale, 0.115 / rootScale, 1);
-      mob.healthBarBack.position.set(0, y, 0);
-      mob.healthBarBack.renderOrder = 20;
-      mob.group.add(mob.healthBarBack);
-
+    if (!mob.healthBarFill) {
       mob.healthBarFill = new THREE.Sprite(new THREE.SpriteMaterial({
         color: 0x68d36a,
         depthTest: true,
         depthWrite: false,
         toneMapped: false,
       }));
-      mob.healthBarFill.center.set(0, 0.5);
-      mob.healthBarFill.scale.set((width - 0.08) / rootScale, 0.055 / rootScale, 1);
-      mob.healthBarFill.position.set(-(width - 0.08) / (2 * rootScale), y, 0.012 / rootScale);
-      mob.healthBarFill.renderOrder = 21;
+      // Keep the sprite centered on the mob's pivot. A centered single sprite cannot drift when
+      // its parent turns, unlike two independently billboarding fill/background sprites.
+      mob.healthBarFill.center.set(0.5, 0.5);
+      mob.healthBarFill.renderOrder = 20;
       mob.group.add(mob.healthBarFill);
     }
-    mob.healthBarBack.visible = true;
     mob.healthBarFill.visible = true;
     this.updateHealthBar(mob);
   }
 
   private updateHealthBar(mob: Mob) {
     if (!mob.healthBarFill) return;
-    const rootScale = Math.max(0.25, mob.def.scale * mob.modelSize);
-    const width = 0.82 / rootScale;
+    const width = 0.82;
+    const height = 0.055;
+    const gap = 0.06;
+    const scaleX = Math.max(0.001, Math.abs(mob.group.scale.x));
+    const scaleY = Math.max(0.001, Math.abs(mob.group.scale.y));
     const fraction = Math.max(0, Math.min(1, mob.hp / Math.max(1, mob.maxHp)));
-    mob.healthBarFill.scale.x = width * fraction;
+    // Compensate for the mob's (possibly growing/shrinking) group scale so the bar stays a
+    // consistent world-space size while its base remains just above the model's measured top.
+    mob.healthBarFill.scale.set(width * fraction / scaleX, height / scaleY, 1);
+    mob.healthBarFill.position.set(0, mob.healthBarTop + (gap + height / 2) / scaleY, 0);
     const material = mob.healthBarFill.material as THREE.SpriteMaterial;
     material.color.set(fraction > 0.55 ? '#68d36a' : fraction > 0.25 ? '#f2c14e' : '#e95c55');
   }
@@ -2152,10 +2145,7 @@ export class MobSystem {
       if (m.healthBarTimer > 0) {
         this.updateHealthBar(m);
         m.healthBarTimer = Math.max(0, m.healthBarTimer - dt);
-        if (m.healthBarTimer === 0) {
-          if (m.healthBarBack) m.healthBarBack.visible = false;
-          if (m.healthBarFill) m.healthBarFill.visible = false;
-        }
+        if (m.healthBarTimer === 0 && m.healthBarFill) m.healthBarFill.visible = false;
       }
       if (def.hostile && daylight > 0.55) {
         const exposedToSun = this.world.topSolidY(Math.floor(m.x), Math.floor(m.z)) <= Math.floor(m.y);

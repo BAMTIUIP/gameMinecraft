@@ -330,8 +330,8 @@
               return [
                 {
                   id: 'diamonds-100',
-                  title: 'Pocket of diamonds',
-                  description: '100 diamonds',
+                  title: 'Pocket of Netherite coins',
+                  description: '100 Netherite coins',
                   imageURI: '',
                   price: '99 ₽',
                   priceValue: '99',
@@ -340,8 +340,8 @@
                 },
                 {
                   id: 'diamonds-599',
-                  title: 'Miner pouch',
-                  description: '599 diamonds',
+                  title: 'Miner coin pouch',
+                  description: '599 Netherite coins',
                   imageURI: '',
                   price: '499 ₽',
                   priceValue: '499',
