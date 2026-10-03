@@ -114,7 +114,7 @@ function ok(condition: boolean, label: string, detail = '') {
   else failures.push(detail ? `${label} → ${detail}` : label);
 }
 
-const { initYandex, yaOnMultiplayer, yaOnPause, yaOnResume, yaPlatformPaused } = await import('../../src/game/yandex');
+const { initYandex, yaOnMultiplayer, yaOnPause, yaOnPlatformEvent, yaOnResume, yaPlatformPaused } = await import('../../src/game/yandex');
 const { confirmExit, dismissExit, exitPromptShown, onAccountSwitch, onExitPrompt, resetPlatformState, startPlatformEvents } = await import('../../src/game/platform');
 const { flushProfile, getDiamonds, markProfileDirty, pauseProfileSync, resyncProfile } = await import('../../src/game/profile');
 
@@ -137,8 +137,16 @@ emit('game_api_resume');
 ok(seen.length === 2, 'После отписки обработчики не вызываются', seen.join(','));
 
 // --- HISTORY_BACK: the game's own dialog instead of a silent exit -------------------------------
-startPlatformEvents();
+const stopPlatformEvents = startPlatformEvents();
 ok(count('ysdk.on') >= 4, 'Игра подписалась на платформенные события через on()', String(count('ysdk.on')));
+const eventSubscriptionsBefore = count('ysdk.on');
+const eventUnsubscriptionsBefore = count('ysdk.off');
+const offExtraHistoryListener = yaOnPlatformEvent('HISTORY_BACK', () => undefined);
+offExtraHistoryListener();
+ok(
+  count('ysdk.on') === eventSubscriptionsBefore && count('ysdk.off') === eventUnsubscriptionsBefore,
+  'Общий SDK-listener остаётся, пока на событие есть другие игровые подписчики',
+);
 const prompts: number[] = [];
 const offPrompt = onExitPrompt(() => prompts.push(Date.now()));
 emit('HISTORY_BACK');
@@ -157,31 +165,33 @@ ok(prompts.length === 2, 'После отписки диалог больше н
 
 // --- account picker: sync on hold, then the chosen progress is re-read ---------------------------
 const phases: string[] = [];
-const offAccount = onAccountSwitch((phase) => phases.push(phase));
+let accountResync: Promise<boolean> | null = null;
+const offAccount = onAccountSwitch((phase) => {
+  phases.push(phase);
+  if (phase === 'opened') pauseProfileSync(true);
+  else accountResync = resyncProfile().finally(() => pauseProfileSync(false));
+});
+markProfileDirty({ name: 'UNSAVED OLD ACCOUNT' });
 emit('ACCOUNT_SELECTION_DIALOG_OPENED');
 ok(phases.join(',') === 'opened', 'Открытие диалога выбора аккаунта доходит до игры', phases.join(','));
-
-markProfileDirty();
-pauseProfileSync(true);
 const writesWhileOpen = count('player.setData');
 const flushedWhileOpen = await flushProfile(true);
 ok(flushedWhileOpen === false, 'Во время выбора аккаунта запись в облако не проходит');
 ok(count('player.setData') === writesWhileOpen, 'Во время диалога ничего не отправлено', String(count('player.setData')));
-pauseProfileSync(false);
-markProfileDirty();
-await flushProfile(true);
-ok(count('player.setData') > writesWhileOpen, 'После диалога запись возобновляется', String(count('player.setData')));
 
-// the player has chosen another save: the cloud now belongs to that account
+// The selected account has its own save. Re-read it before releasing the old account's queued writes.
 cloudBlob = { 'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, diamonds: 500, totals: { bestScore: 4000 } } };
 const readsBefore = count('player.getData');
 const playerFetchesBefore = playerFetches;
 emit('ACCOUNT_SELECTION_DIALOG_CLOSED');
-await resyncProfile();
+await accountResync;
 ok(phases.join(',') === 'opened,closed', 'Закрытие диалога доходит до игры', phases.join(','));
 ok(playerFetches > playerFetchesBefore, 'После смены аккаунта заново получен объект Player (getPlayer)', `${playerFetchesBefore} → ${playerFetches}`);
 ok(count('player.getData') > readsBefore, 'Прогресс запрошен заново (player.getData)', String(count('player.getData') - readsBefore));
 ok(getDiamonds() === 500, 'Принят прогресс выбранного аккаунта (алмазы из облака)', String(getDiamonds()));
+const writesAfterResync = count('player.setData');
+await flushProfile(true);
+ok(count('player.setData') === writesAfterResync, 'Старый queued-профиль не отправляется в выбранный аккаунт');
 offAccount();
 
 // --- on()/off() in pairs for the multiplayer subscription ---------------------------------------
@@ -195,6 +205,9 @@ emit('multiplayer-sessions-transaction', { opponentId: 'opp-2', transactions: []
 ok(events.length === 1, 'После отписки события мультиплеера не приходят', events.join(','));
 
 // --- the full teardown used by tests ------------------------------------------------------------
+const offBeforePlatformStop = count('ysdk.off');
+stopPlatformEvents();
+ok(count('ysdk.off') >= offBeforePlatformStop + 3, 'При остановке пары on()/off() снимают подписки платформенных событий');
 resetPlatformState();
 ok(exitPromptShown() === false, 'Сброс состояния платформы не оставляет висящих диалогов');
 

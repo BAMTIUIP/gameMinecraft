@@ -209,14 +209,17 @@ export function bumpStats(increments: Partial<Record<StatKey, number>>) {
     if (PEAK_STATS.includes(key)) pendingPeaks[key] = Math.max(pendingPeaks[key] ?? totals[key], value);
     else pendingStats[key] = (pendingStats[key] ?? 0) + value;
   }
+  scheduleStatsFlush();
+}
+
+function scheduleStatsFlush() {
+  if (syncPaused || statsTimer !== null) return;
   if (Object.keys(pendingStats).length === 0 && Object.keys(pendingPeaks).length === 0) return;
-  if (statsTimer === null) {
-    const wait = Math.max(0, STATS_INTERVAL_MS - (Date.now() - lastStatsFlush));
-    statsTimer = window.setTimeout(() => {
-      statsTimer = null;
-      void flushStats();
-    }, wait);
-  }
+  const wait = Math.max(0, STATS_INTERVAL_MS - (Date.now() - lastStatsFlush));
+  statsTimer = window.setTimeout(() => {
+    statsTimer = null;
+    void flushStats();
+  }, wait);
 }
 
 function scheduleFlush() {
@@ -297,6 +300,7 @@ async function flushProfileOnce(immediate: boolean): Promise<boolean> {
 }
 
 async function flushStats(): Promise<boolean> {
+  if (syncPaused) return false;
   const stats = pendingStats;
   const peaks = pendingPeaks;
   pendingStats = {};
@@ -416,10 +420,15 @@ function mergeStaleCloudParts(cloud: CloudProfile) {
 /** Hold back (or resume) cloud writes while the platform's account picker is open. */
 export function pauseProfileSync(paused: boolean) {
   syncPaused = paused;
-  if (!paused) {
-    markProfileDirty();
-    scheduleFlush();
+  if (paused) {
+    if (flushTimer !== null) clearTimeout(flushTimer);
+    if (statsTimer !== null) clearTimeout(statsTimer);
+    flushTimer = null;
+    statsTimer = null;
+    return;
   }
+  if (pendingData) scheduleFlush();
+  scheduleStatsFlush();
 }
 
 /**
@@ -429,17 +438,36 @@ export function pauseProfileSync(paused: boolean) {
  */
 export async function resyncProfile(): Promise<boolean> {
   if (!yaAvailable()) return false;
+
+  // Do not let an old account's queued snapshot fire during selection or overwrite the chosen save.
+  if (flushTimer !== null) clearTimeout(flushTimer);
+  if (statsTimer !== null) clearTimeout(statsTimer);
+  flushTimer = null;
+  statsTimer = null;
+  const inFlight = flushInFlight;
+  if (inFlight) {
+    try {
+      await inFlight;
+    } catch {
+      // A failed old-account write is discarded below; it must not be retried under the new account.
+    }
+  }
+  pendingData = null;
+  pendingStats = {};
+  pendingPeaks = {};
+
   const platform = await yaRefreshProfile(true);
-  snapshot = { ...snapshot, platform };
+  snapshot = { ...snapshot, platform, cloudApplied: false };
   const remote = await yaCloudGet([CLOUD_KEY]);
   const cloud = remote?.[CLOUD_KEY] as CloudProfile | undefined;
   if (cloud && cloud.v === 1) {
-    // the cloud record belongs to the account the player has just chosen: it wins even over a local
-    // stamp that looks newer, because that stamp was written under the previous account
+    // The cloud record belongs to the account the player has just chosen: it wins even over a local
+    // stamp that looks newer, because that stamp was written under the previous account.
     applyCloud(cloud);
     storageSet(TOTALS_KEY, JSON.stringify(totals));
     snapshot = { ...snapshot, cloudApplied: true };
   } else {
+    // No cloud blob exists for the chosen player; queue the current local save, not a stale snapshot.
     markProfileDirty();
   }
   emit();

@@ -36,8 +36,8 @@ let exitPromptOpen = false;
  * Subscribe to the platform events once. The game's own listeners can be added before or after this
  * call: `yaOnPlatformEvent` registry is what the SDK subscription feeds, so ordering never matters.
  */
-export function startPlatformEvents() {
-  if (started) return;
+export function startPlatformEvents(): () => void {
+  if (started) return () => undefined;
   started = true;
   const subscribe = (event: YaPlatformEvent) =>
     yaOnPlatformEvent(event, () => emit(event));
@@ -46,6 +46,16 @@ export function startPlatformEvents() {
     subscribe('ACCOUNT_SELECTION_DIALOG_OPENED'),
     subscribe('ACCOUNT_SELECTION_DIALOG_CLOSED'),
   ];
+  return stopPlatformEvents;
+}
+
+/** Remove the platform subscriptions when the app's event owner is torn down. */
+export function stopPlatformEvents() {
+  if (!started && !unsubscribe.length) return;
+  started = false;
+  for (const off of unsubscribe) off();
+  unsubscribe = [];
+  exitPromptOpen = false;
 }
 
 function emit(event: YaPlatformEvent) {
@@ -92,10 +102,7 @@ export function dismissExit() {
 
 /** Test seam: forget listeners and state, as if the page had just loaded. */
 export function resetPlatformState() {
-  started = false;
-  for (const off of unsubscribe) off();
-  unsubscribe = [];
+  stopPlatformEvents();
   exitListeners.clear();
   accountListeners.clear();
-  exitPromptOpen = false;
 }

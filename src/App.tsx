@@ -28,6 +28,7 @@ import {
   yaLoadingReady,
   yaOnPause,
   yaOnResume,
+  yaPlatformPaused,
   yaOpenAuthDialog,
   yaServerTime,
   type YaProfile,
@@ -317,12 +318,14 @@ export default function App() {
 
     const offYaPause = yaOnPause(() => eng.systemPause());
     const offYaResume = yaOnResume(() => eng.systemResume());
+    // The startup fullscreen ad can have paused the platform before this engine subscribed.
+    if (yaPlatformPaused()) eng.systemPause();
 
     // Platform events (sdk-events). HISTORY_BACK happens on TVs and must not exit silently: the game
     // shows its dialog and reports EXIT to the platform only if the player confirms. The account
     // picker holds our progress sync while it is open, and once it closes the chosen cloud progress
     // is pulled in and the game returns to the menu.
-    startPlatformEvents();
+    const stopPlatformEvents = startPlatformEvents();
     // Remote Back (requirement 1.6.3): a single press during a run pauses and opens the in-game menu,
     // a second press inside the double-press window asks about leaving, and in any menu the press asks
     // right away. The same rule covers HISTORY_BACK from the platform and the remote's own Escape-like
@@ -360,14 +363,19 @@ export default function App() {
         pauseProfileSync(true);
         return;
       }
-      pauseProfileSync(false);
-      void resyncProfile().then(() => {
-        setCharacterCustomization(getCharacterCustomization());
-        setScores(loadScores());
-        setName(loadPlayerName());
-        setDiamonds(diamondsBalance());
-        engineRef.current?.toMenu();
-      });
+      void resyncProfile()
+        .catch((err) => {
+          console.warn('[profile] account resync failed', err);
+          return false;
+        })
+        .then(() => {
+          setCharacterCustomization(getCharacterCustomization());
+          setScores(loadScores());
+          setName(loadPlayerName());
+          setDiamonds(diamondsBalance());
+          engineRef.current?.toMenu();
+        })
+        .finally(() => pauseProfileSync(false));
     });
     return () => {
       eng.onPose(null);
@@ -375,6 +383,7 @@ export default function App() {
       offYaResume();
       offExitPrompt();
       offAccountSwitch();
+      stopPlatformEvents();
       window.removeEventListener('keydown', onBackKey);
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);

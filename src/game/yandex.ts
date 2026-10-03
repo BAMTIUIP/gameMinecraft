@@ -368,6 +368,7 @@ type Listener = () => void;
 const pauseListeners = new Set<Listener>();
 const resumeListeners = new Set<Listener>();
 const platformListeners = new Map<YaPlatformEvent, Set<Listener>>();
+const platformSubscriptions = new Map<YaPlatformEvent, () => void>();
 
 function emit(listeners: Set<Listener>) {
   for (const cb of [...listeners]) {
@@ -379,7 +380,7 @@ function emit(listeners: Set<Listener>) {
   }
 }
 
-/** subscribe to the platform's pause / resume events once, as soon as init() has resolved */
+/** Subscribe to the startup-critical pause pair once, then attach pending event listeners. */
 function subscribePauseResume(sdk: YSDK) {
   try {
     sdk.on?.('game_api_pause', () => {
@@ -390,20 +391,41 @@ function subscribePauseResume(sdk: YSDK) {
       platformPaused = false;
       emit(resumeListeners);
     });
-    for (const event of PLATFORM_EVENTS) {
-      sdk.on?.(event, () => emit(platformListeners.get(event) ?? new Set()));
-    }
   } catch (err) {
-    console.error('[Yandex SDK] ysdk.on() failed', err);
+    console.error('[Yandex SDK] game_api_pause/resume subscription failed', err);
+  }
+  for (const event of platformListeners.keys()) attachPlatformEvent(event);
+}
+
+/** Keep one SDK listener per event while at least one game-side subscriber exists. */
+function attachPlatformEvent(event: YaPlatformEvent) {
+  if (platformSubscriptions.has(event) || !platformListeners.get(event)?.size || !ysdk?.on) return;
+  const sdk = ysdk;
+  const handler: Listener = () => {
+    const listeners = platformListeners.get(event);
+    if (listeners) emit(listeners);
+  };
+  try {
+    const returned = sdk.on(event, handler);
+    platformSubscriptions.set(event, () => {
+      try {
+        if (sdk.off) sdk.off(event, handler);
+        else if (typeof returned === 'function') returned();
+      } catch (err) {
+        console.warn(`[Yandex SDK] ysdk.off(${event}) failed`, err);
+      }
+    });
+  } catch (err) {
+    console.warn(`[Yandex SDK] ysdk.on(${event}) failed`, err);
   }
 }
 
-const PLATFORM_EVENTS: YaPlatformEvent[] = [
-  'HISTORY_BACK',
-  'EXIT',
-  'ACCOUNT_SELECTION_DIALOG_OPENED',
-  'ACCOUNT_SELECTION_DIALOG_CLOSED',
-];
+function detachPlatformEvent(event: YaPlatformEvent) {
+  const unsubscribe = platformSubscriptions.get(event);
+  if (!unsubscribe) return;
+  platformSubscriptions.delete(event);
+  unsubscribe();
+}
 
 /**
  * Is the platform holding the game now? True between `game_api_pause` and `game_api_resume` — the
@@ -421,10 +443,20 @@ export function yaPlatformPaused(): boolean {
  */
 export function yaOnPlatformEvent(event: YaPlatformEvent, cb: Listener): () => void {
   const listeners = platformListeners.get(event) ?? new Set<Listener>();
+  const wasEmpty = listeners.size === 0;
   platformListeners.set(event, listeners);
   listeners.add(cb);
+  if (wasEmpty) attachPlatformEvent(event);
+
+  let active = true;
   return () => {
+    if (!active) return;
+    active = false;
     listeners.delete(cb);
+    if (!listeners.size) {
+      platformListeners.delete(event);
+      detachPlatformEvent(event);
+    }
   };
 }
 
@@ -435,7 +467,10 @@ export function yaOnPlatformEvent(event: YaPlatformEvent, cb: Listener): () => v
 export function yaDispatchExit(): boolean {
   try {
     if (!ysdk?.dispatchEvent) return false;
-    ysdk.dispatchEvent('EXIT');
+    const event = ysdk.EVENTS?.EXIT ?? 'EXIT';
+    void Promise.resolve(ysdk.dispatchEvent(event)).catch((err) => {
+      console.warn('[Yandex SDK] dispatchEvent(EXIT) failed', err);
+    });
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] dispatchEvent(EXIT) failed', err);
