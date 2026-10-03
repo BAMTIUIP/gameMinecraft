@@ -24,6 +24,7 @@ import {
   yaGameplayStart,
   yaGameplayStop,
   yaLang,
+  yaMultiplayerAvailable,
   yaLoadingReady,
   yaOnPause,
   yaOnResume,
@@ -521,8 +522,10 @@ export default function App() {
 
       // Asynchronous co-op: publish the shift so other players can replay it as a teammate. A revive
       // keeps the recorder running, so the next push carries the longer session instead of a copy.
-      const published = publishCoopSession({ score: hud.score, depth: hud.deepest, blocks: hud.blocksMined });
-      setSquadNote(published ? t('squadPublished') : squadMembers().some((mate) => mate.kind === 'bot') ? t('squadLocal') : null);
+      void publishCoopSession({ score: hud.score, depth: hud.deepest, blocks: hud.blocksMined }).then((published) => {
+        if (published) setSquadNote(t('squadPublished'));
+        else setSquadNote(!yaMultiplayerAvailable() && squadMembers().some((mate) => mate.kind === 'bot') ? t('squadLocal') : null);
+      });
     } else {
       savedRef.current = false;
     }

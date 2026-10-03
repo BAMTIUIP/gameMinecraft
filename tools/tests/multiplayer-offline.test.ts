@@ -81,7 +81,7 @@ Date.now = fakeNowStart;
 const commits = moves.length;
 recordPose({ x: 100, y: 40, z: -100, yaw: 0, health: 90, blocks: 5 });
 ok(moves.length === commits, 'Вне платформы поза не пишется в сессию');
-ok(publishCoopSession({ score: 100, depth: 5, blocks: 2 }) === false, 'Вне платформы смена никуда не публикуется');
+ok(!(await publishCoopSession({ score: 100, depth: 5, blocks: 2 })), 'Вне платформы смена никуда не публикуется');
 ok(squadMembers().length === squad.length, 'После попытки публикации состав отряда не изменился');
 
 stopCoopRound();

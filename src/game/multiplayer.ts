@@ -92,6 +92,8 @@ type ActiveRound = {
   lastCommitAt: number;
   lastPayloadKey: string;
   pushedCommits: number;
+  pushInFlight: Promise<boolean> | null;
+  warnedFull: boolean;
 };
 
 let active: ActiveRound | null = null;
@@ -151,6 +153,8 @@ export async function startCoopRound(sink: CoopSink): Promise<SquadMember[]> {
     lastCommitAt: 0,
     lastPayloadKey: '',
     pushedCommits: 0,
+    pushInFlight: null,
+    warnedFull: false,
   };
   active = round;
 
@@ -290,8 +294,8 @@ export function recordPose(pose: PlayerPose) {
   if (!changed && elapsed < RECORD_INTERVAL_MS) return;
   if (elapsed < (changed ? MIN_RECORD_GAP_MS : RECORD_INTERVAL_MS)) return;
   if (round.commits >= MAX_COMMITS) {
-    if (round.commits === MAX_COMMITS) {
-      round.commits++; // log once, then stop asking the SDK
+    if (!round.warnedFull) {
+      round.warnedFull = true;
       console.warn('[multiplayer] timeline is full, the rest of the shift is not recorded');
     }
     return;
@@ -367,20 +371,33 @@ export function tickCoop(pose: PlayerPose) {
 /**
  * The shift is over: publish our timeline so other players can replay it. Called from the results
  * screen; the push happens only when the platform recorded something new, so reviving after a death
- * publishes the longer session instead of a duplicate.
+ * publishes the longer session instead of a duplicate. Resolves true only after the SDK confirms the
+ * push; a failed request remains eligible for another attempt.
  */
-export function publishCoopSession(result?: { score?: number; depth?: number; blocks?: number }): boolean {
+export async function publishCoopSession(result?: { score?: number; depth?: number; blocks?: number }): Promise<boolean> {
   const round = active;
   if (!round || !round.online) return false;
+  if (round.pushInFlight) await round.pushInFlight;
+  if (active !== round || !round.online) return false;
   if (round.commits < MIN_COMMITS_TO_PUSH || round.commits <= round.pushedCommits) return false;
-  round.pushedCommits = round.commits;
-  // push() needs at least one meta parameter; score, depth and blocks describe the shift best
-  void yaMultiplayerPush({
+
+  const committedCount = round.commits;
+  // push() needs at least one meta parameter; score, depth and blocks describe the shift best.
+  // Only mark these commits as published after the SDK confirms success, so a later finish can retry.
+  const push = yaMultiplayerPush({
     meta1: Math.max(0, Math.round(result?.score ?? 0)),
     meta2: Math.max(0, Math.round(result?.depth ?? 0)),
     meta3: Math.max(0, Math.round(result?.blocks ?? 0)),
+  }).then((sent) => {
+    if (sent) round.pushedCommits = Math.max(round.pushedCommits, committedCount);
+    return sent;
   });
-  return true;
+  round.pushInFlight = push;
+  try {
+    return await push;
+  } finally {
+    if (round.pushInFlight === push) round.pushInFlight = null;
+  }
 }
 
 /** End the round: stop recording, forget the squad. The rigs are removed by the engine. */
