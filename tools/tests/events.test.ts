@@ -49,6 +49,7 @@ const emit = (event: string, payload?: unknown) => {
 
 /** the cloud blob the platform hands back; the test swaps it to imitate another account */
 let cloudBlob: Record<string, unknown> = {};
+let playerFetches = 0;
 
 const player = {
   isAuthorized: () => true,
@@ -75,7 +76,11 @@ g.YaGames = {
     return {
       environment: { app: { id: '0' }, i18n: { lang: 'ru' } },
       serverTime: () => Date.now(),
-      getPlayer: async () => player,
+      getPlayer: async () => {
+        playerFetches += 1;
+        record('ysdk.getPlayer');
+        return player;
+      },
       getStorage: async () => localStorageStub,
       features: { LoadingAPI: { ready() {} }, GameplayAPI: { start() {}, stop() {} } },
       on: (event: string, listener: (payload?: unknown) => void) => {
@@ -170,9 +175,11 @@ ok(count('player.setData') > writesWhileOpen, 'После диалога зап�
 // the player has chosen another save: the cloud now belongs to that account
 cloudBlob = { 'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, diamonds: 500, totals: { bestScore: 4000 } } };
 const readsBefore = count('player.getData');
+const playerFetchesBefore = playerFetches;
 emit('ACCOUNT_SELECTION_DIALOG_CLOSED');
 await resyncProfile();
 ok(phases.join(',') === 'opened,closed', 'Закрытие диалога доходит до игры', phases.join(','));
+ok(playerFetches > playerFetchesBefore, 'После смены аккаунта заново получен объект Player (getPlayer)', `${playerFetchesBefore} → ${playerFetches}`);
 ok(count('player.getData') > readsBefore, 'Прогресс запрошен заново (player.getData)', String(count('player.getData') - readsBefore));
 ok(getDiamonds() === 500, 'Принят прогресс выбранного аккаунта (алмазы из облака)', String(getDiamonds()));
 offAccount();

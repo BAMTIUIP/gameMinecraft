@@ -746,12 +746,14 @@ export function yaGetPlayer(): Promise<YaPlayer | null> {
 
 /**
  * Read the platform profile (name, avatar, authorisation, paying status) and cache it for the UI.
- * Refreshes at most once per 20 s, so callers may fire it freely; pass force=true after
- * openAuthDialog() to pick up the just-authorised user.
+ * Refreshes at most once per 20 s, so callers may fire it freely. `force=true` discards the memoised
+ * Player object before fetching again; use it after authentication or account selection, when the
+ * SDK may have changed which account that object represents.
  */
 export async function yaRefreshProfile(force = false): Promise<YaProfile | null> {
   const now = Date.now();
   if (!force && profile && now - lastProfileFetch < 20_000) return profile;
+  if (force) playerPromise = null;
   const player = await yaGetPlayer();
   if (!player) return profile;
   try {
@@ -792,7 +794,6 @@ export async function yaOpenAuthDialog(): Promise<boolean> {
     console.info('[Yandex SDK] auth dialog closed', err);
     return false;
   }
-  playerPromise = null; // the Player object must be re-created for the authorised user
   const next = await yaRefreshProfile(true);
   return next?.authorized ?? false;
 }
