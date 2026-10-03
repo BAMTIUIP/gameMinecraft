@@ -761,9 +761,9 @@ const RU: Dict = {
   shopSoon: "СКОРО",
   shopPriceSoon: "ЦЕНА ПОЗЖЕ",
   shopInDevelopment: "В РАЗРАБОТКЕ",
-  shopFree: "БЕСПЛАТНЫЙ ДРОП",
+  shopFree: "БЕСПЛАТНАЯ НАГРАДА",
   shopRewardedPrice: "ВИДЕО ЗА НАГРАДУ",
-  shopDropCooldown: "СЛЕДУЮЩИЙ ДРОП · {time}",
+  shopDropCooldown: "СЛЕДУЮЩАЯ НАГРАДА · {time}",
   shopLoginProgress: "ДНИ В ИГРЕ · {days}/{goal}",
   shopNextRunBadge: "СЛЕД. ЗАБЕГ",
   shopNotEnoughDiamonds: "НЕ ХВАТАЕТ МОНЕТ",
@@ -784,11 +784,11 @@ const RU: Dict = {
   shopDropNextRun: "Ресурсы сохранены для следующего забега или мира.",
   shopDropOwnWorld: "Припасы появятся при загрузке своего мира.",
   shopDropAdFailed: "Награда не выдана. Досмотрите видео до конца и попробуйте ещё раз.",
-  shopDropAlreadyClaimed: "Этот дроп уже получен в текущем периоде.",
-  shopDropSaveFailed: "Не удалось сохранить дроп. Попробуйте ещё раз.",
-  shopDropItemsBannerTitle: "ДРОП ИЗ МАГАЗИНА",
+  shopDropAlreadyClaimed: "Эта награда уже получена в текущем периоде.",
+  shopDropSaveFailed: "Не удалось сохранить награду. Попробуйте ещё раз.",
+  shopDropItemsBannerTitle: "НАГРАДА ИЗ МАГАЗИНА",
   shopDropItemsBannerSub: "Ресурсы добавлены в инвентарь.",
-  shopRewardedNotice: "Дропы выдаются только после подтверждённого просмотра рекламы. Оплата наборов подключается на платформе Яндекс Игр.",
+  shopRewardedNotice: "Награды выдаются только после подтверждённого просмотра рекламы. Оплата наборов подключается на платформе Яндекс Игр.",
   shopAccountBound: "ПРИВЯЗАНО К АККАУНТУ",
   shopAnyMode: "ДОСТУПЕН В ЛЮБОМ РЕЖИМЕ",
   shopDaily: "ЕЖЕДНЕВНО",
@@ -821,7 +821,7 @@ const RU: Dict = {
   shopNetheriteArmorTitle: "Незеритовые доспехи",
   shopNetheriteArmorDesc: "Полный комплект из шести незеритовых предметов появится в инвентаре.",
   shopDailyStarterTitle: "Ежедневный стартовый набор",
-  shopDailyStarterDesc: "Посмотрите rewarded-видео и получите 8 досок, 6 угля, 3 жареного мяса и 4 факела.",
+  shopDailyStarterDesc: "Посмотрите видео за награду и получите 8 досок, 6 угля, 3 жареного мяса и 4 факела.",
   shopWeeklyDropTitle: "Еженедельная награда монетами",
   shopWeeklyDropDesc: "После входа в игру в 7 разных дней видео за награду даст 1–5 монет незерита.",
   shopMonthlyDropTitle: "Ежемесячный набор для своего мира",
@@ -1360,14 +1360,14 @@ const FR: Dict = {
   shopTabPets: "COMPAGNONS",
   shopTabGear: "ÉQUIPEMENT",
   shopTabDrops: "RÉCOMPENSES ET COFFRES",
-  shopTabBoosters: "BOOSTS",
+  shopTabBoosters: "BONUS",
   shopTabSkins: "APPARENCES",
   shopSoon: "BIENTÔT",
   shopPriceSoon: "PRIX À DÉFINIR",
   shopInDevelopment: "EN DÉVELOPPEMENT",
   shopFree: "RÉCOMPENSE GRATUITE",
   shopRewardedPrice: "VIDÉO RÉCOMPENSÉE",
-  shopDropCooldown: "PROCHAIN DROP · {time}",
+  shopDropCooldown: "PROCHAINE RÉCOMPENSE · {time}",
   shopLoginProgress: "JOURS DE CONNEXION · {days}/{goal}",
   shopNextRunBadge: "PROCHAINE PARTIE",
   shopNotEnoughDiamonds: "PIÈCES INSUFFISANTES",
@@ -1392,7 +1392,7 @@ const FR: Dict = {
   shopDropSaveFailed: "Impossible d’enregistrer la récompense. Réessayez.",
   shopDropItemsBannerTitle: "BUTIN DE BOUTIQUE",
   shopDropItemsBannerSub: "Vos ressources sont dans l’inventaire.",
-  shopRewardedNotice: "Les drops sont crédités uniquement après confirmation de la vidéo. Les packs payants nécessitent les paiements Yandex.",
+  shopRewardedNotice: "Les récompenses sont créditées uniquement après confirmation de la vidéo. Les packs payants nécessitent les paiements Yandex.",
   shopAccountBound: "LIÉ AU COMPTE",
   shopAnyMode: "DISPONIBLE DANS TOUS LES MODES",
   shopDaily: "QUOTIDIEN",
@@ -1403,7 +1403,7 @@ const FR: Dict = {
   shopRarityEpic: "ÉPIQUE",
   shopRarityLegendary: "LÉGENDAIRE",
   shopDiamondPackDesc: "Rechargez votre solde de pièces en netherite. Yandex Games traite le paiement de manière sécurisée.",
-  shopBoosterInfo: "Les boosts sont consommés à la prochaine partie : fournitures, minerais ou +25 % de score. Les boosts de score se cumulent.",
+  shopBoosterInfo: "Les bonus s’appliquent à la prochaine partie : fournitures, minerais ou +25 % de score. Les bonus de score se cumulent.",
   shopPetParrotTitle: "Perroquet apprivoisé",
   shopPetParrotDesc: "Un compagnon coloré sur l’épaule. Les familiers sont en développement.",
   shopPetOwlTitle: "Compagnons hiboux",
@@ -1436,12 +1436,12 @@ const FR: Dict = {
   shopChestRareDesc: "Fournitures et lingots, plus une pièce de torse rare en fer.",
   shopChestEpicTitle: "Coffre au trésor épique",
   shopChestEpicDesc: "Grand stock de ressources, diamants et une pièce de torse mythique en netherite.",
-  shopBoosterStartTitle: "Boost de départ rapide",
+  shopBoosterStartTitle: "Bonus de départ rapide",
   shopBoosterStartDesc: "Votre prochaine partie commence avec une pioche en pierre, nourriture, torches, charbon et planches.",
   shopBoosterOreTitle: "Chercheur de minerais",
   shopBoosterOreDesc: "Cache garantie pour la prochaine partie : 5 fers, 2 ors et 1 diamant.",
   shopBoosterScoreTitle: "Surge de score",
-  shopBoosterScoreDesc: "+25 % de score pendant toute votre prochaine partie. Les boosts achetés se cumulent.",
+  shopBoosterScoreDesc: "+25 % de score pendant toute votre prochaine partie. Les bonus achetés se cumulent.",
   shopSkinMinerTitle: "Mineur des profondeurs",
   shopSkinMinerDesc: "Un look robuste de mineur. Les apparences sont en développement.",
   shopSkinArcticTitle: "Explorateur givré",
@@ -1479,12 +1479,12 @@ const FR: Dict = {
   explorer: 'EXPLORATEUR',
   explorerSub: '20 min · paisible — animaux seulement',
   language: 'LANGUE',
-  musicOn: 'MUSIQUE ON',
-  musicOff: 'MUSIQUE OFF',
-  sfxOn: 'SONS ON',
-  sfxOff: 'SONS OFF',
-  freeLookOn: 'VUE LIBRE ON',
-  freeLookOff: 'VUE LIBRE OFF',
+  musicOn: 'MUSIQUE ACTIVÉE',
+  musicOff: 'MUSIQUE COUPÉE',
+  sfxOn: 'SONS ACTIVÉS',
+  sfxOff: 'SONS COUPÉS',
+  freeLookOn: 'VUE LIBRE ACTIVÉE',
+  freeLookOff: 'VUE LIBRE COUPÉE',
   records: 'MEILLEURS POSTES',
   lbTabLocal: 'MES POSTES',
   lbTabWorld: 'CLASSEMENT MONDIAL',
@@ -1815,7 +1815,7 @@ const FR: Dict = {
   oreTableTitle: 'VALEUR DES MINERAIS',
   guideMore: "Plus des lanternes, une surcharge de +25 s, un pansement de terrain et des blocs d'or / de diamant compressés.",
   captureMouse: 'CLIQUEZ POUR CAPTURER LA SOURIS',
-  freeLookTurn: 'VUE LIBRE — BOUgez LA SOURIS POUR TOURNER',
+  freeLookTurn: 'VUE LIBRE — BOUGEZ LA SOURIS POUR TOURNER',
   fPlace: 'F POSER',
   rmbAim: 'CDD VISE PRÉCISE',
   holdRmbLook: 'MAINTENIR CDD',
@@ -1854,7 +1854,7 @@ const DE: Dict = {
   continueWithCoins: "WEITER · {n} MÜNZEN",
   notEnoughDiamonds: "Nicht genug Netheritmünzen",
   adRevived: 'ZWEITER ATEM',
-  adRevivedSub: 'Rewarded Video: die Schicht geht weiter',
+  adRevivedSub: 'Belohnungsvideo: die Schicht geht weiter',
   watchAdRevive: 'WERBUNG ANSEHEN · WEITER',
   watchAdReviveSub: '+{sec} Sek. und halbe Gesundheit',
   adBadge: 'WERBUNG',
@@ -1890,7 +1890,7 @@ const DE: Dict = {
   shopPack5999Title: "Netheritmünzen-Tresor",
   shopDemoBalance: "NETHERITMÜNZEN-GUTHABEN",
   shopPortalCurrency: "Netheritmünzen-Guthaben · im Spielerprofil gespeichert",
-  shopMockNotice: "Verdiene Netheritmünzen mit Rewarded-Videos oder lade dein Guthaben über Yandex Games auf. Dein gespeicherter Kontostand bleibt erhalten.",
+  shopMockNotice: "Verdiene Netheritmünzen mit Belohnungsvideos oder lade dein Guthaben über Yandex Games auf. Dein gespeicherter Kontostand bleibt erhalten.",
   shopMockBadge: "BELOHNUNGEN",
   devShopButton: "DEV-SHOP",
   characterCreator: 'FIGUR ERSTELLEN',
@@ -1964,24 +1964,24 @@ const DE: Dict = {
   shopTabPets: "BEGLEITER",
   shopTabGear: "AUSRÜSTUNG",
   shopTabDrops: "BELOHNUNGEN & TRUHEN",
-  shopTabBoosters: "BOOSTER",
+  shopTabBoosters: "BONI",
   shopTabSkins: "SKINS",
   shopSoon: "BALD",
   shopPriceSoon: "PREIS FOLGT",
   shopInDevelopment: "IN ENTWICKLUNG",
-  shopFree: "KOSTENLOSER DROP",
+  shopFree: "KOSTENLOSE BELOHNUNG",
   shopRewardedPrice: "BELOHNUNGSVIDEO",
-  shopDropCooldown: "NÄCHSTER DROP · {time}",
+  shopDropCooldown: "NÄCHSTE BELOHNUNG · {time}",
   shopLoginProgress: "SPIELTAGE · {days}/{goal}",
-  shopNextRunBadge: "NÄCHSTER RUN",
+  shopNextRunBadge: "NÄCHSTE PARTIE",
   shopNotEnoughDiamonds: "ZU WENIG MÜNZEN",
   shopPaymentsUnavailable: "ZAHLUNG NICHT VERFÜGBAR",
   shopPriceUnavailable: "PREIS NICHT VERFÜGBAR",
-  shopItemPurchaseDone: "Für den nächsten Run vorgemerkt: {item}",
+  shopItemPurchaseDone: "Für die nächste Partie vorgemerkt: {item}",
   shopItemSaveFailed: "Artikel konnte nicht gespeichert werden; keine Netheritmünzen abgebucht.",
   shopItemUnavailable: "Dieser Shop-Artikel ist nicht verfügbar.",
   shopItemBannerTitle: "SHOP-BELOHNUNG",
-  shopItemBannerSub: "Dein Kauf ist für diesen Run bereit.",
+  shopItemBannerSub: "Dein Kauf ist für diese Partie bereit.",
   dailyNextReset: "NÄCHSTER TAGESBONUS · {time}",
   dailySaveFailed: "Tagesbonus konnte nicht gespeichert werden. Bitte erneut versuchen.",
 
@@ -1992,11 +1992,11 @@ const DE: Dict = {
   shopDropNextRun: "Vorräte sind für den nächsten Lauf oder die eigene Welt gespeichert.",
   shopDropOwnWorld: "Die Vorräte werden beim Laden deiner eigenen Welt hinzugefügt.",
   shopDropAdFailed: "Keine Belohnung erhalten. Sieh das Video bis zum Ende und versuche es erneut.",
-  shopDropAlreadyClaimed: "Dieser Drop wurde in diesem Zeitraum bereits abgeholt.",
-  shopDropSaveFailed: "Drop konnte nicht gespeichert werden. Bitte erneut versuchen.",
-  shopDropItemsBannerTitle: "SHOP-VORRÄTE",
+  shopDropAlreadyClaimed: "Diese Belohnung wurde in diesem Zeitraum bereits abgeholt.",
+  shopDropSaveFailed: "Belohnung konnte nicht gespeichert werden. Bitte erneut versuchen.",
+  shopDropItemsBannerTitle: "SHOP-BELOHNUNGEN",
   shopDropItemsBannerSub: "Deine Vorräte sind jetzt im Inventar.",
-  shopRewardedNotice: "Drops werden erst nach bestätigtem Video gutgeschrieben. Kaufpakete benötigen verbundene Yandex-Zahlungen.",
+  shopRewardedNotice: "Belohnungen werden erst nach bestätigtem Video gutgeschrieben. Kaufpakete benötigen verbundene Yandex-Zahlungen.",
   shopAccountBound: "KONTOGEBUNDEN",
   shopAnyMode: "IN JEDEM MODUS VERFÜGBAR",
   shopDaily: "TÄGLICH",
@@ -2007,7 +2007,7 @@ const DE: Dict = {
   shopRarityEpic: "EPISCH",
   shopRarityLegendary: "LEGENDÄR",
   shopDiamondPackDesc: "Lade dein Netheritmünzen-Guthaben auf. Yandex Games verarbeitet die Zahlung sicher.",
-  shopBoosterInfo: "Booster gelten im nächsten Run: Startvorräte, Erze oder +25 % Punkte. Punkte-Booster sind stapelbar.",
+  shopBoosterInfo: "Boni gelten in der nächsten Partie: Startvorräte, Erze oder +25 % Punkte. Punkte-Boni sind stapelbar.",
   shopPetParrotTitle: "Zahmer Papagei",
   shopPetParrotDesc: "Ein bunter Schulterbegleiter. Haustiere sind in Entwicklung.",
   shopPetOwlTitle: "Eulen-Begleiter",
@@ -2029,23 +2029,23 @@ const DE: Dict = {
   shopNetheriteArmorTitle: "Netheritrüstung",
   shopNetheriteArmorDesc: "Ein vollständiges Netherit-Set mit sechs Teilen für dein Inventar.",
   shopDailyStarterTitle: "Tägliches Starterpaket",
-  shopDailyStarterDesc: "Sieh ein Rewarded-Video und erhalte 8 Bretter, 6 Kohle, 3 gegartes Fleisch und 4 Fackeln.",
-  shopWeeklyDropTitle: "Wöchentlicher Münz-Drop",
-  shopWeeklyDropDesc: "Nach 7 verschiedenen Login-Tagen gibt ein Rewarded-Video 1–5 Netheritmünzen.",
+  shopDailyStarterDesc: "Sieh ein Belohnungsvideo und erhalte 8 Bretter, 6 Kohle, 3 gegartes Fleisch und 4 Fackeln.",
+  shopWeeklyDropTitle: "Wöchentliche Münzbelohnung",
+  shopWeeklyDropDesc: "Nach 7 verschiedenen Spieltagen gibt ein Belohnungsvideo 1–5 Netheritmünzen.",
   shopMonthlyDropTitle: "Monatspaket für deine Welt",
-  shopMonthlyDropDesc: "Nach 30 Login-Tagen gibt ein Rewarded-Video 10–50 Netheritmünzen und Vorräte für deine Welt.",
+  shopMonthlyDropDesc: "Nach 30 Spieltagen gibt ein Belohnungsvideo 10–50 Netheritmünzen und Vorräte für deine Welt.",
   shopChestCommonTitle: "Gewöhnliche Vorratstruhe",
-  shopChestCommonDesc: "16 Bretter, 10 Kohle, 5 gegartes Fleisch und 8 Fackeln für deinen nächsten Run.",
+  shopChestCommonDesc: "16 Bretter, 10 Kohle, 5 gegartes Fleisch und 8 Fackeln für deine nächste Partie.",
   shopChestRareTitle: "Seltene Erztruhe",
   shopChestRareDesc: "Vorräte und Barren plus ein seltenes eisernes Bruststück.",
   shopChestEpicTitle: "Epische Schatztruhe",
   shopChestEpicDesc: "Großer Ressourcenvorrat mit Diamanten und einem mythischen Netherit-Bruststück.",
-  shopBoosterStartTitle: "Schnellstart-Boost",
-  shopBoosterStartDesc: "Dein nächster Run startet mit Steinspitzhacke, Essen, Fackeln, Kohle und Brettern.",
+  shopBoosterStartTitle: "Schnellstart-Bonus",
+  shopBoosterStartDesc: "Deine nächste Partie startet mit Steinspitzhacke, Essen, Fackeln, Kohle und Brettern.",
   shopBoosterOreTitle: "Erzsucher",
-  shopBoosterOreDesc: "Garantierter Vorrat für den nächsten Run: 5 Eisen, 2 Gold und 1 Diamant.",
+  shopBoosterOreDesc: "Garantierter Vorrat für die nächste Partie: 5 Eisen, 2 Gold und 1 Diamant.",
   shopBoosterScoreTitle: "Punkte-Schub",
-  shopBoosterScoreDesc: "+25 % Punkte für den ganzen nächsten Run. Gekaufte Booster sind stapelbar.",
+  shopBoosterScoreDesc: "+25 % Punkte für die ganze nächste Partie. Gekaufte Boni sind stapelbar.",
   shopSkinMinerTitle: "Tiefenminer",
   shopSkinMinerDesc: "Ein robuster Bergmann-Look. Skins sind in Entwicklung.",
   shopSkinArcticTitle: "Frost-Entdecker",
@@ -2470,17 +2470,36 @@ export function setLang(l: Lang) {
   listeners.forEach((fn) => fn());
 }
 
+/**
+ * The fallback language for a code the game itself does not ship.
+ *
+ * Yandex Games documents the reserve sets (https://yandex.ru/dev/games/doc/ru/concepts/languages-and-domains#languages):
+ * `ru` for `be`, `kk`, `uk`, `uz`, and `en` for every other language. Slugging a Belarusian or
+ * Kazakh player into English would break rule 2.14 ("автоопределение языка"), so the same table is
+ * used both for `ysdk.environment.i18n.lang` (see `App.tsx`) and for `navigator.language` before the
+ * SDK answers.
+ */
+const RU_FALLBACK_CODES = new Set(['be', 'kk', 'uk', 'uz']);
+
+/** True when the value is one of the four languages the game ships (used for untrusted profile data). */
+export function isLang(value: unknown): value is Lang {
+  return value === 'en' || value === 'ru' || value === 'fr' || value === 'de';
+}
+
+/** Map any ISO 639-1 code (with or without a region) onto a language the game ships. */
+export function resolveLang(code: string | null | undefined): Lang {
+  const base = String(code ?? '').trim().toLowerCase().split(/[-_]/)[0];
+  if (isLang(base)) return base;
+  if (RU_FALLBACK_CODES.has(base)) return 'ru';
+  return 'en';
+}
+
 export function initLang(): Lang {
   let l: Lang = 'en';
   try {
     const saved = storageGet('orerush.lang') as Lang | null;
     if (saved && DICTS[saved]) l = saved;
-    else {
-      const nav = navigator.language.slice(0, 2);
-      if (nav === 'ru') l = 'ru';
-      else if (nav === 'fr') l = 'fr';
-      else if (nav === 'de') l = 'de';
-    }
+    else l = resolveLang(navigator.language);
   } catch {
     /* ignore */
   }
@@ -2499,6 +2518,14 @@ export function t(key: keyof Dict): string {
 }
 
 export type TKey = keyof Dict;
+
+/**
+ * The complete dictionary of one language, for the localization checks in
+ * `tools/tests/i18n.test.ts` (every language must cover every key, placeholder and data table).
+ */
+export function dictFor(l: Lang): Readonly<Dict> {
+  return DICTS[l] ?? DICTS.en;
+}
 
 /* ---------------- localized tool names ---------------- */
 

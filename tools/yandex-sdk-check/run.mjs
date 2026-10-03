@@ -22,7 +22,7 @@
  * A missing browser or dependency is reported as a skip, never as a failed check.
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, statSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { brotliDecompressSync } from 'node:zlib';
@@ -995,8 +995,14 @@ async function scenarioShop() {
 
   await game.page.setViewport({ width: 360, height: 640 });
   await wait(250);
-  const priceShown = await game.page.evaluate(() => (document.body.innerText ?? '').includes('99 ₽'));
-  check(priceShown, 'В магазине показана цена из каталога Консоли (99 ₽)');
+  const catalogueText = await game.page.evaluate(() => document.body.innerText ?? '');
+  check(catalogueText.includes('99 ₽'), 'В магазине показана цена из каталога Консоли (99 ₽)');
+  // the debug panel returns the test currency TST: a hardcoded «₽» would break it (п. 1.13.2)
+  check(
+    catalogueText.includes('499 TST'),
+    'Название и код валюты берутся из каталога, а не зашиты в игру (TST из debug-панели)',
+    (catalogueText.match(/499[^\n]{0,12}/) ?? ['цена не найдена'])[0],
+  );
   const currencyIcon = await game.page.evaluate(() =>
     [...document.querySelectorAll('img')].some((img) => (img.getAttribute('src') ?? '').startsWith('data:image/gif')),
   );
@@ -1920,7 +1926,408 @@ async function scenarioAsyncSdk() {
   await game.page.close();
 }
 
-// SDK_CHECK_SCENARIO=<progress|shop|promo|daily|device|async|tv|world> runs one scenario only: handy
+/* -------------- scenario K: real-gameplay screenshots for the store card (5/1/1/2, 8/3/4) ------------- */
+
+/**
+ * Requirement 5.1.1.2 wants the store screenshots to show actual gameplay: at least 70 % of the frame,
+ * the rest may be a frame or a caption. Requirement 8.3.4 forbids system UI (status bar, browser chrome)
+ * and Yandex Games UI (badges, ratings) on them. This scenario renders the game in headless Chromium and
+ * writes clean 16:9 PNGs of live play into `docs/shots/`. They are raw material for the store card: the
+ * gameplay part is already real, a frame and a caption can be added on top.
+ *
+ * `SHOTS_LANG=ru|en|fr|de` and `SHOTS_DIR` override the interface language and the output folder.
+ */
+async function scenarioScreenshots() {
+  const outDir = process.env.SHOTS_DIR ?? path.join(process.cwd(), 'docs', 'shots');
+  mkdirSync(outDir, { recursive: true });
+  const shot = async (name, label) => {
+    const file = path.join(outDir, `${name}.png`);
+    await game.page.screenshot({ path: file });
+    const size = existsSync(file) ? statSync(file).size : 0;
+    check(size > 20_000, label, `${name}.png ${Math.round(size / 1024)} КБ`);
+  };
+
+  const game = await openGame({
+    lang: process.env.SHOTS_LANG ?? 'ru',
+    name: 'SHOT MINER',
+    flags: { 'shop.enabled': 'true', 'game.exploreMinutes': '3' },
+    adsFill: false,
+    rewarded: true,
+  });
+  await game.page.setViewport({ width: 1280, height: 720 });
+  const language = await game.page.evaluate(() => document.documentElement.lang);
+  const play = { en: 'MINE NOW', ru: 'НАЧАТЬ ДОБЫЧУ', fr: 'CREUSER', de: 'JETZT ABBAUEN' }[language] ?? 'MINE NOW';
+
+  const menu = await game.waitFor('Меню для скриншотов', (label) => (document.body.innerText ?? '').includes(label), 60_000, play);
+  check(menu, 'Игра открылась для съёмки скриншотов');
+  await wait(800);
+  await shot('01-menu', 'Скриншот главного меню сохранён');
+
+  await game.clickByText(new RegExp(play));
+  const running = await game.waitFor(
+    'Забег начался',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'GameplayAPI.start'),
+    30_000,
+  );
+  check(running, 'Забег запущен для съёмки игрового кадра');
+  // let the world generate, the sky settle and the player walk a few steps
+  await wait(4_000);
+  await game.page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', bubbles: true }));
+  });
+  await wait(2_500);
+  await shot('02-run', 'Кадр живого геймплея сохранён (HUD, мир, рука)');
+  await wait(3_000);
+  await shot('03-run-deep', 'Второй игровой кадр сохранён');
+  await game.page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', bubbles: true }));
+  });
+
+  const bag = /БАГ|СУМКА|INVENT|BAG|SAC|RUCKSACK/i;
+  const bagOpened = await game.page.evaluate((source) => {
+    const rx = new RegExp(source, 'i');
+    const button = [...document.querySelectorAll('button')].find((b) => rx.test(b.getAttribute('aria-label') ?? ''));
+    button?.click();
+    return Boolean(button);
+  }, bag.source);
+  await wait(1_200);
+  await shot('04-inventory', 'Скриншот инвентаря сохранён');
+  if (bagOpened) {
+    await game.page.evaluate((source) => {
+      const rx = new RegExp(source, 'i');
+      const button = [...document.querySelectorAll('button')].find((b) => rx.test(b.getAttribute('aria-label') ?? ''));
+      button?.click();
+    }, bag.source);
+    await wait(600);
+  }
+
+  await game.page.keyboard.press('Escape');
+  await wait(1_200);
+  await shot('05-pause', 'Скриншот паузы сохранён');
+  await game.page.keyboard.press('Escape');
+  await wait(600);
+  await game.page.keyboard.press('Escape');
+  await wait(800);
+  await shot('06-after-pause', 'Кадр после возврата из паузы сохранён');
+
+  await game.page.close();
+}
+
+/* --------------- scenario J: every language declared in the draft (2.14, 8.2.3) --------------- */
+
+/**
+ * Moderation opens the game once per language declared in the draft (поле «Игра переведена на») and
+ * rejects it if at least one of them did not switch over: «🚫 Если хотя бы один язык не переключился
+ * (полностью или частично) на выбранный на debug-панели — игра будет отклонена за неперевод»
+ * (https://yandex.ru/dev/games/doc/ru/requirements/2/14). The debug panel language switch is exactly
+ * `ysdk.environment.i18n.lang`, which this suite mocks.
+ *
+ * For each shipped language the scenario boots the built game and walks the screens a moderator walks:
+ * menu → character studio → settings → shop → run (HUD) → pause. On every screen it checks that
+ *   - the interface really came from that language's dictionary (labels are present), and
+ *   - no English-only label of the same screen leaked through (a partial translation).
+ * It then checks the manual switcher (rule 8.2.3 allows it, but it must apply immediately) and the
+ * reserve sets of https://yandex.ru/dev/games/doc/ru/concepts/languages-and-domains: `ru` for
+ * be/kk/uk/uz, `en` for everything else.
+ *
+ * `LANGS_ONLY=ru,de` narrows the run (handy while editing a single translation).
+ */
+async function scenarioLanguages() {
+  const cases = [
+    {
+      code: 'en',
+      docLang: 'en',
+      play: 'MINE NOW',
+      creator: 'CREATE CHARACTER',
+      creatorTitle: 'CHARACTER STUDIO',
+      creatorSave: 'SAVE LOOK',
+      cancel: 'CANCEL',
+      settings: 'SETTINGS',
+      languageTitle: 'LANGUAGE',
+      music: 'MUSIC ON',
+      shop: 'SHOP',
+      balance: 'NETHERITE COINS',
+      close: 'CLOSE',
+      hud: 'DEPTH',
+      resume: 'RESUME',
+      restart: 'RESTART',
+      quit: 'QUIT',
+      resumeHint: 'PRESS ESC TO RESUME',
+      foreign: [],
+    },
+    {
+      code: 'ru',
+      docLang: 'ru',
+      play: 'НАЧАТЬ ДОБЫЧУ',
+      creator: 'СОЗДАТЬ ПЕРСОНАЖА',
+      creatorTitle: 'МАСТЕРСКАЯ ПЕРСОНАЖА',
+      creatorSave: 'СОХРАНИТЬ ОБЛИК',
+      cancel: 'ОТМЕНА',
+      settings: 'НАСТРОЙКИ',
+      languageTitle: 'ЯЗЫК',
+      music: 'МУЗЫКА ВКЛ',
+      shop: 'МАГАЗИН',
+      balance: 'МОНЕТЫ НЕЗЕРИТА',
+      close: 'ЗАКРЫТЬ',
+      hud: 'ГЛУБИНА',
+      resume: 'ПРОДОЛЖИТЬ',
+      restart: 'ЗАНОВО',
+      quit: 'ВЫЙТИ',
+      resumeHint: 'НАЖМИТЕ ESC ДЛЯ ПРОДОЛЖЕНИЯ',
+      foreign: [
+        'MINE NOW', 'SETTINGS', 'CONTROLS', 'RESUME', 'RESTART', 'MAIN MENU', 'QUIT',
+        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'NETHERITE COINS', 'MUSIC ON',
+      ],
+    },
+    {
+      code: 'fr',
+      docLang: 'fr',
+      play: 'CREUSER',
+      creator: 'CRÉER UN PERSONNAGE',
+      creatorTitle: 'ATELIER DU PERSONNAGE',
+      creatorSave: 'ENREGISTRER',
+      cancel: 'ANNULER',
+      settings: 'RÉGLAGES',
+      languageTitle: 'LANGUE',
+      music: 'MUSIQUE ACTIVÉE',
+      shop: 'BOUTIQUE',
+      balance: 'PIÈCES EN NETHERITE',
+      close: 'FERMER',
+      hud: 'PROFONDEUR',
+      resume: 'REPRENDRE',
+      restart: 'RECOMMENCER',
+      quit: 'QUITTER',
+      resumeHint: 'APPUYEZ SUR ESC POUR REPRENDRE',
+      foreign: [
+        'MINE NOW', 'SETTINGS', 'CONTROLS', 'RESUME', 'RESTART', 'MAIN MENU', 'QUIT',
+        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'NETHERITE COINS', 'MUSIC ON',
+      ],
+    },
+    {
+      code: 'de',
+      docLang: 'de',
+      play: 'JETZT ABBAUEN',
+      creator: 'FIGUR ERSTELLEN',
+      creatorTitle: 'FIGUREN-WERKSTATT',
+      creatorSave: 'LOOK SPEICHERN',
+      cancel: 'ABBRECHEN',
+      settings: 'EINSTELLUNGEN',
+      languageTitle: 'SPRACHE',
+      music: 'MUSIK AN',
+      shop: 'SHOP',
+      balance: 'NETHERITMÜNZEN',
+      close: 'SCHLIESSEN',
+      hud: 'TIEFE',
+      resume: 'FORTSETZEN',
+      restart: 'NEU STARTEN',
+      quit: 'BEENDEN',
+      resumeHint: 'DRÜCKE ESC ZUM FORTSETZEN',
+      foreign: [
+        'MINE NOW', 'SETTINGS', 'CONTROLS', 'RESUME', 'RESTART', 'MAIN MENU', 'QUIT',
+        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'NETHERITE COINS', 'MUSIC ON',
+      ],
+    },
+  ];
+
+  /**
+   * English-only labels that must not show up on a translated screen. Matched on word boundaries:
+   * Russian «ВЫЙТИ» must not be reported because French «QUITTER» starts with QUIT.
+   */
+  const englishLeaks = async (game, words) => {
+    if (!words.length) return [];
+    return game.page.evaluate((list) => {
+      const text = document.body.innerText ?? '';
+      return list.filter((word) => {
+        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|[^A-Za-zÀ-ÿ])${escaped}([^A-Za-zÀ-ÿ]|$)`).test(text);
+      });
+    }, words);
+  };
+
+  const only = process.env.LANGS_ONLY?.split(',').map((code) => code.trim()).filter(Boolean);
+  const wanted = (code) => !only || only.includes(code);
+
+  for (const item of cases) {
+    if (!wanted(item.code)) continue;
+    const game = await openGame({
+      lang: item.code,
+      flags: { 'shop.enabled': 'true', 'game.exploreMinutes': '0.25' },
+      adsFill: false,
+      rewarded: true,
+    });
+
+    // ---------- menu ----------
+    const booted = await game.waitFor(
+      `Меню на языке ${item.code}`,
+      (arg) => document.documentElement.lang === arg.docLang && (document.body.innerText ?? '').includes(arg.play),
+      60_000,
+      item,
+    );
+    check(booted, `Платформенный язык ${item.code} применён на старте (п. 2.14)`);
+    const docLang = await game.page.evaluate(() => document.documentElement.lang);
+    check(docLang === item.docLang, `Атрибут lang документа выставлен в ${item.docLang}`, String(docLang));
+    const menuLeaks = await englishLeaks(game, item.foreign);
+    check(menuLeaks.length === 0, `Главное меню полностью на языке ${item.code}`, menuLeaks.join(', '));
+
+    // ---------- character studio (a modal on top of the menu) ----------
+    const creatorOpened = await game.page.evaluate(() => {
+      const button = document.querySelector('[data-character-creator="1"]');
+      button?.click();
+      return Boolean(button);
+    });
+    const creatorReady = await game.waitFor(
+      `Конструктор персонажа (${item.code})`,
+      (arg) => {
+        const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
+        return text.includes(arg.creatorTitle) && text.includes(arg.creatorSave) && text.includes(arg.cancel);
+      },
+      15_000,
+      item,
+    );
+    check(creatorOpened && creatorReady, `Конструктор персонажа открылся и переведён (${item.code})`);
+    const creatorLeaks = await englishLeaks(game, item.foreign);
+    check(creatorLeaks.length === 0, `В конструкторе персонажа нет английских надписей (${item.code})`, creatorLeaks.join(', '));
+    // leave the studio the way the player does — its own cancel button
+    const creatorClosed = await game.page.evaluate((label) => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const button = [...(dialog?.querySelectorAll('button') ?? [])].find((b) => (b.textContent ?? '').trim().endsWith(label));
+      button?.click();
+      return Boolean(button);
+    }, item.cancel);
+    check(creatorClosed, `Конструктор закрывается кнопкой «${item.cancel}» (${item.code})`);
+    await game.waitFor(
+      `Меню после конструктора (${item.code})`,
+      (arg) => !document.querySelector('[role="dialog"]') && (document.body.innerText ?? '').includes(arg.play),
+      10_000,
+      item,
+    );
+
+    // ---------- settings ----------
+    const settingsOpened = await game.clickByText(new RegExp(item.settings));
+    check(settingsOpened, `Настройки открываются на языке ${item.code}`);
+    const settingsReady = await game.waitFor(
+      `Раздел настроек ${item.code}`,
+      (arg) => {
+        const text = document.body.innerText ?? '';
+        return text.includes(arg.languageTitle) && text.includes(arg.music);
+      },
+      20_000,
+      item,
+    );
+    check(settingsReady, `Раздел настроек переведён (${item.code})`);
+    const switcherShown = await game.page.evaluate(
+      () => ['ENGLISH', 'РУССКИЙ', 'FRANÇAIS', 'DEUTSCH'].every((name) => (document.body.innerText ?? '').includes(name)),
+    );
+    check(switcherShown, `Переключатель языков подписан эндонимами (п. 8.2.3, ${item.code})`);
+    const settingsLeaks = await englishLeaks(game, item.foreign);
+    check(settingsLeaks.length === 0, `Настройки полностью на языке ${item.code}`, settingsLeaks.join(', '));
+    await game.clickByText(new RegExp(item.close));
+    await wait(400);
+
+    // ---------- shop ----------
+    const shopOpened = await game.clickByText(new RegExp(`^${item.shop}$`));
+    check(shopOpened, `Магазин открывается на языке ${item.code}`);
+    const shopReady = await game.waitFor(
+      `Витрина магазина ${item.code}`,
+      (arg) => (document.body.innerText ?? '').includes(arg.balance),
+      20_000,
+      item,
+    );
+    check(shopReady, `Магазин переведён (${item.code})`);
+    const shopLeaks = await englishLeaks(game, item.foreign);
+    check(shopLeaks.length === 0, `В магазине нет английских надписей (${item.code})`, shopLeaks.join(', '));
+    await game.clickByText(new RegExp(item.close));
+    await wait(400);
+
+    // ---------- run: HUD and pause ----------
+    const playClicked = await game.clickByText(new RegExp(item.play));
+    check(playClicked, `Кнопка старта забега на языке ${item.code} нажата`);
+    const hudReady = await game.waitFor(
+      `HUD на языке ${item.code}`,
+      (arg) => (document.body.innerText ?? '').includes(arg.hud),
+      30_000,
+      item,
+    );
+    check(hudReady, `HUD забега переведён (${item.code})`);
+    const hudLeaks = await englishLeaks(game, item.foreign);
+    check(hudLeaks.length === 0, `В HUD нет английских надписей (${item.code})`, hudLeaks.join(', '));
+
+    // the run has really begun when the platform sees GameplayAPI.start (the snapshot lags a few
+    // hundred milliseconds behind the click); only then does Escape mean `pause`
+    await game.waitFor(
+      `Забег запущен (${item.code})`,
+      () => (window.__yaCalls ?? []).some((c) => c.name === 'GameplayAPI.start'),
+      20_000,
+    );
+    await wait(700);
+    let pauseReady = false;
+    for (let attempt = 0; attempt < 3 && !pauseReady; attempt += 1) {
+      await game.page.keyboard.press('Escape');
+      pauseReady = await game.waitFor(
+        `Пауза на языке ${item.code}`,
+        (arg) => {
+          const text = document.body.innerText ?? '';
+          return text.includes(arg.resume) && text.includes(arg.restart) && text.includes(arg.quit);
+        },
+        6_000,
+        item,
+      );
+    }
+    check(pauseReady, `Экран паузы переведён (${item.code})`);
+    if (pauseReady) {
+      const hintShown = await game.page.evaluate((hint) => (document.body.innerText ?? '').includes(hint), item.resumeHint);
+      check(hintShown, `Подсказка управления переведена (${item.code})`, item.resumeHint);
+      const pauseLeaks = await englishLeaks(game, item.foreign);
+      check(pauseLeaks.length === 0, `На паузе нет английских надписей (${item.code})`, pauseLeaks.join(', '));
+    }
+    await game.page.close();
+  }
+
+  // ---------- the in-game language switcher (rule 8.2.3) ----------
+  if (wanted('switch')) {
+    const game = await openGame({ lang: 'ru', adsFill: false, rewarded: true });
+    await game.waitFor('Меню для проверки переключателя', (play) => (document.body.innerText ?? '').includes(play), 60_000, 'НАЧАТЬ ДОБЫЧУ');
+    await game.clickByText(/НАСТРОЙКИ/);
+    await wait(400);
+    const switchedToGerman = await game.page.evaluate(async () => {
+      const button = [...document.querySelectorAll('button')].find((b) => /DEUTSCH$/.test((b.textContent ?? '').trim()));
+      if (!button) return false;
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return (document.body.innerText ?? '').includes('EINSTELLUNGEN');
+    });
+    check(switchedToGerman, 'Ручное переключение языка сразу меняет интерфейс (DE)');
+    const backToRussian = await game.page.evaluate(async () => {
+      const button = [...document.querySelectorAll('button')].find((b) => /РУССКИЙ$/.test((b.textContent ?? '').trim()));
+      if (!button) return false;
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return (document.body.innerText ?? '').includes('НАСТРОЙКИ') && document.documentElement.lang === 'ru';
+    });
+    check(backToRussian, 'Возврат на русский язык тоже применяется сразу');
+    await game.page.close();
+  }
+
+  // ---------- reserve sets for unsupported platform languages ----------
+  if (wanted('fallback')) {
+    for (const fallback of [
+      { code: 'uk', docLang: 'ru', play: 'НАЧАТЬ ДОБЫЧУ', label: 'украинский → русский' },
+      { code: 'tr', docLang: 'en', play: 'MINE NOW', label: 'турецкий → английский' },
+    ]) {
+      const game = await openGame({ lang: fallback.code, adsFill: false });
+      const booted = await game.waitFor(
+        `Резервный язык для ${fallback.code}`,
+        (arg) => document.documentElement.lang === arg.docLang && (document.body.innerText ?? '').includes(arg.play),
+        60_000,
+        fallback,
+      );
+      check(booted, `Незаявленный платформенный язык (${fallback.label}) получает резервный набор из документации`);
+      await game.page.close();
+    }
+  }
+}
+
+// SDK_CHECK_SCENARIO=<progress|shop|promo|daily|device|async|tv|world|layout|lang|shots> runs one: handy
 // while debugging a single check without waiting for the whole suite
 const only = process.env.SDK_CHECK_SCENARIO;
 const wanted = (name) => !only || only === name;
@@ -1935,6 +2342,10 @@ try {
   if (wanted('tv')) await scenarioTv();
   if (wanted('world')) await scenarioWorldAutosave();
   if (wanted('layout')) await scenarioLayout();
+  if (wanted('lang')) await scenarioLanguages();
+  // screenshots are a production tool, not a check: they run on demand (SHOTS=1) so the suite
+  // stays lean and a long full-language pass is not followed by six more page loads
+  if (only === 'shots' || process.env.SHOTS === '1') await scenarioScreenshots();
 } catch (err) {
   check(false, 'Проверка упала с исключением', String(err?.message ?? err));
 } finally {

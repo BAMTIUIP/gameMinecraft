@@ -39,6 +39,25 @@ export function fmtMinutes(s: number) {
   return `${m}:${ss.toString().padStart(2, '0')}`;
 }
 
+/**
+ * Platform avatar with a graceful fallback: `getPhoto()` may return a URL that no longer resolves
+ * (expired link, offline device), and a broken-image glyph on screen is exactly the "битая иконка"
+ * requirement 1.15 forbids. On any load error the placeholder takes over.
+ */
+function Avatar({ src, className, fallback }: { src?: string | null; className: string; fallback?: React.ReactNode }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) return <>{fallback ?? null}</>;
+  return (
+    <img
+      src={src}
+      alt=""
+      className={className}
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 function formatCountdown(seconds: number) {
   const value = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(value / 3600);
@@ -271,11 +290,11 @@ function LeaderboardTable({
               }`}
             >
               <span className={`w-5 font-display text-sm ${row.rank === 1 ? 'text-torch' : 'text-white/35'}`}>{row.rank}</span>
-              {row.avatar ? (
-                <img src={row.avatar} alt="" className="h-5 w-5 shrink-0 border border-white/15 object-cover" />
-              ) : (
-                <span className="h-5 w-5 shrink-0 border border-white/10 bg-white/5" aria-hidden="true" />
-              )}
+              <Avatar
+                src={row.avatar}
+                className="h-5 w-5 shrink-0 border border-white/15 object-cover"
+                fallback={<span className="h-5 w-5 shrink-0 border border-white/10 bg-white/5" aria-hidden="true" />}
+              />
               <span className={`flex-1 truncate font-display text-sm tracking-wide ${row.me ? 'text-[#62e8dc]' : 'text-white/85'} ${row.hidden ? 'italic text-white/35' : ''}`}>
                 {row.hidden ? t('lbHiddenPlayer') : row.name}
                 {row.me && <span className="ml-1.5 align-middle text-[9px] text-moss">◀ {t('lbYou')}</span>}
@@ -403,11 +422,11 @@ function ProfileCard({
     <div className="bevel-flat notch p-3">
       <div className="flex items-center gap-3">
         <div className="relative h-11 w-11 shrink-0 overflow-hidden border border-white/15 bg-black/40">
-          {profile.photo ? (
-            <img src={profile.photo} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-          ) : (
-            <span className="flex h-full w-full items-center justify-center font-display text-lg text-white/45">?</span>
-          )}
+          <Avatar
+            src={profile.photo}
+            className="h-full w-full object-cover"
+            fallback={<span className="flex h-full w-full items-center justify-center font-display text-lg text-white/45">?</span>}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[10px] tracking-[0.28em] text-white/40">

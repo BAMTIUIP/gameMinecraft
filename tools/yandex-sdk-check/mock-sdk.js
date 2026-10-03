@@ -268,7 +268,9 @@
             isAuthorized: () => authorized,
             getUniqueID: () => seed.uid ?? 'mock-uid',
             getName: () => seed.name ?? 'MOCK PLAYER',
-            getPhoto: (size) => `data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=${size}`,
+            // a real, decodable 1×1 avatar: appending the size to a base64 payload produced a broken
+            // image, which the game then drew as a browser placeholder
+            getPhoto: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
             getPayingStatus: () => seed.paying ?? 'not_paying',
             getData: async (keys) => {
               record('player.getData', keys ?? null);
@@ -339,13 +341,16 @@
                   getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
                 },
                 {
+                  // the debug panel mock from https://yandex.ru/dev/games/doc/ru/requirements/1/13#currency-detection
+                  // reports the test currency TST with the ¥ icon: the game must print whatever the
+                  // catalogue returns instead of assuming roubles
                   id: 'diamonds-599',
                   title: 'Miner coin pouch',
                   description: '599 Netherite coins',
                   imageURI: '',
-                  price: '499 ₽',
+                  price: '499 TST',
                   priceValue: '499',
-                  priceCurrencyCode: 'RUB',
+                  priceCurrencyCode: 'TST',
                   getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
                 },
               ];

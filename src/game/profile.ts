@@ -17,7 +17,7 @@
  * immediately on the moments that matter (run over, save, tab hidden).
  */
 
-import { getLang, setLang, type Lang } from './i18n';
+import { getLang, isLang, setLang, type Lang } from './i18n';
 import { loadScores, saveScores, type ScoreEntry } from '../ui/scores';
 import {
   yaAvailable,
@@ -350,7 +350,8 @@ function applyCloud(cloud: CloudProfile) {
   if (Array.isArray(cloud.scores) && cloud.scores.length) saveScores(cloud.scores.slice(0, 8));
   if (cloud.name && !hasOwnName()) storageSet(NAME_KEY, cloud.name);
   if (cloud.mode && storageGet('orerush.mode') === null) storageSet('orerush.mode', cloud.mode);
-  if (cloud.lang && storageGet('orerush.lang') === null) setLang(cloud.lang);
+  // Cloud data is untrusted input: only accept a language the game actually ships.
+  if (isLang(cloud.lang) && storageGet('orerush.lang') === null) setLang(cloud.lang);
   if (cloud.totals) applyTotals(cloud.totals);
   if (typeof cloud.diamonds === 'number' && Number.isFinite(cloud.diamonds)) {
     // never lose currency: the higher of the two balances wins on a merge
