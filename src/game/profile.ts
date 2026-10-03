@@ -81,6 +81,12 @@ export type CloudProfile = {
 export type CloudPart = {
   collect(): Record<string, unknown>;
   apply(cloud: CloudProfile): void;
+  /**
+   * Reconcile this part even when the enclosing profile timestamp is stale or tied. Only provide
+   * this for monotonic, conflict-safe data (such as claim markers); unrelated local profile fields
+   * must remain untouched.
+   */
+  mergeStale?(cloud: CloudProfile): void;
 };
 
 const cloudParts: CloudPart[] = [];
@@ -158,6 +164,7 @@ let pendingStats: Partial<Record<StatKey, number>> = {}; // additive counters �
 let pendingPeaks: Partial<Record<StatKey, number>> = {}; // lifetime best/deepest → setStats
 let flushTimer: number | null = null;
 let statsTimer: number | null = null;
+let flushInFlight: Promise<boolean> | null = null;
 let lastFlush = 0;
 let lastStatsFlush = 0;
 
@@ -202,14 +209,17 @@ export function bumpStats(increments: Partial<Record<StatKey, number>>) {
     if (PEAK_STATS.includes(key)) pendingPeaks[key] = Math.max(pendingPeaks[key] ?? totals[key], value);
     else pendingStats[key] = (pendingStats[key] ?? 0) + value;
   }
+  scheduleStatsFlush();
+}
+
+function scheduleStatsFlush() {
+  if (syncPaused || statsTimer !== null) return;
   if (Object.keys(pendingStats).length === 0 && Object.keys(pendingPeaks).length === 0) return;
-  if (statsTimer === null) {
-    const wait = Math.max(0, STATS_INTERVAL_MS - (Date.now() - lastStatsFlush));
-    statsTimer = window.setTimeout(() => {
-      statsTimer = null;
-      void flushStats();
-    }, wait);
-  }
+  const wait = Math.max(0, STATS_INTERVAL_MS - (Date.now() - lastStatsFlush));
+  statsTimer = window.setTimeout(() => {
+    statsTimer = null;
+    void flushStats();
+  }, wait);
 }
 
 function scheduleFlush() {
@@ -248,6 +258,30 @@ export async function flushProfile(immediate = false): Promise<boolean> {
     // and therefore does not consume the purchase — the documented "save first, consume second" order
     return false;
   }
+
+  // Serialize writes: a purchase can queue a local save and then immediately queue its delivery token.
+  // The second caller waits for the first payload, then flushes any newer snapshot before it resolves.
+  const current = flushInFlight;
+  if (current) {
+    const result = await current;
+    if (flushInFlight === current) flushInFlight = null;
+    if (syncPaused) return false;
+    if (pendingData || Object.keys(pendingStats).length || Object.keys(pendingPeaks).length) {
+      return flushProfile(immediate);
+    }
+    return result;
+  }
+
+  const run = flushProfileOnce(immediate);
+  flushInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (flushInFlight === run) flushInFlight = null;
+  }
+}
+
+async function flushProfileOnce(immediate: boolean): Promise<boolean> {
   const payload = pendingData;
   pendingData = null;
   let saved = true;
@@ -256,8 +290,8 @@ export async function flushProfile(immediate = false): Promise<boolean> {
     lastFlush = Date.now();
     storageSet(LOCAL_STAMP_KEY, String(payload.savedAt));
     saved = await yaCloudSet({ [CLOUD_KEY]: payload }, immediate);
-    // on failure the payload is not silently dropped: it is re-queued for the next attempt
-    if (!saved) pendingData = payload;
+    // Keep newer changes if any arrived while this write was in flight; otherwise retry this payload.
+    if (!saved && !pendingData) pendingData = payload;
   }
 
   const statsSaved = await flushStats();
@@ -266,6 +300,7 @@ export async function flushProfile(immediate = false): Promise<boolean> {
 }
 
 async function flushStats(): Promise<boolean> {
+  if (syncPaused) return false;
   const stats = pendingStats;
   const peaks = pendingPeaks;
   pendingStats = {};
@@ -301,9 +336,9 @@ async function flushStats(): Promise<boolean> {
 let started = false;
 
 /**
- * Called once the SDK is up: pull the cloud profile, merge it with the local one (the newer
- * `savedAt` wins) and remember the platform profile for the UI. Safe to call outside Yandex: it
- * then only reports `platform: null` and does nothing else.
+ * Called once the SDK is up: pull the cloud profile, choose the newer whole-profile snapshot by
+ * `savedAt`, and also reconcile feature parts that provide a monotonic stale-cloud merge. Remember
+ * the platform profile for the UI. Safe to call outside Yandex: it then only reports `platform: null`.
  */
 export async function startProfileSync(): Promise<ProfileSnapshot> {
   if (started) return snapshot;
@@ -322,11 +357,12 @@ export async function startProfileSync(): Promise<ProfileSnapshot> {
   const stamp = localStamp();
 
   const cloudOurs = cloud && cloud.v === 1;
-  if (cloudOurs && cloud.savedAt > stamp) {
+  if (cloudOurs && Number.isFinite(cloud.savedAt) && cloud.savedAt > stamp) {
     applyCloud(cloud);
     snapshot = { ...snapshot, cloudApplied: true };
   } else {
-    // local is newer (or the cloud is empty): make sure the cloud learns about this player
+    // Keep newer local profile fields, but still reconcile monotonic claims from a stale/equal cloud copy.
+    if (cloudOurs) mergeStaleCloudParts(cloud);
     markProfileDirty();
   }
 
@@ -367,13 +403,32 @@ function applyCloud(cloud: CloudProfile) {
   storageSet(LOCAL_STAMP_KEY, String(cloud.savedAt));
 }
 
+/** Merge independently monotonic feature data without adopting stale profile fields. */
+function mergeStaleCloudParts(cloud: CloudProfile) {
+  const mergedParts: Record<string, unknown> = {};
+  for (const part of cloudParts) {
+    if (!part.mergeStale) continue;
+    part.mergeStale(cloud);
+    Object.assign(mergedParts, part.collect());
+  }
+  // A pending snapshot may predate the merge; update just the safe feature fields before it is flushed.
+  if (pendingData && Object.keys(mergedParts).length) {
+    pendingData = { ...pendingData, ...mergedParts };
+  }
+}
+
 /** Hold back (or resume) cloud writes while the platform's account picker is open. */
 export function pauseProfileSync(paused: boolean) {
   syncPaused = paused;
-  if (!paused) {
-    markProfileDirty();
-    scheduleFlush();
+  if (paused) {
+    if (flushTimer !== null) clearTimeout(flushTimer);
+    if (statsTimer !== null) clearTimeout(statsTimer);
+    flushTimer = null;
+    statsTimer = null;
+    return;
   }
+  if (pendingData) scheduleFlush();
+  scheduleStatsFlush();
 }
 
 /**
@@ -383,17 +438,36 @@ export function pauseProfileSync(paused: boolean) {
  */
 export async function resyncProfile(): Promise<boolean> {
   if (!yaAvailable()) return false;
+
+  // Do not let an old account's queued snapshot fire during selection or overwrite the chosen save.
+  if (flushTimer !== null) clearTimeout(flushTimer);
+  if (statsTimer !== null) clearTimeout(statsTimer);
+  flushTimer = null;
+  statsTimer = null;
+  const inFlight = flushInFlight;
+  if (inFlight) {
+    try {
+      await inFlight;
+    } catch {
+      // A failed old-account write is discarded below; it must not be retried under the new account.
+    }
+  }
+  pendingData = null;
+  pendingStats = {};
+  pendingPeaks = {};
+
   const platform = await yaRefreshProfile(true);
-  snapshot = { ...snapshot, platform };
+  snapshot = { ...snapshot, platform, cloudApplied: false };
   const remote = await yaCloudGet([CLOUD_KEY]);
   const cloud = remote?.[CLOUD_KEY] as CloudProfile | undefined;
   if (cloud && cloud.v === 1) {
-    // the cloud record belongs to the account the player has just chosen: it wins even over a local
-    // stamp that looks newer, because that stamp was written under the previous account
+    // The cloud record belongs to the account the player has just chosen: it wins even over a local
+    // stamp that looks newer, because that stamp was written under the previous account.
     applyCloud(cloud);
     storageSet(TOTALS_KEY, JSON.stringify(totals));
     snapshot = { ...snapshot, cloudApplied: true };
   } else {
+    // No cloud blob exists for the chosen player; queue the current local save, not a stale snapshot.
     markProfileDirty();
   }
   emit();

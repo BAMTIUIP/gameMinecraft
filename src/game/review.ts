@@ -25,6 +25,8 @@ export type ReviewOffer = { available: boolean; reason: YaReviewReason | 'cooldo
 export type ReviewResult = 'sent' | 'dismissed' | 'unavailable' | 'failed';
 
 let offerCache: ReviewOffer | null = null;
+let offerCheckInFlight: Promise<ReviewOffer> | null = null;
+let requestInFlight: Promise<ReviewResult> | null = null;
 let requestedThisSession = false;
 
 /** Last time the dialog was shown (0 = never) — persisted, so a week later it may be offered again. */
@@ -42,6 +44,8 @@ function lastAskedAt(): number {
 /** Test seam: forget the cached answer and the session flag (the storage stays). */
 export function resetReviewState() {
   offerCache = null;
+  offerCheckInFlight = null;
+  requestInFlight = null;
   requestedThisSession = false;
 }
 
@@ -53,25 +57,48 @@ export async function reviewOffer(): Promise<ReviewOffer> {
   if (requestedThisSession) return { available: false, reason: 'done' };
   if (yaServerTime() - lastAskedAt() < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
   if (offerCache) return offerCache;
+  if (offerCheckInFlight) return offerCheckInFlight;
 
-  const answer = await yaCanReview();
-  offerCache = answer ? { available: answer.value, reason: answer.value ? null : (answer.reason ?? 'UNKNOWN') } : { available: false, reason: 'offline' };
-  return offerCache;
+  const check = (async (): Promise<ReviewOffer> => {
+    const answer = await yaCanReview();
+    offerCache = answer
+      ? { available: answer.value, reason: answer.value ? null : (answer.reason ?? 'UNKNOWN') }
+      : { available: false, reason: 'offline' };
+    return offerCache;
+  })();
+  offerCheckInFlight = check;
+  try {
+    return await check;
+  } finally {
+    if (offerCheckInFlight === check) offerCheckInFlight = null;
+  }
 }
 
 /**
  * Open the platform's rating dialog. Only meaningful right after a positive `reviewOffer()`; the
- * once-per-session rule is enforced here as well as by the platform.
+ * once-per-session rule is enforced here as well as by the platform. Concurrent UI clicks share one
+ * request, and the session flag is rechecked after the async availability check.
  */
 export async function requestGameReview(): Promise<ReviewResult> {
+  if (requestInFlight) return requestInFlight;
   if (requestedThisSession) return 'unavailable';
-  const offer = await reviewOffer();
-  if (!offer.available) return 'unavailable';
 
-  requestedThisSession = true;
-  const result = await yaRequestReview();
-  if (!result) return 'failed'; // nothing was shown: stay silent and allow a retry next session
-  offerCache = { available: false, reason: 'done' };
-  storageSet(STORAGE_KEY, JSON.stringify({ at: yaServerTime(), sent: result.sent }));
-  return result.sent ? 'sent' : 'dismissed';
+  const request = (async (): Promise<ReviewResult> => {
+    const offer = await reviewOffer();
+    if (!offer.available || requestedThisSession) return 'unavailable';
+
+    requestedThisSession = true;
+    const result = await yaRequestReview();
+    if (!result) return 'failed'; // nothing was shown: stay silent and allow a retry next session
+    offerCache = { available: false, reason: 'done' };
+    storageSet(STORAGE_KEY, JSON.stringify({ at: yaServerTime(), sent: result.sent }));
+    return result.sent ? 'sent' : 'dismissed';
+  })();
+
+  requestInFlight = request;
+  try {
+    return await request;
+  } finally {
+    if (requestInFlight === request) requestInFlight = null;
+  }
 }

@@ -31,6 +31,8 @@ export type ShortcutResult = 'accepted' | 'dismissed' | 'unavailable' | 'failed'
 type ShortcutState = { at: number; accepted: boolean };
 
 let offerCache: ShortcutOffer | null = null;
+let offerCheckInFlight: Promise<ShortcutOffer> | null = null;
+let requestInFlight: Promise<ShortcutResult> | null = null;
 let promptedThisSession = false;
 
 function state(): ShortcutState {
@@ -54,6 +56,8 @@ function saveState(next: ShortcutState) {
 /** Test seam: forget the cached answer and the session flag (the storage stays). */
 export function resetShortcutState() {
   offerCache = null;
+  offerCheckInFlight = null;
+  requestInFlight = null;
   promptedThisSession = false;
 }
 
@@ -72,31 +76,53 @@ export async function shortcutOffer(): Promise<ShortcutOffer> {
   if (saved.accepted) return { available: false, reason: 'accepted' };
   if (yaServerTime() - saved.at < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
   if (offerCache) return offerCache;
+  if (offerCheckInFlight) return offerCheckInFlight;
 
-  const canShow = await yaCanShowShortcutPrompt();
-  offerCache = canShow === null ? { available: false, reason: 'offline' } : { available: canShow, reason: canShow ? null : 'offline' };
-  return offerCache;
+  const check = (async (): Promise<ShortcutOffer> => {
+    const canShow = await yaCanShowShortcutPrompt();
+    offerCache = canShow === null
+      ? { available: false, reason: 'offline' }
+      : { available: canShow, reason: canShow ? null : 'offline' };
+    return offerCache;
+  })();
+  offerCheckInFlight = check;
+  try {
+    return await check;
+  } finally {
+    if (offerCheckInFlight === check) offerCheckInFlight = null;
+  }
 }
 
 /**
  * Open the desktop-shortcut dialog. Returns 'accepted' when the shortcut was created — that is the
- * only outcome that pays the reward, and it is paid exactly once.
+ * only outcome that pays the reward, and it is paid exactly once. Concurrent clicks share one prompt.
  */
 export async function requestShortcut(): Promise<ShortcutResult> {
+  if (requestInFlight) return requestInFlight;
   if (promptedThisSession) return 'unavailable';
-  const offer = await shortcutOffer();
-  if (!offer.available) return 'unavailable';
 
-  promptedThisSession = true;
-  const result = await yaShowShortcutPrompt();
-  if (!result) return 'failed'; // the dialog never opened: nothing is remembered, a retry is fine
+  const request = (async (): Promise<ShortcutResult> => {
+    const offer = await shortcutOffer();
+    if (!offer.available || promptedThisSession) return 'unavailable';
 
-  offerCache = { available: false, reason: 'done' };
-  const alreadyAccepted = state().accepted;
-  saveState({ at: yaServerTime(), accepted: alreadyAccepted || result.accepted });
-  if (result.accepted && !alreadyAccepted) {
-    // a one-time thank-you: 'grant', so it does not count towards the paid-diamonds statistics
-    addDiamonds(SHORTCUT_REWARD, 'grant');
+    promptedThisSession = true;
+    const result = await yaShowShortcutPrompt();
+    if (!result) return 'failed'; // the dialog never opened: nothing is remembered; a later session can retry
+
+    offerCache = { available: false, reason: 'done' };
+    const alreadyAccepted = state().accepted;
+    saveState({ at: yaServerTime(), accepted: alreadyAccepted || result.accepted });
+    if (result.accepted && !alreadyAccepted) {
+      // a one-time thank-you: 'grant', so it does not count towards the paid-diamonds statistics
+      addDiamonds(SHORTCUT_REWARD, 'grant');
+    }
+    return result.accepted ? 'accepted' : 'dismissed';
+  })();
+
+  requestInFlight = request;
+  try {
+    return await request;
+  } finally {
+    if (requestInFlight === request) requestInFlight = null;
   }
-  return result.accepted ? 'accepted' : 'dismissed';
 }

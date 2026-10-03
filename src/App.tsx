@@ -24,9 +24,11 @@ import {
   yaGameplayStart,
   yaGameplayStop,
   yaLang,
+  yaMultiplayerAvailable,
   yaLoadingReady,
   yaOnPause,
   yaOnResume,
+  yaPlatformPaused,
   yaOpenAuthDialog,
   yaServerTime,
   type YaProfile,
@@ -41,7 +43,8 @@ import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote
 import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { completePendingRewardedDropItems, pendingRewardedDropItems, recordRewardedDropLogin, watchAndClaimRewardedDrop, type RewardedDropId } from './game/adDrops';
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
-import { buyDiamondPack, buyRevive, buyShopItem as purchaseShopItem, deliverPendingPurchases, diamondsBalance, DIAMOND_PACKS, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
+import { buyAdFree as buyAdFreeProduct, buyDiamondPack, buyRevive, buyShopItem as purchaseShopItem, deliverPendingPurchases, diamondsBalance, DIAMOND_PACKS, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
+import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct } from './game/devShop';
 import {
   getLeaderboardView,
@@ -147,6 +150,7 @@ export default function App() {
   const bestRef = useRef(0);
   const dailyBusyRef = useRef(false);
   const dailyNoteTimerRef = useRef<number | null>(null);
+  const adFreeBusyRef = useRef(false);
 
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [engine, setEngine] = useState<Engine | null>(null);
@@ -175,6 +179,9 @@ export default function App() {
   const [diamonds, setDiamonds] = useState(0);
   const [shopPrices, setShopPrices] = useState<ShopCatalog>(() => new Map());
   const [canPay, setCanPay] = useState(false);
+  const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
+  const [adFreeBusy, setAdFreeBusy] = useState(false);
+  const [adFreeNotice, setAdFreeNotice] = useState<string | null>(null);
   // leaderboard: the platform keeps the rating, the game only submits results and draws the top
   const [leaderboard, setLeaderboard] = useState<LeaderboardView | null>(null);
   const [lbBusy, setLbBusy] = useState(false);
@@ -218,6 +225,9 @@ export default function App() {
     // Yandex Games: auto-detect the user's language from the platform (rule 2.14).
     // An explicit in-game choice (saved in safeStorage) always wins.
     void initYandex().then(async () => {
+      // Yandex may have installed safeStorage after the first render; refresh the local ad-free cache
+      // before remote flags, the catalogue and the platform's default sticky banner are reconciled.
+      setAdFreeOwned(hasAdFreeEntitlement());
       const platformLang = yaLang();
       if (platformLang && storageGet('orerush.lang') === null) {
         // Unsupported codes follow the documented reserve sets (`ru` for be/kk/uk/uz, `en` otherwise).
@@ -247,9 +257,15 @@ export default function App() {
       // paid for but not delivered last time is granted right now (requirement 1.13.1).
       setCanPay(paymentsAvailable());
       if (paymentsAvailable()) {
-        setShopPrices(await loadShopCatalog());
+        const catalog = await loadShopCatalog();
         const restored = await deliverPendingPurchases();
+        // Publish the catalogue after getPurchases() settles so a returning owner never sees a
+        // second-purchase button while their permanent entitlement is still being restored.
+        setAdFreeOwned(hasAdFreeEntitlement());
+        setShopPrices(catalog);
         if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
+      } else {
+        setAdFreeOwned(hasAdFreeEntitlement());
       }
       setDiamonds(diamondsBalance());
       setLbAvailable(leaderboardAvailable());
@@ -316,12 +332,14 @@ export default function App() {
 
     const offYaPause = yaOnPause(() => eng.systemPause());
     const offYaResume = yaOnResume(() => eng.systemResume());
+    // The startup fullscreen ad can have paused the platform before this engine subscribed.
+    if (yaPlatformPaused()) eng.systemPause();
 
     // Platform events (sdk-events). HISTORY_BACK happens on TVs and must not exit silently: the game
     // shows its dialog and reports EXIT to the platform only if the player confirms. The account
     // picker holds our progress sync while it is open, and once it closes the chosen cloud progress
     // is pulled in and the game returns to the menu.
-    startPlatformEvents();
+    const stopPlatformEvents = startPlatformEvents();
     // Remote Back (requirement 1.6.3): a single press during a run pauses and opens the in-game menu,
     // a second press inside the double-press window asks about leaving, and in any menu the press asks
     // right away. The same rule covers HISTORY_BACK from the platform and the remote's own Escape-like
@@ -359,14 +377,22 @@ export default function App() {
         pauseProfileSync(true);
         return;
       }
-      pauseProfileSync(false);
-      void resyncProfile().then(() => {
-        setCharacterCustomization(getCharacterCustomization());
-        setScores(loadScores());
-        setName(loadPlayerName());
-        setDiamonds(diamondsBalance());
-        engineRef.current?.toMenu();
-      });
+      void resyncProfile()
+        .catch((err) => {
+          console.warn('[profile] account resync failed', err);
+          return false;
+        })
+        .then(async () => {
+          const restored = await deliverPendingPurchases();
+          setAdFreeOwned(hasAdFreeEntitlement());
+          if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
+          setCharacterCustomization(getCharacterCustomization());
+          setScores(loadScores());
+          setName(loadPlayerName());
+          setDiamonds(diamondsBalance());
+          engineRef.current?.toMenu();
+        })
+        .finally(() => pauseProfileSync(false));
     });
     return () => {
       eng.onPose(null);
@@ -374,6 +400,7 @@ export default function App() {
       offYaResume();
       offExitPrompt();
       offAccountSwitch();
+      stopPlatformEvents();
       window.removeEventListener('keydown', onBackKey);
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
@@ -521,8 +548,10 @@ export default function App() {
 
       // Asynchronous co-op: publish the shift so other players can replay it as a teammate. A revive
       // keeps the recorder running, so the next push carries the longer session instead of a copy.
-      const published = publishCoopSession({ score: hud.score, depth: hud.deepest, blocks: hud.blocksMined });
-      setSquadNote(published ? t('squadPublished') : squadMembers().some((mate) => mate.kind === 'bot') ? t('squadLocal') : null);
+      void publishCoopSession({ score: hud.score, depth: hud.deepest, blocks: hud.blocksMined }).then((published) => {
+        if (published) setSquadNote(t('squadPublished'));
+        else setSquadNote(!yaMultiplayerAvailable() && squadMembers().some((mate) => mate.kind === 'bot') ? t('squadLocal') : null);
+      });
     } else {
       savedRef.current = false;
     }
@@ -689,7 +718,7 @@ export default function App() {
   // The sticky banner belongs to menus, not to a run in progress: it must never cover the HUD.
   useEffect(() => {
     void syncBanner(hud.phase === 'menu' || hud.phase === 'gameover');
-  }, [hud.phase]);
+  }, [hud.phase, flags['adv.enabled'], flags['adv.banner.enabled'], adFreeOwned]);
 
   /**
    * Sign-in is offered, never forced: the button explains the benefit first (requirement 1.2),
@@ -698,11 +727,16 @@ export default function App() {
   const signIn = useCallback(async () => {
     const ok = await yaOpenAuthDialog();
     if (!ok) return;
-    const snapshot = await startProfileSync();
-    setProfile(snapshot.platform);
+    // startProfileSync() is a startup-only one-shot. After auth the SDK may now point at a different
+    // player, so force a fresh cloud read before applying the newly authorised account's progress.
+    const cloudApplied = await resyncProfile();
+    const restored = await deliverPendingPurchases();
+    setAdFreeOwned(hasAdFreeEntitlement());
+    if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
     setScores(loadScores());
     setName(loadPlayerName());
-    if (snapshot.cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
+    setDiamonds(diamondsBalance());
+    if (cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
   }, []);
 
   /**
@@ -785,11 +819,39 @@ export default function App() {
     else if (result === 'dismissed') setReviewNote(t('reviewDismissed'));
   }, []);
 
+  /** Retry a missing/failed price catalogue when the player opens the shop. */
+  const refreshShopCatalog = useCallback(async () => {
+    if (!paymentsAvailable()) return;
+    const catalog = await loadShopCatalog();
+    if (catalog.size) setShopPrices(catalog);
+  }, []);
+
   /** Opens the Yandex payment frame and settles the balance when it closes. */
   const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
     const result = await buyDiamondPack(productId);
     setDiamonds(result.diamonds);
     return result;
+  }, []);
+
+  const buyAdFree = useCallback(async () => {
+    if (adFreeBusyRef.current) return;
+    adFreeBusyRef.current = true;
+    setAdFreeBusy(true);
+    setAdFreeNotice(null);
+    try {
+      const result = await buyAdFreeProduct();
+      if (result.ok) {
+        setAdFreeOwned(hasAdFreeEntitlement());
+        setAdFreeNotice(null);
+      } else {
+        setAdFreeNotice(result.reason === 'cancelled' ? t('adFreeCancelled') : t('adFreeFailed'));
+      }
+    } catch {
+      setAdFreeNotice(t('adFreeFailed'));
+    } finally {
+      adFreeBusyRef.current = false;
+      setAdFreeBusy(false);
+    }
   }, []);
 
   const buyInGameShopItem = useCallback((productId: string): ShopItemBuyResult => {
@@ -855,7 +917,7 @@ export default function App() {
           onBag={openInventory}
           onCaptureMouse={captureMouse}
           isTouch={isTouch}
-          showFps={flags['ui.showFps'] !== 'false'}
+          showFps={import.meta.env.DEV && flags['ui.showFps'] !== 'false'}
         />
       )}
 
@@ -889,7 +951,12 @@ export default function App() {
           developerShopEnabled={false}
           diamonds={diamonds}
           shopPrices={shopPrices}
+          onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
+          adFreeOwned={adFreeOwned}
+          adFreeBusy={adFreeBusy}
+          adFreeNotice={adFreeNotice}
+          onBuyAdFree={buyAdFree}
           rewardedAdsEnabled={rewardedAdsAvailable()}
           onBuyPack={buyPack}
           onBuyShopItem={buyInGameShopItem}
@@ -908,6 +975,7 @@ export default function App() {
           dailyBusy={dailyBusy}
           dailyNote={dailyNote}
           fullscreen={fullscreen}
+          onSettingsOpen={() => setFullscreen(fullscreenOn())}
           onFullscreen={toggleFull}
           character={characterCustomization}
           onSaveCharacter={saveCharacter}

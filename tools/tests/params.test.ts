@@ -3,7 +3,7 @@
  * https://yandex.ru/dev/games/doc/ru/sdk/sdk-params.
  *
  * The page is about three objects:
- *  - `deviceInfo` — `type` and the `isMobile()`/`isTablet()`/`isTV()` helpers decide whether the game
+ *  - `deviceInfo` — `type` and the `isMobile()`/`isDesktop()`/`isTablet()`/`isTV()` helpers decide whether the game
  *    shows touch controls and expects the TV back button;
  *  - `screen.fullscreen` — `status` + `request()`/`exit()`, always from a user action;
  *  - `clipboard.writeText()` — the "copy result" button, with a fallback off-platform.
@@ -83,7 +83,10 @@ Object.defineProperty(globalThis, 'navigator', { value: { language: 'ru' }, conf
 /* ------------------------------ SDK mock ------------------------------ */
 
 let deviceType: string | undefined = 'mobile';
-let deviceAnswers: { isMobile?: boolean | null; isTablet?: boolean | null; isTV?: boolean | null } = {};
+let deviceAnswers: { isMobile?: boolean | null; isDesktop?: boolean | null; isTablet?: boolean | null; isTV?: boolean | null } = {};
+let userGestureActive = false;
+let fullscreenRequestHadGesture = false;
+let fullscreenExitHadGesture = false;
 const fullscreenStatus = { value: 'off' as string, available: true };
 let clipboardFails = false;
 
@@ -95,6 +98,10 @@ const deviceInfoOrNull = () => ({
   isMobile: () => {
     record('deviceInfo.isMobile');
     return deviceAnswers.isMobile ?? deviceType === 'mobile';
+  },
+  isDesktop: () => {
+    record('deviceInfo.isDesktop');
+    return deviceAnswers.isDesktop ?? deviceType === 'desktop';
   },
   isTablet: () => {
     record('deviceInfo.isTablet');
@@ -116,10 +123,14 @@ const fullscreenOrNull = () =>
         },
         request: async () => {
           record('screen.fullscreen.request');
+          fullscreenRequestHadGesture = userGestureActive;
+          if (!userGestureActive) throw new Error('fullscreen request requires a user gesture');
           fullscreenStatus.value = 'on';
         },
         exit: async () => {
           record('screen.fullscreen.exit');
+          fullscreenExitHadGesture = userGestureActive;
+          if (!userGestureActive) throw new Error('fullscreen exit requires a user gesture');
           fullscreenStatus.value = 'off';
         },
       }
@@ -200,6 +211,9 @@ deviceType = undefined;
 deviceAnswers = { isMobile: false, isTablet: true, isTV: false };
 ok(deviceKind() === 'tablet', 'Без type игра спрашивает isTablet()', deviceKind());
 ok(count('deviceInfo.isTablet') >= 1, 'Хелпер isTablet() вызван', String(count('deviceInfo.isTablet')));
+deviceAnswers = { isMobile: false, isDesktop: true, isTablet: false, isTV: false };
+ok(deviceKind() === 'desktop', 'Без type игра использует isDesktop()', deviceKind());
+ok(count('deviceInfo.isDesktop') >= 1, 'Хелпер isDesktop() вызван', String(count('deviceInfo.isDesktop')));
 deviceAnswers = {};
 deviceType = 'desktop';
 
@@ -207,11 +221,19 @@ deviceType = 'desktop';
 ok(yaFullscreenStatus() === 'off', 'Статус полного экрана читается из SDK', String(yaFullscreenStatus()));
 ok(fullscreenOn() === false, 'Игра знает, что полный экран выключен');
 ok(fullscreenAvailable() === true, 'Кнопка полного экрана доступна');
-const turnedOn = await toggleFullscreen();
+userGestureActive = true;
+const requestFullscreen = toggleFullscreen();
+userGestureActive = false;
+const turnedOn = await requestFullscreen;
 ok(count('screen.fullscreen.request') === 1, 'Переключение вызвало screen.fullscreen.request', String(count('screen.fullscreen.request')));
+ok(fullscreenRequestHadGesture, 'Запрос полного экрана отправлен до потери пользовательского жеста');
 ok(turnedOn === true && fullscreenOn() === true, 'После запроса экран считается полным', String(turnedOn));
-const turnedOff = await toggleFullscreen();
+userGestureActive = true;
+const exitFullscreen = toggleFullscreen();
+userGestureActive = false;
+const turnedOff = await exitFullscreen;
 ok(count('screen.fullscreen.exit') === 1, 'Повторное переключение вызвало screen.fullscreen.exit', String(count('screen.fullscreen.exit')));
+ok(fullscreenExitHadGesture, 'Выход из полного экрана вызван из пользовательского жеста');
 ok(turnedOff === false && fullscreenOn() === false, 'Полный экран выключен снова', String(turnedOff));
 ok(count('native.requestFullscreen') === 0, 'Внутри платформы нативный Fullscreen API не трогается');
 
@@ -238,6 +260,14 @@ ok(count('document.execCommand') === 1, 'execCommand вызван один ра�
 legacyCopyWorks = false;
 clipboardFails = true;
 ok((await copyText('итог')) === false, 'Когда ничего не сработало, кнопка честно сообщает о неудаче');
+ok(bodyStub.children.length === 0, 'Временное поле удаляется после резервного копирования');
 ok((await copyText('')) === false, 'Пустая строка в буфер не пишется');
+const workingExecCommand = documentStub.execCommand;
+documentStub.execCommand = () => {
+  throw new Error('legacy clipboard blocked');
+};
+ok((await copyText('ошибка')) === false, 'Исключение старого clipboard API обрабатывается');
+ok(bodyStub.children.length === 0, 'Временное поле удаляется и при исключении');
+documentStub.execCommand = workingExecCommand;
 
 export { passed, failures };

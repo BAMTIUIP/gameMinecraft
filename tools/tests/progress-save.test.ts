@@ -197,6 +197,10 @@ const engine = read('src/game/engine.ts');
 
 ok(/submitScore\(/.test(app) && /addTotals\(\{/.test(app) && /flushProfile\(true\)/.test(app), 'Конец смены сохраняет рекорд, счётчики и сразу отправляет всё в облако');
 ok(/saveProgressNow\(\); \/\/ requirement 1\.9/.test(app) || /saveProgressNow\(\)/.test(app), 'Смена имени, режима и языка сохраняется на месте');
+const signInStart = app.indexOf('const signIn =');
+const rankingStart = app.indexOf('const loadWorldRanking', signInStart);
+const signInSource = app.slice(signInStart, rankingStart > signInStart ? rankingStart : undefined);
+ok(/resyncProfile\(\)/.test(signInSource), 'После авторизации заново читается профиль выбранного аккаунта');
 ok(/saveWorld\(true\)/.test(app) && /pagehide/.test(app), 'Мир песочницы автоматически сохраняется при уходе со страницы (и есть кнопка сохранения)');
 ok(/saveProgressNow/.test(profile) && /storageSet\(DIAMONDS_KEY, String\(diamonds\)\)/.test(profile), 'Модуль профиля пишет локальную копию первым делом');
 ok(/storageSet\(TOTALS_KEY, JSON.stringify\(totals\)\)/.test(profile), 'Счётчики живут в локальной копии');

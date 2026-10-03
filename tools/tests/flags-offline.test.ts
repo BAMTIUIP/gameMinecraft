@@ -78,6 +78,7 @@ await loadFlags('unknown');
 ok(flag('game.exploreMinutes') === '5', 'При недоступном сервере берётся кэш прошлой конфигурации', flag('game.exploreMinutes'));
 ok(flagBool('adv.enabled') === false, 'Флаг из кэша продолжает действовать офлайн');
 ok(flagBool('shop.enabled') === true, 'Флаг, которого нет ни в кэше, ни на сервере, остаётся локальным');
+ok(flagBool('ui.showFps') === false, 'FPS-отладка выключена локальным значением без remote config');
 const call = calls.find((c) => c.name === 'ysdk.getFlags')?.arg as { defaultFlags?: Record<string, string> } | undefined;
 ok(
   (call?.defaultFlags?.['shop.enabled'] ?? null) === LOCAL_FLAGS['shop.enabled'],

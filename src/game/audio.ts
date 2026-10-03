@@ -41,13 +41,18 @@ function clearSystemPlayer() {
  * Releasing one hold never resumes the context while another is still active: that is exactly the
  * "sound keeps playing under an ad" and "sound came back in a background tab" bug class.
  */
-let focusHold = false;
+let windowBlurred = false;
+let documentHidden = typeof document !== 'undefined' && document.hidden === true;
 let gameHold = false;
 let adHold = false;
 
+function pageHoldsAudio() {
+  return windowBlurred || documentHidden;
+}
+
 function syncAudio() {
   if (!ctx) return;
-  if (focusHold || gameHold || adHold) {
+  if (pageHoldsAudio() || gameHold || adHold) {
     if (ctx.state === 'running') void ctx.suspend();
   } else if (ctx.state === 'suspended') {
     void ctx.resume();
@@ -58,7 +63,7 @@ function syncAudio() {
 
 /** Is the game's audio held back right now (for diagnostics and tests)? */
 export function audioSuspended(): boolean {
-  return focusHold || gameHold || adHold || ctx?.state === 'suspended';
+  return pageHoldsAudio() || gameHold || adHold || ctx?.state === 'suspended';
 }
 
 /** Hold the audio while an ad is on screen; release when it closes (see ads.ts). */
@@ -71,15 +76,16 @@ export function holdAudioForAd(on: boolean) {
 // game listens to all of them and holds the audio until focus *and* visibility are back.
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('blur', () => {
-    focusHold = true;
+    windowBlurred = true;
     syncAudio();
   });
   window.addEventListener('focus', () => {
-    focusHold = document.hidden === true;
+    windowBlurred = false;
+    documentHidden = document.hidden === true;
     syncAudio();
   });
   document.addEventListener?.('visibilitychange', () => {
-    focusHold = document.hidden === true;
+    documentHidden = document.hidden === true;
     syncAudio();
   });
 }

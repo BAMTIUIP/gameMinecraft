@@ -37,6 +37,7 @@ Object.defineProperty(globalThis, 'navigator', { value: { language: 'ru', userAc
 /* ------------------------------ SDK mock ------------------------------ */
 
 let canShow = true;
+let canShowGate: Promise<void> | null = null;
 let outcome = 'accepted';
 let showThrows = false;
 
@@ -68,6 +69,7 @@ g.YaGames = {
       shortcut: {
         canShowPrompt: async () => {
           record('shortcut.canShowPrompt');
+          if (canShowGate) await canShowGate;
           return { canShow };
         },
         showPrompt: async () => {
@@ -177,6 +179,31 @@ const balanceBeforeSecond = getDiamonds();
 const repeated = await requestShortcut();
 ok(repeated === 'unavailable', 'Уже добавленный ярлык повторно не предлагается', repeated);
 ok(getDiamonds() === balanceBeforeSecond, 'Награда не начисляется дважды', String(getDiamonds()));
+
+// --- simultaneous checks and taps share one platform prompt and one reward ----------------------
+storage.delete('orerush.shortcut.v1');
+resetShortcutState();
+canShow = true;
+outcome = 'accepted';
+showThrows = false;
+let releaseCanShow!: () => void;
+canShowGate = new Promise<void>((resolve) => {
+  releaseCanShow = resolve;
+});
+const availabilityCallsBeforeRace = count('shortcut.canShowPrompt');
+const firstOfferCheck = shortcutOffer();
+const secondOfferCheck = shortcutOffer();
+releaseCanShow();
+const [firstOfferRace, secondOfferRace] = await Promise.all([firstOfferCheck, secondOfferCheck]);
+canShowGate = null;
+ok(firstOfferRace.available && secondOfferRace.available, 'Параллельные проверки получают один доступный ответ');
+ok(count('shortcut.canShowPrompt') === availabilityCallsBeforeRace + 1, 'Параллельные проверки делят один canShowPrompt()');
+const promptCallsBeforeRace = count('shortcut.showPrompt');
+const balanceBeforeRace = getDiamonds();
+const [firstTap, secondTap] = await Promise.all([requestShortcut(), requestShortcut()]);
+ok(firstTap === 'accepted' && secondTap === 'accepted', 'Параллельные клики получают один результат');
+ok(count('shortcut.showPrompt') === promptCallsBeforeRace + 1, 'Параллельные клики открывают только один SDK-диалог');
+ok(getDiamonds() === balanceBeforeRace + SHORTCUT_REWARD, 'За один принятый диалог выдана только одна награда');
 
 bumpStats({ runs: 0 }); // keep the stats object touched, as other suites do
 

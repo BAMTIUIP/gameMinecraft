@@ -70,6 +70,7 @@ await initYandex();
 
 // --- 1. before any fetch: local configuration only -------------------------------------------
 ok(flag('shop.enabled') === LOCAL_FLAGS['shop.enabled'], 'До загрузки флагов действует локальная конфигурация');
+ok(LOCAL_FLAGS['ui.showFps'] === 'false' && flagBool('ui.showFps') === false, 'Локальная production-конфигурация не включает FPS-отладку');
 ok(Object.keys(LOCAL_FLAGS).length >= 8, 'Локальная конфигурация непустая', `${Object.keys(LOCAL_FLAGS).length} ключей`);
 ok(Object.values(LOCAL_FLAGS).every((v) => typeof v === 'string'), 'Все значения локальной конфигурации — строки (контракт SDK)');
 

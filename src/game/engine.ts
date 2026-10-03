@@ -3978,7 +3978,9 @@ if (tpClipActive > 0.5) {
     window.setTimeout(() => {
       if (this.phase === 'gameover') requestMusic();
     }, 1800);
-    this.burst(this.pos.x, this.pos.y + 1, this.pos.z, cause === 'time' ? [255, 220, 120] : [255, 90, 60], 34, 5);
+    // End-of-run feedback uses a dissolve/fire color rather than a blood-like death burst.
+    const endColor = cause === 'time' ? [255, 220, 120] : cause === 'lava' ? [255, 140, 40] : [143, 204, 216];
+    this.burst(this.pos.x, this.pos.y + 1, this.pos.z, endColor, 34, 5);
     this.syncHud(true);
   }
 
@@ -8743,7 +8745,7 @@ if (tpClipActive > 0.5) {
       if (!this.mobSys.lineOfSight(m, this.pos.x, this.pos.y + 1.2, this.pos.z)) taken *= 0.15;
     } else {
       this.addShake(0.3);
-      this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [220, 60, 50], 6, 2);
+      this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [248, 207, 115], 6, 2);
       if (m.def.hostile) this.playMobVoice(m, 'attack', 0.9);
     }
     // thorns reflect
@@ -8808,7 +8810,8 @@ if (tpClipActive > 0.5) {
       const size = Math.max(0.3, Math.min(1.35, m.def.scale));
       this.burst(m.x, m.y + 0.65 * size, m.z, color, Math.max(2, Math.round((crit ? 9 : 5) * size)), (crit ? 2.3 : 1.5) * size);
     } else {
-      this.burst(m.x, m.y + 0.9, m.z, [230, 60, 50], crit ? 14 : 7, crit ? 4 : 2.6);
+      // Gold sparks make hostile hits read as stylized impacts rather than blood-like splashes.
+      this.burst(m.x, m.y + 0.9, m.z, [248, 207, 115], crit ? 14 : 7, crit ? 4 : 2.6);
     }
     this.popup(m.x, m.y + 1.5, m.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#ffffff', crit);
     this.addShake(crit ? 0.32 : 0.16);
@@ -8938,7 +8941,7 @@ if (tpClipActive > 0.5) {
             this.killedBy = t('mob_archer');
             const threatDamage = this.survival ? this.hostileDamageScale() : 1;
             this.damage(7 * threatDamage * (1 - red), 'mob');
-            this.burst(a.x, a.y, a.z, [220, 60, 50], 6, 2);
+            this.burst(a.x, a.y, a.z, [248, 207, 115], 6, 2);
             dead = true;
             break;
           }
@@ -9079,7 +9082,8 @@ if (tpClipActive > 0.5) {
     this.bestCombo = Math.max(this.bestCombo, this.combo);
     const nearby = Math.hypot(m.x - this.pos.x, m.y - this.pos.y, m.z - this.pos.z);
     if (nearby < 22) this.popup(m.x, m.y + 1.4, m.z, `+${gained}`, def.hostile ? '#ff9f5a' : '#93c95d', def.hostile);
-    this.burst(m.x, m.y + 0.8, m.z, burned ? [255, 140, 40] : [200, 60, 60], 18, 3.6);
+    // Death is a brief dissolve; non-burned mobs leave pale-blue pixels, not red splashes.
+    this.burst(m.x, m.y + 0.8, m.z, burned ? [255, 140, 40] : [143, 204, 216], 18, 3.6);
     if (nearby < 16) sfx.breakBlock(def.hostile ? 0.7 : 1.2);
     if (nearby < 12) this.addShake(0.24);
 

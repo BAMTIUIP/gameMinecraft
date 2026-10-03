@@ -146,6 +146,10 @@
               record('deviceInfo.isMobile');
               return kind === 'mobile';
             },
+            isDesktop: () => {
+              record('deviceInfo.isDesktop');
+              return kind === 'desktop';
+            },
             isTablet: () => {
               record('deviceInfo.isTablet');
               return kind === 'tablet';
@@ -329,6 +333,7 @@
           return {
             getCatalog: async () => {
               record('payments.getCatalog');
+              if (Array.isArray(seed.catalog)) return seed.catalog;
               return [
                 {
                   id: 'diamonds-100',
@@ -353,6 +358,16 @@
                   priceCurrencyCode: 'TST',
                   getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
                 },
+                {
+                  id: 'disable_ads',
+                  title: 'Remove ads',
+                  description: 'Permanent ad-free entitlement',
+                  imageURI: '',
+                  price: '299 TST',
+                  priceValue: '299',
+                  priceCurrencyCode: 'TST',
+                  getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
+                },
               ];
             },
             getPurchases: async () => {
@@ -362,7 +377,9 @@
             purchase: async (data) => {
               record('payments.purchase', data);
               if (seed.purchaseCancelled) throw new Error('PURCHASE_CANCELLED');
-              return { productID: data.id, purchaseToken: `token-${data.id}-${Date.now()}`, developerPayload: data.developerPayload ?? '' };
+              const purchase = { productID: data.id, purchaseToken: `token-${data.id}-${Date.now()}`, developerPayload: data.developerPayload ?? '' };
+              seed.purchases = [...(seed.purchases ?? []), purchase];
+              return { ...purchase };
             },
             consumePurchase: async (token) => {
               record('payments.consumePurchase', token);

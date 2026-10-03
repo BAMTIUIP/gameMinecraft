@@ -16,6 +16,7 @@
 
 import { holdAudioForAd } from './audio';
 import { flagBool, flagNumber } from './flags';
+import { hasAdFreeEntitlement } from './adFree';
 import {
   yaAdvAvailable,
   yaRewardedAdAvailable,
@@ -27,12 +28,12 @@ import {
 } from './yandex';
 
 export type AdOutcome = {
-  /** the ad really opened (onOpen fired, and onClose reported wasShown) */
+  /** whether onClose reported wasShown=true */
   shown: boolean;
   /** rewarded video only: the platform counted the view */
   rewarded: boolean;
   /** why nothing happened — useful for logging and for the UI hint */
-  skipped?: 'flag' | 'cooldown' | 'busy' | 'offline' | 'error';
+  skipped?: 'flag' | 'ad-free' | 'cooldown' | 'busy' | 'offline' | 'error';
 };
 
 const MIN_COOLDOWN_SEC = 60; // our own floor: the platform is stricter, but never be annoying
@@ -41,6 +42,8 @@ const SESSION_GRACE_MS = 30_000; // no fullscreen ad in the first 30 s of a sess
 let lastFullscreenAt = 0;
 let sessionStartedAt = Date.now();
 let inFlight = false;
+let wantedBannerVisible: boolean | null = null;
+let bannerSyncInFlight: Promise<void> | null = null;
 
 /** True when an ad is on screen right now — the game must not start anything interactive. */
 export function adInFlight(): boolean {
@@ -71,6 +74,7 @@ export function markAdSessionStart() {
  * results screen. Resolves after the ad is closed (or immediately when it was skipped).
  */
 export async function showFullscreenAd(): Promise<AdOutcome> {
+  if (hasAdFreeEntitlement()) return { shown: false, rewarded: false, skipped: 'ad-free' };
   if (!flagBool('adv.enabled') || !flagBool('adv.interstitial.enabled')) return { shown: false, rewarded: false, skipped: 'flag' };
   if (inFlight) return { shown: false, rewarded: false, skipped: 'busy' };
   if (!yaAdvAvailable()) return { shown: false, rewarded: false, skipped: 'offline' };
@@ -113,11 +117,29 @@ export async function showRewardedAd(): Promise<AdOutcome> {
  * the Console, the game decides — here the banner belongs to the menu (so it never covers the HUD or
  * the crosshair) and is hidden as soon as a run starts.
  */
-export async function syncBanner(visible: boolean): Promise<void> {
-  if (!flagBool('adv.enabled') || !flagBool('adv.banner.enabled')) return;
-  const status = await yaGetBannerAdvStatus();
-  if (!status) return;
-  if (visible === status.showing) return;
-  if (visible) await yaShowBannerAdv();
-  else await yaHideBannerAdv();
+export function syncBanner(visible: boolean): Promise<void> {
+  // A disabled flag or permanent ad-free purchase must actively hide a banner the platform may
+  // already be showing by default. React phase/flag/ownership changes can overlap while SDK calls
+  // are pending, so serialize them and reconcile again if the desired visibility changes mid-request.
+  wantedBannerVisible = visible && !hasAdFreeEntitlement() && flagBool('adv.enabled') && flagBool('adv.banner.enabled');
+  if (bannerSyncInFlight) return bannerSyncInFlight;
+
+  bannerSyncInFlight = (async () => {
+    try {
+      while (wantedBannerVisible !== null) {
+        const desired: boolean = wantedBannerVisible;
+        const status = await yaGetBannerAdvStatus();
+        if (wantedBannerVisible !== desired) continue;
+        if (!status) return;
+        if (desired !== status.showing) {
+          if (desired) await yaShowBannerAdv();
+          else await yaHideBannerAdv();
+        }
+        if (wantedBannerVisible === desired) return;
+      }
+    } finally {
+      bannerSyncInFlight = null;
+    }
+  })();
+  return bannerSyncInFlight;
 }

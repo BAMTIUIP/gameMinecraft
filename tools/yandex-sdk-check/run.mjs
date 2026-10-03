@@ -265,9 +265,10 @@ async function scenarioProgress() {
   const game = await openGame({
     lang: 'ru',
     name: 'CLOUD MINER',
-    // remote config: the shop is off for this group, the FPS counter is hidden, and the
-    // explorer shift lasts 15 s so the check can reach the results screen end to end
-    flags: { 'shop.enabled': 'false', 'ui.showFps': 'false', 'game.exploreMinutes': '0.25' },
+    // remote config: the shop is off for this group; deliberately ask to show the FPS overlay to
+    // verify that a production build never exposes debug UI. The explorer shift lasts 15 s so the
+    // check can reach the results screen end to end.
+    flags: { 'shop.enabled': 'false', 'ui.showFps': 'true', 'game.exploreMinutes': '0.25' },
     data: {
       'orerush.profile': {
         v: 1,
@@ -386,6 +387,8 @@ async function scenarioProgress() {
   check(playClicked, 'Кнопка старта забега найдена и нажата');
   await wait(3000);
   check(game.names(await game.calls()).includes('GameplayAPI.start'), 'GameplayAPI.start() на старте забега');
+  const fpsOverlayVisible = await game.page.evaluate(() => !!document.querySelector('.hud-information--fps'));
+  check(fpsOverlayVisible === false, 'Production build скрывает FPS-отладку даже при ui.showFps=true');
 
   await game.page.keyboard.press('Escape');
   await wait(1200);
@@ -426,6 +429,11 @@ async function scenarioProgress() {
     150_000,
   );
   check(finished, 'Короткая смена из удалённой конфигурации дошла до экрана итогов');
+  log = await game.calls();
+  check(
+    game.names(log).lastIndexOf('GameplayAPI.stop') > game.names(log).lastIndexOf('GameplayAPI.start'),
+    'GameplayAPI.stop() при переходе забега на экран итогов',
+  );
   const statsFlushed = await game.waitFor(
     'Статистика забега в облаке',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.incrementStats' || c.name === 'player.setStats'),
@@ -804,6 +812,47 @@ async function scenarioShop() {
     15_000,
   );
   check(catalogLoaded, 'Каталог покупок запрошен (payments.getCatalog)');
+  const adFreeOfferReady = await game.waitFor(
+    'Предложение отключения рекламы',
+    () => {
+      const button = document.querySelector('[data-ad-free-purchase]');
+      const bounds = button?.getBoundingClientRect();
+      return !!button
+        && !!bounds
+        && bounds.height <= 32
+        && bounds.width <= 320
+        && !!button.querySelector('[data-ad-free-currency]')
+        && /299 TST/.test(button.textContent ?? '');
+    },
+    10_000,
+  );
+  check(adFreeOfferReady, 'Кнопка disable_ads показывается только с ценой и иконкой валюты из активного каталога');
+  const adFreeConsumesBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const adFreePurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const adFreeClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-ad-free-purchase]');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(adFreeClicked, 'Небольшая кнопка отключения рекламы доступна в главном меню');
+  const adFreePurchased = await game.waitFor(
+    'Покупка permanent disable_ads',
+    (before) => (window.__yaCalls ?? []).slice(before).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'disable_ads'),
+    10_000,
+    adFreePurchaseBefore,
+  );
+  check(adFreePurchased, 'Кнопка открывает оплату именно для SKU disable_ads');
+  const adFreeOwned = await game.waitFor(
+    'Восстановленное локальное право отключения рекламы',
+    () => !!document.querySelector('[data-ad-free-owned]'),
+    10_000,
+  );
+  check(adFreeOwned, 'После подтверждения покупки кнопка заменяется статусом «реклама отключена»');
+  const adFreeNotConsumed = game.count(await game.calls(), 'payments.consumePurchase') === adFreeConsumesBefore;
+  check(adFreeNotConsumed, 'Постоянный disable_ads не погашается через consumePurchase');
+  const adFreeBannerHidden = await game.page.evaluate(() => window.__yaBanner === false);
+  check(adFreeBannerHidden, 'Покупка скрывает sticky-баннер, который платформа показывает в меню');
 
   const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(shopOpened, 'Магазин открывается при включённом флаге');
@@ -816,26 +865,49 @@ async function scenarioShop() {
     const weaponCards = await select('weapons');
     const armorCards = await select('armor');
     const gemCards = await select('gems');
-    const petCards = await select('pets');
-    const petsAreWorkInProgress = petCards.length > 0 && [...document.querySelectorAll('[data-shop-product]')].every((card) => {
-      const button = card.querySelector('button');
-      return !!button?.disabled && /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG/i.test(button.textContent ?? '');
-    });
-    await select('all');
+    const gemCurrencyIcons = [...document.querySelectorAll('[data-shop-product^="diamonds-"]')].map((card) =>
+      Boolean(card.querySelector('.shop-product-footer img[src]')),
+    );
+    const rewardCards = await select('rewards');
+    const allCards = await select('all');
+    const hasUnfinishedProducts = allCards.some((id) => id.startsWith('pet-') || id.startsWith('skin-'));
+    const hasUnfinishedLabels = [...document.querySelectorAll('[data-shop-product]')].some((card) =>
+      /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG|COMING SOON|СКОРО|BIENTÔT|BALD/i.test(card.textContent ?? ''),
+    );
     return {
       categoryCount: document.querySelectorAll('[data-shop-category]').length,
       weaponCards,
       armorCards,
       gemCards,
-      petCards,
-      petsAreWorkInProgress,
+      gemCurrencyIcons,
+      rewardCards,
+      hasUnfinishedProducts,
+      hasUnfinishedLabels,
     };
   });
   check(shopCategories?.categoryCount === 5, 'Внизу каталога ровно пять категорий');
   check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
   check(shopCategories?.armorCards?.includes('netherite-armor') && !shopCategories.armorCards.includes('diamond-armor'), 'Категория брони показывает комплект незерита вместо старого алмазного');
-  check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('chest-epic'), 'Самоцветы объединяют наборы монет, сундуки и награды');
-  check(shopCategories?.petCards?.length > 0 && shopCategories.petsAreWorkInProgress, 'Питомцы и скины помечены как «В разработке» и недоступны к выдаче');
+  check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('diamonds-599'), 'Категория самоцветов показывает наборы внутриигровой валюты');
+  check(
+    shopCategories?.gemCurrencyIcons?.length === 2 && shopCategories.gemCurrencyIcons.every(Boolean),
+    'У каждого активного real-money набора показана иконка валюты из SDK',
+    JSON.stringify(shopCategories?.gemCurrencyIcons),
+  );
+  check(
+    !shopCategories?.gemCards?.includes('diamonds-1599') && !shopCategories?.gemCards?.includes('diamonds-5999'),
+    'Наборы, отсутствующие в getCatalog() (неактивные SKU), не показываются в магазине',
+    shopCategories?.gemCards?.filter((id) => id.startsWith('diamonds-')).join(', '),
+  );
+  check(
+    shopCategories?.rewardCards?.includes('drop-daily')
+      && shopCategories.rewardCards.includes('chest-epic')
+      && shopCategories.rewardCards.includes('booster-start')
+      && !shopCategories.hasUnfinishedProducts
+      && !shopCategories.hasUnfinishedLabels,
+    'Категория наград показывает готовые товары, а незавершённые предложения и метки скрыты',
+    JSON.stringify(shopCategories),
+  );
 
   // Ordinary-store drops are an ad gate: a shown-but-unrewarded video must leave the claim untouched.
   const dailyAdBefore = game.count(await game.calls(), 'adv.showRewardedVideo');
@@ -1033,6 +1105,8 @@ async function scenarioShop() {
   check(consumed, 'После начисления алмазов покупка погашена');
   const newBalance = await game.storageValue('orerush.diamonds.v1');
   check(newBalance === '100', 'Алмазы начислены на баланс', `баланс: ${newBalance}`);
+  const purchasedProductId = (await game.calls()).find((call) => call.name === 'payments.purchase' && call.arg?.id === 'diamonds-100')?.arg?.id;
+  check(purchasedProductId === 'diamonds-100' && newBalance === '100', 'Набор diamonds-100 из карточки начислил именно 100 монет', `${purchasedProductId}: ${newBalance}`);
   const noticeShown = await game.page.evaluate(() => /Покупка совершена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
   check(noticeShown, 'Игрок видит подтверждение покупки');
 
@@ -1190,6 +1264,37 @@ async function scenarioShop() {
   check(coopErrors.length === 0, 'Кооператив работает без ошибок в консоли', coopErrors.slice(0, 2).join(' | '));
 
   await game.page.close();
+
+  // Requirement 1.13.6: an empty Console catalogue means there are no active in-app purchase offers.
+  const emptyCatalog = await openGame({ lang: 'ru', name: 'EMPTY CATALOG', catalog: [] });
+  const emptyCatalogMenu = await emptyCatalog.waitFor(
+    'Меню с пустым каталогом',
+    () => /ВОЙТИ ЧЕРЕЗ ЯНДЕКС|ЕЩЁ РАЗ|MINE NOW|НАЧАТЬ/i.test(document.body.innerText ?? ''),
+    30_000,
+  );
+  check(emptyCatalogMenu, 'Игра запускается с пустым каталогом покупок');
+  const emptyCatalogLoaded = await emptyCatalog.waitFor(
+    'Пустой каталог getCatalog()',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'payments.getCatalog'),
+    15_000,
+  );
+  check(emptyCatalogLoaded, 'Каталог покупок запрошен даже когда в Консоли нет активных товаров');
+  const noAdFreeOffer = await emptyCatalog.page.evaluate(() => !document.querySelector('[data-ad-free-purchase]'));
+  check(noAdFreeOffer, 'Без активного disable_ads кнопка отключения рекламы не показывается');
+  const emptyShopOpened = await emptyCatalog.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
+  check(emptyShopOpened, 'Магазин открывается при пустом каталоге');
+  const noInactiveOffers = await emptyCatalog.waitFor(
+    'Отсутствие неактивных предложений',
+    () => {
+      const dialog = document.querySelector('.shop-dialog');
+      return !!dialog && ![...dialog.querySelectorAll('[data-shop-product]')].some((card) =>
+        (card.getAttribute('data-shop-product') ?? '').startsWith('diamonds-'),
+      );
+    },
+    10_000,
+  );
+  check(noInactiveOffers, 'При пустом каталоге в игре отсутствуют предложения real-money coin packs');
+  await emptyCatalog.page.close();
 }
 
 /* ------------------------ scenario C: promo deep links ------------------------ */
@@ -1264,7 +1369,7 @@ async function scenarioPromo() {
  */
 async function scenarioDaily() {
   const DAY_MS = 86_400_000;
-  const first = await openGame({ lang: 'ru' });
+  const first = await openGame({ lang: 'ru', serverTimeOffsetMs: DAY_MS });
   const bonusButton = await first.waitFor(
     'Кнопка ежедневного бонуса',
     () => {
@@ -1277,7 +1382,9 @@ async function scenarioDaily() {
   const before = await first.storageValue('orerush.diamonds.v1');
   check(before === null || before === '0', 'До первого бонуса алмазов нет', String(before));
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = await first.page.evaluate(() =>
+    new Date(Date.now() + (window.__yaMockSeed.serverTimeOffsetMs ?? 0)).toISOString().slice(0, 10),
+  );
   const adCallsBefore = first.count(await first.calls(), 'adv.showRewardedVideo');
   await first.page.evaluate(() => { window.__yaMockSeed.rewarded = false; });
   const failedClick = await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
@@ -1344,7 +1451,7 @@ async function scenarioDaily() {
   // the next server day on another device: the browser clock is untouched, the platform clock moved
   const nextDay = await openGame({
     lang: 'ru',
-    serverTimeOffsetMs: DAY_MS,
+    serverTimeOffsetMs: 2 * DAY_MS,
     data: {
       'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, daily: { last: today, streak: 1 } },
     },

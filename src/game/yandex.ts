@@ -368,42 +368,65 @@ type Listener = () => void;
 const pauseListeners = new Set<Listener>();
 const resumeListeners = new Set<Listener>();
 const platformListeners = new Map<YaPlatformEvent, Set<Listener>>();
+const platformSubscriptions = new Map<YaPlatformEvent, () => void>();
 
-function emit(listeners: Set<Listener>) {
+function emit(listeners: Set<Listener>, source = 'event') {
   for (const cb of [...listeners]) {
     try {
       cb();
     } catch (err) {
-      console.error('[Yandex SDK] pause/resume handler failed', err);
+      console.error(`[Yandex SDK] ${source} handler failed`, err);
     }
   }
 }
 
-/** subscribe to the platform's pause / resume events once, as soon as init() has resolved */
+/** Subscribe to the startup-critical pause pair once, then attach pending event listeners. */
 function subscribePauseResume(sdk: YSDK) {
   try {
     sdk.on?.('game_api_pause', () => {
       platformPaused = true;
-      emit(pauseListeners);
+      emit(pauseListeners, 'game_api_pause');
     });
     sdk.on?.('game_api_resume', () => {
       platformPaused = false;
-      emit(resumeListeners);
+      emit(resumeListeners, 'game_api_resume');
     });
-    for (const event of PLATFORM_EVENTS) {
-      sdk.on?.(event, () => emit(platformListeners.get(event) ?? new Set()));
-    }
   } catch (err) {
-    console.error('[Yandex SDK] ysdk.on() failed', err);
+    console.error('[Yandex SDK] game_api_pause/resume subscription failed', err);
+  }
+  for (const event of platformListeners.keys()) attachPlatformEvent(event);
+}
+
+/** Keep one SDK listener per event while at least one game-side subscriber exists. */
+function attachPlatformEvent(event: YaPlatformEvent) {
+  const sdk = ysdk;
+  const on = sdk?.on;
+  if (platformSubscriptions.has(event) || !platformListeners.get(event)?.size || !sdk || !on) return;
+  const handler: Listener = () => {
+    const listeners = platformListeners.get(event);
+    if (listeners) emit(listeners, event);
+  };
+  try {
+    const returned = on.call(sdk, event, handler);
+    platformSubscriptions.set(event, () => {
+      try {
+        if (sdk.off) sdk.off(event, handler);
+        else if (typeof returned === 'function') returned();
+      } catch (err) {
+        console.warn(`[Yandex SDK] ysdk.off(${event}) failed`, err);
+      }
+    });
+  } catch (err) {
+    console.warn(`[Yandex SDK] ysdk.on(${event}) failed`, err);
   }
 }
 
-const PLATFORM_EVENTS: YaPlatformEvent[] = [
-  'HISTORY_BACK',
-  'EXIT',
-  'ACCOUNT_SELECTION_DIALOG_OPENED',
-  'ACCOUNT_SELECTION_DIALOG_CLOSED',
-];
+function detachPlatformEvent(event: YaPlatformEvent) {
+  const unsubscribe = platformSubscriptions.get(event);
+  if (!unsubscribe) return;
+  platformSubscriptions.delete(event);
+  unsubscribe();
+}
 
 /**
  * Is the platform holding the game now? True between `game_api_pause` and `game_api_resume` — the
@@ -421,10 +444,20 @@ export function yaPlatformPaused(): boolean {
  */
 export function yaOnPlatformEvent(event: YaPlatformEvent, cb: Listener): () => void {
   const listeners = platformListeners.get(event) ?? new Set<Listener>();
+  const wasEmpty = listeners.size === 0;
   platformListeners.set(event, listeners);
   listeners.add(cb);
+  if (wasEmpty) attachPlatformEvent(event);
+
+  let active = true;
   return () => {
+    if (!active) return;
+    active = false;
     listeners.delete(cb);
+    if (!listeners.size) {
+      platformListeners.delete(event);
+      detachPlatformEvent(event);
+    }
   };
 }
 
@@ -435,7 +468,10 @@ export function yaOnPlatformEvent(event: YaPlatformEvent, cb: Listener): () => v
 export function yaDispatchExit(): boolean {
   try {
     if (!ysdk?.dispatchEvent) return false;
-    ysdk.dispatchEvent('EXIT');
+    const event = ysdk.EVENTS?.EXIT ?? 'EXIT';
+    void Promise.resolve(ysdk.dispatchEvent(event)).catch((err) => {
+      console.warn('[Yandex SDK] dispatchEvent(EXIT) failed', err);
+    });
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] dispatchEvent(EXIT) failed', err);
@@ -602,19 +638,29 @@ export function yaServerTime(): number {
  * platform — the caller then falls back to its own guesses.
  */
 export function yaDeviceType(): YaDeviceType | null {
-  const type = ysdk?.deviceInfo?.type;
-  return type === 'desktop' || type === 'mobile' || type === 'tablet' || type === 'tv' ? type : null;
+  try {
+    const type = ysdk?.deviceInfo?.type;
+    return type === 'desktop' || type === 'mobile' || type === 'tablet' || type === 'tv' ? type : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * `ysdk.deviceInfo.isMobile()` / `isTablet()` / `isTV()`. The docs keep both the field and the
- * helpers, so the game asks the helpers when they exist and treats an absent answer as "unknown".
+ * `ysdk.deviceInfo.isMobile()` / `isDesktop()` / `isTablet()` / `isTV()`. The docs keep both the field
+ * and helpers, so the game asks them when they exist and treats an absent answer as "unknown".
  */
-export function yaDeviceFlag(flag: 'mobile' | 'tablet' | 'tv'): boolean | null {
-  const info = ysdk?.deviceInfo;
-  if (!info) return null;
-  const fn = flag === 'mobile' ? info.isMobile : flag === 'tablet' ? info.isTablet : info.isTV;
+export function yaDeviceFlag(flag: 'mobile' | 'desktop' | 'tablet' | 'tv'): boolean | null {
   try {
+    const info = ysdk?.deviceInfo;
+    if (!info) return null;
+    const fn = flag === 'mobile'
+      ? info.isMobile
+      : flag === 'desktop'
+        ? info.isDesktop
+        : flag === 'tablet'
+          ? info.isTablet
+          : info.isTV;
     const value = fn?.call(info);
     return typeof value === 'boolean' ? value : null;
   } catch {
@@ -624,19 +670,25 @@ export function yaDeviceFlag(flag: 'mobile' | 'tablet' | 'tv'): boolean | null {
 
 /** Current fullscreen status as the platform reports it: `'on' | 'off'`, or null without the SDK. */
 export function yaFullscreenStatus(): 'on' | 'off' | null {
-  const fullscreen = ysdk?.screen?.fullscreen;
-  if (!fullscreen) return null;
-  if (fullscreen.status === fullscreen.STATUS_ON || fullscreen.status === 'on') return 'on';
-  if (fullscreen.status === fullscreen.STATUS_OFF || fullscreen.status === 'off') return 'off';
-  return null;
+  try {
+    const fullscreen = ysdk?.screen?.fullscreen;
+    if (!fullscreen) return null;
+    const status = fullscreen.status;
+    if (status === fullscreen.STATUS_ON || status === 'on') return 'on';
+    if (status === fullscreen.STATUS_OFF || status === 'off') return 'off';
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /** Ask the platform for fullscreen. Must be called from a user action (browser rule). */
 export async function yaRequestFullscreen(): Promise<boolean> {
   try {
-    const request = ysdk?.screen?.fullscreen?.request;
+    const fullscreen = ysdk?.screen?.fullscreen;
+    const request = fullscreen?.request;
     if (!request) return false;
-    await request.call(ysdk?.screen?.fullscreen);
+    await request.call(fullscreen);
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] fullscreen request failed', err);
@@ -647,9 +699,10 @@ export async function yaRequestFullscreen(): Promise<boolean> {
 /** …and the way back. */
 export async function yaExitFullscreen(): Promise<boolean> {
   try {
-    const exit = ysdk?.screen?.fullscreen?.exit;
+    const fullscreen = ysdk?.screen?.fullscreen;
+    const exit = fullscreen?.exit;
     if (!exit) return false;
-    await exit.call(ysdk?.screen?.fullscreen);
+    await exit.call(fullscreen);
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] fullscreen exit failed', err);
@@ -746,12 +799,14 @@ export function yaGetPlayer(): Promise<YaPlayer | null> {
 
 /**
  * Read the platform profile (name, avatar, authorisation, paying status) and cache it for the UI.
- * Refreshes at most once per 20 s, so callers may fire it freely; pass force=true after
- * openAuthDialog() to pick up the just-authorised user.
+ * Refreshes at most once per 20 s, so callers may fire it freely. `force=true` discards the memoised
+ * Player object before fetching again; use it after authentication or account selection, when the
+ * SDK may have changed which account that object represents.
  */
 export async function yaRefreshProfile(force = false): Promise<YaProfile | null> {
   const now = Date.now();
   if (!force && profile && now - lastProfileFetch < 20_000) return profile;
+  if (force) playerPromise = null;
   const player = await yaGetPlayer();
   if (!player) return profile;
   try {
@@ -792,7 +847,6 @@ export async function yaOpenAuthDialog(): Promise<boolean> {
     console.info('[Yandex SDK] auth dialog closed', err);
     return false;
   }
-  playerPromise = null; // the Player object must be re-created for the authorised user
   const next = await yaRefreshProfile(true);
   return next?.authorized ?? false;
 }
@@ -955,11 +1009,13 @@ export function yaShowRewardedVideo(): Promise<YaAdResult> {
               rewarded = true;
             }),
           onClose: (wasShown) =>
-            safeCall('onClose', () => settle({ shown: wasShown === true, rewarded: rewarded && wasShown === true })),
+            safeCall('onClose', () => settle({ shown: wasShown === true, rewarded })),
           onError: (error) =>
             safeCall('onError', () => {
               console.warn('[Yandex SDK] rewarded video error', error);
-              settle({ shown: false, rewarded: false, error: true });
+              // `onRewarded` is the SDK's authoritative confirmation; a later close/error must not
+              // revoke a reward the player has already earned.
+              settle({ shown: false, rewarded, error: true });
             }),
         },
       });
@@ -1022,7 +1078,7 @@ let paymentsPromise: Promise<YaPayments | null> | null = null;
  */
 export function yaGetPayments(): Promise<YaPayments | null> {
   if (paymentsPromise) return paymentsPromise;
-  paymentsPromise = (async () => {
+  const request = (async () => {
     if (!ysdk?.getPayments && !ysdk?.payments) return null;
     try {
       if (ysdk.getPayments) return await ysdk.getPayments();
@@ -1032,7 +1088,13 @@ export function yaGetPayments(): Promise<YaPayments | null> {
       return null;
     }
   })();
-  return paymentsPromise;
+  paymentsPromise = request;
+  // Share an in-flight preload, but don't cache an unavailable result forever: the shop may retry
+  // after a transient network failure when the player opens it again.
+  void request.then((payments) => {
+    if (!payments && paymentsPromise === request) paymentsPromise = null;
+  });
+  return request;
 }
 
 /** Is there a payment flow at all? (the shop hides behind this outside Yandex Games) */
@@ -1120,7 +1182,7 @@ export function yaLeaderboardAvailable(): boolean {
   return Boolean(ysdk?.leaderboards);
 }
 
-/** `ysdk.isAvailableMethod('leaderboards.setScore')` — the docs ask to check before scoring. */
+/** Availability gate for leaderboard methods whose SDK docs require `isAvailableMethod()`. */
 export async function yaIsAvailableMethod(method: string): Promise<boolean> {
   if (!ysdk?.isAvailableMethod) return true; // older builds: assume yes and let the call decide
   try {

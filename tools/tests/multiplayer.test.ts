@@ -47,6 +47,8 @@ type SessionSeed = { id: string; meta?: { meta1?: number }; player?: { name?: st
 let sessionSeeds: SessionSeed[] = [];
 let initShouldFail = false;
 let pushShouldFail = false;
+let pushGate: Promise<void> | null = null;
+let onPushCall: (() => void) | null = null;
 const listeners = new Map<string, Array<(payload?: unknown) => void>>();
 
 const emit = (event: string, payload?: unknown) => {
@@ -64,6 +66,8 @@ const sessions = {
   },
   push: async (meta: unknown) => {
     record('multiplayer.push', meta);
+    onPushCall?.();
+    if (pushGate) await pushGate;
     if (pushShouldFail) throw new Error('push failed');
   },
 };
@@ -239,15 +243,36 @@ ok(count('multiplayer.commit') === commitsBefore + 3, 'После паузы в 
 
 /* --------------------------------- push ---------------------------------- */
 
-ok(publishCoopSession({ score: 4321, depth: 55, blocks: 120 }) === true, 'Итог смены публикуется (sessions.push)');
+pushShouldFail = true;
+ok(!(await publishCoopSession({ score: 4321, depth: 55, blocks: 120 })), 'Ошибка sessions.push() не считается успешной публикацией');
+pushShouldFail = false;
+ok(await publishCoopSession({ score: 4321, depth: 55, blocks: 120 }), 'Итог смены публикуется (sessions.push)');
 const pushMeta = last('multiplayer.push') as { meta1?: number; meta2?: number; meta3?: number } | undefined;
 ok(pushMeta?.meta1 === 4321 && pushMeta?.meta2 === 55 && pushMeta?.meta3 === 120, 'push() получает счёт, глубину и блоки', JSON.stringify(pushMeta));
 ok(Object.values(pushMeta ?? {}).some((value) => typeof value === 'number'), 'Хотя бы один meta-параметр задан (требование push)', JSON.stringify(pushMeta));
-ok(publishCoopSession({ score: 4321, depth: 55, blocks: 120 }) === false, 'Без новых транзакций смена повторно не публикуется');
+ok(!(await publishCoopSession({ score: 4321, depth: 55, blocks: 120 })), 'Без новых транзакций смена повторно не публикуется');
 
 fakeNow += 5_000;
 recordPose({ x: 33, y: 21, z: 31, yaw: 0.2, health: 70, blocks: 44 });
-ok(publishCoopSession({ score: 9999, depth: 60, blocks: 200 }) === true, 'Возрождение и продлённая смена публикуются как новая сессия');
+let releasePush: (() => void) | null = null;
+pushGate = new Promise<void>((resolve) => {
+  releasePush = resolve;
+});
+const pushStarted = new Promise<void>((resolve) => {
+  onPushCall = resolve;
+});
+const beforeRevivePush = count('multiplayer.push');
+const revivePushA = publishCoopSession({ score: 9999, depth: 60, blocks: 200 });
+await pushStarted;
+const revivePushB = publishCoopSession({ score: 9999, depth: 60, blocks: 200 });
+releasePush?.();
+const revivePushResults = await Promise.all([revivePushA, revivePushB]);
+ok(
+  count('multiplayer.push') === beforeRevivePush + 1 && revivePushResults[0] && !revivePushResults[1],
+  'Одновременные финальные вызовы разделяют один push (без дублей)',
+);
+pushGate = null;
+onPushCall = null;
 ok((last('multiplayer.push') as { meta1?: number })?.meta1 === 9999, 'Повторная публикация несёт новый результат');
 
 /* ------------------------------ session cap ------------------------------ */
