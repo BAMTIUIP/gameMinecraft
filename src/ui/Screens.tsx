@@ -8,7 +8,7 @@ import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
 import { SHORTCUT_REWARD } from '../game/shortcut';
 import { FitBox } from './FitBox';
-import { DIAMOND_PACKS, SHOP_ITEM_PRICES, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
+import { AD_FREE_PRODUCT_ID, DIAMOND_PACKS, SHOP_ITEM_PRICES, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
 import { developerShopClaims } from '../game/devShop';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
 import { yaServerTime } from '../game/yandex';
@@ -508,6 +508,10 @@ export function StartScreen({
   shopPrices,
   onOpenShop,
   paymentsAvailable,
+  adFreeOwned,
+  adFreeBusy,
+  adFreeNotice,
+  onBuyAdFree,
   rewardedAdsEnabled,
   onBuyPack,
   onBuyShopItem,
@@ -565,6 +569,14 @@ export function StartScreen({
   onOpenShop: () => void;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
   paymentsAvailable: boolean;
+  /** whether the permanent disable_ads entitlement has been restored or just purchased */
+  adFreeOwned: boolean;
+  /** true while the permanent ad-free purchase frame is open */
+  adFreeBusy: boolean;
+  /** localized feedback for a cancelled or unavailable ad-free purchase */
+  adFreeNotice: string | null;
+  /** opens the permanent ad-free product only when it is present in the active catalogue */
+  onBuyAdFree: () => void;
   /** true only when rewarded ads are enabled and the SDK exposes a rewarded-video method */
   rewardedAdsEnabled: boolean;
   /** opens the Yandex payment frame for real-money netherite-coin bundles */
@@ -632,6 +644,7 @@ export function StartScreen({
     return () => window.clearInterval(timer);
   }, []);
   const daily = dailyReward();
+  const adFreePrice = shopPrices.get(AD_FREE_PRODUCT_ID);
   // Requirement 1.13.6: a real-money offer must exist in the active Yandex catalogue. Do not show
   // stale/inactive Console SKUs as disabled pseudo-offers; outside Yandex the shop remains a preview.
   const visibleShopProducts = useMemo(
@@ -873,6 +886,40 @@ export function StartScreen({
                 <span aria-hidden="true" className="text-base leading-none sm:text-lg">⚙</span> {t('settings')}
               </button>
             </div>
+            {adFreeOwned ? (
+              <div
+                data-ad-free-owned="1"
+                role="status"
+                className="mt-1.5 inline-flex min-h-6 items-center gap-1.5 border border-white/10 bg-black/15 px-2 py-1 font-display text-[9px] tracking-wide text-white/35"
+              >
+                <span aria-hidden="true" className="text-moss">✓</span>{t('adFreeOwned')}
+              </div>
+            ) : shopEnabled && paymentsAvailable && adFreePrice ? (
+              <div className="mt-1.5 flex flex-col items-center gap-1">
+                <button
+                  type="button"
+                  data-ad-free-purchase="1"
+                  aria-busy={adFreeBusy}
+                  aria-label={`${t('adFreeCta')} · ${adFreePrice.label}`}
+                  disabled={adFreeBusy}
+                  onClick={onBuyAdFree}
+                  className="inline-flex min-h-6 max-w-full flex-wrap items-center justify-center gap-1.5 border border-white/10 bg-black/15 px-2 py-1 font-display text-[9px] tracking-wide text-white/40 transition-colors hover:border-white/20 hover:text-white/70 disabled:cursor-wait disabled:opacity-50"
+                >
+                  <span aria-hidden="true" className="text-white/30">⊘</span>
+                  <span>{adFreeBusy ? t('adFreeBuying') : t('adFreeCta')}</span>
+                  <span aria-hidden="true" className="text-white/20">·</span>
+                  <img
+                    data-ad-free-currency="1"
+                    src={adFreePrice.currencyIcon}
+                    alt=""
+                    className="h-3.5 w-3.5"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span>{adFreePrice.label}</span>
+                </button>
+                {adFreeNotice && <span data-ad-free-notice="1" role="status" className="text-[9px] text-white/40">{adFreeNotice}</span>}
+              </div>
+            ) : null}
             <button
               type="button"
               data-character-creator="1"

@@ -15,9 +15,12 @@
  */
 
 import { addDiamonds, flushProfile, getDiamonds, hasDeliveredPurchase, markPurchaseDelivered, spendDiamonds } from './profile';
+import { cacheAdFreeEntitlement, hasAdFreeEntitlement, reconcileAdFreePurchases, AD_FREE_PRODUCT_ID } from './adFree';
 import { cancelQueuedShopReward, queueShopReward, type ShopRewardProductId } from './shopRewards';
 import { tvDevice } from './params';
 import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
+
+export { AD_FREE_PRODUCT_ID } from './adFree';
 
 /** Legacy Console product ids mapped to the netherite coins credited to the legacy balance field. */
 export const DIAMOND_PACKS: Readonly<Record<string, number>> = {
@@ -65,6 +68,10 @@ export type ShopCatalog = Map<string, ShopPrice>;
 export type BuyResult =
   | { ok: true; productId: string; diamonds: number }
   | { ok: false; productId: string; reason: 'unavailable' | 'cancelled' | 'failed'; diamonds: number };
+
+export type AdFreeBuyResult =
+  | { ok: true }
+  | { ok: false; reason: 'unavailable' | 'cancelled' | 'failed' };
 
 let catalogCache: ShopCatalog | null = null;
 let catalogPromise: Promise<ShopCatalog> | null = null;
@@ -157,13 +164,21 @@ export function resetShopCatalog() {
 export async function deliverPendingPurchases(): Promise<number> {
   if (tvDevice() || !yaPaymentsAvailable()) return 0;
   const purchases = await yaGetPurchases();
-  if (!purchases?.length) return 0;
+  if (purchases === null) return 0;
+  // getPurchases() is also the restore path for the permanent ad-free SKU. Reconcile only on a
+  // successful response; if it is empty this account does not own the entitlement.
+  reconcileAdFreePurchases(purchases);
+  if (!purchases.length) return 0;
 
   let credited = 0;
   for (const purchase of purchases) {
+    if (purchase.productID === AD_FREE_PRODUCT_ID) {
+      // Permanent purchases remain in getPurchases() and must never be sent to consumePurchase().
+      continue;
+    }
     const amount = DIAMOND_PACKS[purchase.productID];
     if (!amount) {
-      // an unknown product (for example, a permanent purchase handled elsewhere): leave the token
+      // An unknown product may belong to another system: leave it untouched instead of consuming it.
       console.warn('[shop] unknown product in purchases, not consuming', purchase.productID);
       continue;
     }
@@ -211,6 +226,29 @@ export async function buyDiamondPack(productId: string): Promise<BuyResult> {
   }
   await yaConsumePurchase(purchase.purchaseToken);
   return { ok: true, productId, diamonds: getDiamonds() };
+}
+
+/**
+ * Buy the permanent ad-free entitlement. Its active catalogue row is required, and unlike coin packs
+ * the receipt is not consumed: getPurchases() is how Yandex restores this ownership on later boots.
+ */
+export async function buyAdFree(): Promise<AdFreeBuyResult> {
+  if (hasAdFreeEntitlement()) return { ok: true };
+  if (!paymentsAvailable()) return { ok: false, reason: 'unavailable' };
+
+  const catalog = await loadShopCatalog();
+  if (!catalog.has(AD_FREE_PRODUCT_ID)) return { ok: false, reason: 'unavailable' };
+
+  const purchase = await yaPurchase(AD_FREE_PRODUCT_ID, JSON.stringify({ source: 'ad-free', v: 1 }));
+  if (!purchase) return { ok: false, reason: 'cancelled' };
+  if (purchase.productID !== AD_FREE_PRODUCT_ID) {
+    console.warn('[shop] ad-free purchase returned a different product id', purchase.productID);
+    return { ok: false, reason: 'failed' };
+  }
+
+  // Keep the permanent receipt in Yandex Games; never call consumePurchase() for this SKU.
+  cacheAdFreeEntitlement(true);
+  return { ok: true };
 }
 
 /** Spend netherite coins on a mid-run revive (the paid alternative to a rewarded video). */

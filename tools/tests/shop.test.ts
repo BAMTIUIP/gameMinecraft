@@ -81,6 +81,16 @@ const CATALOG = [
     getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
   },
   {
+    id: 'disable_ads',
+    title: 'Отключить рекламу',
+    description: 'Постоянная покупка',
+    imageURI: '',
+    price: '299 ₽',
+    priceValue: '299',
+    priceCurrencyCode: 'RUB',
+    getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
+  },
+  {
     id: 'raw-price-only',
     title: 'Malformed catalogue row',
     description: 'A numeric value without the currency code',
@@ -196,9 +206,12 @@ function ok(condition: boolean, label: string, detail = '') {
 // import AFTER the stubs: the modules read window/localStorage at call time, not at import time
 const { initYandex } = await import('../../src/game/yandex');
 const { startProfileSync, getDiamonds, addDiamonds, flushProfile } = await import('../../src/game/profile');
+const { hasAdFreeEntitlement, cacheAdFreeEntitlement } = await import('../../src/game/adFree');
 const {
+  AD_FREE_PRODUCT_ID,
   DIAMOND_PACKS,
   REVIVE_DIAMOND_PRICE,
+  buyAdFree,
   buyDiamondPack,
   buyRevive,
   deliverPendingPurchases,
@@ -229,6 +242,7 @@ const pack100 = catalog.get('diamonds-100');
 ok(pack100?.label === '99 ₽', 'Цена взята из каталога как есть (п. 1.13.2)', JSON.stringify(pack100));
 ok(pack100?.currencyIcon === 'icon-small.png', 'Иконка портальной валюты взята из getPriceCurrencyImage', String(pack100?.currencyIcon));
 ok(catalog.get('diamonds-599')?.currencyIcon === 'icon-small.png', 'У каждого отображаемого набора есть иконка валюты из SDK');
+ok(catalog.get(AD_FREE_PRODUCT_ID)?.label === '299 ₽' && catalog.get(AD_FREE_PRODUCT_ID)?.currencyIcon === 'icon-small.png', 'Постоянная покупка отключения рекламы использует цену и иконку активного SKU из каталога');
 ok(!catalog.has('raw-price-only'), 'Голая priceValue без форматированной валюты не показывается как цена');
 ok(!catalog.has('no-currency-image'), 'Предложение без иконки валюты из SDK не попадает в каталог магазина');
 ok(catalog.get('diamonds-100')?.fromCatalog === true, 'Товар помечен как полученный из каталога');
@@ -248,8 +262,22 @@ try {
 ok(!catalogThrew && failedCatalog?.size === 0, 'Недоступный каталог возвращает пустую карту без исключения');
 catalogFails = false;
 catalog = await loadShopCatalog();
-ok(catalog.size === 2, 'После сбоя каталог запрашивается снова и наполняется', `${catalog.size} товаров`);
+ok(catalog.size === 3, 'После сбоя каталог запрашивается снова и наполняется', `${catalog.size} товаров`);
 ok(catalogCalls === 3, 'Пустой каталог не кэшируется навсегда (следующий заход в магазин повторит запрос)', `запросов: ${catalogCalls}`);
+
+// --- an inactive/missing permanent SKU must not open the payment frame --------------------------
+const adFreeRowIndex = CATALOG.findIndex((product) => product.id === AD_FREE_PRODUCT_ID);
+const [adFreeCatalogRow] = adFreeRowIndex >= 0 ? CATALOG.splice(adFreeRowIndex, 1) : [];
+resetShopCatalog();
+catalog = await loadShopCatalog();
+ok(!catalog.has(AD_FREE_PRODUCT_ID), 'Без active disable_ads в getCatalog() предложение не попадает в UI-каталог');
+const purchaseCountWithoutAdFree = count('payments.purchase');
+const unavailableAdFree = await buyAdFree();
+ok(!unavailableAdFree.ok && unavailableAdFree.reason === 'unavailable', 'Покупка отключения рекламы без активного SKU недоступна', JSON.stringify(unavailableAdFree));
+ok(count('payments.purchase') === purchaseCountWithoutAdFree, 'Без активного disable_ads платёжное окно не открывается');
+if (adFreeCatalogRow) CATALOG.push(adFreeCatalogRow);
+resetShopCatalog();
+catalog = await loadShopCatalog();
 
 // --- an unprocessed purchase is delivered at start: credit → save → consume ---------------------
 unprocessed = [{ productID: 'diamonds-100', purchaseToken: 'pending-1', developerPayload: '' }];
@@ -283,8 +311,32 @@ const unknownDelivered = await deliverPendingPurchases();
 ok(unknownDelivered === 0, 'Неизвестный товар не начисляется');
 ok(unprocessed.length === 1, 'Неизвестный товар остаётся неконсумированным (не теряем чужую покупку)');
 ok(diamondsBalance() === beforeRetry, 'Баланс после неизвестного товара не изменился');
+
+// --- a permanent ad-free purchase is restored but deliberately never consumed ------------------
+unprocessed = [{ productID: AD_FREE_PRODUCT_ID, purchaseToken: 'ad-free-restore-1', developerPayload: '' }];
+cacheAdFreeEntitlement(false);
+const consumesBeforeAdFreeRestore = count('payments.consumePurchase');
+const restoredPermanent = await deliverPendingPurchases();
+ok(restoredPermanent === 0 && hasAdFreeEntitlement(), 'disable_ads восстанавливает постоянное право без начисления монет');
+ok(unprocessed.length === 1, 'Восстановленный disable_ads остаётся в списке покупок платформы');
+ok(count('payments.consumePurchase') === consumesBeforeAdFreeRestore, 'Постоянный disable_ads никогда не отправляется в consumePurchase');
+
 unprocessed = [];
 resetShopCatalog(); // keep the catalogue checks independent of the shop flow below
+
+// --- ad-free checkout is permanent: confirm it locally and leave the platform receipt intact -----
+cacheAdFreeEntitlement(false);
+const adFreePurchaseCallsBefore = count('payments.purchase');
+const adFreeConsumesBefore = count('payments.consumePurchase');
+const adFreeCloudWritesBefore = count('player.setData');
+const adFreeBought = await buyAdFree();
+ok(adFreeBought.ok && hasAdFreeEntitlement(), 'Успешная покупка disable_ads сразу включает постоянное право', JSON.stringify(adFreeBought));
+ok(count('payments.purchase') === adFreePurchaseCallsBefore + 1, 'Покупка disable_ads открывает платформенное окно один раз');
+ok((lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === AD_FREE_PRODUCT_ID, 'В платформу передан SKU disable_ads');
+ok(count('payments.consumePurchase') === adFreeConsumesBefore, 'После покупки отключения рекламы consumePurchase не вызывается');
+ok(count('player.setData') === adFreeCloudWritesBefore, 'Постоянное право опирается на receipt платформы, не зависит от расходуемого cloud-save');
+ok(unprocessed.some((purchase) => purchase.productID === AD_FREE_PRODUCT_ID), 'Постоянная покупка остаётся доступной для восстановления через getPurchases()');
+unprocessed = [];
 
 // --- a normal purchase: the payment frame opens, diamonds arrive, the token is consumed ---------
 const buyIndex = count('payments.purchase');

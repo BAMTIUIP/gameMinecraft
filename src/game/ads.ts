@@ -16,6 +16,7 @@
 
 import { holdAudioForAd } from './audio';
 import { flagBool, flagNumber } from './flags';
+import { hasAdFreeEntitlement } from './adFree';
 import {
   yaAdvAvailable,
   yaRewardedAdAvailable,
@@ -32,7 +33,7 @@ export type AdOutcome = {
   /** rewarded video only: the platform counted the view */
   rewarded: boolean;
   /** why nothing happened — useful for logging and for the UI hint */
-  skipped?: 'flag' | 'cooldown' | 'busy' | 'offline' | 'error';
+  skipped?: 'flag' | 'ad-free' | 'cooldown' | 'busy' | 'offline' | 'error';
 };
 
 const MIN_COOLDOWN_SEC = 60; // our own floor: the platform is stricter, but never be annoying
@@ -73,6 +74,7 @@ export function markAdSessionStart() {
  * results screen. Resolves after the ad is closed (or immediately when it was skipped).
  */
 export async function showFullscreenAd(): Promise<AdOutcome> {
+  if (hasAdFreeEntitlement()) return { shown: false, rewarded: false, skipped: 'ad-free' };
   if (!flagBool('adv.enabled') || !flagBool('adv.interstitial.enabled')) return { shown: false, rewarded: false, skipped: 'flag' };
   if (inFlight) return { shown: false, rewarded: false, skipped: 'busy' };
   if (!yaAdvAvailable()) return { shown: false, rewarded: false, skipped: 'offline' };
@@ -116,16 +118,16 @@ export async function showRewardedAd(): Promise<AdOutcome> {
  * the crosshair) and is hidden as soon as a run starts.
  */
 export function syncBanner(visible: boolean): Promise<void> {
-  // A disabled flag must actively hide a banner the platform may already be showing by default.
-  // React phase/flag changes can overlap while the SDK calls are pending, so serialize them and
-  // reconcile again if the desired visibility changes mid-request (the newest phase always wins).
-  wantedBannerVisible = visible && flagBool('adv.enabled') && flagBool('adv.banner.enabled');
+  // A disabled flag or permanent ad-free purchase must actively hide a banner the platform may
+  // already be showing by default. React phase/flag/ownership changes can overlap while SDK calls
+  // are pending, so serialize them and reconcile again if the desired visibility changes mid-request.
+  wantedBannerVisible = visible && !hasAdFreeEntitlement() && flagBool('adv.enabled') && flagBool('adv.banner.enabled');
   if (bannerSyncInFlight) return bannerSyncInFlight;
 
   bannerSyncInFlight = (async () => {
     try {
       while (wantedBannerVisible !== null) {
-        const desired = wantedBannerVisible;
+        const desired: boolean = wantedBannerVisible;
         const status = await yaGetBannerAdvStatus();
         if (wantedBannerVisible !== desired) continue;
         if (!status) return;

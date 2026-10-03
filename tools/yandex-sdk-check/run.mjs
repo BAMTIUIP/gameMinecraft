@@ -807,6 +807,47 @@ async function scenarioShop() {
     15_000,
   );
   check(catalogLoaded, 'Каталог покупок запрошен (payments.getCatalog)');
+  const adFreeOfferReady = await game.waitFor(
+    'Предложение отключения рекламы',
+    () => {
+      const button = document.querySelector('[data-ad-free-purchase]');
+      const bounds = button?.getBoundingClientRect();
+      return !!button
+        && !!bounds
+        && bounds.height <= 32
+        && bounds.width <= 320
+        && !!button.querySelector('[data-ad-free-currency]')
+        && /299 TST/.test(button.textContent ?? '');
+    },
+    10_000,
+  );
+  check(adFreeOfferReady, 'Кнопка disable_ads показывается только с ценой и иконкой валюты из активного каталога');
+  const adFreeConsumesBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const adFreePurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const adFreeClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-ad-free-purchase]');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(adFreeClicked, 'Небольшая кнопка отключения рекламы доступна в главном меню');
+  const adFreePurchased = await game.waitFor(
+    'Покупка permanent disable_ads',
+    (before) => (window.__yaCalls ?? []).slice(before).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'disable_ads'),
+    10_000,
+    adFreePurchaseBefore,
+  );
+  check(adFreePurchased, 'Кнопка открывает оплату именно для SKU disable_ads');
+  const adFreeOwned = await game.waitFor(
+    'Восстановленное локальное право отключения рекламы',
+    () => !!document.querySelector('[data-ad-free-owned]'),
+    10_000,
+  );
+  check(adFreeOwned, 'После подтверждения покупки кнопка заменяется статусом «реклама отключена»');
+  const adFreeNotConsumed = game.count(await game.calls(), 'payments.consumePurchase') === adFreeConsumesBefore;
+  check(adFreeNotConsumed, 'Постоянный disable_ads не погашается через consumePurchase');
+  const adFreeBannerHidden = await game.page.evaluate(() => window.__yaBanner === false);
+  check(adFreeBannerHidden, 'Покупка скрывает sticky-баннер, который платформа показывает в меню');
 
   const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(shopOpened, 'Магазин открывается при включённом флаге');
@@ -1050,7 +1091,7 @@ async function scenarioShop() {
   check(consumed, 'После начисления алмазов покупка погашена');
   const newBalance = await game.storageValue('orerush.diamonds.v1');
   check(newBalance === '100', 'Алмазы начислены на баланс', `баланс: ${newBalance}`);
-  const purchasedProductId = (await game.calls()).find((call) => call.name === 'payments.purchase')?.arg?.id;
+  const purchasedProductId = (await game.calls()).find((call) => call.name === 'payments.purchase' && call.arg?.id === 'diamonds-100')?.arg?.id;
   check(purchasedProductId === 'diamonds-100' && newBalance === '100', 'Набор diamonds-100 из карточки начислил именно 100 монет', `${purchasedProductId}: ${newBalance}`);
   const noticeShown = await game.page.evaluate(() => /Покупка совершена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
   check(noticeShown, 'Игрок видит подтверждение покупки');
@@ -1224,6 +1265,8 @@ async function scenarioShop() {
     15_000,
   );
   check(emptyCatalogLoaded, 'Каталог покупок запрошен даже когда в Консоли нет активных товаров');
+  const noAdFreeOffer = await emptyCatalog.page.evaluate(() => !document.querySelector('[data-ad-free-purchase]'));
+  check(noAdFreeOffer, 'Без активного disable_ads кнопка отключения рекламы не показывается');
   const emptyShopOpened = await emptyCatalog.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(emptyShopOpened, 'Магазин открывается при пустом каталоге');
   const noInactiveOffers = await emptyCatalog.waitFor(
