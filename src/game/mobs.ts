@@ -3001,7 +3001,8 @@ export class MobSystem {
       const flash = m.hurtFlash > 0 ? 1 : 0;
       const burnT = m.burn > 0 ? 0.55 + Math.sin(m.burn * 22) * 0.25 : 0;
       for (const mat of m.mats) {
-        if (flash) mat.emissive.setRGB(0.85, 0.15, 0.12);
+        // Brief amber flashes communicate hits without blood-like red coloring.
+        if (flash) mat.emissive.setRGB(0.95, 0.68, 0.16);
         else if (burnT) mat.emissive.setRGB(burnT, burnT * 0.42, 0);
         else if (def.explodes && m.fuse > 0) mat.emissive.setRGB(0.9, 0.9, 0.7);
         else mat.emissive.setRGB(0, 0, 0);
