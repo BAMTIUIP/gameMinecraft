@@ -15,7 +15,7 @@
  *    table (which the game has kept since the very first build — the docs recommend exactly that).
  */
 
-import { getLang } from './i18n';
+import { getLang, resolveLang } from './i18n';
 import {
   yaGetLeaderboardEntries,
   yaGetLeaderboardPlayerEntry,
@@ -110,9 +110,12 @@ export function resetLeaderboardState() {
 
 /** Leaderboard title from the Console in the player's language, with an in-game fallback. */
 export function leaderboardTitle(description?: YaLeaderboardDescription | null): string {
-  const lang = yaLang() ?? getLang();
+  // The Console may hold a title for any platform language, so the raw code is looked up first;
+  // the in-game fallback follows the documented reserve sets (rules 2.14 and 8.2.3).
+  const platformLang = yaLang();
+  const lang = platformLang ?? getLang();
   const fromConsole = description?.title?.[lang] ?? description?.title?.ru ?? description?.title?.en;
-  return fromConsole || TITLES[lang] || TITLES.en;
+  return fromConsole || TITLES[resolveLang(lang)] || TITLES.en;
 }
 
 /**

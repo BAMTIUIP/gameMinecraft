@@ -18,7 +18,7 @@ import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Sc
 import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, type ScoreEntry } from './ui/scores';
 import Inventory from './ui/Inventory';
 import { EMPTY_STATS, type Slot } from './game/items';
-import { getLang, initLang, setLang, t, type Lang } from './game/i18n';
+import { getLang, initLang, resolveLang, setLang, t, type Lang } from './game/i18n';
 import {
   initYandex,
   yaGameplayStart,
@@ -220,8 +220,8 @@ export default function App() {
     void initYandex().then(async () => {
       const platformLang = yaLang();
       if (platformLang && storageGet('orerush.lang') === null) {
-        const mapped: Lang =
-          platformLang === 'ru' ? 'ru' : platformLang === 'fr' ? 'fr' : platformLang === 'de' ? 'de' : 'en';
+        // Unsupported codes follow the documented reserve sets (`ru` for be/kk/uk/uz, `en` otherwise).
+        const mapped = resolveLang(platformLang);
         setLang(mapped);
         setLangUi(mapped);
       }
