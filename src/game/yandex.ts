@@ -1129,7 +1129,7 @@ export function yaLeaderboardAvailable(): boolean {
   return Boolean(ysdk?.leaderboards);
 }
 
-/** `ysdk.isAvailableMethod('leaderboards.setScore')` — the docs ask to check before scoring. */
+/** Availability gate for leaderboard methods whose SDK docs require `isAvailableMethod()`. */
 export async function yaIsAvailableMethod(method: string): Promise<boolean> {
   if (!ysdk?.isAvailableMethod) return true; // older builds: assume yes and let the call decide
   try {

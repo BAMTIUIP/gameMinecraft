@@ -71,15 +71,15 @@ const TITLES: Record<string, string> = {
 };
 
 let view: LeaderboardView | null = null;
-let entriesAt = 0;
+let entriesAt: number | null = null;
 let entryRank: number | null = null;
 let entryAt = 0;
+let entryRequest: Promise<number | null> | null = null;
 let lastScoreAt = 0;
 let pendingScore = 0;
 let scoreTimer: number | null = null;
-/** `isAvailableMethod('leaderboards.setScore')`: asked once, the answer does not change mid-session */
-let scoreMethodChecked = false;
-let scoreMethodAvailable = true;
+/** Shared promise: concurrent submissions must all wait for the availability check before scoring. */
+let scoreMethodAvailability: Promise<boolean> | null = null;
 
 export function leaderboardAvailable(): boolean {
   return yaLeaderboardAvailable();
@@ -87,7 +87,7 @@ export function leaderboardAvailable(): boolean {
 
 /** Milliseconds until the next `getEntries` request is allowed (0 = right now). */
 export function leaderboardCooldownLeft(): number {
-  return Math.max(0, ENTRIES_INTERVAL_MS - (Date.now() - entriesAt));
+  return entriesAt === null ? 0 : Math.max(0, ENTRIES_INTERVAL_MS - (Date.now() - entriesAt));
 }
 
 export function getLeaderboardView(): LeaderboardView | null {
@@ -99,13 +99,13 @@ export function resetLeaderboardState() {
   if (scoreTimer !== null) clearTimeout(scoreTimer);
   scoreTimer = null;
   view = null;
-  entriesAt = 0;
+  entriesAt = null;
   entryRank = null;
   entryAt = 0;
+  entryRequest = null;
   lastScoreAt = 0;
   pendingScore = 0;
-  scoreMethodChecked = false;
-  scoreMethodAvailable = true;
+  scoreMethodAvailability = null;
 }
 
 /** Leaderboard title from the Console in the player's language, with an in-game fallback. */
@@ -163,8 +163,12 @@ function toRow(entry: YaLeaderboardEntry, myId: string | undefined): Leaderboard
  */
 export async function loadLeaderboard(): Promise<LeaderboardView | null> {
   if (!leaderboardAvailable()) return null;
-  if (view && Date.now() - entriesAt < ENTRIES_INTERVAL_MS) return view;
+  if (entriesAt !== null && Date.now() - entriesAt < ENTRIES_INTERVAL_MS) return view;
 
+  // Count every attempt, including failures, and reserve the slot before awaiting so parallel calls
+  // cannot exceed the platform's 20-requests-per-5-minutes limit.
+  const requestedAt = Date.now();
+  entriesAt = requestedAt;
   const result = await yaGetLeaderboardEntries(LEADERBOARD_NAME, {
     quantityTop: QUANTITY_TOP,
     includeUser: true,
@@ -172,7 +176,6 @@ export async function loadLeaderboard(): Promise<LeaderboardView | null> {
   });
   if (!result) return view;
 
-  entriesAt = Date.now();
   const description = result.leaderboard ?? null;
   const myId = yaProfile()?.id;
   const rows: LeaderboardRow[] = [];
@@ -186,7 +189,7 @@ export async function loadLeaderboard(): Promise<LeaderboardView | null> {
   rows.sort((a, b) => a.rank - b.rank);
   const mine = rows.find((row) => row.me);
   const userRank = result.userRank && result.userRank > 0 ? result.userRank : (mine?.rank ?? 0);
-  view = { rows, userRank, title: leaderboardTitle(description), at: entriesAt };
+  view = { rows, userRank, title: leaderboardTitle(description), at: requestedAt };
   return view;
 }
 
@@ -197,13 +200,23 @@ export async function loadLeaderboard(): Promise<LeaderboardView | null> {
 export async function loadMyRank(): Promise<number | null> {
   if (!leaderboardAvailable()) return null;
   if (!yaProfile()?.authorized) return null;
+  if (entryRequest) return entryRequest;
   if (entryRank !== null && Date.now() - entryAt < ENTRY_INTERVAL_MS) return entryRank;
-  if (!entryRank && Date.now() - entryAt < ENTRY_INTERVAL_MS) return null;
+  if (entryRank === null && Date.now() - entryAt < ENTRY_INTERVAL_MS) return null;
 
-  const entry = await yaGetLeaderboardPlayerEntry(LEADERBOARD_NAME);
-  entryAt = Date.now();
-  entryRank = entry?.rank ?? null;
-  return entryRank;
+  const request = (async () => {
+    if (!(await yaIsAvailableMethod('leaderboards.getPlayerEntry'))) return null;
+    const entry = await yaGetLeaderboardPlayerEntry(LEADERBOARD_NAME);
+    entryAt = Date.now();
+    entryRank = entry?.rank ?? null;
+    return entryRank;
+  })();
+  entryRequest = request;
+  try {
+    return await request;
+  } finally {
+    if (entryRequest === request) entryRequest = null;
+  }
 }
 
 /**
@@ -218,11 +231,10 @@ export async function submitLeaderboardScore(score: number, extraData?: string):
   const rounded = Math.max(0, Math.floor(score));
   if (!Number.isFinite(rounded)) return 'skipped';
 
-  if (!scoreMethodChecked) {
-    scoreMethodChecked = true;
-    scoreMethodAvailable = await yaIsAvailableMethod('leaderboards.setScore');
+  if (!scoreMethodAvailability) {
+    scoreMethodAvailability = yaIsAvailableMethod('leaderboards.setScore');
   }
-  if (!scoreMethodAvailable) return 'skipped';
+  if (!(await scoreMethodAvailability)) return 'skipped';
 
   const wait = SCORE_INTERVAL_MS - (Date.now() - lastScoreAt);
   if (wait > 0) {

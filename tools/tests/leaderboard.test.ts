@@ -40,7 +40,12 @@ Object.defineProperty(globalThis, 'navigator', {
 
 let authorized = true;
 let scoreMethodAvailable = true;
+let scoreAvailabilityGate: Promise<boolean> | null = null;
+let playerEntryMethodAvailable = true;
+let playerEntryGate: Promise<void> | null = null;
+let onPlayerEntryCall: (() => void) | null = null;
 let playerEntryPresent = true;
+let entriesShouldFail = false;
 let ranked = false;
 
 const DESCRIPTION = {
@@ -87,7 +92,9 @@ g.YaGames = {
       getStorage: async () => localStorageStub,
       isAvailableMethod: async (method: string) => {
         record('ysdk.isAvailableMethod', method);
-        return method === 'leaderboards.setScore' ? scoreMethodAvailable : true;
+        if (method === 'leaderboards.setScore') return scoreAvailabilityGate ?? scoreMethodAvailable;
+        if (method === 'leaderboards.getPlayerEntry') return playerEntryMethodAvailable;
+        return true;
       },
       leaderboards: {
         getDescription: async (name: string) => {
@@ -100,6 +107,8 @@ g.YaGames = {
         },
         getPlayerEntry: async (name: string) => {
           record('leaderboards.getPlayerEntry', name);
+          onPlayerEntryCall?.();
+          if (playerEntryGate) await playerEntryGate;
           if (!playerEntryPresent) {
             const err = new Error('player not present') as Error & { code: string };
             err.code = 'LEADERBOARD_PLAYER_NOT_PRESENT';
@@ -109,6 +118,7 @@ g.YaGames = {
         },
         getEntries: async (name: string, options?: unknown) => {
           record('leaderboards.getEntries', { name, options });
+          if (entriesShouldFail) throw new Error('temporary leaderboard outage');
           return entriesPayload();
         },
       },
@@ -190,9 +200,21 @@ ok(leaderboardTitle(null).length > 0, 'Есть запасное названи�
 // --- the player's own place ---------------------------------------------------------------------
 const rank = await loadMyRank();
 ok(rank === 3, 'Место игрока для экрана итогов приходит из getPlayerEntry()', String(rank));
+const entryAvailabilityCheck = calls.findIndex(
+  (c) => c.name === 'ysdk.isAvailableMethod' && c.arg === 'leaderboards.getPlayerEntry',
+);
+const entryRequest = calls.findIndex((c) => c.name === 'leaderboards.getPlayerEntry');
+ok(entryAvailabilityCheck >= 0 && entryAvailabilityCheck < entryRequest, 'Доступность getPlayerEntry проверяется до запроса');
 const rankCalls = count('leaderboards.getPlayerEntry');
+const rankAvailabilityCalls = calls.filter(
+  (c) => c.name === 'ysdk.isAvailableMethod' && c.arg === 'leaderboards.getPlayerEntry',
+).length;
 await loadMyRank();
 ok(count('leaderboards.getPlayerEntry') === rankCalls, 'Повторный запрос места не спамит лимит 60/5мин');
+ok(
+  calls.filter((c) => c.name === 'ysdk.isAvailableMethod' && c.arg === 'leaderboards.getPlayerEntry').length === rankAvailabilityCalls,
+  'Закэшированное место не требует повторной проверки доступности',
+);
 
 // --- no entry yet: the platform raises LEADERBOARD_PLAYER_NOT_PRESENT ---------------------------
 resetLeaderboardState();
@@ -200,8 +222,63 @@ playerEntryPresent = false;
 ok((await loadMyRank()) === null, 'Игрок без результата получает null, а не исключение');
 playerEntryPresent = true;
 resetLeaderboardState();
+playerEntryMethodAvailable = false;
+const entriesBeforeUnavailable = count('leaderboards.getPlayerEntry');
+ok(
+  (await loadMyRank()) === null && count('leaderboards.getPlayerEntry') === entriesBeforeUnavailable,
+  'Если isAvailableMethod запрещает getPlayerEntry, запрос не уходит',
+);
+playerEntryMethodAvailable = true;
+resetLeaderboardState();
+
+// Concurrent callers share one in-flight getPlayerEntry request.
+let releaseEntry: (() => void) | null = null;
+playerEntryGate = new Promise<void>((resolve) => {
+  releaseEntry = resolve;
+});
+const entryStarted = new Promise<void>((resolve) => {
+  onPlayerEntryCall = resolve;
+});
+const beforeConcurrentEntry = count('leaderboards.getPlayerEntry');
+const firstRank = loadMyRank();
+await entryStarted;
+const secondRank = loadMyRank();
+releaseEntry?.();
+const concurrentRanks = await Promise.all([firstRank, secondRank]);
+ok(
+  count('leaderboards.getPlayerEntry') === beforeConcurrentEntry + 1 && concurrentRanks[0] === 3 && concurrentRanks[1] === 3,
+  'Параллельные запросы места разделяют один сетевой вызов и получают общий ответ',
+);
+playerEntryGate = null;
+onPlayerEntryCall = null;
+resetLeaderboardState();
 
 // --- submitting a score -------------------------------------------------------------------------
+// Concurrent callers also wait for the same isAvailableMethod check before any score is sent.
+let releaseScoreCheck: ((available: boolean) => void) | null = null;
+scoreAvailabilityGate = new Promise<boolean>((resolve) => {
+  releaseScoreCheck = resolve;
+});
+const beforeConcurrentScore = count('leaderboards.setScore');
+const beforeScoreAvailabilityChecks = calls.filter(
+  (c) => c.name === 'ysdk.isAvailableMethod' && c.arg === 'leaderboards.setScore',
+).length;
+const concurrentScoreA = submitLeaderboardScore(300, 'run A');
+const concurrentScoreB = submitLeaderboardScore(400, 'run B');
+releaseScoreCheck?.(true);
+const concurrentScoreResults = await Promise.all([concurrentScoreA, concurrentScoreB]);
+ok(
+  count('leaderboards.setScore') === beforeConcurrentScore + 1 &&
+    concurrentScoreResults.includes('sent') && concurrentScoreResults.includes('queued'),
+  'Параллельные результаты не обходят лимит setScore (1 запрос в секунду)',
+);
+ok(
+  calls.filter((c) => c.name === 'ysdk.isAvailableMethod' && c.arg === 'leaderboards.setScore').length === beforeScoreAvailabilityChecks + 1,
+  'Параллельная отправка разделяет проверку доступности setScore',
+);
+scoreAvailabilityGate = null;
+resetLeaderboardState(); // cancel the queued follow-up before testing other cases
+
 ok((await submitLeaderboardScore(-5)) === 'sent', 'Отрицательный результат обрезается до нуля, а не отклоняется');
 const zeroArg = calls.filter((c) => c.name === 'leaderboards.setScore').at(-1)?.arg as { score?: number } | undefined;
 ok(zeroArg?.score === 0, 'На платформу уходит 0 — она не принимает отрицательные результаты', String(zeroArg?.score));
@@ -245,5 +322,25 @@ resetLeaderboardState();
 ok(leaderboardCooldownLeft() === 0, 'После сброса запросы разрешены сразу');
 await loadLeaderboard();
 ok(count('leaderboards.getEntries') === 3, 'После сброса список запрашивается заново', String(count('leaderboards.getEntries')));
+
+// --- failed requests still consume a platform slot ----------------------------------------------
+resetLeaderboardState();
+const realDateNow = Date.now;
+let failureClock = realDateNow();
+Date.now = () => failureClock;
+entriesShouldFail = true;
+const beforeFailure = count('leaderboards.getEntries');
+ok((await loadLeaderboard()) === null, 'При сбое сети возвращается null без ранее загруженного списка');
+ok(leaderboardCooldownLeft() > 0, 'Неудачный запрос тоже включает защитный кулдаун');
+await loadLeaderboard();
+ok(count('leaderboards.getEntries') === beforeFailure + 1, 'Повторный вызов после сбоя не обходит лимит getEntries');
+failureClock += 14_999;
+await loadLeaderboard();
+ok(count('leaderboards.getEntries') === beforeFailure + 1, 'Кулдаун после ошибки действует до 15 секунд');
+failureClock += 1;
+entriesShouldFail = false;
+ok((await loadLeaderboard()) !== null, 'Список можно загрузить после истечения кулдауна');
+ok(count('leaderboards.getEntries') === beforeFailure + 2, 'Повтор после кулдауна делает ровно один запрос');
+Date.now = realDateNow;
 
 export { passed, failures };
