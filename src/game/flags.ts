@@ -36,8 +36,8 @@ export const LOCAL_FLAGS: YaFlags = {
   'shop.enabled': 'true',
   /** explore-mode shift length in minutes */
   'game.exploreMinutes': '20',
-  /** the on-screen FPS counter in the corner */
-  'ui.showFps': 'true',
+  /** development overlay only; production hides it even if remote config requests it */
+  'ui.showFps': 'false',
   /** co-op survival (used by src/game/net/*) */
   'multiplayer.enabled': 'true',
   'multiplayer.maxPlayers': '5',

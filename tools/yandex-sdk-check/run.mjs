@@ -265,9 +265,10 @@ async function scenarioProgress() {
   const game = await openGame({
     lang: 'ru',
     name: 'CLOUD MINER',
-    // remote config: the shop is off for this group, the FPS counter is hidden, and the
-    // explorer shift lasts 15 s so the check can reach the results screen end to end
-    flags: { 'shop.enabled': 'false', 'ui.showFps': 'false', 'game.exploreMinutes': '0.25' },
+    // remote config: the shop is off for this group; deliberately ask to show the FPS overlay to
+    // verify that a production build never exposes debug UI. The explorer shift lasts 15 s so the
+    // check can reach the results screen end to end.
+    flags: { 'shop.enabled': 'false', 'ui.showFps': 'true', 'game.exploreMinutes': '0.25' },
     data: {
       'orerush.profile': {
         v: 1,
@@ -386,6 +387,8 @@ async function scenarioProgress() {
   check(playClicked, 'Кнопка старта забега найдена и нажата');
   await wait(3000);
   check(game.names(await game.calls()).includes('GameplayAPI.start'), 'GameplayAPI.start() на старте забега');
+  const fpsOverlayVisible = await game.page.evaluate(() => !!document.querySelector('.hud-information--fps'));
+  check(fpsOverlayVisible === false, 'Production build скрывает FPS-отладку даже при ui.showFps=true');
 
   await game.page.keyboard.press('Escape');
   await wait(1200);

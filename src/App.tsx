@@ -855,7 +855,7 @@ export default function App() {
           onBag={openInventory}
           onCaptureMouse={captureMouse}
           isTouch={isTouch}
-          showFps={flags['ui.showFps'] !== 'false'}
+          showFps={import.meta.env.DEV && flags['ui.showFps'] !== 'false'}
         />
       )}
 
