@@ -8,9 +8,17 @@ import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
 import { SHORTCUT_REWARD } from '../game/shortcut';
 import { FitBox } from './FitBox';
-import { DIAMOND_PACKS, type BuyResult, type ShopCatalog } from '../game/shop';
-import type { DailyView } from '../game/daily';
+import { DIAMOND_PACKS, SHOP_ITEM_PRICES, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
+import { developerShopClaims } from '../game/devShop';
+import { dailyReward, dailySecondsUntilReset } from '../game/daily';
+import { yaServerTime } from '../game/yandex';
+import { CHARACTER_COLORS, CHARACTER_EXPRESSIONS, CHARACTER_GLASSES, CHARACTER_HAIRSTYLES as SUPPORTED_HAIRSTYLES, type CharacterCustomization, type CharacterExpression, type CharacterGender, type CharacterGlasses, type CharacterHairstyle, type CharacterShoeType } from '../game/character';
+import { characterFacePixels } from '../game/characterVisuals';
 import { fullscreenAvailable } from '../game/params';
+import { BLOCKS } from '../game/blocks';
+import { isRewardedDrop, rewardedDropStatuses, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
+import { ShopArtwork } from './ShopArtwork';
+import { NetheriteCoinIcon } from './NetheriteCoinIcon';
 import {
   BagIcon,
   ClockIcon,
@@ -29,6 +37,14 @@ export function fmtMinutes(s: number) {
   const m = Math.floor(s / 60);
   const ss = Math.floor(s % 60);
   return `${m}:${ss.toString().padStart(2, '0')}`;
+}
+
+function formatCountdown(seconds: number) {
+  const value = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const rest = value % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
 function Toggle({
@@ -82,7 +98,8 @@ const Row = ({ k, v, accent }: { k: React.ReactNode; v: React.ReactNode; accent?
 );
 
 type ShopCategory = 'diamonds' | 'pets' | 'gear' | 'drops' | 'boosters' | 'skins';
-type ShopFilter = 'all' | ShopCategory;
+type ShopFilter = 'all' | 'weapons' | 'armor' | 'gems' | 'pets';
+type ShopMode = 'store' | 'developer';
 type ShopProduct = {
   id: string;
   category: ShopCategory;
@@ -98,50 +115,66 @@ type ShopProduct = {
   rarityKey?: TKey;
   anyMode?: boolean;
   accountBound?: boolean;
+  inDevelopment?: boolean;
 };
 
 const SHOP_TABS: ReadonlyArray<{ id: ShopFilter; labelKey: TKey }> = [
   { id: 'all', labelKey: 'shopTabAll' },
-  { id: 'diamonds', labelKey: 'shopTabDiamonds' },
+  { id: 'weapons', labelKey: 'shopTabWeapon' },
+  { id: 'armor', labelKey: 'shopTabArmor' },
+  { id: 'gems', labelKey: 'shopTabGems' },
   { id: 'pets', labelKey: 'shopTabPets' },
-  { id: 'gear', labelKey: 'shopTabGear' },
-  { id: 'drops', labelKey: 'shopTabDrops' },
-  { id: 'boosters', labelKey: 'shopTabBoosters' },
-  { id: 'skins', labelKey: 'shopTabSkins' },
 ];
 
+function productMatchesShopTab(product: ShopProduct, tab: ShopFilter) {
+  if (tab === 'all') return true;
+  if (tab === 'weapons') return product.id === 'netherite-pickaxe';
+  if (tab === 'armor') return product.id === 'netherite-armor' || product.id.startsWith('armor-');
+  if (tab === 'pets') return product.category === 'pets' || product.category === 'skins';
+  // Gems is the shop's catch-all for currency packs, rewarded drops, chests and next-run boosters.
+  return product.category === 'diamonds' || product.category === 'drops' || product.category === 'boosters';
+}
+
+function shopTabForProduct(product: ShopProduct | undefined): ShopFilter {
+  if (!product) return 'gems';
+  if (productMatchesShopTab(product, 'weapons')) return 'weapons';
+  if (productMatchesShopTab(product, 'armor')) return 'armor';
+  if (productMatchesShopTab(product, 'pets')) return 'pets';
+  return 'gems';
+}
+
 const SHOP_PRODUCTS: readonly ShopProduct[] = [
-  { id: 'diamonds-100', category: 'diamonds', titleKey: 'shopPack100Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 100, rubles: 99 },
-  { id: 'diamonds-599', category: 'diamonds', titleKey: 'shopPack599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 599, rubles: 499 },
-  { id: 'diamonds-1599', category: 'diamonds', titleKey: 'shopPack1599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 1599, rubles: 999, rarityKey: 'shopRarityRare' },
-  { id: 'diamonds-5999', category: 'diamonds', titleKey: 'shopPack5999Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#b895ff', diamondAmount: 5999, rubles: 1999, rarityKey: 'shopRarityEpic' },
+  { id: 'diamonds-100', category: 'diamonds', titleKey: 'shopPack100Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 100 },
+  { id: 'diamonds-599', category: 'diamonds', titleKey: 'shopPack599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 599 },
+  { id: 'diamonds-1599', category: 'diamonds', titleKey: 'shopPack1599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 1599, rarityKey: 'shopRarityRare' },
+  { id: 'diamonds-5999', category: 'diamonds', titleKey: 'shopPack5999Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#b895ff', diamondAmount: 5999, rarityKey: 'shopRarityEpic' },
 
-  { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#e7a84b', diamondCost: 79, anyMode: true },
-  { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '🦉', accent: '#b895ff', diamondCost: 399, anyMode: true, rarityKey: 'shopRarityRare' },
-  { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#c98b5b', diamondCost: 99, anyMode: true },
-  { id: 'pet-capybara', category: 'pets', titleKey: 'shopPetCapybaraTitle', descriptionKey: 'shopPetCapybaraDesc', icon: '🦫', accent: '#c98b5b', diamondCost: 499, anyMode: true, rarityKey: 'shopRarityRare' },
-  { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#9ca9ba', diamondCost: 899, anyMode: true, rarityKey: 'shopRarityEpic' },
+  { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '✦', accent: '#e7a84b', inDevelopment: true },
+  { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '✦', accent: '#b895ff', inDevelopment: true, rarityKey: 'shopRarityRare' },
+  { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '✦', accent: '#c98b5b', inDevelopment: true },
+  { id: 'pet-capybara', category: 'pets', titleKey: 'shopPetCapybaraTitle', descriptionKey: 'shopPetCapybaraDesc', icon: '✦', accent: '#c98b5b', inDevelopment: true, rarityKey: 'shopRarityRare' },
+  { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '✦', accent: '#9ca9ba', inDevelopment: true, rarityKey: 'shopRarityEpic' },
 
-  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
-  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
-  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
-  { id: 'diamond-pickaxe', category: 'gear', titleKey: 'shopDiamondPickaxeTitle', descriptionKey: 'shopDiamondPickaxeDesc', icon: '⛏', accent: '#62e8dc', diamondCost: 2999, rarityKey: 'shopRarityLegendary' },
-  { id: 'diamond-armor', category: 'gear', titleKey: 'shopDiamondArmorTitle', descriptionKey: 'shopDiamondArmorDesc', icon: '🛡', accent: '#62e8dc', diamondCost: 4999, rarityKey: 'shopRarityLegendary' },
+  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', diamondCost: SHOP_ITEM_PRICES['armor-uncommon'], rarityKey: 'shopRarityCommon' },
+  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', diamondCost: SHOP_ITEM_PRICES['armor-rare'], rarityKey: 'shopRarityRare' },
+  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['armor-epic'], rarityKey: 'shopRarityEpic' },
+  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', diamondCost: SHOP_ITEM_PRICES['netherite-pickaxe'], rarityKey: 'shopRarityLegendary' },
+  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', diamondCost: SHOP_ITEM_PRICES['netherite-armor'], rarityKey: 'shopRarityLegendary' },
 
-  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '🎁', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
+  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
   { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
-  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '🎁', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
-  { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', badgeKey: 'shopWeekly', rarityKey: 'shopRarityCommon' },
-  { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', badgeKey: 'shopWeekly', rarityKey: 'shopRarityRare' },
-  { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', badgeKey: 'shopWeekly', rarityKey: 'shopRarityEpic' },
+  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '▣', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
+  { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', diamondCost: SHOP_ITEM_PRICES['chest-common'], rarityKey: 'shopRarityCommon' },
+  { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', diamondCost: SHOP_ITEM_PRICES['chest-rare'], rarityKey: 'shopRarityRare' },
+  { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['chest-epic'], rarityKey: 'shopRarityEpic' },
 
-  { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', accountBound: true },
-  { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', accountBound: true },
-  { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', accountBound: true },
+  { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', diamondCost: SHOP_ITEM_PRICES['booster-start'], badgeKey: 'shopNextRunBadge' },
+  { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', diamondCost: SHOP_ITEM_PRICES['booster-ore'], badgeKey: 'shopNextRunBadge' },
+  { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['booster-score'], badgeKey: 'shopNextRunBadge' },
 
-  { id: 'skin-miner', category: 'skins', titleKey: 'shopSkinMinerTitle', descriptionKey: 'shopSkinMinerDesc', icon: '♟', accent: '#e7a84b' },
-  { id: 'skin-arctic', category: 'skins', titleKey: 'shopSkinArcticTitle', descriptionKey: 'shopSkinArcticDesc', icon: '♟', accent: '#62e8dc' },
-  { id: 'skin-nomad', category: 'skins', titleKey: 'shopSkinNomadTitle', descriptionKey: 'shopSkinNomadDesc', icon: '♟', accent: '#b895ff' },
+  { id: 'skin-miner', category: 'skins', titleKey: 'shopSkinMinerTitle', descriptionKey: 'shopSkinMinerDesc', icon: '♟', accent: '#e7a84b', inDevelopment: true },
+  { id: 'skin-arctic', category: 'skins', titleKey: 'shopSkinArcticTitle', descriptionKey: 'shopSkinArcticDesc', icon: '♟', accent: '#62e8dc', inDevelopment: true },
+  { id: 'skin-nomad', category: 'skins', titleKey: 'shopSkinNomadTitle', descriptionKey: 'shopSkinNomadDesc', icon: '♟', accent: '#b895ff', inDevelopment: true },
 ];
 
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
@@ -451,10 +484,15 @@ export function StartScreen({
   onSignIn,
   cloudSavedAt,
   shopEnabled,
+  developerShopEnabled,
   diamonds,
   shopPrices,
   paymentsAvailable,
+  rewardedAdsEnabled,
   onBuyPack,
+  onBuyShopItem,
+  onClaimRewardedDrop,
+  onDeveloperClaim,
   leaderboard,
   leaderboardBusy,
   leaderboardAvailable,
@@ -464,11 +502,13 @@ export function StartScreen({
   onShortcut,
   shortcutNote,
   promo,
-  daily,
   onClaimDaily,
+  dailyBusy,
   dailyNote,
   fullscreen,
   onFullscreen,
+  character,
+  onSaveCharacter,
 }: {
   scores: ScoreEntry[];
   onPlay: () => void;
@@ -494,14 +534,24 @@ export function StartScreen({
   cloudSavedAt: number;
   /** remote-config flag shop.enabled: the shop button disappears when the flag turns it off */
   shopEnabled: boolean;
-  /** in-game currency balance (bought with real money, spent on rewards) */
+  /** visible only in Vite development mode and never on a TV */
+  developerShopEnabled: boolean;
+  /** netherite-coin balance (retained in the legacy profile field) */
   diamonds: number;
   /** prices from the Yandex Console catalogue, keyed by product id */
   shopPrices: ShopCatalog;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
   paymentsAvailable: boolean;
-  /** opens the payment frame; the promise resolves when it closes */
+  /** true only when rewarded ads are enabled and the SDK exposes a rewarded-video method */
+  rewardedAdsEnabled: boolean;
+  /** opens the Yandex payment frame for real-money netherite-coin bundles */
   onBuyPack: (productId: string) => Promise<BuyResult>;
+  /** spends netherite coins and queues the matching gear, chest, or booster reward */
+  onBuyShopItem: (productId: string) => ShopItemBuyResult;
+  /** asks for a rewarded video, then commits the drop only when its reward callback was counted */
+  onClaimRewardedDrop: (dropId: RewardedDropId) => Promise<RewardedDropClaimResult>;
+  /** grant one local free test entitlement; no platform payment or purchase is made */
+  onDeveloperClaim: (productId: string) => Promise<boolean>;
   /** world ranking from ysdk.leaderboards, null until the first successful request */
   leaderboard: LeaderboardView | null;
   leaderboardBusy: boolean;
@@ -516,33 +566,107 @@ export function StartScreen({
   shortcutNote: string | null;
   /** promo deep link: the shop should open on this product, with the campaign banner visible */
   promo: { productId: string | null; promoId: string } | null;
-  /** daily reward: availability, current streak and the amount already computed from server time */
-  daily: DailyView;
+  /** opens a rewarded video for the small daily netherite-coin bonus */
   onClaimDaily: () => void;
-  /** result of the claim: '+25 ◆ за сегодня' or a note that the platform was unreachable */
+  dailyBusy: boolean;
+  /** brief result of the last ad attempt */
   dailyNote: string | null;
   /** is the browser in fullscreen right now (sdk-params); the toggle lives in the settings dialog */
   fullscreen: boolean;
   onFullscreen: () => void;
+  /** current avatar choices, loaded from local/cloud profile */
+  character: CharacterCustomization;
+  /** commits the look to local storage and the player's cloud profile */
+  onSaveCharacter: (next: CharacterCustomization) => void;
 }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showCharacterCreator, setShowCharacterCreator] = useState(false);
   const [showShop, setShowShop] = useState(false);
+  const [shopMode, setShopMode] = useState<ShopMode>('store');
   const [shopTab, setShopTab] = useState<ShopFilter>('all');
+  const shopCarouselRef = useRef<HTMLDivElement>(null);
+  const [activeShopCard, setActiveShopCard] = useState(0);
+  const [devClaims, setDevClaims] = useState<string[]>(() => developerShopClaims());
   const [promoProductId, setPromoProductId] = useState<string | null>(null);
 
   // A promo banner in the catalogue opens the game with `referrer=promo`: take the player straight
   // to the promised screen instead of leaving them on the main menu (sdk-environment).
   useEffect(() => {
-    if (!promo) return;
-    setShopTab(promo.productId ? (SHOP_PRODUCTS.find((product) => product.id === promo.productId)?.category ?? 'diamonds') : 'diamonds');
+    if (!promo || !shopEnabled) return;
+    setShopTab(promo.productId ? shopTabForProduct(SHOP_PRODUCTS.find((product) => product.id === promo.productId)) : 'gems');
     setPromoProductId(promo.productId);
+    setShopMode('store');
     setShowShop(true);
-  }, [promo]);
+  }, [promo, shopEnabled]);
   const [buying, setBuying] = useState<string | null>(null);
   const [shopNotice, setShopNotice] = useState<string | null>(null);
-  const filteredShopProducts = shopTab === 'all'
-    ? SHOP_PRODUCTS
-    : SHOP_PRODUCTS.filter((product) => product.category === shopTab);
+  const [clockNow, setClockNow] = useState(() => yaServerTime());
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(yaServerTime()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const daily = dailyReward();
+  const filteredShopProducts = SHOP_PRODUCTS.filter((product) => productMatchesShopTab(product, shopTab));
+  const rewardedDrops = rewardedDropStatuses(clockNow);
+
+  const centerShopCard = (carousel: HTMLElement, card: HTMLElement) => {
+    const carouselRect = carousel.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const delta = cardRect.left + cardRect.width / 2 - (carouselRect.left + carousel.clientWidth / 2);
+    carousel.scrollLeft += delta;
+  };
+
+  useEffect(() => {
+    const products = SHOP_PRODUCTS.filter((product) => productMatchesShopTab(product, shopTab));
+    const targetIndex = products.findIndex((product) => product.id === promoProductId);
+    const frame = window.requestAnimationFrame(() => {
+      const carousel = shopCarouselRef.current;
+      if (!carousel) return;
+      if (targetIndex >= 0) {
+        const promotedCard = carousel.querySelector<HTMLElement>(`[data-shop-product="${products[targetIndex].id}"]`);
+        if (promotedCard) centerShopCard(carousel, promotedCard);
+        setActiveShopCard(targetIndex);
+      } else {
+        carousel.scrollTo({ left: 0, behavior: 'auto' });
+        setActiveShopCard(0);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [shopTab, promoProductId, showShop]);
+
+  const syncActiveShopCard = () => {
+    const carousel = shopCarouselRef.current;
+    if (!carousel) return;
+    const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
+    if (!cards.length) return;
+    const center = carousel.getBoundingClientRect().left + carousel.clientWidth / 2;
+    let nearest = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    cards.forEach((card, index) => {
+      const rect = card.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - center);
+      if (distance < nearestDistance) {
+        nearest = index;
+        nearestDistance = distance;
+      }
+    });
+    setActiveShopCard((current) => current === nearest ? current : nearest);
+  };
+
+  const moveShopCarousel = (direction: -1 | 1) => {
+    const carousel = shopCarouselRef.current;
+    if (!carousel) return;
+    const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
+    if (!cards.length) return;
+    const next = Math.max(0, Math.min(cards.length - 1, activeShopCard + direction));
+    const currentRect = cards[activeShopCard]?.getBoundingClientRect();
+    const targetRect = cards[next]?.getBoundingClientRect();
+    if (currentRect && targetRect) {
+      const delta = targetRect.left + targetRect.width / 2 - (currentRect.left + currentRect.width / 2);
+      carousel.scrollLeft += delta;
+    }
+    setActiveShopCard(next);
+  };
   const modes = [
     { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
     { id: 'explorer', on: false, label: t('explorer'), sub: t('explorerSub'), accent: '#5fe8dc', icon: '✦' },
@@ -653,21 +777,26 @@ export function StartScreen({
             <button
               type="button"
               data-daily-bonus="1"
-              disabled={!daily.available}
+              disabled={!daily.available || !rewardedAdsEnabled || dailyBusy}
               onClick={onClaimDaily}
-              title={daily.available ? t('dailyTitle') : t('dailyClaimed')}
+              title={daily.available
+                ? rewardedAdsEnabled ? t('dailyTitle') : t('shopAdUnavailable')
+                : t('dailyNextReset').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))}
               className={`menu-daily mt-4 flex w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
-                daily.available
+                daily.available && rewardedAdsEnabled && !dailyBusy
                   ? 'border-[#f4b942]/60 bg-[#f4b942]/[0.12] text-[#f4b942] hover:bg-[#f4b942]/20'
                   : 'border-white/10 bg-black/20 text-white/40'
               }`}
             >
-              <span aria-hidden="true">◆</span>
+              <NetheriteCoinIcon className="h-4 w-4 shrink-0" />
               <span>
-                {dailyNote ??
-                  (daily.available
-                    ? `${t('dailyTitle')} · +${daily.amount} · ${t('dailyStreak').replace('{n}', String(daily.streak))}`
-                    : t('dailyClaimed'))}
+                {daily.available
+                  ? dailyBusy
+                    ? t('shopBuying')
+                    : !rewardedAdsEnabled
+                      ? t('shopAdUnavailable')
+                      : dailyNote ?? `${t('dailyTitle')} · +${daily.amount} ${t('shopCoinUnit')} · ${t('shopWatchAd')} · ${t('dailyStreak').replace('{n}', String(daily.streak))}`
+                  : t('dailyNextReset').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))}
               </span>
             </button>
 
@@ -678,12 +807,13 @@ export function StartScreen({
                 <button
                   type="button"
                   onClick={() => {
+                    setShopMode('store');
                     setShopTab('all');
                     setShowShop(true);
                   }}
                   className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
                 >
-                  <span aria-hidden="true" className="font-display text-lg leading-none text-[#62e8dc] sm:text-xl">◆</span>
+                  <NetheriteCoinIcon className="h-5 w-5 shrink-0" />
                   <span>{t('shop')}</span>
                 </button>
               )}
@@ -702,6 +832,32 @@ export function StartScreen({
                 <span aria-hidden="true" className="text-base leading-none sm:text-lg">⚙</span> {t('settings')}
               </button>
             </div>
+            <button
+              type="button"
+              data-character-creator="1"
+              onClick={() => setShowCharacterCreator(true)}
+              className="mt-2 flex w-full max-w-[900px] items-center justify-center gap-2 border border-[#8c58bd]/45 bg-gradient-to-r from-[#38264a]/70 via-[#1a1d20]/90 to-[#263846]/70 px-3 py-2.5 font-display text-[10px] tracking-[0.16em] text-[#d7bcff] transition-all hover:border-[#c49aff]/75 hover:brightness-125 sm:mt-3 sm:text-xs"
+            >
+              <span aria-hidden="true" className="text-lg">🧍</span>
+              {t('characterCreator')}
+              <span className="text-white/35">·</span>
+              <span className="text-white/55">{t(character.gender === 'girl' ? 'characterGirl' : 'characterBoy')}</span>
+            </button>
+            {developerShopEnabled && (
+              <button
+                type="button"
+                data-developer-shop="1"
+                onClick={() => {
+                  setShopMode('developer');
+                  setShopTab('all');
+                  setShopNotice(null);
+                  setShowShop(true);
+                }}
+                className="mt-2 flex w-full max-w-[900px] items-center justify-center gap-2 border border-[#f4b942]/45 bg-[#f4b942]/[0.08] px-3 py-2 font-display text-[9px] tracking-[0.18em] text-[#f4d283] transition-colors hover:bg-[#f4b942]/15 sm:text-[10px]"
+              >
+                <span aria-hidden="true">⚒</span>{t('devShopButton')}<span aria-hidden="true" className="text-white/30">·</span>{t('devShopFreeBadge')}
+              </button>
+            )}
           </main>
 
           {/* Records and compact item guide; stacks under the centered menu on tablet/mobile. */}
@@ -770,7 +926,7 @@ export function StartScreen({
         </div>
       </FitBox>
 
-      {showShop && (
+      {showShop && (shopEnabled || developerShopEnabled) && (
         <div className="shop-backdrop absolute inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#05090b]/90 px-2 py-3 backdrop-blur-sm sm:px-5 sm:py-5">
           <section
             role="dialog"
@@ -779,20 +935,22 @@ export function StartScreen({
             className="shop-dialog bevel notch my-auto flex min-h-0 w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
           >
             <header className="flex shrink-0 items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-[#15242b] via-[#182229] to-[#241c32] p-3 sm:gap-4 sm:p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#62e8dc]/45 bg-[#62e8dc]/10 font-display text-2xl text-[#62e8dc] sm:h-14 sm:w-14 sm:text-3xl">
-                ◆
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#bd8a62]/45 bg-[#73513e]/20 sm:h-14 sm:w-14">
+                <NetheriteCoinIcon className="h-7 w-7 sm:h-9 sm:w-9" />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{t('shop')}</h2>
-                <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{t('shopSubtitle')}</p>
+                <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{shopMode === 'developer' ? t('devShopTitle') : t('shop')}</h2>
+                <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{shopMode === 'developer' ? t('devShopSubtitle') : t('shopSubtitle')}</p>
               </div>
-              <div className="hidden min-w-28 border border-[#62e8dc]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
+              <div className="hidden min-w-28 border border-[#bd8a62]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
                 <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopBalance')}</div>
-                <div className="font-display text-lg leading-tight text-[#62e8dc]">◆ {diamonds.toLocaleString()}</div>
+                <div className="flex items-center justify-end gap-1.5 font-display text-lg leading-tight text-[#edbd8c]" aria-label={`${diamonds.toLocaleString()} ${t('shopBalance')}`}>
+                  <NetheriteCoinIcon className="h-4 w-4" />{diamonds.toLocaleString()}
+                </div>
                 <div className="text-[8px] text-white/35">{t('shopBalanceHint')}</div>
               </div>
-              <div className="flex shrink-0 items-center gap-1 border border-[#62e8dc]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#62e8dc] sm:hidden">
-                ◆ {diamonds.toLocaleString()}
+              <div className="flex shrink-0 items-center gap-1.5 border border-[#bd8a62]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#edbd8c] sm:hidden" aria-label={`${diamonds.toLocaleString()} ${t('shopBalance')}`}>
+                <NetheriteCoinIcon className="h-4 w-4" />{diamonds.toLocaleString()}
               </div>
               <button
                 type="button"
@@ -805,15 +963,15 @@ export function StartScreen({
             </header>
 
             <div className="shop-currency-note mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
-              <span className="hidden font-display text-xl text-[#62e8dc] sm:inline">◇</span>
+              <NetheriteCoinIcon className="h-5 w-5 shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{t('shopPortalCurrency')}</div>
+                <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{shopMode === 'developer' ? t('devShopTitle') : t('shopPortalCurrency')}</div>
                 <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">
-                  {paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
+                  {shopMode === 'developer' ? t('devShopNotice') : paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
                 </p>
               </div>
               <span className="shrink-0 border border-white/10 bg-black/20 px-1.5 py-1 font-display text-[8px] tracking-widest text-white/45 sm:px-2 sm:text-[9px]">
-                {paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
+                {shopMode === 'developer' ? t('devShopFreeBadge') : paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
               </span>
             </div>
 
@@ -827,57 +985,64 @@ export function StartScreen({
               </div>
             )}
 
-            <nav aria-label={t('shop')} className="shop-tabs mt-2 flex shrink-0 gap-1.5 overflow-x-auto px-2 pb-1 sm:mt-3 sm:gap-2 sm:px-4">
-              {SHOP_TABS.map((tab) => {
-                const selected = shopTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setShopTab(tab.id)}
-                    className={`notch shrink-0 px-2.5 py-2 font-display text-[9px] tracking-wide transition-all sm:px-3.5 sm:text-[10px] ${selected ? 'text-[#071012]' : 'bg-[#151d21] text-white/55 hover:text-white/85'}`}
-                    style={selected ? { background: 'linear-gradient(180deg,#83eee3,#43bbb5)', border: '3px solid #62e8dc', boxShadow: '0 0 14px rgba(98,232,220,.2)' } : { border: '3px solid #06090a' }}
-                  >
-                    {t(tab.labelKey)}
-                  </button>
-                );
-              })}
-            </nav>
-
-            {shopTab === 'boosters' && (
-              <div className="mx-2 mt-1 flex shrink-0 items-start gap-2 border-l-2 border-[#f4b942] bg-[#f4b942]/[0.06] px-2.5 py-2 text-[10px] leading-snug text-white/65 sm:mx-4 sm:text-xs">
-                <span className="text-[#f4b942]">⚡</span>{t('shopBoosterInfo')}
-              </div>
-            )}
-
-            <div className="shop-catalog min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-3">
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
-                {filteredShopProducts.map((product) => {
-                  // packs are real purchases: the price comes from the Console catalogue, together
-                  // with the portal-currency icon (requirement 1.13.2 forbids hardcoding it)
+            <div id="shop-catalog" className="shop-catalog min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3">
+              <div className="shop-carousel-stage">
+                <div
+                  ref={shopCarouselRef}
+                  data-shop-carousel="true"
+                  role="list"
+                  onScroll={syncActiveShopCard}
+                  className="shop-carousel"
+                >
+                  {filteredShopProducts.map((product) => {
                   const catalogPrice = shopPrices.get(product.id);
                   const promoted = promoProductId === product.id;
-                  const purchasable = paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined;
-                  const priceLabel = catalogPrice
-                    ? catalogPrice.label
-                    : product.diamondAmount !== undefined
-                      ? `${product.diamondAmount.toLocaleString()} ◆`
-                      : product.diamondCost !== undefined
-                        ? `${product.diamondCost.toLocaleString()} ◆`
-                        : product.freeDrop
-                          ? t('shopFree')
-                          : t('shopPriceSoon');
+                  const developerMode = shopMode === 'developer';
+                  const rewardedDrop = isRewardedDrop(product.id);
+                  const dropStatus = rewardedDrop ? rewardedDrops[product.id as RewardedDropId] : null;
+                  const devAlreadyClaimed = DIAMOND_PACKS[product.id] === undefined && devClaims.includes(product.id);
+                  const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
+                    ? product.id === 'drop-daily'
+                      ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
+                      : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
+                    : '';
+                  const purchasable = developerMode
+                    ? !devAlreadyClaimed
+                    : product.inDevelopment
+                      ? false
+                      : rewardedDrop
+                        ? rewardedAdsEnabled && Boolean(dropStatus?.available)
+                        : product.diamondCost !== undefined
+                          ? diamonds >= product.diamondCost
+                          : product.diamondAmount !== undefined
+                            ? paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined && Boolean(catalogPrice)
+                            : false;
+                  const priceLabel: React.ReactNode = developerMode
+                    ? t('devShopPrice')
+                    : product.inDevelopment
+                      ? t('shopInDevelopment')
+                      : rewardedDrop
+                        ? t('shopRewardedPrice')
+                        : product.diamondCost !== undefined
+                          ? <span className="inline-flex items-center gap-1.5">{product.diamondCost.toLocaleString()} <NetheriteCoinIcon className="h-4 w-4" /></span>
+                          : product.diamondAmount !== undefined
+                            ? catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'))
+                            : product.freeDrop
+                              ? t('shopRewardedPrice')
+                              : t('shopPriceSoon');
                   return (
                     <article
                       key={product.id}
-                      className="flex min-h-[220px] flex-col border bg-gradient-to-b from-[#172126] to-[#0c1215] p-2.5 shadow-[0_6px_18px_rgba(0,0,0,.24)] sm:min-h-[235px] sm:p-3"
+                      data-shop-product={product.id}
+                      role="listitem"
+                      tabIndex={-1}
+                      className="shop-product-card flex min-h-[220px] flex-col snap-center border bg-gradient-to-b from-[#172126] to-[#0c1215] p-2.5 shadow-[0_6px_18px_rgba(0,0,0,.24)] sm:min-h-[235px] sm:p-3"
                       style={{
                         borderColor: promoted ? '#f4b942' : `${product.accent}45`,
                         boxShadow: promoted ? '0 0 0 1px #f4b94255, 0 6px 22px rgba(244,185,66,.18)' : undefined,
                       }}
                     >
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="shop-product-meta flex items-start justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
                           {product.rarityKey && (
                             <span className="border border-white/10 bg-black/25 px-1.5 py-1 font-display text-[8px] tracking-wide sm:text-[9px]" style={{ color: product.accent }}>
@@ -894,6 +1059,11 @@ export function StartScreen({
                               {t(product.badgeKey)}
                             </span>
                           )}
+                          {product.inDevelopment && (
+                            <span className="border border-[#f4b942]/35 bg-[#f4b942]/[0.08] px-1.5 py-1 font-display text-[8px] tracking-wide text-[#f4ca70] sm:text-[9px]">
+                              {t('shopInDevelopment')}
+                            </span>
+                          )}
                           {product.anyMode && (
                             <span className="border border-[#93c95d]/25 bg-[#93c95d]/[0.06] px-1.5 py-1 font-display text-[8px] tracking-wide text-[#a8d78a] sm:text-[9px]">
                               {t('shopAnyMode')}
@@ -906,38 +1076,99 @@ export function StartScreen({
                           )}
                         </div>
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/10 bg-black/20 font-display text-xl sm:h-10 sm:w-10 sm:text-2xl" style={{ color: product.accent }}>
-                          {product.icon}
+                          {product.diamondAmount !== undefined ? <NetheriteCoinIcon className="h-5 w-5 sm:h-6 sm:w-6" /> : product.icon}
                         </span>
                       </div>
 
-                      <h3 className="mt-2 font-display text-sm leading-tight text-white sm:text-base">{t(product.titleKey)}</h3>
+                      <h3 className="shop-product-title mt-2 font-display text-sm leading-tight text-white sm:text-base">{t(product.titleKey)}</h3>
+                      <div className="shop-product-art mt-1 flex h-[92px] items-center justify-center overflow-hidden border border-white/[0.04] bg-[radial-gradient(ellipse_at_50%_70%,rgba(98,232,220,.08),transparent_68%)]">
+                        <ShopArtwork productId={product.id} accent={product.accent} />
+                      </div>
                       {product.diamondAmount !== undefined && (
-                        <div className="mt-1 font-display text-lg leading-none text-[#62e8dc] sm:text-xl">
-                          {product.diamondAmount.toLocaleString()} <span className="text-xs">◆ {t('shopBalance')}</span>
+                        <div className="shop-product-amount mt-1 flex flex-wrap items-center gap-1.5 font-display text-lg leading-none text-[#edbd8c] sm:text-xl">
+                          <NetheriteCoinIcon className="h-4 w-4 sm:h-5 sm:w-5" />{product.diamondAmount.toLocaleString()}
+                          <span className="text-[9px] leading-tight text-white/45">{t('shopCoinUnit')}</span>
                         </div>
                       )}
-                      <p className="mt-1.5 flex-1 text-[10px] leading-relaxed text-white/55 sm:text-[11px]">{t(product.descriptionKey)}</p>
+                      <p className="shop-product-description mt-1.5 flex-1 text-[10px] leading-relaxed text-white/55 sm:text-[11px]">{t(product.descriptionKey)}</p>
 
-                      <div className="mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
+                      <div className="shop-product-footer mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
                         <div>
                           <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }}>
-                            {catalogPrice?.currencyIcon && (
+                            {!developerMode && product.diamondAmount !== undefined && catalogPrice?.currencyIcon && (
                               <img src={catalogPrice.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
                             )}
                             {priceLabel}
                           </div>
-                          {catalogPrice && product.diamondAmount !== undefined && (
-                            <div className="mt-0.5 text-[10px] text-white/55">{product.diamondAmount.toLocaleString()} ◆</div>
+                          {!developerMode && catalogPrice && product.diamondAmount !== undefined && (
+                            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-white/55">
+                              <NetheriteCoinIcon className="h-3 w-3" />{product.diamondAmount.toLocaleString()} {t('shopCoinUnit')}
+                            </div>
                           )}
                         </div>
                         <button
                           type="button"
                           disabled={!purchasable || buying !== null}
-                          title={purchasable ? t('shopBuy') : t('shopSoonHint')}
+                          title={developerMode
+                            ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
+                            : rewardedDrop
+                              ? dropStatus?.available
+                                ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
+                                : dropStatusLabel
+                              : product.inDevelopment
+                                ? t('shopInDevelopment')
+                                : product.diamondCost !== undefined
+                                  ? purchasable ? t('shopBuy') : t('shopNotEnoughDiamonds')
+                                  : product.diamondAmount !== undefined
+                                    ? paymentsAvailable ? catalogPrice ? t('shopBuy') : t('shopPriceUnavailable') : t('shopPaymentsUnavailable')
+                                    : t('shopSoonHint')}
                           onClick={async () => {
-                            if (!purchasable) return;
+                            if (!purchasable || buying !== null) return;
                             setBuying(product.id);
                             setShopNotice(null);
+                            if (developerMode) {
+                              const granted = await onDeveloperClaim(product.id);
+                              setBuying(null);
+                              if (granted) {
+                                setDevClaims(developerShopClaims());
+                                setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                              } else {
+                                setShopNotice(t('devShopGrantFailed'));
+                              }
+                              return;
+                            }
+                            if (rewardedDrop) {
+                              const result = await onClaimRewardedDrop(product.id as RewardedDropId);
+                              setBuying(null);
+                              if (result.ok) {
+                                const rewardParts = [
+                                  ...(result.diamonds > 0 ? [`${result.diamonds} ${result.diamonds === 1 ? t('shopCoinUnitOne') : t('shopCoinUnit')}`] : []),
+                                  ...result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`),
+                                ];
+                                const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                                const deliveryNote = result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
+                                setShopNotice(result.items.length ? `${notice} · ${deliveryNote}` : notice);
+                              } else if (result.reason === 'ad') {
+                                setShopNotice(t('shopDropAdFailed'));
+                              } else if (result.reason === 'claimed') {
+                                setShopNotice(t('shopDropAlreadyClaimed'));
+                              } else {
+                                setShopNotice(t('shopDropSaveFailed'));
+                              }
+                              return;
+                            }
+                            if (product.diamondCost !== undefined) {
+                              const result = onBuyShopItem(product.id);
+                              setBuying(null);
+                              setShopNotice(result.ok
+                                ? t('shopItemPurchaseDone').replace('{item}', t(product.titleKey))
+                                : result.reason === 'not-enough'
+                                  ? t('notEnoughDiamonds')
+                                  : result.reason === 'storage'
+                                    ? t('shopItemSaveFailed')
+                                    : t('shopItemUnavailable'));
+                              return;
+                            }
                             const result = await onBuyPack(product.id);
                             setBuying(null);
                             setShopNotice(
@@ -954,20 +1185,113 @@ export function StartScreen({
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {purchasable ? (buying === product.id ? t('shopBuying') : t('shopBuy')) : t('shopSoon')}
+                          {developerMode
+                            ? devAlreadyClaimed
+                              ? t('devShopTaken')
+                              : buying === product.id
+                                ? t('devShopTaking')
+                                : t('devShopTake')
+                            : rewardedDrop
+                              ? dropStatus?.available
+                                ? !rewardedAdsEnabled
+                                  ? t('shopAdUnavailable')
+                                  : buying === product.id
+                                    ? t('shopBuying')
+                                    : t('shopWatchAd')
+                                : dropStatusLabel
+                              : product.inDevelopment
+                                ? t('shopInDevelopment')
+                                : product.diamondCost !== undefined
+                                  ? buying === product.id
+                                    ? t('shopBuying')
+                                    : purchasable ? t('shopBuy') : t('shopNotEnoughDiamonds')
+                                  : product.diamondAmount !== undefined
+                                    ? buying === product.id
+                                      ? t('shopBuying')
+                                      : !paymentsAvailable
+                                        ? t('shopPaymentsUnavailable')
+                                        : catalogPrice
+                                          ? t('shopBuy')
+                                          : t('shopPriceUnavailable')
+                                    : t('shopSoon')}
                         </button>
                       </div>
                     </article>
                   );
-                })}
+                  })}
+                </div>
+                {filteredShopProducts.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      data-shop-previous="true"
+                      aria-label={t('shopPrev')}
+                      disabled={activeShopCard <= 0}
+                      onClick={() => moveShopCarousel(-1)}
+                      className="shop-carousel-arrow shop-carousel-arrow-prev"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      data-shop-next="true"
+                      aria-label={t('shopNext')}
+                      disabled={activeShopCard >= filteredShopProducts.length - 1}
+                      onClick={() => moveShopCarousel(1)}
+                      className="shop-carousel-arrow shop-carousel-arrow-next"
+                    >
+                      ›
+                    </button>
+                    <div className="sr-only" aria-live="polite">{activeShopCard + 1} / {filteredShopProducts.length}</div>
+                  </>
+                )}
               </div>
             </div>
 
+            <nav aria-label={t('shop')} className="shop-tabs flex shrink-0 items-stretch justify-between gap-1 border-t border-white/10 bg-black/25 px-2 py-1.5 sm:gap-2 sm:px-4 sm:py-2">
+              {SHOP_TABS.map((tab) => {
+                const selected = shopTab === tab.id;
+                const icon = tab.id === 'all' ? '⌂' : tab.id === 'weapons' ? '⚔' : tab.id === 'armor' ? '▣' : tab.id === 'pets' ? '♟' : null;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    data-shop-category={tab.id}
+                    aria-pressed={selected}
+                    aria-controls="shop-catalog"
+                    onClick={() => setShopTab(tab.id)}
+                    className={`shop-category-button notch flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 font-display tracking-wide transition-all ${selected ? 'text-[#101113]' : 'bg-[#151d21] text-white/55 hover:text-white/90'}`}
+                    style={selected ? { background: 'linear-gradient(180deg,#dfc29b,#9f7257)', border: '2px solid #d3a782', boxShadow: '0 0 12px rgba(196,145,105,.18)' } : { border: '2px solid #06090a' }}
+                  >
+                    <span aria-hidden="true" className="flex h-4 items-center justify-center text-[14px] leading-none">
+                      {tab.id === 'gems' ? <NetheriteCoinIcon className="h-3.5 w-3.5" /> : icon}
+                    </span>
+                    <span className="truncate text-[8px] sm:text-[10px]">{t(tab.labelKey)}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
             <footer className="shrink-0 border-t border-white/10 bg-black/25 px-3 py-2 text-center text-[9px] leading-snug text-white/35 sm:px-4 sm:py-2.5 sm:text-[10px]">
-              {shopNotice ?? (paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice'))}
+              {shopNotice ?? (shopMode === 'developer'
+                ? t('devShopNotice')
+                : paymentsAvailable
+                  ? t('shopRealNotice')
+                  : rewardedAdsEnabled ? t('shopRewardedNotice') : t('shopMockNotice'))}
             </footer>
           </section>
         </div>
+      )}
+
+      {showCharacterCreator && (
+        <CharacterCreatorDialog
+          character={character}
+          onCancel={() => setShowCharacterCreator(false)}
+          onSave={(next) => {
+            onSaveCharacter(next);
+            setShowCharacterCreator(false);
+          }}
+        />
       )}
 
       {showSettings && (
@@ -1106,6 +1430,326 @@ export function StartScreen({
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+const CHARACTER_HAIRSTYLE_LABELS: Record<CharacterHairstyle, TKey> = {
+  short: 'characterHairShort',
+  long: 'characterHairLong',
+  ponytail: 'characterHairPonytail',
+  spiky: 'characterHairSpiky',
+  bob: 'characterHairBob',
+  curly: 'characterHairCurly',
+  braids: 'characterHairBraids',
+  bun: 'characterHairBun',
+  sidePart: 'characterHairSidePart',
+  twinTails: 'characterHairTwinTails',
+};
+const CHARACTER_HAIRSTYLES = SUPPORTED_HAIRSTYLES.map((id) => ({ id, key: CHARACTER_HAIRSTYLE_LABELS[id] }));
+const CHARACTER_SHOES: ReadonlyArray<{ id: CharacterShoeType; key: TKey }> = [
+  { id: 'sneakers', key: 'characterShoesSneakers' },
+  { id: 'boots', key: 'characterShoesBoots' },
+  { id: 'sandals', key: 'characterShoesSandals' },
+];
+const CHARACTER_FACE_LABELS: Record<CharacterExpression, TKey> = {
+  smile: 'characterFaceSmile',
+  happy: 'characterFaceHappy',
+  cool: 'characterFaceCool',
+  surprised: 'characterFaceSurprised',
+  wink: 'characterFaceWink',
+  neutral: 'characterFaceNeutral',
+  sad: 'characterFaceSad',
+  thoughtful: 'characterFaceThoughtful',
+  scared: 'characterFaceScared',
+  angry: 'characterFaceAngry',
+};
+const CHARACTER_GLASSES_LABELS: Record<CharacterGlasses, TKey> = {
+  none: 'characterGlassesNone',
+  round: 'characterGlassesRound',
+  square: 'characterGlassesSquare',
+  sunglasses: 'characterGlassesSunglasses',
+};
+
+function CharacterCreatorDialog({
+  character,
+  onCancel,
+  onSave,
+}: {
+  character: CharacterCustomization;
+  onCancel: () => void;
+  onSave: (next: CharacterCustomization) => void;
+}) {
+  const [draft, setDraft] = useState<CharacterCustomization>(() => ({ ...character }));
+  const update = <K extends keyof CharacterCustomization>(key: K, value: CharacterCustomization[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+  const selectedButton = (selected: boolean) =>
+    `notch border-[3px] px-2.5 py-2 font-display text-[10px] transition-all ${selected ? 'border-[#d7bcff] bg-[#8c58bd]/30 text-white shadow-[0_0_12px_rgba(185,139,255,.2)]' : 'border-black/70 bg-[#151d21] text-white/55 hover:text-white/85'}`;
+
+  return (
+    <div className="absolute inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-[#03070a]/90 px-2 py-3 backdrop-blur-md sm:px-5 sm:py-5">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-title"
+        className="my-auto flex max-h-[95vh] w-[min(98vw,940px)] flex-col overflow-hidden border border-[#a275d0]/55 bg-[#0b1015] shadow-[0_22px_90px_rgba(0,0,0,.85)]"
+      >
+        <header className="flex shrink-0 items-center gap-3 border-b border-white/10 bg-gradient-to-r from-[#261d35] via-[#182027] to-[#142c34] p-3 sm:p-5">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#c49aff]/45 bg-[#8c58bd]/15 text-2xl">🧍</div>
+          <div className="min-w-0 flex-1">
+            <h2 id="character-title" className="font-display text-lg leading-tight text-[#e0c9ff] sm:text-2xl">{t('characterCreatorTitle')}</h2>
+            <p className="mt-1 text-[10px] leading-snug text-white/50 sm:text-xs">{t('characterCreatorSubtitle')}</p>
+          </div>
+          <button type="button" aria-label={t('close')} onClick={onCancel} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-3 py-2 text-white/80">×</button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid items-start gap-3 p-3 sm:gap-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_200px]">
+            <div className="grid min-w-0 gap-2.5 sm:grid-cols-2 sm:gap-3">
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterGender')}</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['boy', 'girl'] as const).map((gender: CharacterGender) => {
+                    const selected = draft.gender === gender;
+                    return (
+                      <button key={gender} type="button" aria-pressed={selected} onClick={() => update('gender', gender)} className={selectedButton(selected)}>
+                        <span className="mr-1.5" aria-hidden="true">{gender === 'boy' ? '👦' : '👧'}</span>{t(gender === 'boy' ? 'characterBoy' : 'characterGirl')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterHairstyle')}</legend>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                  {CHARACTER_HAIRSTYLES.map((style) => (
+                    <button key={style.id} type="button" data-character-hairstyle={style.id} aria-pressed={draft.hairstyle === style.id} onClick={() => update('hairstyle', style.id)} className={`${selectedButton(draft.hairstyle === style.id)} flex min-h-[48px] flex-col items-center justify-center gap-1 px-1 py-1.5`}>
+                      <HairStyleGlyph hairstyle={style.id} color={draft.hairColor} />
+                      <span className="text-[7px] sm:text-[8px]">{t(style.key)}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <ColorPaletteField label={t('characterHairColor')} colors={CHARACTER_COLORS.hair} value={draft.hairColor} onChange={(color) => update('hairColor', color)} />
+              <ColorPaletteField label={t('characterShirt')} colors={CHARACTER_COLORS.shirt} value={draft.shirtColor} onChange={(color) => update('shirtColor', color)} />
+              <ColorPaletteField label={t(draft.gender === 'girl' ? 'characterSkirtColor' : 'characterPants')} colors={CHARACTER_COLORS.pants} value={draft.pantsColor} onChange={(color) => update('pantsColor', color)} />
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterShoeType')}</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {CHARACTER_SHOES.map((shoe) => (
+                    <button key={shoe.id} type="button" aria-pressed={draft.shoeType === shoe.id} onClick={() => update('shoeType', shoe.id)} className={selectedButton(draft.shoeType === shoe.id)}>
+                      {t(shoe.key)}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <ColorPaletteField label={t('characterShoeColor')} colors={CHARACTER_COLORS.shoes} value={draft.shoeColor} onChange={(color) => update('shoeColor', color)} />
+              <ColorPaletteField label={t('characterSkin')} colors={CHARACTER_COLORS.skin} value={draft.skinColor} onChange={(color) => update('skinColor', color)} />
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:col-span-2 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterGlasses')}</legend>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {CHARACTER_GLASSES.map((glasses) => (
+                    <button key={glasses} type="button" data-character-glasses={glasses} aria-label={t(CHARACTER_GLASSES_LABELS[glasses])} aria-pressed={draft.glasses === glasses} onClick={() => update('glasses', glasses)} className={`${selectedButton(draft.glasses === glasses)} flex items-center justify-center gap-1.5 px-1.5 py-2`}>
+                      <GlassesGlyph glasses={glasses} />
+                      <span className="text-[8px]">{t(CHARACTER_GLASSES_LABELS[glasses])}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:col-span-2 sm:p-3">
+                <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{t('characterExpression')}</legend>
+                <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                  {CHARACTER_EXPRESSIONS.map(({ id }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      data-character-expression={id}
+                      aria-label={t(CHARACTER_FACE_LABELS[id])}
+                      aria-pressed={draft.expression === id}
+                      title={t(CHARACTER_FACE_LABELS[id])}
+                      onClick={() => update('expression', id)}
+                      className={`flex min-h-[60px] flex-col items-center justify-center gap-1 border px-1 py-1.5 transition-all ${draft.expression === id ? 'border-[#d7bcff] bg-[#8c58bd]/30 shadow-[0_0_12px_rgba(185,139,255,.25)]' : 'border-white/10 bg-black/25 hover:border-white/35'}`}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center border border-black/70" style={{ backgroundColor: draft.skinColor }}>
+                        <CharacterFaceGlyph expression={id} glasses="none" />
+                      </span>
+                      <span className="text-[7px] leading-tight text-white/80 sm:text-[8px]">{t(CHARACTER_FACE_LABELS[id])}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            <aside className="flex flex-col items-center border border-[#8c58bd]/25 bg-[radial-gradient(ellipse_at_50%_20%,rgba(140,88,189,.18),rgba(0,0,0,.16)_70%)] p-3">
+              <div className="mb-2 w-full text-center font-display text-[9px] tracking-[0.2em] text-white/40">{t('characterPreview')}</div>
+              <CharacterAvatarPreview character={draft} />
+              <div className="mt-2 text-center font-display text-[10px] tracking-wide text-[#d7bcff]">{t(draft.gender === 'girl' ? 'characterGirl' : 'characterBoy')}</div>
+            </aside>
+          </div>
+        </div>
+
+        <footer className="flex shrink-0 justify-end gap-2 border-t border-white/10 bg-black/25 p-3 sm:px-5 sm:py-4">
+          <button type="button" onClick={onCancel} className="btn-mc notch bg-gradient-to-b from-pit-500 to-pit-700 px-4 py-2.5 font-display text-xs text-white/75">{t('characterCancel')}</button>
+          <button type="button" onClick={() => onSave(draft)} className="btn-mc notch bg-gradient-to-b from-[#aa7be3] to-[#6e42a1] px-5 py-2.5 font-display text-xs text-white shadow-[0_0_18px_rgba(170,123,227,.25)]">{t('characterSave')}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function ColorPaletteField({ label, colors, value, onChange }: { label: string; colors: readonly string[]; value: string; onChange: (color: string) => void }) {
+  return (
+    <fieldset className="min-w-0 border border-white/10 bg-black/20 p-2.5 sm:p-3">
+      <legend className="px-1 font-display text-[9px] tracking-[0.2em] text-white/45">{label}</legend>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
+        {colors.map((color) => (
+          <button
+            key={color}
+            type="button"
+            aria-label={`${label}: ${color}`}
+            aria-pressed={value === color}
+            title={color}
+            onClick={() => onChange(color)}
+            className={`relative h-7 w-7 border-2 transition-transform hover:scale-110 ${value === color ? 'border-white shadow-[0_0_9px_rgba(255,255,255,.55)]' : 'border-black/60'}`}
+            style={{ backgroundColor: color }}
+          >
+            {value === color && <span className="absolute inset-0 flex items-center justify-center font-display text-[11px] text-white" style={{ textShadow: '0 1px 3px #000' }}>✓</span>}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function HairStyleGlyph({ hairstyle, color }: { hairstyle: CharacterHairstyle; color: string }) {
+  const blocks: Array<[number, number, number, number]> = [[6, 6, 20, 8], [7, 4, 18, 4], [5, 9, 22, 3]];
+  if (hairstyle === 'long' || hairstyle === 'bob') blocks.push([5, 11, 4, hairstyle === 'bob' ? 9 : 11], [23, 11, 4, hairstyle === 'bob' ? 9 : 11], [8, 19, 16, 3]);
+  if (hairstyle === 'ponytail') blocks.push([25, 10, 4, 5], [28, 14, 3, 7]);
+  if (hairstyle === 'spiky') blocks.push([7, 2, 4, 7], [14, 0, 4, 8], [21, 2, 4, 7]);
+  if (hairstyle === 'curly') blocks.push([3, 6, 5, 5], [8, 1, 5, 6], [18, 1, 5, 6], [24, 6, 5, 5], [5, 10, 4, 5], [23, 10, 4, 5]);
+  if (hairstyle === 'braids') blocks.push([4, 10, 4, 5], [5, 14, 3, 5], [24, 10, 4, 5], [24, 14, 3, 5]);
+  if (hairstyle === 'bun') blocks.push([12, 1, 8, 5], [13, 0, 6, 3]);
+  if (hairstyle === 'sidePart') blocks.push([8, 3, 14, 4], [5, 7, 9, 4]);
+  if (hairstyle === 'twinTails') blocks.push([2, 10, 5, 6], [3, 14, 4, 7], [25, 10, 5, 6], [25, 14, 4, 7]);
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 23" className="h-5 w-7" style={{ imageRendering: 'pixelated' }}>
+      {blocks.map(([x, y, width, height], index) => <rect key={index} x={x} y={y} width={width} height={height} fill={color} />)}
+    </svg>
+  );
+}
+
+function GlassesGlyph({ glasses }: { glasses: CharacterGlasses }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 16" className="h-4 w-8" style={{ imageRendering: 'pixelated' }}>
+      {glasses === 'none' ? (
+        <path d="M4 8h24" stroke="#9aa6ac" strokeWidth="2" strokeDasharray="3 3" />
+      ) : (
+        <>
+          {glasses === 'sunglasses' && <><rect x="4" y="4" width="10" height="8" fill="#263847" /><rect x="18" y="4" width="10" height="8" fill="#263847" /><rect x="6" y="5" width="4" height="2" fill="#8cb8c1" /><rect x="20" y="5" width="4" height="2" fill="#8cb8c1" /></>}
+          <path d="M3 5h11v7H3zM18 5h11v7H18zM14 7h4" fill="none" stroke="#191d22" strokeWidth="2" strokeLinejoin={glasses === 'round' ? 'round' : 'miter'} />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function CharacterFaceGlyph({ expression, glasses }: { expression: CharacterExpression; glasses: CharacterGlasses }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 32" className="h-full w-full" style={{ imageRendering: 'pixelated' }}>
+      {characterFacePixels(expression, glasses).map((pixel, index) => (
+        <rect key={index} x={pixel.x} y={pixel.y} width={pixel.width} height={pixel.height} fill={pixel.color} />
+      ))}
+    </svg>
+  );
+}
+
+function CharacterAvatarPreview({ character }: { character: CharacterCustomization }) {
+  const [backView, setBackView] = useState(false);
+  const isGirl = character.gender === 'girl';
+  const hair = character.hairColor;
+  const block = (style: React.CSSProperties) => ({ position: 'absolute' as const, imageRendering: 'pixelated' as const, ...style });
+  const hairstyleHasLongSides = ['long', 'ponytail', 'bob', 'braids'].includes(character.hairstyle);
+  const upper = (
+    <>
+      {(character.hairstyle === 'long' || character.hairstyle === 'bob' || character.hairstyle === 'braids') && <>
+        <span style={block({ left: 40, top: 31, width: 13, height: character.hairstyle === 'bob' ? 65 : 81, background: hair, zIndex: 1 })} />
+        <span style={block({ left: 89, top: 31, width: 13, height: character.hairstyle === 'bob' ? 65 : 81, background: hair, zIndex: 1 })} />
+      </>}
+      {character.hairstyle === 'ponytail' && <>
+        <span style={block({ left: 88, top: 43, width: 14, height: 29, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 93, top: 68, width: 12, height: 41, background: hair, zIndex: 0 })} />
+      </>}
+      {character.hairstyle === 'twinTails' && <>
+        <span style={block({ left: 34, top: 42, width: 13, height: 27, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 35, top: 63, width: 12, height: 45, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 95, top: 42, width: 13, height: 27, background: hair, zIndex: 0 })} />
+        <span style={block({ left: 95, top: 63, width: 12, height: 45, background: hair, zIndex: 0 })} />
+      </>}
+      {character.hairstyle === 'bun' && <span style={block({ left: 61, top: 9, width: 23, height: 18, background: hair, zIndex: 2 })} />}
+      {character.hairstyle === 'curly' && <>
+        <span style={block({ left: 40, top: 20, width: 20, height: 24, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 56, top: 9, width: 30, height: 21, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 81, top: 19, width: 21, height: 26, background: hair, zIndex: 3 })} />
+      </>}
+      {character.hairstyle === 'short' && <>
+        <span style={block({ left: 47, top: 31, width: 11, height: 28, background: hair, zIndex: 1 })} />
+        <span style={block({ left: 85, top: 31, width: 11, height: 28, background: hair, zIndex: 1 })} />
+      </>}
+      {character.hairstyle === 'spiky' && <>
+        <span style={block({ left: 52, top: 2, width: 13, height: 23, background: hair, transform: 'rotate(-12deg)', zIndex: 3 })} />
+        <span style={block({ left: 66, top: 0, width: 13, height: 25, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 81, top: 3, width: 13, height: 21, background: hair, transform: 'rotate(12deg)', zIndex: 3 })} />
+      </>}
+      <span style={block({ left: 48, top: 16, width: 46, height: 22, background: hair, zIndex: 2 })} />
+      {character.hairstyle === 'sidePart' && <>
+        <span style={block({ left: 48, top: 28, width: 44, height: 12, background: hair, zIndex: 3 })} />
+        <span style={block({ left: 54, top: 20, width: 28, height: 11, background: hair, zIndex: 3 })} />
+      </>}
+      {!['spiky', 'sidePart', 'curly'].includes(character.hairstyle) && <span style={block({ left: 47, top: 31, width: 48, height: 11, background: hair, zIndex: 3 })} />}
+    </>
+  );
+  return (
+    <div className="flex flex-col items-center">
+      <div role="group" aria-label={t('characterView')} className="mb-2 grid w-full grid-cols-2 gap-1">
+        <button type="button" aria-pressed={!backView} onClick={() => setBackView(false)} className={`border px-2 py-1 font-display text-[8px] ${!backView ? 'border-[#d7bcff] bg-[#8c58bd]/30 text-white' : 'border-white/10 text-white/45'}`}>{t('characterViewFront')}</button>
+        <button type="button" aria-pressed={backView} onClick={() => setBackView(true)} className={`border px-2 py-1 font-display text-[8px] ${backView ? 'border-[#d7bcff] bg-[#8c58bd]/30 text-white' : 'border-white/10 text-white/45'}`}>{t('characterViewBack')}</button>
+      </div>
+      <div data-character-preview-view={backView ? 'back' : 'front'} data-character-preview-skirt={isGirl ? 'true' : 'false'} role="img" aria-label={`${t(character.gender === 'girl' ? 'characterGirl' : 'characterBoy')}, ${t(backView ? 'characterViewBack' : 'characterViewFront')}`} className="relative h-[205px] w-[142px] overflow-hidden border border-white/10 bg-[#111920]/75">
+        {upper}
+        <span style={block({ left: 51, top: 39, width: 40, height: 39, background: character.skinColor, zIndex: 2 })} />
+        {backView && <span style={block({ left: 49, top: 31, width: 44, height: 47, background: hair, zIndex: 4 })} />}
+        {backView && hairstyleHasLongSides && <span style={block({ left: 47, top: 31, width: 48, height: 62, background: hair, zIndex: 4 })} />}
+        {backView && character.hairstyle === 'bun' && <span style={block({ left: 51, top: 21, width: 43, height: 27, background: hair, zIndex: 4 })} />}
+        {!backView && <span style={block({ left: 51, top: 39, width: 40, height: 39, background: character.skinColor, zIndex: 4 })}>
+          <CharacterFaceGlyph expression={character.expression} glasses={character.glasses} />
+        </span>}
+        <span style={block({ left: isGirl ? 41 : 34, top: 80, width: isGirl ? 60 : 74, height: 57, background: character.shirtColor, zIndex: 2 })} />
+        <span style={block({ left: 24, top: 82, width: 15, height: 47, background: character.shirtColor, zIndex: 1 })} />
+        <span style={block({ left: 103, top: 82, width: 15, height: 47, background: character.shirtColor, zIndex: 1 })} />
+        {backView && <span style={block({ left: 70, top: 90, width: 3, height: 32, background: 'rgba(255,255,255,.22)', zIndex: 3 })} />}
+        {isGirl ? <>
+          <span style={block({ left: 41, top: 130, width: 60, height: 14, background: character.pantsColor, zIndex: 3 })} />
+          <span style={block({ left: 35, top: 141, width: 72, height: 15, background: character.pantsColor, zIndex: 3 })} />
+          <span style={block({ left: 28, top: 153, width: 86, height: 15, background: character.pantsColor, borderBottom: '4px solid rgba(0,0,0,.28)', zIndex: 3 })} />
+          <span style={block({ left: 49, top: 164, width: 16, height: 17, background: character.skinColor, zIndex: 1 })} />
+          <span style={block({ left: 77, top: 164, width: 16, height: 17, background: character.skinColor, zIndex: 1 })} />
+        </> : <>
+          <span style={block({ left: 40, top: 137, width: 25, height: 45, background: character.pantsColor, zIndex: 1 })} />
+          <span style={block({ left: 77, top: 137, width: 25, height: 45, background: character.pantsColor, zIndex: 1 })} />
+        </>}
+        <span style={block({ left: 39, top: 180, width: 31, height: 13, background: character.shoeColor, zIndex: 2, borderBottom: character.shoeType === 'sneakers' ? '4px solid #f1f2ed' : undefined })} />
+        <span style={block({ left: 72, top: 180, width: 31, height: 13, background: character.shoeColor, zIndex: 2, borderBottom: character.shoeType === 'sneakers' ? '4px solid #f1f2ed' : undefined })} />
+        {character.shoeType === 'sandals' && <>
+          <span style={block({ left: 42, top: 180, width: 25, height: 4, background: '#202124', zIndex: 3 })} />
+          <span style={block({ left: 75, top: 180, width: 25, height: 4, background: '#202124', zIndex: 3 })} />
+        </>}
+      </div>
     </div>
   );
 }
@@ -1410,9 +2054,9 @@ export function GameOverScreen({
                       className="gameover-action gameover-offer-action btn-mc notch flex min-w-0 flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-[#8ee9e2] to-[#3aa9a3] text-center text-pit-950 disabled:opacity-50"
                     >
                       <span className="font-display leading-tight">
-                        {t('continueWithDiamonds').replace('{n}', String(diamondPrice))}
+                        <NetheriteCoinIcon className="mr-1 inline h-4 w-4 align-[-0.2em]" />{t('continueWithCoins').replace('{n}', String(diamondPrice))}
                       </span>
-                      <span className="text-[10px] leading-snug opacity-80">◆ {diamonds.toLocaleString()}</span>
+                      <span className="flex items-center gap-1 text-[10px] leading-snug opacity-80"><NetheriteCoinIcon className="h-3.5 w-3.5" />{diamonds.toLocaleString()}</span>
                     </button>
                   )}
                 </div>

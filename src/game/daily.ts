@@ -1,33 +1,21 @@
 /**
- * Daily reward (https://yandex.ru/dev/games/doc/ru/sdk/sdk-server-time).
- *
- * The docs make two points that shape this module:
- *  - time-gated rewards must be counted with **`ysdk.serverTime()`**, not with the device clock: the
- *    system time can be moved by the player and is not the same on every device, while server time
- *    is the same everywhere and cannot be rolled back to farm the bonus;
- *  - the claim date is stored in the cloud (`player.setData`), so "once per day" holds for the
- *    account and not for one browser profile — reinstalling the game on another device must not
- *    hand out a second reward for the same day.
- *
- * The game follows the calendar-day variant of the docs' example: the date is compared as an ISO
- * `YYYY-MM-DD` string in UTC (a lexicographic comparison of that format is a correct date
- * comparison, and it never runs into time zone or DST surprises). Consecutive days grow the bonus,
- * a missed day resets the streak, and a stored date that is somehow *ahead* of server time is
- * treated as "already claimed" — the safe direction.
+ * Small daily bonus, credited only after a rewarded-video callback confirms the full view.
+ * Dates are UTC dates from Yandex server time (or the local clock outside the platform) so moving the
+ * device clock cannot immediately reopen the reward.
  */
 
+import { showRewardedAd, type AdOutcome } from './ads';
 import { addDiamonds, registerCloudPart, markProfileDirty } from './profile';
 import { storageGet, storageSet } from './storage';
 import { yaServerTime } from './yandex';
 
 const STORAGE_KEY = 'orerush.daily.v1';
 
-/** first day of a streak */
-export const DAILY_BASE = 25;
-/** added for every consecutive day */
-export const DAILY_STREAK_BONUS = 5;
-/** the bonus stops growing here: at streak 6 the daily reward is already at the cap */
-export const DAILY_MAX = 50;
+/** First day of a streak: keep the daily payout intentionally small. */
+export const DAILY_BASE = 1;
+/** The login streak rewards netherite coins, capped at two per day. */
+export const DAILY_STREAK_BONUS = 1;
+export const DAILY_MAX = 2;
 
 export type DailyState = { last: string; streak: number; at: number };
 
@@ -42,11 +30,23 @@ export type DailyView = {
   reason: 'ready' | 'claimed' | 'clock';
 };
 
+export type DailyClaimResult =
+  | { ok: true; amount: number; streak: number; reason: 'ready' }
+  | { ok: false; amount: 0; streak: number; reason: 'ad' | 'claimed' | 'clock' | 'storage' };
+
 let cached: DailyState | null | undefined;
 
 /** Today's UTC date (`YYYY-MM-DD`) by the trusted clock. */
 export function utcDay(ms = yaServerTime()): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Seconds until the next UTC date, used for the disabled main-menu countdown. */
+export function dailySecondsUntilReset(now = yaServerTime()): number {
+  const safeNow = Number.isFinite(now) ? now : Date.now();
+  const date = new Date(safeNow);
+  const nextMidnight = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
+  return Math.max(0, Math.ceil((nextMidnight - safeNow) / 1000));
 }
 
 function parseState(raw: string | null): DailyState | null {
@@ -70,10 +70,11 @@ export function dailyState(): DailyState | null {
   return cached;
 }
 
-function write(next: DailyState) {
+function write(next: DailyState): boolean {
+  if (!storageSet(STORAGE_KEY, JSON.stringify(next))) return false;
   cached = next;
-  storageSet(STORAGE_KEY, JSON.stringify(next));
   markProfileDirty({ daily: { last: next.last, streak: next.streak } });
+  return true;
 }
 
 function dayBefore(day: string): string {
@@ -98,16 +99,31 @@ export function dailyReward(): DailyView {
   return { available: true, amount: amountFor(streak), streak, today, reason: 'ready' };
 }
 
-/**
- * Claim today's bonus. Returns what was granted; a second call on the same day changes nothing
- * (the storage entry is the guard — the UI is only a reflection of it).
- */
-export function claimDailyReward(): { ok: boolean; amount: number; streak: number; reason: DailyView['reason'] } {
+/** Internal payout commit. Callers must pass through `watchAndClaimDailyReward` first. */
+function commitDailyReward(): DailyClaimResult {
   const view = dailyReward();
-  if (!view.available) return { ok: false, amount: 0, streak: view.streak, reason: view.reason };
+  if (!view.available) return { ok: false, amount: 0, streak: view.streak, reason: view.reason === 'ready' ? 'claimed' : view.reason };
+  const next = { last: view.today, streak: view.streak, at: yaServerTime() };
+  // Persist the one-claim guard before crediting currency so a storage failure cannot pay a free drop.
+  if (!write(next)) return { ok: false, amount: 0, streak: view.streak, reason: 'storage' };
   addDiamonds(view.amount, 'grant');
-  write({ last: view.today, streak: view.streak, at: yaServerTime() });
   return { ok: true, amount: view.amount, streak: view.streak, reason: 'ready' };
+}
+
+/** Rewarded-ad gate for the main-menu daily bonus. Only a successful callback can reach the grant. */
+export async function watchAndClaimDailyReward(
+  showAd: () => Promise<AdOutcome> = showRewardedAd,
+): Promise<DailyClaimResult> {
+  const before = dailyReward();
+  if (!before.available) return { ok: false, amount: 0, streak: before.streak, reason: before.reason === 'ready' ? 'claimed' : before.reason };
+  let outcome: AdOutcome;
+  try {
+    outcome = await showAd();
+  } catch {
+    return { ok: false, amount: 0, streak: before.streak, reason: 'ad' };
+  }
+  if (!outcome?.rewarded) return { ok: false, amount: 0, streak: before.streak, reason: 'ad' };
+  return commitDailyReward();
 }
 
 /** Test seam: forget the in-memory copy (storage keeps the truth). */

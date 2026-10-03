@@ -885,9 +885,14 @@ export async function yaGetFlags(
 
 /* ============================== advertising ============================== */
 
-/** Is there anything to show at all (SDK loaded and advertising available)? */
+/** Is a fullscreen ad block available? */
 export function yaAdvAvailable(): boolean {
   return typeof ysdk?.adv?.showFullscreenAdv === 'function';
+}
+
+/** Is a rewarded-video block available? Keep it separate from fullscreen availability. */
+export function yaRewardedAdAvailable(): boolean {
+  return typeof ysdk?.adv?.showRewardedVideo === 'function';
 }
 
 /** `adv.showFullscreenAdv()` — resolves when the ad closed (or when the platform refused to show it). */

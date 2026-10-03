@@ -57,6 +57,20 @@ export type CloudProfile = {
   deliveredPurchases?: string[];
   /** last day the daily bonus was claimed (UTC `YYYY-MM-DD`) and the streak behind it */
   daily?: { last: string; streak: number };
+  /** rewarded shop-drop claims, queued voxel supplies, and grants already moved into an inventory */
+  adDrops?: {
+    claims?: Record<string, unknown>;
+    pending?: Record<string, unknown>;
+    delivered?: unknown[];
+    login?: unknown;
+  };
+  /** one-shot in-game shop purchases awaiting delivery to an engine inventory */
+  shopRewards?: {
+    pending?: unknown[];
+    delivered?: unknown[];
+  };
+  /** validated by game/character when the cloud character-creator part applies it */
+  character?: unknown;
 };
 
 /**

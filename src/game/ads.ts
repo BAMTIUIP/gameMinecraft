@@ -18,6 +18,7 @@ import { holdAudioForAd } from './audio';
 import { flagBool, flagNumber } from './flags';
 import {
   yaAdvAvailable,
+  yaRewardedAdAvailable,
   yaGetBannerAdvStatus,
   yaHideBannerAdv,
   yaShowBannerAdv,
@@ -44,6 +45,11 @@ let inFlight = false;
 /** True when an ad is on screen right now — the game must not start anything interactive. */
 export function adInFlight(): boolean {
   return inFlight;
+}
+
+/** True only when flags permit rewarded ads and the SDK exposes its rewarded-video method. */
+export function rewardedAdsAvailable(): boolean {
+  return flagBool('adv.enabled') && flagBool('adv.rewarded.enabled') && yaRewardedAdAvailable();
 }
 
 /** Seconds until the next fullscreen ad may be requested (0 = ready). */
@@ -89,7 +95,7 @@ export async function showFullscreenAd(): Promise<AdOutcome> {
 export async function showRewardedAd(): Promise<AdOutcome> {
   if (!flagBool('adv.enabled') || !flagBool('adv.rewarded.enabled')) return { shown: false, rewarded: false, skipped: 'flag' };
   if (inFlight) return { shown: false, rewarded: false, skipped: 'busy' };
-  if (!yaAdvAvailable()) return { shown: false, rewarded: false, skipped: 'offline' };
+  if (!yaRewardedAdAvailable()) return { shown: false, rewarded: false, skipped: 'offline' };
 
   inFlight = true;
   holdAudioForAd(true);

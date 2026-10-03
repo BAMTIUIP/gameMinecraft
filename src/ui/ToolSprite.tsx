@@ -48,22 +48,22 @@ function PickHaft({ p }: { p: Palette }) {
   );
 }
 
-/** A balanced double-ended pick head with a centered socket; every point stays inside the tile. */
+/** Mirrored downturned tips and a compact socket keep the pick head from reading as a T. */
 function PickShape({ p }: { p: Palette }) {
   return (
     <g>
-      {/* Draw the left end once, then mirror it so both pickaxe tips stay identical. */}
+      {/* The two blades slope down and away from the handle; the right side mirrors the left. */}
       <g>
-        <path d="M4 13 8 9H15L20 12H24V18L21 21H17L13 17H8Z" fill={p.outline} />
-        <path d="M7 13 10 11H16L21 14H24V16L21 19H18L14 15H10Z" fill={p.head} />
-        <path d="M6 13 10 11H15L20 13H14L10 15H7Z" fill={p.edge} />
+        <path d="M23 9H18L14 12L9 15H4L2 20L8 23L13 20L18 17L22 14H24V9Z" fill={p.outline} />
+        <path d="M23 11H18L14 14L10 17H7L6 20L9 21L13 19L18 16L22 13H24V11Z" fill={p.head} />
+        <path d="M4 16H9L14 13L18 10H22L18 13L13 16L9 19H5Z" fill={p.edge} />
       </g>
       <g transform="translate(48 0) scale(-1 1)">
-        <path d="M4 13 8 9H15L20 12H24V18L21 21H17L13 17H8Z" fill={p.outline} />
-        <path d="M7 13 10 11H16L21 14H24V16L21 19H18L14 15H10Z" fill={p.head} />
-        <path d="M6 13 10 11H15L20 13H14L10 15H7Z" fill={p.edge} />
+        <path d="M23 9H18L14 12L9 15H4L2 20L8 23L13 20L18 17L22 14H24V9Z" fill={p.outline} />
+        <path d="M23 11H18L14 14L10 17H7L6 20L9 21L13 19L18 16L22 13H24V11Z" fill={p.head} />
+        <path d="M4 16H9L14 13L18 10H22L18 13L13 16L9 19H5Z" fill={p.edge} />
       </g>
-      <path d="M20 13H28V16H20Z" fill={p.accent} />
+      <path d="M21 12H25V15H23V18H21V15H20Z" fill={p.accent} />
     </g>
   );
 }

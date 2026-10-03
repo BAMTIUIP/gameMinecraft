@@ -20,6 +20,86 @@
   let authorized = seed.authorized ?? true;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The Arena ad-preview server opts into a visible local placeholder; automated SDK checks keep
+  // their original fast, invisible callbacks because this flag is absent there.
+  const visualAdPreview = window.__yaVisualAdMock === true;
+
+  function mockAdOverlay(kind, callbacks) {
+    if (!visualAdPreview || !document.body) return false;
+    let finished = false;
+    const overlay = document.createElement('div');
+    overlay.dataset.yandexAdPreview = kind;
+    overlay.setAttribute('role', 'presentation');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:20px;background:rgba(3,8,12,.9);backdrop-filter:blur(7px);font-family:system-ui,sans-serif;color:#fff;';
+
+    const card = document.createElement('section');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', 'ya-ad-preview-title');
+    card.style.cssText = 'box-sizing:border-box;width:min(540px,100%);padding:clamp(22px,5vw,38px);border:1px solid rgba(98,232,220,.6);background:linear-gradient(145deg,#14232b,#10151d 62%,#211a2c);box-shadow:0 24px 90px rgba(0,0,0,.75);text-align:center;';
+
+    const badge = document.createElement('div');
+    badge.textContent = 'YANDEX GAMES · SDK MOCK';
+    badge.style.cssText = 'margin-bottom:18px;color:#62e8dc;font-size:11px;font-weight:800;letter-spacing:.2em;';
+    const title = document.createElement('h2');
+    title.id = 'ya-ad-preview-title';
+    title.textContent = kind === 'rewarded' ? 'Rewarded ad placeholder' : 'Fullscreen ad placeholder';
+    title.style.cssText = 'margin:0;color:#fff;font-size:clamp(22px,5vw,32px);line-height:1.15;';
+    const description = document.createElement('p');
+    description.textContent = kind === 'rewarded'
+      ? 'No real video is loaded. Choose whether to simulate a completed view and reward.'
+      : 'No real ad is loaded. Close this mock to continue.';
+    description.style.cssText = 'margin:14px 0 24px;color:rgba(255,255,255,.68);font-size:14px;line-height:1.55;';
+    const buttons = document.createElement('div');
+    buttons.style.cssText = 'display:flex;flex-wrap:wrap;justify-content:center;gap:10px;';
+
+    const finish = (wasShown) => {
+      if (finished) return;
+      finished = true;
+      if (kind === 'rewarded' && wasShown) callbacks?.onRewarded?.();
+      callbacks?.onClose?.(wasShown);
+      overlay.remove();
+      window.__yaAdv = null;
+    };
+    const addButton = (text, primary, onClick) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = text;
+      button.style.cssText = `min-height:44px;padding:10px 16px;border:1px solid ${primary ? '#62e8dc' : 'rgba(255,255,255,.24)'};background:${primary ? 'linear-gradient(#207c79,#145452)' : 'rgba(0,0,0,.25)'};color:#fff;font:700 12px system-ui,sans-serif;letter-spacing:.04em;cursor:pointer;`;
+      button.addEventListener('click', onClick);
+      buttons.appendChild(button);
+    };
+
+    if (kind === 'rewarded') {
+      addButton('Complete mock view · grant reward', true, () => finish(true));
+      addButton('Close without reward', false, () => finish(false));
+    } else {
+      addButton('Close mock ad', true, () => finish(true));
+    }
+    card.append(badge, title, description, buttons);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    callbacks?.onOpen?.();
+    return true;
+  }
+
+  function renderBannerPlaceholder() {
+    if (!visualAdPreview || !document.body || document.getElementById('__ya-ad-preview-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = '__ya-ad-preview-banner';
+    banner.setAttribute('role', 'status');
+    banner.style.cssText = 'box-sizing:border-box;position:fixed;z-index:2147483645;left:50%;bottom:max(10px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;justify-content:space-between;gap:16px;width:min(728px,calc(100vw - 20px));min-height:62px;padding:10px 16px;border:1px dashed rgba(98,232,220,.7);background:rgba(8,18,24,.94);box-shadow:0 8px 36px rgba(0,0,0,.45);font:12px system-ui,sans-serif;color:#fff;pointer-events:none;';
+    const label = document.createElement('span');
+    label.textContent = 'YANDEX GAMES · TEST BANNER';
+    label.style.cssText = 'color:#62e8dc;font-weight:800;letter-spacing:.12em;';
+    const note = document.createElement('span');
+    note.textContent = 'Mock placeholder · no real ad';
+    note.style.cssText = 'color:rgba(255,255,255,.62);text-align:right;';
+    banner.append(label, note);
+    document.body.appendChild(banner);
+  }
+
+  const removeBannerPlaceholder = () => document.getElementById('__ya-ad-preview-banner')?.remove();
 
   const leaderboardDescription = () => ({
     appID: '0',
@@ -195,7 +275,7 @@
               return keys ? Object.fromEntries(keys.filter((k) => k in cloud).map((k) => [k, cloud[k]])) : { ...cloud };
             },
             setData: async (data, flush) => {
-              record('player.setData', { keys: Object.keys(data), flush: flush ?? false, daily: data['orerush.profile']?.daily ?? null });
+              record('player.setData', { keys: Object.keys(data), flush: flush ?? false, daily: data['orerush.profile']?.daily ?? null, character: data['orerush.profile']?.character ?? null });
               Object.assign(cloud, data);
             },
             getStats: async (keys) => {
@@ -250,8 +330,8 @@
               return [
                 {
                   id: 'diamonds-100',
-                  title: 'Pocket of diamonds',
-                  description: '100 diamonds',
+                  title: 'Pocket of Netherite coins',
+                  description: '100 Netherite coins',
                   imageURI: '',
                   price: '99 ₽',
                   priceValue: '99',
@@ -260,8 +340,8 @@
                 },
                 {
                   id: 'diamonds-599',
-                  title: 'Miner pouch',
-                  description: '599 diamonds',
+                  title: 'Miner coin pouch',
+                  description: '599 Netherite coins',
                   imageURI: '',
                   price: '499 ₽',
                   priceValue: '499',
@@ -291,6 +371,7 @@
           showFullscreenAdv: ({ callbacks } = {}) => {
             record('adv.showFullscreenAdv', { callbacks: Object.keys(callbacks ?? {}) });
             window.__yaAdv = { kind: 'fullscreen', callbacks };
+            if (mockAdOverlay('fullscreen', callbacks)) return;
             window.__yaAdvTimer = setTimeout(() => {
               callbacks?.onOpen?.();
               callbacks?.onClose?.(seed.adsFill !== false);
@@ -299,6 +380,7 @@
           showRewardedVideo: ({ callbacks } = {}) => {
             record('adv.showRewardedVideo', { callbacks: Object.keys(callbacks ?? {}) });
             window.__yaAdv = { kind: 'rewarded', callbacks };
+            if (mockAdOverlay('rewarded', callbacks)) return;
             window.__yaAdvTimer = setTimeout(() => {
               callbacks?.onOpen?.();
               if (seed.rewarded !== false) callbacks?.onRewarded?.();
@@ -312,11 +394,13 @@
           showBannerAdv: async () => {
             record('adv.showBannerAdv');
             window.__yaBanner = true;
+            renderBannerPlaceholder();
             return { stickyAdvIsShowing: true };
           },
           hideBannerAdv: async () => {
             record('adv.hideBannerAdv');
             window.__yaBanner = false;
+            removeBannerPlaceholder();
             return { stickyAdvIsShowing: false };
           },
         },

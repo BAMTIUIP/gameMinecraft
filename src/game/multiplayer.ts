@@ -17,10 +17,9 @@
  *    MAX_COMMITS) — a 20-minute shift stays around 60 KB;
  *  - start / pause of the replay follow `GameplayAPI.start()/stop()`, which the game already drives.
  *
- * Outside Yandex Games (dev builds, itch, own hosting) there is nothing to record and nobody to replay,
- * so the squad is filled with local teammates (`kind: 'bot'`) that wander around the player. Same
- * panel, same rigs, same gameplay — the feature stays playable, and the automated checks can drive it
- * without the platform.
+ * Outside Yandex Games there is nobody to replay, so the squad is filled with local teammates. On
+ * Yandex they only fill vacant slots after real replay sessions are loaded. Local bots use randomized
+ * skins from the character creator while keeping the same movement, panel and gameplay as before.
  */
 
 import { flagBool, flagNumber } from './flags';
@@ -86,6 +85,7 @@ type BotState = {
 type ActiveRound = {
   sink: CoopSink;
   members: SquadMember[];
+  seeds: CompanionSeed[];
   bots: BotState[];
   online: boolean;
   commits: number;
@@ -144,6 +144,7 @@ export async function startCoopRound(sink: CoopSink): Promise<SquadMember[]> {
   const round: ActiveRound = {
     sink,
     members: [],
+    seeds: [],
     bots: [],
     online: false,
     commits: 0,
@@ -153,25 +154,10 @@ export async function startCoopRound(sink: CoopSink): Promise<SquadMember[]> {
   };
   active = round;
 
-  if (yaMultiplayerAvailable()) {
-    await loadOpponents(round, wanted);
-  } else {
-    // offline squad: same rigs, same panel, no platform behind them
-    const seeds = botSeeds(wanted);
-    round.members = seeds.map((seed) => ({ id: seed.id, name: seed.name, avatar: null, kind: 'bot' as const, metaScore: null }));
-    round.bots = seeds.map((seed, i) => ({
-      id: seed.id,
-      nextMoveAt: 0,
-      seed: i + 1,
-      activity: 'walking',
-      cycles: 0,
-      initialized: false,
-      targetX: 0,
-      targetZ: 0,
-      yaw: 0,
-    }));
-    sink.spawn(seeds);
-  }
+  if (yaMultiplayerAvailable()) await loadOpponents(round, wanted);
+  // Fill any empty squad slots with local bots. This also keeps survival readable when the SDK is
+  // present but there are no replay sessions to show; live teammates still take priority.
+  if (round.members.length < wanted) addLocalBots(round, wanted - round.members.length);
 
   notified = round.members;
   return round.members;
@@ -204,8 +190,9 @@ async function loadOpponents(round: ActiveRound, wanted: number) {
       metaScore: typeof session.meta?.meta1 === 'number' ? session.meta.meta1 : null,
     });
   }
+  round.seeds.push(...seeds);
   if (!seeds.length) {
-    // nobody to replay right now: the shift stays solo, but our own session is still recorded
+    // The player may still have local fallback teammates; own-session recording remains enabled.
     round.online = true;
     return;
   }
@@ -233,10 +220,39 @@ async function loadOpponents(round: ActiveRound, wanted: number) {
   }
 }
 
-function botSeeds(count: number): CompanionSeed[] {
+function addLocalBots(round: ActiveRound, count: number) {
+  const firstBot = round.bots.length;
+  const seeds = botSeeds(count, firstBot, round.members.length);
+  seeds.forEach((seed, index) => {
+    round.members.push({ id: seed.id, name: seed.name, avatar: null, kind: 'bot', metaScore: null });
+    round.bots.push({
+      id: seed.id,
+      nextMoveAt: 0,
+      seed: firstBot + index + 1,
+      activity: 'walking',
+      cycles: 0,
+      initialized: false,
+      targetX: 0,
+      targetZ: 0,
+      yaw: 0,
+    });
+  });
+  round.seeds.push(...seeds);
+  // `spawn` is a set operation on the engine side, so include any replay teammates already loaded.
+  round.sink.spawn(round.seeds);
+}
+
+function botSeeds(count: number, firstBot = 0, memberOffset = 0): CompanionSeed[] {
   const seeds: CompanionSeed[] = [];
   for (let i = 0; i < count; i++) {
-    seeds.push({ id: `bot-${i + 1}`, name: t('squadBotName').replace('{n}', String(i + 2)), color: `bot-${i}`, localBot: true });
+    const index = firstBot + i;
+    seeds.push({
+      id: `local-bot-${index + 1}`,
+      name: t('squadBotName').replace('{n}', String(memberOffset + i + 2)),
+      color: `local-bot-${index}`,
+      appearanceSeed: Math.floor(Math.random() * 0x1_0000_0000),
+      localBot: true,
+    });
   }
   return seeds;
 }

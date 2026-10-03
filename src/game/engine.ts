@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createBreathState, stepBreath, type BreathState } from './breath';
+import { canSprint, createStaminaState, stepStamina } from './stamina';
 import { storageGet, storageSet } from './storage';
 import {
   AIR,
@@ -141,7 +142,19 @@ import {
   toolRepairCost,
   toolWearStage,
 } from './tools';
-import { MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
+import { drawCharacterFace } from './characterVisuals';
+import { companionSpawnIsClear } from './companionSpawn';
+import {
+  canSpawnSurvivalHostiles,
+  FIRST_SURVIVAL_DAY_SECONDS,
+  SURVIVAL_DAY_SECONDS,
+  survivalHostileCap,
+  survivalHostileDamageScale,
+  survivalHostileHpScale,
+  survivalThreatLevel,
+} from './survival';
 import {
   AFFIXES,
   computeStats,
@@ -199,7 +212,15 @@ export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
  * other players, the engine draws them as ghost miners in the same world so a survival shift can be
  * played by a squad of up to five.
  */
-export type CompanionSeed = { id: string; name: string; color?: string; /** local fallback only; never a live network player */ localBot?: boolean };
+export type CompanionSeed = {
+  id: string;
+  name: string;
+  color?: string;
+  /** Appearance seed changes each local survival squad; it never affects gameplay or network payloads. */
+  appearanceSeed?: number;
+  /** Local fallback only; never a live network player. */
+  localBot?: boolean;
+};
 
 export type CompanionActivity = 'walking' | 'mining' | 'fighting';
 
@@ -304,6 +325,7 @@ export type HudState = {
   score: number;
   timeLeft: number;
   health: number;
+  stamina: number;
   airBubbles: number;
   inWater: boolean;
   breathVisible: boolean;
@@ -365,6 +387,7 @@ export type DomRefs = {
   progress?: HTMLElement | null;
   comboBar?: HTMLElement | null;
   healthBar?: HTMLElement | null;
+  staminaBar?: HTMLElement | null;
   timeBar?: HTMLElement | null;
   vignette?: HTMLElement | null;
   crosshair?: HTMLElement | null;
@@ -390,6 +413,8 @@ const GRAVITY = 30;
 const JUMP_V = 9.4;
 const WALK = 4.6;
 const SPRINT = 7.1;
+const SWIM_SPRINT = WALK * 1.1;
+const SWIM_JUMP_UP = 4.7;
 const PLAYER_HALF = 0.3;
 const PLAYER_HEIGHT = 1.8;
 const CRAWL_HEIGHT = 0.72;
@@ -407,12 +432,27 @@ const MENU_SURVIVAL_CLOCK = 0.04;
 const MENU_EXPLORER_CLOCK = 0.48;
 const SURVIVAL_START_CLOCK = CLOCK_DAY_START + 0.01;
 const DAWN_SECONDS = 95;
-const DAY_SECONDS = 340;
-const FIRST_SURVIVAL_DAY_SECONDS = 480;
 const DUSK_SECONDS = 95;
 const NIGHT_SECONDS = 95;
 
-type Popup = { x: number; y: number; z: number; vy: number; life: number; max: number; text: string; color: string; big: boolean; el: HTMLDivElement };
+type PopupAnchor = 'world' | 'crosshair';
+type PopupOptions = { anchor?: PopupAnchor; duration?: number; screenRiseSpeed?: number };
+type Popup = {
+  x: number;
+  y: number;
+  z: number;
+  vy: number;
+  life: number;
+  max: number;
+  text: string;
+  color: string;
+  big: boolean;
+  anchor: PopupAnchor;
+  screenRise: number;
+  screenRiseTarget: number;
+  screenRiseSpeed: number;
+  el: HTMLDivElement;
+};
 type WeatherKind = 'clear' | 'rain' | 'snow';
 type Particle = { weather?: Exclude<WeatherKind, 'clear'>; smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
 type ToolInstance = { instanceId: number; id: number; durability: number };
@@ -449,12 +489,13 @@ function disposeObject(obj: THREE.Object3D) {
   obj.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
-    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) for (const m of mat) m.dispose();
-    else mat?.dispose();
-    const sprite = o as THREE.Sprite;
-    const map = (sprite.material as THREE.SpriteMaterial | undefined)?.map;
-    if (map) map.dispose();
+    const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    const materials = Array.isArray(material) ? material : material ? [material] : [];
+    for (const entry of materials) {
+      const map = (entry as THREE.Material & { map?: THREE.Texture }).map;
+      map?.dispose();
+      entry.dispose();
+    }
   });
 }
 
@@ -462,6 +503,113 @@ function idHue(id: string) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
   return h / 360;
+}
+
+function addCharacterBox(parent: THREE.Object3D, w: number, h: number, d: number, material: THREE.Material, x: number, y: number, z: number) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+}
+
+const CHARACTER_HEAD_SIZE = 0.4;
+const CHARACTER_FACE_SIZE = 0.3;
+const CHARACTER_FACE_FRONT_Z = -(CHARACTER_HEAD_SIZE / 2 + 0.008);
+// Dampen only the leg swing amplitude; the gait phase and cadence stay identical for all genders.
+const GIRL_WALK_LEG_SWING_SCALE = 0.35;
+
+/** Lift the pickaxe forward, then lower the arm into the block instead of pulling it backward. */
+function pickaxeStrikeArmAngle(progress: number) {
+  const t = Math.max(0, Math.min(1, progress));
+  const smoothStep = (value: number) => {
+    const x = Math.max(0, Math.min(1, value));
+    return x * x * (3 - 2 * x);
+  };
+  if (t < 0.2) return 1.05 * smoothStep(t / 0.2);
+  if (t < 0.48) return 1.05 * (1 - smoothStep((t - 0.2) / 0.28));
+  return 0;
+}
+
+/** Shared voxel hair builder used by the player model and local survival teammates. */
+function buildCharacterHair(style: CharacterHairstyle, material: THREE.Material): THREE.Group {
+  const hair = new THREE.Group();
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number) =>
+    addCharacterBox(hair, w, h, d, material, x, y, z);
+  // The scalp cap and narrow side/back panels overlap, so no skin-colored gaps show through the hair.
+  box(0.5, 0.16, 0.5, 0, 0.22, 0);
+  box(0.1, 0.36, 0.5, -0.2, -0.02, 0);
+  box(0.1, 0.36, 0.5, 0.2, -0.02, 0);
+  box(0.4, 0.36, 0.1, 0, -0.02, 0.2);
+  // A short high fringe leaves the textured eyes and brows unobstructed.
+  box(0.44, 0.1, 0.08, 0, 0.16, -0.25);
+
+  if (style === 'long') {
+    box(0.1, 0.38, 0.42, -0.2, -0.13, -0.015);
+    box(0.1, 0.38, 0.42, 0.2, -0.13, -0.015);
+    box(0.42, 0.36, 0.1, 0, -0.15, 0.19);
+  } else if (style === 'ponytail') {
+    box(0.08, 0.31, 0.39, -0.2, -0.08, -0.015);
+    box(0.08, 0.31, 0.39, 0.2, -0.08, -0.015);
+    box(0.4, 0.29, 0.1, 0, -0.09, 0.19);
+    box(0.14, 0.19, 0.14, 0.13, -0.23, 0.28);
+    box(0.12, 0.17, 0.12, 0.13, -0.4, 0.3);
+  } else if (style === 'spiky') {
+    for (const [x, y, rz] of [[-0.15, 0.34, -0.16], [0, 0.38, 0], [0.15, 0.34, 0.16]] as const) {
+      const spike = box(0.12, 0.2, 0.14, x, y, 0.01);
+      spike.rotation.z = rz;
+    }
+  } else if (style === 'bob') {
+    box(0.12, 0.37, 0.43, -0.2, -0.14, -0.015);
+    box(0.12, 0.37, 0.43, 0.2, -0.14, -0.015);
+    box(0.46, 0.34, 0.1, 0, -0.17, 0.19);
+    box(0.44, 0.08, 0.12, 0, -0.31, 0.18);
+  } else if (style === 'curly') {
+    for (const [x, y, z] of [
+      [-0.18, 0.17, -0.08], [-0.1, 0.29, -0.13], [0.04, 0.31, -0.1], [0.18, 0.18, -0.08],
+      [-0.21, 0.02, 0.04], [0.21, 0.02, 0.04], [-0.17, 0.16, 0.17], [0, 0.2, 0.22], [0.17, 0.16, 0.17],
+    ] as const) box(0.16, 0.16, 0.16, x, y, z);
+  } else if (style === 'braids') {
+    box(0.08, 0.34, 0.39, -0.2, -0.13, -0.015);
+    box(0.08, 0.34, 0.39, 0.2, -0.13, -0.015);
+    box(0.4, 0.28, 0.1, 0, -0.1, 0.19);
+    for (const side of [-1, 1]) {
+      for (const [index, y] of [-0.18, -0.31, -0.44].entries()) {
+        box(0.115, 0.15, 0.13, side * (0.21 + (index % 2 ? 0.025 : 0)), y, -0.005 + (index % 2) * 0.04);
+      }
+    }
+  } else if (style === 'bun') {
+    box(0.4, 0.3, 0.1, 0, -0.08, 0.19);
+    box(0.2, 0.18, 0.2, 0, 0.28, 0.27);
+    box(0.16, 0.08, 0.16, 0, 0.31, 0.34);
+  } else if (style === 'sidePart') {
+    const sweep = box(0.29, 0.12, 0.1, -0.08, 0.13, -0.26);
+    sweep.rotation.z = -0.18;
+    box(0.11, 0.22, 0.4, -0.2, -0.04, -0.015);
+    box(0.12, 0.12, 0.1, 0.1, 0.17, -0.25);
+  } else if (style === 'twinTails') {
+    box(0.08, 0.24, 0.38, -0.2, -0.05, -0.015);
+    box(0.08, 0.24, 0.38, 0.2, -0.05, -0.015);
+    for (const side of [-1, 1]) {
+      box(0.14, 0.11, 0.14, side * 0.23, 0.12, 0.18);
+      box(0.13, 0.2, 0.13, side * 0.24, -0.04, 0.23);
+      box(0.12, 0.18, 0.12, side * 0.25, -0.21, 0.25);
+    }
+  } else {
+    box(0.08, 0.2, 0.4, -0.2, 0.02, -0.015);
+    box(0.08, 0.2, 0.4, 0.2, 0.02, -0.015);
+  }
+  return hair;
+}
+
+/** Flared hem and back panel make the skirt silhouette unmistakable in third-person view. */
+function buildCharacterSkirt(material: THREE.Material, accent: THREE.Material): THREE.Group {
+  const skirt = new THREE.Group();
+  addCharacterBox(skirt, 0.44, 0.16, 0.34, material, 0, 0.64, 0);
+  addCharacterBox(skirt, 0.54, 0.18, 0.39, material, 0, 0.49, 0);
+  addCharacterBox(skirt, 0.67, 0.21, 0.44, material, 0, 0.31, 0);
+  addCharacterBox(skirt, 0.7, 0.045, 0.46, accent, 0, 0.19, 0);
+  addCharacterBox(skirt, 0.16, 0.035, 0.025, accent, 0, 0.56, 0.205);
+  return skirt;
 }
 
 /** one teammate: a blocky miner with a name tag and a health bar, walked by updateCompanions() */
@@ -480,6 +628,7 @@ type CompanionRig = {
   blocks: number;
   finished: boolean;
   localBot: boolean;
+  girl: boolean;
   dead: boolean;
   activity: CompanionActivity;
   attackTimer: number;
@@ -496,41 +645,79 @@ type CompanionRig = {
 };
 
 function buildCompanionRig(seed: CompanionSeed): CompanionRig {
+  const customization = seed.localBot
+    ? randomCharacterCustomization(seed.appearanceSeed ?? seed.id)
+    : { ...DEFAULT_CHARACTER_CUSTOMIZATION };
   const hue = idHue(seed.id);
-  const shirt = new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(seed.color ? idHue(seed.color) : hue, 0.45, 0.46) });
-  const shirtDark = new THREE.MeshLambertMaterial({ color: new THREE.Color().setHSL(seed.color ? idHue(seed.color) : hue, 0.5, 0.33) });
-  const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x37415c });
-  const boots = new THREE.MeshLambertMaterial({ color: 0x2a221c });
-  const hair = new THREE.MeshLambertMaterial({ color: 0x3b2a1e });
+  const shirt = new THREE.MeshLambertMaterial({ color: customization.shirtColor });
+  const shirtDark = new THREE.MeshLambertMaterial({ color: customization.shirtColor });
+  if (!seed.localBot) {
+    shirt.color.setHSL(seed.color ? idHue(seed.color) : hue, 0.45, 0.46);
+    shirtDark.color.setHSL(seed.color ? idHue(seed.color) : hue, 0.5, 0.33);
+  } else {
+    shirtDark.color.copy(shirt.color).multiplyScalar(0.68);
+  }
+  const skin = new THREE.MeshLambertMaterial({ color: customization.skinColor });
+  const pants = new THREE.MeshLambertMaterial({ color: customization.pantsColor });
+  const shoes = new THREE.MeshLambertMaterial({ color: customization.shoeColor });
+  const shoeSole = new THREE.MeshLambertMaterial({ color: customization.shoeType === 'sneakers' ? '#f1f2ed' : '#202124' });
+  const shoeAccent = new THREE.MeshLambertMaterial({ color: customization.shoeColor });
+  const hair = new THREE.MeshLambertMaterial({ color: customization.hairColor });
+  const skirt = new THREE.MeshLambertMaterial({ color: customization.pantsColor });
+  const skirtAccent = new THREE.MeshLambertMaterial({ color: customization.pantsColor });
+  skirtAccent.color.multiplyScalar(0.7);
 
   const group = new THREE.Group();
-  const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = group) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    mesh.position.set(x, y, z);
-    parent.add(mesh);
-    return mesh;
-  };
+  const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = group) =>
+    addCharacterBox(parent, w, h, d, mat, x, y, z);
 
-  box(0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
-  box(0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
+  const girl = customization.gender === 'girl';
+  box(girl ? 0.46 : 0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
+  box(girl ? 0.48 : 0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
   const head = new THREE.Group();
-  head.position.set(0, 1.62, -0.02);
-  box(0.46, 0.46, 0.46, skin, 0, 0, 0, head);
-  box(0.48, 0.14, 0.48, hair, 0, 0.23, 0, head);
-  box(0.48, 0.2, 0.08, hair, 0, 0.1, -0.25, head);
+  head.position.set(0, 1.58, -0.02);
+  box(CHARACTER_HEAD_SIZE, CHARACTER_HEAD_SIZE, CHARACTER_HEAD_SIZE, skin, 0, 0, 0, head);
+  head.add(buildCharacterHair(customization.hairstyle, hair));
+  const faceCanvas = document.createElement('canvas');
+  faceCanvas.width = faceCanvas.height = 128;
+  const faceContext = faceCanvas.getContext('2d');
+  if (faceContext) {
+    drawCharacterFace(faceContext, customization.expression, customization.glasses);
+    const faceTexture = new THREE.CanvasTexture(faceCanvas);
+    faceTexture.colorSpace = THREE.SRGBColorSpace;
+    faceTexture.magFilter = THREE.NearestFilter;
+    faceTexture.minFilter = THREE.NearestFilter;
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(CHARACTER_FACE_SIZE, CHARACTER_FACE_SIZE),
+      new THREE.MeshBasicMaterial({ map: faceTexture, transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    face.position.set(0, -0.005, CHARACTER_FACE_FRONT_Z);
+    head.add(face);
+  }
   group.add(head);
 
   const limb = (side: number, kind: 'arm' | 'leg') => {
     const g2 = new THREE.Group();
     if (kind === 'arm') {
-      g2.position.set(0.43 * side, 1.34, 0);
+      g2.position.set((girl ? 0.37 : 0.43) * side, 1.34, 0);
       box(0.18, 0.62, 0.2, shirt, 0, -0.28, 0, g2);
       box(0.18, 0.18, 0.2, skin, 0, -0.68, 0, g2);
     } else {
-      g2.position.set(0.16 * side, 0.66, 0);
-      box(0.22, 0.62, 0.24, pants, 0, -0.31, 0, g2);
-      box(0.23, 0.16, 0.3, boots, 0, -0.6, -0.02, g2);
+      g2.position.set((girl ? 0.14 : 0.16) * side, 0.66, 0);
+      const legColor = girl ? skin : pants;
+      box(girl ? 0.18 : 0.23, 0.62, 0.24, legColor, 0, -0.31, 0, g2);
+      if (customization.shoeType === 'boots') {
+        box(0.24, 0.16, 0.28, shoes, 0, -0.6, -0.02, g2);
+        box(0.26, 0.04, 0.3, shoeSole, 0, -0.69, -0.02, g2);
+      } else if (customization.shoeType === 'sneakers') {
+        box(0.26, 0.13, 0.31, shoes, 0, -0.62, -0.035, g2);
+        box(0.28, 0.04, 0.33, shoeSole, 0, -0.7, -0.035, g2);
+        box(0.26, 0.04, 0.05, shoeAccent, 0, -0.61, -0.13, g2);
+      } else {
+        box(0.25, 0.065, 0.31, shoeSole, 0, -0.68, -0.02, g2);
+        box(0.25, 0.045, 0.055, shoes, 0, -0.61, -0.12, g2);
+        box(0.25, 0.045, 0.055, shoes, 0, -0.61, 0.075, g2);
+      }
     }
     group.add(g2);
     return g2;
@@ -539,6 +726,7 @@ function buildCompanionRig(seed: CompanionSeed): CompanionRig {
   const rightArm = limb(1, 'arm');
   const leftLeg = limb(-1, 'leg');
   const rightLeg = limb(1, 'leg');
+  if (customization.gender === 'girl') group.add(buildCharacterSkirt(skirt, skirtAccent));
 
   // name tag: a canvas sprite, so a teammate is identifiable from a distance
   const tagCanvas = document.createElement('canvas');
@@ -583,6 +771,7 @@ function buildCompanionRig(seed: CompanionSeed): CompanionRig {
     blocks: 0,
     finished: false,
     localBot: seed.localBot === true,
+    girl,
     dead: false,
     activity: 'walking',
     attackTimer: 0.8,
@@ -689,6 +878,7 @@ export class Engine {
   }
 
   private fx!: HTMLDivElement;
+  private popupOverlay!: HTMLDivElement;
   private sunGlare!: HTMLDivElement;
   private popups: Popup[] = [];
   private particles: Particle[] = [];
@@ -756,6 +946,8 @@ export class Engine {
   /** a one-shot placement requested by the remote's OK tap */
   private placeOnce = false;
   private score = 0;
+  /** One-run score booster purchased from the shop; persisted only with the sandbox world. */
+  private scoreBonusMultiplier = 1;
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
   private health = 100;
@@ -812,7 +1004,28 @@ export class Engine {
   private thirdPersonFocus = new THREE.Vector3();
   private thirdPersonCamReady = false;
   private playerAvatar!: THREE.Group;
+  private characterCustomization: CharacterCustomization = { ...DEFAULT_CHARACTER_CUSTOMIZATION };
   private avatarHead: THREE.Object3D | null = null;
+  private avatarAppearance: {
+    skin: THREE.MeshLambertMaterial;
+    shirt: THREE.MeshLambertMaterial;
+    shirtDark: THREE.MeshLambertMaterial;
+    pants: THREE.MeshLambertMaterial;
+    shoes: THREE.MeshLambertMaterial;
+    shoeSole: THREE.MeshLambertMaterial;
+    shoeAccent: THREE.MeshLambertMaterial;
+    hair: THREE.MeshLambertMaterial;
+    skirt: THREE.MeshLambertMaterial;
+    skirtAccent: THREE.MeshLambertMaterial;
+  } | null = null;
+  private avatarTorso: THREE.Mesh | null = null;
+  private avatarTorsoTrim: THREE.Mesh | null = null;
+  private avatarSkirt: THREE.Group | null = null;
+  private avatarLegPants: THREE.Mesh[] = [];
+  private avatarShoeVariants: Array<Record<CharacterShoeType, THREE.Group>> = [];
+  private avatarHairVariants: Partial<Record<CharacterHairstyle, THREE.Group>> = {};
+  private avatarFaceContext: CanvasRenderingContext2D | null = null;
+  private avatarFaceTexture: THREE.CanvasTexture | null = null;
   private avatarLeftArm: THREE.Object3D | null = null;
   private avatarRightArm: THREE.Object3D | null = null;
   private avatarLeftLeg: THREE.Object3D | null = null;
@@ -821,6 +1034,9 @@ export class Engine {
   private avatarFireFx!: THREE.Group;
   private avatarHeldTool!: THREE.Group;
   private avatarHeldToolKey = '';
+  private avatarHeldItemGripScratch = new THREE.Vector3();
+  private avatarHeldItemPalmScratch = new THREE.Vector3();
+  private avatarHeldRootInverseScratch = new THREE.Quaternion();
   private avatarHeldPick!: THREE.Group;
   private avatarHeldAxe!: THREE.Group;
   private avatarHeldSword!: THREE.Group;
@@ -906,6 +1122,7 @@ export class Engine {
   private inLava = false;
   private inWater = false;
   private breathState: BreathState = createBreathState();
+  private staminaState = createStaminaState();
   private cactusCooldown = 0;
   private volcanoSmokeTimer = 0;
   private desertWindTimer = 0;
@@ -1473,6 +1690,7 @@ if (tpClipActive > 0.5) {
     // The cutting edge points into the world and a little to screen-left;
     // the butt is no longer the conspicuous right-facing end.
     this.toolAxe.rotation.set(0.3, -1.45, 0.38);
+    this.toolAxe.rotateY(-Math.PI / 2);
     this.toolAxe.visible = false;
     this.pickGroup.add(this.toolAxe);
 
@@ -1491,6 +1709,7 @@ if (tpClipActive > 0.5) {
       this.toolShovel.add(shell);
     }
     this.toolShovel.rotation.set(0.32, -0.78, 0.34);
+    this.toolShovel.rotateY(-Math.PI / 2);
     this.toolShovel.visible = false;
     this.pickGroup.add(this.toolShovel);
 
@@ -1516,6 +1735,7 @@ if (tpClipActive > 0.5) {
       this.toolHoe.add(shell);
     }
     this.toolHoe.rotation.set(0.32, -1.28, 0.38);
+    this.toolHoe.rotateY(-Math.PI / 2);
     this.toolHoe.visible = false;
     this.pickGroup.add(this.toolHoe);
 
@@ -1725,13 +1945,19 @@ if (tpClipActive > 0.5) {
     // default XYZ order, a -90° swim pitch locked the body direction, so the
     // puppet looked like it was sliding sideways instead of following the crosshair.
     g.rotation.order = 'YXZ';
-    const skin = new THREE.MeshLambertMaterial({ color: 0xd8a878 });
-    const shirt = new THREE.MeshLambertMaterial({ color: 0x4a7a52 });
-    const shirtDark = new THREE.MeshLambertMaterial({ color: 0x335c3d });
-    const pants = new THREE.MeshLambertMaterial({ color: 0x2f4f7a });
-    const boots = new THREE.MeshLambertMaterial({ color: 0x2a221c });
-    const hair = new THREE.MeshLambertMaterial({ color: 0x4a2d1b });
-    const eye = new THREE.MeshBasicMaterial({ color: 0x182018 });
+    const customization = this.characterCustomization;
+    const skin = new THREE.MeshLambertMaterial({ color: customization.skinColor });
+    const shirt = new THREE.MeshLambertMaterial({ color: customization.shirtColor });
+    const shirtDark = new THREE.MeshLambertMaterial({ color: customization.shirtColor });
+    const pants = new THREE.MeshLambertMaterial({ color: customization.pantsColor });
+    const shoeMat = new THREE.MeshLambertMaterial({ color: customization.shoeColor });
+    const shoeSole = new THREE.MeshLambertMaterial({ color: 0x202124 });
+    const shoeAccent = new THREE.MeshLambertMaterial({ color: 0xf1f2ed });
+    const hair = new THREE.MeshLambertMaterial({ color: customization.hairColor });
+    const skirt = new THREE.MeshLambertMaterial({ color: customization.pantsColor });
+    const skirtAccent = new THREE.MeshLambertMaterial({ color: customization.pantsColor });
+    skirtAccent.color.multiplyScalar(0.7);
+    this.avatarAppearance = { skin, shirt, shirtDark, pants, shoes: shoeMat, shoeSole, shoeAccent, hair, skirt, skirtAccent };
 
     const addBox = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, parent = g) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -1740,15 +1966,42 @@ if (tpClipActive > 0.5) {
       return mesh;
     };
 
-    addBox(0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
-    addBox(0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
+    this.avatarTorso = addBox(0.56, 0.72, 0.28, shirt, 0, 1.02, 0);
+    this.avatarTorsoTrim = addBox(0.58, 0.16, 0.3, shirtDark, 0, 1.31, 0);
     const headGroup = new THREE.Group();
-    headGroup.position.set(0, 1.62, -0.02);
-    addBox(0.46, 0.46, 0.46, skin, 0, 0, 0, headGroup);
-    addBox(0.48, 0.14, 0.48, hair, 0, 0.23, 0, headGroup);
-    addBox(0.48, 0.2, 0.08, hair, 0, 0.1, -0.25, headGroup);
-    addBox(0.055, 0.055, 0.03, eye, -0.11, 0.04, -0.245, headGroup);
-    addBox(0.055, 0.055, 0.03, eye, 0.11, 0.04, -0.245, headGroup);
+    headGroup.position.set(0, 1.58, -0.02);
+    addBox(CHARACTER_HEAD_SIZE, CHARACTER_HEAD_SIZE, CHARACTER_HEAD_SIZE, skin, 0, 0, 0, headGroup);
+
+    for (const style of CHARACTER_HAIRSTYLES) {
+      const variant = buildCharacterHair(style, hair);
+      variant.visible = style === customization.hairstyle;
+      this.avatarHairVariants[style] = variant;
+      headGroup.add(variant);
+    }
+
+    const faceCanvas = document.createElement('canvas');
+    faceCanvas.width = 128;
+    faceCanvas.height = 128;
+    const faceContext = faceCanvas.getContext('2d');
+    if (faceContext) {
+      this.avatarFaceContext = faceContext;
+      drawCharacterFace(faceContext, customization.expression, customization.glasses);
+      const faceTexture = new THREE.CanvasTexture(faceCanvas);
+      faceTexture.colorSpace = THREE.SRGBColorSpace;
+      faceTexture.magFilter = THREE.NearestFilter;
+      faceTexture.minFilter = THREE.NearestFilter;
+      this.avatarFaceTexture = faceTexture;
+      const faceMaterial = new THREE.MeshBasicMaterial({
+        map: faceTexture,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(CHARACTER_FACE_SIZE, CHARACTER_FACE_SIZE), faceMaterial);
+      face.position.set(0, -0.005, CHARACTER_FACE_FRONT_Z);
+      headGroup.add(face);
+    }
     g.add(headGroup);
     this.avatarHead = headGroup;
 
@@ -1790,7 +2043,11 @@ if (tpClipActive > 0.5) {
     addBox(0.12, 0.12, 0.46, this.avatarHeldPickMats[0], 0, 0.34, 0, this.avatarHeldPick);
     addBox(0.11, 0.11, 0.2, this.avatarHeldPickMats[0], 0, 0.32, -0.28, this.avatarHeldPick).rotation.x = -0.48;
     addBox(0.11, 0.11, 0.2, this.avatarHeldPickMats[0], 0, 0.32, 0.28, this.avatarHeldPick).rotation.x = 0.48;
-    this.avatarHeldPick.rotation.set(0.18, 0, 0.68);
+    // Align the legacy pick's shaft through the palm and turn its head across the grip.
+    this.avatarHeldPick.position.set(-0.033, -0.005, 0.168);
+    this.avatarHeldPick.scale.setScalar(0.9);
+    this.avatarHeldPick.rotation.set(-1.15, 1.374, 1.092);
+    this.avatarHeldPick.rotateY(Math.PI / 2);
 
     this.avatarHeldAxe = makeHeldGroup();
     this.avatarHeldAxeHeadMat = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
@@ -1799,6 +2056,7 @@ if (tpClipActive > 0.5) {
     addBox(0.24, 0.22, 0.1, this.avatarHeldAxeHeadMat, 0.12, 0.28, 0, this.avatarHeldAxe);
     addBox(0.07, 0.28, 0.11, this.avatarHeldAxeEdgeMat, 0.28, 0.28, 0, this.avatarHeldAxe);
     this.avatarHeldAxe.rotation.set(0.08, 0, 0.55);
+    this.avatarHeldAxe.rotateY(Math.PI / 2);
 
     this.avatarHeldSword = makeHeldGroup();
     this.avatarHeldSwordMat = new THREE.MeshLambertMaterial({ color: 0xd9dde2 });
@@ -1811,6 +2069,7 @@ if (tpClipActive > 0.5) {
     addBox(0.06, 0.6, 0.06, woodHeld, 0, 0, 0, this.avatarHeldShovel);
     addBox(0.17, 0.24, 0.055, ironHeld, 0, 0.36, 0, this.avatarHeldShovel);
     this.avatarHeldShovel.rotation.set(0.1, 0, 0.32);
+    this.avatarHeldShovel.rotateY(Math.PI / 2);
 
     this.avatarHeldHoe = makeHeldGroup();
     this.avatarHeldHoeHeadMat = new THREE.MeshLambertMaterial({ color: 0xa8aeb4 });
@@ -1819,6 +2078,7 @@ if (tpClipActive > 0.5) {
     addBox(0.2, 0.1, 0.08, this.avatarHeldHoeHeadMat, 0.1, 0.3, 0, this.avatarHeldHoe);
     addBox(0.06, 0.24, 0.09, this.avatarHeldHoeEdgeMat, 0.25, 0.22, 0, this.avatarHeldHoe);
     this.avatarHeldHoe.rotation.set(0.1, -1.12, 0.3);
+    this.avatarHeldHoe.rotateY(Math.PI / 2);
 
     this.avatarHeldBow = makeHeldGroup();
     addBox(0.055, 0.42, 0.07, woodHeld, 0.05, 0.22, 0, this.avatarHeldBow).rotation.z = -0.38;
@@ -1841,19 +2101,46 @@ if (tpClipActive > 0.5) {
     this.avatarFireFx = buildEnchantedFlames(true);
     heldRoot.add(this.avatarFireFx);
 
+    const makeShoes = (leg: THREE.Group) => {
+      const variants = {} as Record<CharacterShoeType, THREE.Group>;
+      const boot = new THREE.Group();
+      addBox(0.24, 0.16, 0.28, shoeMat, 0, -0.62, -0.02, boot);
+      addBox(0.26, 0.04, 0.31, shoeSole, 0, -0.715, -0.02, boot);
+      variants.boots = boot;
+      const sneakers = new THREE.Group();
+      addBox(0.26, 0.13, 0.31, shoeMat, 0, -0.625, -0.035, sneakers);
+      addBox(0.28, 0.04, 0.33, shoeSole, 0, -0.715, -0.035, sneakers);
+      addBox(0.265, 0.045, 0.055, shoeAccent, 0, -0.62, -0.12, sneakers);
+      variants.sneakers = sneakers;
+      const sandals = new THREE.Group();
+      addBox(0.25, 0.065, 0.31, shoeSole, 0, -0.685, -0.02, sandals);
+      addBox(0.25, 0.045, 0.055, shoeMat, 0, -0.61, -0.12, sandals);
+      addBox(0.25, 0.045, 0.055, shoeMat, 0, -0.61, 0.075, sandals);
+      variants.sandals = sandals;
+      for (const style of ['boots', 'sneakers', 'sandals'] as const) {
+        variants[style].visible = style === customization.shoeType;
+        leg.add(variants[style]);
+      }
+      this.avatarShoeVariants.push(variants);
+    };
+
     const leftLeg = new THREE.Group();
     leftLeg.position.set(-0.15, 0.7, 0);
-    addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, leftLeg);
-    addBox(0.24, 0.12, 0.25, boots, 0, -0.62, -0.02, leftLeg);
+    this.avatarLegPants.push(addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, leftLeg));
+    makeShoes(leftLeg);
     g.add(leftLeg);
     this.avatarLeftLeg = leftLeg;
 
     const rightLeg = new THREE.Group();
     rightLeg.position.set(0.15, 0.7, 0);
-    addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, rightLeg);
-    addBox(0.24, 0.12, 0.25, boots, 0, -0.62, -0.02, rightLeg);
+    this.avatarLegPants.push(addBox(0.22, 0.62, 0.22, pants, 0, -0.25, 0, rightLeg));
+    makeShoes(rightLeg);
     g.add(rightLeg);
     this.avatarRightLeg = rightLeg;
+
+    this.avatarSkirt = buildCharacterSkirt(skirt, skirtAccent);
+    this.avatarSkirt.visible = customization.gender === 'girl';
+    g.add(this.avatarSkirt);
 
     g.visible = false;
     this.avatarFadeMats = [];
@@ -1870,6 +2157,43 @@ if (tpClipActive > 0.5) {
     });
     this.scene.add(g);
     this.playerAvatar = g;
+    this.applyCharacterCustomization();
+  }
+
+  private applyCharacterCustomization() {
+    const appearance = this.avatarAppearance;
+    if (!appearance) return;
+    const customization = this.characterCustomization;
+    appearance.skin.color.set(customization.skinColor);
+    appearance.shirt.color.set(customization.shirtColor);
+    appearance.shirtDark.color.copy(appearance.shirt.color).multiplyScalar(0.68);
+    appearance.pants.color.set(customization.gender === 'girl' ? customization.skinColor : customization.pantsColor);
+    appearance.skirt.color.set(customization.pantsColor);
+    appearance.skirtAccent.color.copy(appearance.skirt.color).multiplyScalar(0.7);
+    appearance.shoes.color.set(customization.shoeColor);
+    appearance.hair.color.set(customization.hairColor);
+    appearance.shoeSole.color.set(customization.shoeType === 'sneakers' ? '#f1f2ed' : '#202124');
+    appearance.shoeAccent.color.set(customization.shoeType === 'sneakers' ? '#f1f2ed' : customization.shoeColor);
+
+    const girl = customization.gender === 'girl';
+    if (this.avatarSkirt) this.avatarSkirt.visible = girl;
+    if (this.avatarTorso) this.avatarTorso.scale.x = girl ? 0.82 : 1.04;
+    if (this.avatarTorsoTrim) this.avatarTorsoTrim.scale.x = girl ? 0.82 : 1.04;
+    if (this.avatarLeftArm) this.avatarLeftArm.position.x = girl ? -0.37 : -0.43;
+    if (this.avatarRightArm) this.avatarRightArm.position.x = girl ? 0.37 : 0.43;
+    if (this.avatarLeftLeg) this.avatarLeftLeg.position.x = girl ? -0.14 : -0.15;
+    if (this.avatarRightLeg) this.avatarRightLeg.position.x = girl ? 0.14 : 0.15;
+    for (const pants of this.avatarLegPants) pants.scale.x = girl ? 0.78 : 1;
+    for (const variants of this.avatarShoeVariants) {
+      for (const [style, group] of Object.entries(variants) as Array<[CharacterShoeType, THREE.Group]>) {
+        group.visible = style === customization.shoeType;
+      }
+    }
+    for (const [style, group] of Object.entries(this.avatarHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
+      group.visible = style === customization.hairstyle;
+    }
+    if (this.avatarFaceContext) drawCharacterFace(this.avatarFaceContext, customization.expression, customization.glasses);
+    if (this.avatarFaceTexture) this.avatarFaceTexture.needsUpdate = true;
   }
 
   /** swap the first-person model to match the selected hotbar slot */
@@ -1907,6 +2231,14 @@ if (tpClipActive > 0.5) {
       // blade leaning into the scene, not flat against the forearm.
       else if (craftedSpec.kind === 'sword') this.toolCrafted.rotation.set(-0.34, -0.68, 0.46);
       else this.toolCrafted.rotation.set(-0.36, 0.15, 0.28);
+      // Keep the earlier pickaxe view-model pose; only roll the other long-handled tools.
+      if (
+        craftedSpec.kind === 'axe' ||
+        craftedSpec.kind === 'shovel' ||
+        craftedSpec.kind === 'hoe'
+      ) {
+        this.toolCrafted.rotateY(-Math.PI / 2);
+      }
     }
     const holdingLanternBlock = kind === 'block' && heldId === TORCH;
     const isCandidateItem =
@@ -2013,6 +2345,20 @@ if (tpClipActive > 0.5) {
     this.syncThirdPersonHeldItem();
   }
 
+  /** Solve each held model's local transform so its grip lands at the right palm center. */
+  private positionAvatarHeldItemAtGrip(item: THREE.Object3D, gripX: number, gripY: number, gripZ: number) {
+    this.avatarHeldRootInverseScratch.copy(this.avatarHeldRoot.quaternion).invert();
+    this.avatarHeldItemPalmScratch
+      .set(0, -0.68, 0)
+      .sub(this.avatarHeldRoot.position)
+      .applyQuaternion(this.avatarHeldRootInverseScratch);
+    this.avatarHeldItemGripScratch
+      .set(gripX, gripY, gripZ)
+      .multiply(item.scale)
+      .applyQuaternion(item.quaternion);
+    item.position.copy(this.avatarHeldItemPalmScratch).sub(this.avatarHeldItemGripScratch);
+  }
+
   private syncThirdPersonHeldItem() {
     if (!this.avatarHeldRoot) return;
     const all = [
@@ -2039,31 +2385,41 @@ if (tpClipActive > 0.5) {
         this.avatarHeldTool.add(this.buildToolModel(heldId, wear));
         this.avatarHeldToolKey = signature;
       }
-      // The group origin is the avatar's palm. Move the mesh so the palm lands
-      // on the lower handle/grip, not halfway up the tool or in empty air.
-      const handOffset =
-        craftedSpec.kind === 'sword' ? 0.24 :
-        craftedSpec.kind === 'bow' ? 0.12 : 0.42;
-      this.avatarHeldTool.position.set(0, handOffset, 0.02);
       this.avatarHeldTool.scale.setScalar(0.72);
-      // Keep the forward pitch from the arm instead of cancelling it: the grip
-      // stays in the palm while each head/blade angles away from the forearm.
-      if (craftedSpec.kind === 'pickaxe') this.avatarHeldTool.rotation.set(0.6, -0.75, 0.32);
-      else if (craftedSpec.kind === 'axe') this.avatarHeldTool.rotation.set(0.65, -1.15, 0.32);
+      if (craftedSpec.kind === 'pickaxe') {
+        // Keep the haft 45° forward/up while the mirrored head tips point out toward the block.
+        this.avatarHeldTool.rotation.set(-0.05, -0.09, 0.175);
+      } else if (craftedSpec.kind === 'axe') this.avatarHeldTool.rotation.set(0.65, -1.15, 0.32);
       else if (craftedSpec.kind === 'hoe') this.avatarHeldTool.rotation.set(0.65, -1.08, 0.32);
       else if (craftedSpec.kind === 'shovel') this.avatarHeldTool.rotation.set(0.58, -0.65, 0.32);
-      // The sword grip is at y=-0.24 in its model; keep that grip seated and
-      // give the blade a modest forward lean.
+      // The sword grip is at y=-0.24 in its model; keep the blade leaning forward.
       else if (craftedSpec.kind === 'sword') this.avatarHeldTool.rotation.set(0.38, -0.05, 0.32);
       else this.avatarHeldTool.rotation.set(0.33, 0.05, 0.32);
+
+      // Local haft-axis rolls keep the pick tips and tool edges aimed outward from the avatar.
+      if (
+        craftedSpec.kind === 'pickaxe' ||
+        craftedSpec.kind === 'axe' ||
+        craftedSpec.kind === 'hoe'
+      ) {
+        this.avatarHeldTool.rotateY(Math.PI / 2);
+      } else if (craftedSpec.kind === 'shovel') {
+        this.avatarHeldTool.rotateY(-Math.PI / 2);
+      }
+      const gripX = craftedSpec.kind === 'sword' ? 0 : craftedSpec.kind === 'bow' ? -0.2 : -0.025;
+      const gripY = craftedSpec.kind === 'sword' ? -0.22 : craftedSpec.kind === 'bow' ? 0.02 : -0.25;
+      const gripZ = craftedSpec.kind === 'bow' ? 0.02 : 0;
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldTool, gripX, gripY, gripZ);
       this.avatarHeldTool.visible = true;
       return;
     }
     if (kind === 'pick') {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldPick, 0, -0.02, 0);
       this.avatarHeldPick.visible = true;
       const c = PICKAXE_TIERS[this.heldPickTier()].color;
       this.avatarHeldPickMats.forEach((m) => m.color.set(c));
     } else if (kind === 'axe') {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldAxe, 0, 0, 0);
       this.avatarHeldAxe.visible = true;
       const tier = this.heldAxeTier();
       if (tier === 0) {
@@ -2074,10 +2430,14 @@ if (tpClipActive > 0.5) {
         this.avatarHeldAxeEdgeMat.color.set('#d6d9dd');
       }
     } else if (kind === 'sword') {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldSword, 0, -0.22, 0);
       this.avatarHeldSword.visible = true;
       this.avatarHeldSwordMat.color.set(SWORDS[Math.max(0, this.heldSwordTier())].color);
-    } else if (kind === 'shovel') this.avatarHeldShovel.visible = true;
-    else if (kind === 'hoe') {
+    } else if (kind === 'shovel') {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldShovel, 0, 0, 0);
+      this.avatarHeldShovel.visible = true;
+    } else if (kind === 'hoe') {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldHoe, 0, 0, 0);
       this.avatarHeldHoe.visible = true;
       const spec = getToolSpec(heldId ?? -1);
       if (spec?.tier === 0) {
@@ -2087,9 +2447,14 @@ if (tpClipActive > 0.5) {
         this.avatarHeldHoeHeadMat.color.set('#a8aeb4');
         this.avatarHeldHoeEdgeMat.color.set('#d6d9dd');
       }
-    } else if (kind === 'bow') this.avatarHeldBow.visible = true;
-    else if (kind === 'torch' || heldId === TORCH) this.avatarHeldTorch.visible = true;
-    else if ((kind === 'block' || kind === 'gear') && heldId !== undefined) {
+    } else if (kind === 'bow') {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldBow, 0.05, 0, 0);
+      this.avatarHeldBow.visible = true;
+    } else if (kind === 'torch' || heldId === TORCH) {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldTorch, 0, 0, 0);
+      this.avatarHeldTorch.visible = true;
+    } else if ((kind === 'block' || kind === 'gear') && heldId !== undefined) {
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldBlock, 0, 0, 0);
       this.avatarHeldBlock.visible = true;
       const tint = BLOCKS[heldId]?.tint ?? [210, 210, 210];
       this.avatarHeldBlockMat.color.setRGB(tint[0] / 255, tint[1] / 255, tint[2] / 255, THREE.SRGBColorSpace);
@@ -2104,13 +2469,35 @@ if (tpClipActive > 0.5) {
       'position:absolute;inset:-14%;pointer-events:none;opacity:0;transition:opacity 70ms linear;mix-blend-mode:screen;background:radial-gradient(circle at 50% 50%, rgba(255,255,235,.82) 0%, rgba(255,224,90,.36) 7%, rgba(255,178,42,.12) 19%, rgba(255,190,30,0) 38%),linear-gradient(90deg, rgba(255,230,110,0) 0%, rgba(255,230,110,.24) 48%, rgba(255,248,196,.36) 50%, rgba(255,230,110,.24) 52%, rgba(255,230,110,0) 100%),linear-gradient(0deg, rgba(255,230,110,0) 0%, rgba(255,230,110,.11) 49%, rgba(255,248,196,.22) 50%, rgba(255,230,110,.11) 51%, rgba(255,230,110,0) 100%);';
     this.fx.appendChild(this.sunGlare);
     this.container.appendChild(this.fx);
-    for (let i = 0; i < 16; i++) {
-      const el = document.createElement('div');
-      el.style.cssText =
-        'position:absolute;left:0;top:0;will-change:transform,opacity;font-family:var(--font-display);font-weight:700;white-space:nowrap;text-shadow:2px 2px 0 rgba(0,0,0,.75);opacity:0;transform:translate3d(-999px,-999px,0);';
-      this.fx.appendChild(el);
-      this.popups.push({ x: 0, y: 0, z: 0, vy: 0, life: 0, max: 1, text: '', color: '#fff', big: false, el });
-    }
+    for (let i = 0; i < 16; i++) this.createPopup();
+    this.popupOverlay = document.createElement('div');
+    this.popupOverlay.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:21;';
+    this.container.appendChild(this.popupOverlay);
+  }
+
+  private createPopup(): Popup {
+    const el = document.createElement('div');
+    el.style.cssText =
+      'position:absolute;left:0;top:0;will-change:transform,opacity;font-family:var(--font-display);font-weight:700;white-space:nowrap;text-shadow:2px 2px 0 rgba(0,0,0,.75);opacity:0;transform:translate3d(-999px,-999px,0);';
+    this.fx.appendChild(el);
+    const popup: Popup = {
+      x: 0,
+      y: 0,
+      z: 0,
+      vy: 0,
+      life: 0,
+      max: 1,
+      text: '',
+      color: '#fff',
+      big: false,
+      anchor: 'world',
+      screenRise: 0,
+      screenRiseTarget: 0,
+      screenRiseSpeed: 0,
+      el,
+    };
+    this.popups.push(popup);
+    return popup;
   }
 
   // ================= WORLD GEN QUEUE =================
@@ -2984,6 +3371,7 @@ if (tpClipActive > 0.5) {
         pitch: this.pitch,
         health: this.health,
         score: this.score,
+        scoreBonusMultiplier: this.scoreBonusMultiplier,
         inventory: Array.from(this.inventory.entries()),
         toolInstances: Array.from(this.toolInstances.values()),
         nextToolInstanceId: this.nextToolInstanceId,
@@ -3053,6 +3441,9 @@ if (tpClipActive > 0.5) {
     this.pitch = data.pitch;
     this.health = data.health;
     this.score = data.score;
+    this.scoreBonusMultiplier = Number.isFinite(data.scoreBonusMultiplier)
+      ? Math.max(1, Math.min(5, Number(data.scoreBonusMultiplier)))
+      : 1;
     this.inventory = new Map(Array.isArray(data.inventory) ? data.inventory : []);
     const desiredToolCounts = new Map<number, number>();
     for (const [id, count] of this.inventory) {
@@ -3171,6 +3562,7 @@ if (tpClipActive > 0.5) {
     if (survivalRun) this.runTime = 0;
     else this.runTime = seconds && seconds > 0 ? seconds : EXPLORATION_RUN_TIME;
     this.score = 0;
+    this.scoreBonusMultiplier = 1;
     this.timeLeft = this.runTime;
     this.explorationObjectives = !survivalRun && !sandbox
       ? EXPLORATION_TASKS.map((task) => ({ ...task, progress: 0 }))
@@ -3178,6 +3570,7 @@ if (tpClipActive > 0.5) {
     this.objectiveIndex = 0;
     this.health = 100;
     this.breathState = createBreathState();
+    this.staminaState = createStaminaState();
     this.combo = 0;
     this.comboTimer = 0;
     this.bestCombo = 0;
@@ -3303,6 +3696,139 @@ if (tpClipActive > 0.5) {
     this.syncHud(true);
   }
 
+  /** Apply persisted shop supplies after a fresh run or sandbox world has loaded. */
+  grantShopRewardItems(items: Array<readonly [number, number]>): boolean {
+    const inventoryBefore = new Map(this.inventory);
+    const hotbarBefore = this.hotbar.slice();
+    const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+    let received = 0;
+    for (const [id, rawCount] of items) {
+      const count = Math.floor(rawCount);
+      if (!Number.isInteger(id) || id <= AIR || !BLOCKS[id] || count <= 0) continue;
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+      this.addToHotbar(id);
+      received += count;
+    }
+    if (!received) return false;
+    if (this.sandbox && !this.saveWorld(true)) {
+      // Do not consume a queued monthly grant when the persistent sandbox could not store it.
+      this.inventory = inventoryBefore;
+      this.hotbar = hotbarBefore;
+      this.hotbarInstanceIds = hotbarInstancesBefore;
+      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return false;
+    }
+    this.pushBanner(t('shopDropItemsBannerTitle'), t('shopDropItemsBannerSub'), '#62e8dc');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
+  /** Apply paid shop products after a run/world has loaded; the receipts stay queued on save failure. */
+  grantShopProductRewards(products: readonly string[]): boolean {
+    const inventoryBefore = new Map(this.inventory);
+    const hotbarBefore = this.hotbar.slice();
+    const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+    const toolsBefore = new Map(this.toolInstances);
+    const bagBefore = this.bagItems.slice();
+    const nextToolIdBefore = this.nextToolInstanceId;
+    const tierBefore = this.tier;
+    const swordTierBefore = this.swordTier;
+    const scoreBonusBefore = this.scoreBonusMultiplier;
+    let received = 0;
+
+    const grantBlocks = (items: readonly (readonly [number, number])[]) => {
+      for (const [id, count] of items) {
+        if (!BLOCKS[id] || !Number.isInteger(count) || count <= 0) continue;
+        this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+        this.addToHotbar(id);
+        received += count;
+      }
+    };
+    const grantArmorSet = (material: Material, rarity: Rarity, slots: readonly Slot[] = ['head', 'chest', 'legs', 'feet']) => {
+      for (const slot of slots) {
+        this.bagItems.push(ensureGearHid(makeItem(slot, material, rarity, Math.random)));
+        received += 1;
+      }
+    };
+
+    for (const product of products) {
+      switch (product) {
+        case 'armor-uncommon':
+          grantArmorSet('iron', 1);
+          break;
+        case 'armor-rare':
+          grantArmorSet('iron', 2);
+          break;
+        case 'armor-epic':
+          grantArmorSet('netherite', 3);
+          break;
+        case 'netherite-pickaxe':
+          if (this.addToolInstance(PICK_TOOLS[5])) received += 1;
+          break;
+        case 'netherite-armor':
+          grantArmorSet('netherite', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
+          break;
+        // Apply any receipts that were queued by the previous diamond-tier shop unchanged.
+        case 'diamond-pickaxe':
+          if (this.addToolInstance(PICK_TOOLS[4])) received += 1;
+          break;
+        case 'diamond-armor':
+          grantArmorSet('diamond', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
+          break;
+        case 'chest-common':
+          grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8]]);
+          break;
+        case 'chest-rare':
+          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2]]);
+          this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 2, Math.random)));
+          received += 1;
+          break;
+        case 'chest-epic':
+          grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2]]);
+          this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 3, Math.random)));
+          received += 1;
+          break;
+        case 'booster-start':
+          grantBlocks([[PLANKS, 16], [COAL, 8], [COOKED_MEAT, 5], [TORCH, 8]]);
+          if (this.addToolInstance(PICK_TOOLS[1])) received += 1;
+          break;
+        case 'booster-ore':
+          grantBlocks([[IRON, 5], [GOLD, 2], [DIAMOND, 1]]);
+          break;
+        case 'booster-score':
+          this.scoreBonusMultiplier += 0.25;
+          received += 1;
+          break;
+      }
+    }
+    if (!received) return false;
+
+    this.recalcOwnedToolTiers();
+    if (this.sandbox && !this.saveWorld(true)) {
+      this.inventory = inventoryBefore;
+      this.hotbar = hotbarBefore;
+      this.hotbarInstanceIds = hotbarInstancesBefore;
+      this.toolInstances = toolsBefore;
+      this.bagItems = bagBefore;
+      this.nextToolInstanceId = nextToolIdBefore;
+      this.tier = tierBefore;
+      this.swordTier = swordTierBefore;
+      this.scoreBonusMultiplier = scoreBonusBefore;
+      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return false;
+    }
+
+    this.pushBanner(t('shopItemBannerTitle'), t('shopItemBannerSub'), '#f4b942');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
   private seedStarterWildlife(x: number, z: number, yaw: number) {
     const fwdAngle = Math.atan2(-Math.cos(yaw), -Math.sin(yaw));
     const biome = this.world.biomeAt(Math.floor(x), Math.floor(z));
@@ -3317,7 +3843,7 @@ if (tpClipActive > 0.5) {
             : ['cow', 'sheep', 'chicken', 'rabbit', 'cat', 'deer'];
     const preferredGround = isDry ? [SAND] : biome === 'winter' ? [SNOW_GRASS] : [GRASS];
     for (const id of species) {
-      const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround);
+      const spot = this.mobSys.findSpawnPoint(x, z, 6, 22, fwdAngle, preferredGround, id);
       if (spot) this.mobSys.spawn(id, spot[0], spot[1], spot[2]);
     }
   }
@@ -3404,6 +3930,11 @@ if (tpClipActive > 0.5) {
     this.setMenuClockForMode();
     requestMusic();
     this.syncHud(true);
+  }
+
+  setCharacterCustomization(value: CharacterCustomization) {
+    this.characterCustomization = sanitizeCharacterCustomization(value);
+    this.applyCharacterCustomization();
   }
 
   setSurvival(v: boolean) {
@@ -3671,6 +4202,7 @@ if (tpClipActive > 0.5) {
         if (isNight) {
           this.survivalNight += 1;
           this.firstSurvivalDay = false;
+          this.strengthenExistingHostiles();
           this.pushBanner(t('nightFalls'), t('nightFallsSub'), '#6f8bd8');
         } else {
           this.pushBanner(t('sunRises'), t('sunRisesSub'), '#ffc86a');
@@ -3750,12 +4282,16 @@ if (tpClipActive > 0.5) {
     for (let y = minY; y <= maxY; y++)
       for (let z = minZ; z <= maxZ; z++)
         for (let x = minX; x <= maxX; x++) if (isSolid(this.world.get(x, y, z))) return true;
-    return false;
+    return this.mobSys.collidesWithMob(px, py, pz, halfX, halfZ, this.playerHeight(crawling));
   }
 
   private moveAxis(axis: 'x' | 'y' | 'z', amount: number) {
     if (amount === 0) return { blocked: false, top: 0 };
     const p = this.pos;
+    const start = p[axis];
+    const startX = p.x;
+    const startY = p.y;
+    const startZ = p.z;
     p[axis] += amount;
     const { halfX, halfZ } = this.playerHalfExtents();
     const minX = Math.floor(p.x - halfX),
@@ -3784,6 +4320,15 @@ if (tpClipActive > 0.5) {
       else if (axis === 'x') p.x = amount > 0 ? best - halfX - eps : best + 1 + halfX + eps;
       else p.z = amount > 0 ? best - halfZ - eps : best + 1 + halfZ + eps;
       this.vel[axis] = 0;
+      if (axis === 'y' && amount < 0) this.onGround = true;
+    }
+    if (this.mobSys.collidesAlongMobPath(
+      startX, startY, startZ, p.x, p.y, p.z, halfX, halfZ, this.playerHeight(),
+    )) {
+      // Sweep intermediate positions so a lag spike cannot carry the player through a small animal.
+      p[axis] = start;
+      this.vel[axis] = 0;
+      blocked = true;
       if (axis === 'y' && amount < 0) this.onGround = true;
     }
     return { blocked, top };
@@ -3863,13 +4408,15 @@ if (tpClipActive > 0.5) {
       this.crawlYaw = this.yaw;
     }
     this.crouching = !this.crawling && !!(k['ControlLeft'] || k['ControlRight']);
-    const sprint =
+    const sprintIntent =
       !this.crouching && !this.crawling && (k['ShiftLeft'] || k['ShiftRight'] || this.touchSprint) && fz > 0.1;
     const len = Math.hypot(fx, fz);
     if (len > 1) {
       fx /= len;
       fz /= len;
     }
+    const swimmingMove = wasInWater && !this.crawling;
+    const sprint = sprintIntent && len > 0.2 && canSprint(this.staminaState);
 
     const sin = Math.sin(this.yaw),
       cos = Math.cos(this.yaw);
@@ -3877,8 +4424,7 @@ if (tpClipActive > 0.5) {
     const wx = fx * cos - fz * sin;
     const wz = -fx * sin - fz * cos;
 
-    const swimmingMove = wasInWater && !this.crawling;
-    const speed = this.crawling ? WALK * 0.3 : this.crouching ? WALK * 0.45 : swimmingMove ? WALK * 0.78 : sprint ? SPRINT : WALK;
+    const speed = this.crawling ? WALK * 0.3 : this.crouching ? WALK * 0.45 : swimmingMove ? (sprint ? SWIM_SPRINT : WALK * 0.78) : sprint ? SPRINT : WALK;
     const accel = swimmingMove ? 28 : this.onGround ? 58 : 16;
     const targetVX = wx * speed;
     const targetVZ = wz * speed;
@@ -4006,15 +4552,15 @@ if (tpClipActive > 0.5) {
         // turning the body into a standing/walking pose.
         targetVy = Math.max(-2.9, Math.min(2.55, Math.sin(this.pitch) * 3.9));
       }
-      if (jumpHeld) targetVy = Math.max(targetVy, 3.7);
+      // Space adds swim lift only; horizontal speed remains controlled by the movement/Shift input above.
+      if (jumpHeld) targetVy = Math.max(targetVy, SWIM_JUMP_UP);
       const vyBlend = Math.min(1, dt * (jumpHeld ? 10 : 4.6));
       this.vel.y += (targetVy - this.vel.y) * vyBlend;
       this.vel.x *= Math.pow(0.38, dt);
       this.vel.z *= Math.pow(0.38, dt);
       if (jumpHeld && forwardIntent && this.nearWaterExitLedge(wx, wz)) {
+        // Keep the shore-mantle assist vertical; jump must not add a forward burst while swimming.
         this.vel.y = Math.max(this.vel.y, 5.15);
-        this.vel.x += wx * 1.15;
-        this.vel.z += wz * 1.15;
       }
       this.fallStart = this.pos.y; // water breaks any fall
     }
@@ -4080,7 +4626,9 @@ if (tpClipActive > 0.5) {
     const planar = Math.hypot(this.vel.x, this.vel.z);
     this.bob += dt * (this.inWater ? 1.9 + planar * 1.75 + (jumpHeld ? 1.25 : 0) : this.onGround ? planar * 1.55 : 3.2);
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
-    this.fovTarget = sprint && len > 0.2 ? 82 : 72;
+    const sprinting = sprint && planar > 0.5;
+    this.staminaState = stepStamina(this.staminaState, sprinting, dt);
+    this.fovTarget = sprinting ? 82 : 72;
   }
 
   private damage(amount: number, cause: 'lava' | 'fall' | 'mob') {
@@ -4198,7 +4746,11 @@ if (tpClipActive > 0.5) {
     this.playerAvatar.scale.set(1, Math.max(0.78, squat), 1);
 
     const uprightSwing = Math.sin(this.bob * 2.35) * 0.55 * uprightMove;
+    const uprightLegSwing = uprightSwing * (this.characterCustomization.gender === 'girl' ? GIRL_WALK_LEG_SWING_SCALE : 1);
     const miningSwing = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT) * Math.PI) * 0.95 : 0;
+    const miningArmSwing = this.swingT >= 0 && this.heldKind() === 'pick'
+      ? pickaxeStrikeArmAngle(this.swingT)
+      : -miningSwing;
 
     const rightX = Math.cos(yawBlend);
     const rightZ = -Math.sin(yawBlend);
@@ -4213,7 +4765,7 @@ if (tpClipActive > 0.5) {
     const activeCrawl = Math.min(1, forwardAmt + sideAmt);
 
     const crawlLeftArmX = -0.42 + fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt;
-    const crawlRightArmX = -0.42 - fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt - miningSwing * 0.22;
+    const crawlRightArmX = -0.42 - fSign * wave * 0.48 * forwardAmt - 0.22 * sideAmt + miningArmSwing * 0.22;
     const crawlLeftLegX = 0.26 - fSign * wave * 0.32 * forwardAmt + 0.12 * sideAmt;
     const crawlRightLegX = 0.26 + fSign * wave * 0.32 * forwardAmt + 0.12 * sideAmt;
     const crawlLeftArmZ = sSign * (0.28 + wave2 * 0.24) * sideAmt + 0.1 * (1 - activeCrawl);
@@ -4237,10 +4789,10 @@ if (tpClipActive > 0.5) {
     const swimLeftLegZ = sSign * -0.08 * swimSide;
     const swimRightLegZ = sSign * 0.08 * swimSide;
 
-    let leftLegX = mix(uprightSwing, crawlLeftLegX, crawl);
-    let rightLegX = mix(-uprightSwing, crawlRightLegX, crawl);
+    let leftLegX = mix(uprightLegSwing, crawlLeftLegX, crawl);
+    let rightLegX = mix(-uprightLegSwing, crawlRightLegX, crawl);
     let leftArmX = mix(-uprightSwing * 0.7, crawlLeftArmX, crawl);
-    let rightArmX = mix(uprightSwing * 0.7 - miningSwing * (1 - crawl * 0.45), crawlRightArmX, crawl);
+    let rightArmX = mix(uprightSwing * 0.7 + miningArmSwing * (1 - crawl * 0.45), crawlRightArmX, crawl);
     let leftLegZ = crawlLeftLegZ * crawl;
     let rightLegZ = crawlRightLegZ * crawl;
     let leftArmZ = crawlLeftArmZ * crawl;
@@ -4828,7 +5380,11 @@ if (tpClipActive > 0.5) {
           const message = requiredTier !== null
             ? t('needPickaxe').replace('{tool}', pickaxeLabel(requiredTier))
             : t('needToolToMine');
-          this.popup(target.x + 0.5, target.y + 1.1, target.z + 0.5, message, '#e2564a');
+          this.popup(target.x + 0.5, target.y + 1.1, target.z + 0.5, message, '#e2564a', false, {
+            anchor: 'crosshair',
+            duration: 2.1,
+            screenRiseSpeed: 16,
+          });
         }
       } else {
         this.mineDenyKey = '';
@@ -6538,7 +7094,7 @@ if (tpClipActive > 0.5) {
       // sunlight-proof garrison so the guards survive the day shift
       const picks: MobId[] = s.kind === 'tower' ? ['spider', 'creeper', 'spider'] : ['spider', 'creeper'];
       for (const id of picks) {
-        const p = this.mobSys.findSpawnPoint(s.x, s.z, 2, 7);
+        const p = this.mobSys.findSpawnPoint(s.x, s.z, 2, 7, null, undefined, id);
         if (p) this.mobSys.spawn(id, p[0], p[1], p[2]);
       }
     }
@@ -7550,8 +8106,7 @@ if (tpClipActive > 0.5) {
     const def = BLOCKS[d.id];
     const comboMult = this.comboMult();
     const tierMult = PICKAXE_TIERS[this.tier].mult;
-    const gained = Math.max(1, Math.round(def.score * comboMult * tierMult));
-    this.score += gained;
+    const gained = this.awardScore(Math.max(1, Math.round(def.score * comboMult * tierMult)));
     this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
     this.addToHotbar(d.id);
     if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound++;
@@ -7573,6 +8128,13 @@ if (tpClipActive > 0.5) {
 
   private comboMult() {
     return 1 + Math.min(this.combo, 24) * 0.14;
+  }
+
+  /** Apply active shop score boosts consistently to every score source. */
+  private awardScore(base: number): number {
+    const gained = Math.max(0, Math.round(base * this.scoreBonusMultiplier));
+    this.score += gained;
+    return gained;
   }
 
   private addToHotbar(id: number) {
@@ -7689,7 +8251,7 @@ if (tpClipActive > 0.5) {
 
   private phaseSeconds(phase: HudState['phaseName']) {
     if (phase === 'dawn') return DAWN_SECONDS;
-    if (phase === 'day') return this.firstSurvivalDay ? FIRST_SURVIVAL_DAY_SECONDS : DAY_SECONDS;
+    if (phase === 'day') return this.firstSurvivalDay ? FIRST_SURVIVAL_DAY_SECONDS : SURVIVAL_DAY_SECONDS;
     if (phase === 'dusk') return DUSK_SECONDS;
     return NIGHT_SECONDS;
   }
@@ -7854,15 +8416,27 @@ if (tpClipActive > 0.5) {
 
   // ================= MOBS =================
   private survivalThreatLevel() {
-    return Math.max(0, this.survivalNight - 1);
+    return survivalThreatLevel(this.survivalNight);
   }
 
   private hostileHpScale() {
-    return 1 + this.survivalThreatLevel() * 0.22;
+    return survivalHostileHpScale(this.survivalNight);
   }
 
   private hostileDamageScale() {
-    return 1 + this.survivalThreatLevel() * 0.16;
+    return survivalHostileDamageScale(this.survivalNight);
+  }
+
+  /** Existing cave mobs also toughen when a new survival night begins. */
+  private strengthenExistingHostiles() {
+    const hpScale = this.hostileHpScale();
+    for (const mob of this.mobSys.mobs) {
+      if (!mob.alive || !mob.def.hostile) continue;
+      const previousMax = Math.max(1, mob.maxHp);
+      const healthFraction = Math.max(0, Math.min(1, mob.hp / previousMax));
+      mob.maxHp = Math.ceil(mob.def.hp * hpScale);
+      mob.hp = Math.max(1, Math.ceil(mob.maxHp * healthFraction));
+    }
   }
 
   /** is the listener's head under water right now? */
@@ -7931,33 +8505,29 @@ if (tpClipActive > 0.5) {
     const night = this.isNightClock();
     const threat = this.survivalThreatLevel();
 
-    // hostile spawning
+    // The first survival day is peaceful. From night one onward, hostiles may spawn at night
+    // or underground by day; an exposed surface is never a daytime spawn point.
     if (this.survival) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         this.spawnTimer = night ? Math.max(0.55, 1.4 - threat * 0.1) : 6;
-        // caves are dark at any hour: when the player is underground, monsters
-        // keep coming even at noon (and never burn down there — no open sky)
         const surfaceH = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
         const underground = this.pos.y < surfaceH - 4;
-        const cap = night ? Math.min(34, 12 + this.survivalNight * 3) : underground ? Math.min(15, 7 + threat) : 3;
-        if (this.mobSys.count(true) < cap) {
+        const spawnAllowed = canSpawnSurvivalHostiles(this.survivalNight, night, underground);
+        const cap = survivalHostileCap(this.survivalNight, night, underground);
+        if (spawnAllowed && this.mobSys.count(true) < cap) {
+          // Choose first so both the surface and cave searches use the exact hostile's footprint.
+          const roll = Math.random();
+          const id: MobId =
+            roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
           const p = underground
-            ? this.findCaveSpawn()
-            : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 16, 38);
+            ? this.findCaveSpawn(id)
+            : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 16, 38, null, undefined, id);
           if (p) {
-            // skeletons (melee + archer) now make up 40% of the night
-            const roll = Math.random();
-            const id: MobId =
-              roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
             const m = this.mobSys.spawn(id, p[0], p[1], p[2]);
-            if (m) {
-              if (threat > 0) {
-                const hpMul = this.hostileHpScale();
-                m.maxHp = Math.ceil(m.maxHp * hpMul);
-                m.hp = m.maxHp;
-              }
-              if (!night) m.burn = 0.4;
+            if (m && threat > 0) {
+              m.maxHp = Math.ceil(m.maxHp * this.hostileHpScale());
+              m.hp = m.maxHp;
             }
           }
         }
@@ -8031,14 +8601,14 @@ if (tpClipActive > 0.5) {
               const calf = this.mobSys.spawn('calf', p[0] + Math.cos(a) * 1.6, p[1], p[2] + Math.sin(a) * 1.6);
               if (calf) {
                 calf.grow = 60;
-                calf.group.scale.setScalar(calf.def.scale * 0.65);
+                calf.group.scale.setScalar(calf.def.scale * calf.modelSize * babyGrowthScale(calf.id, 0));
               }
             } else if ((spawnedId === 'deer' || spawnedId === 'roe_deer') && Math.random() < 0.48 && spawned) {
               const a = Math.random() * Math.PI * 2;
               const fawn = this.mobSys.spawn('fawn', p[0] + Math.cos(a) * 1.35, p[1], p[2] + Math.sin(a) * 1.35);
               if (fawn) {
                 fawn.grow = 70;
-                fawn.group.scale.setScalar(fawn.def.scale * 0.78);
+                fawn.group.scale.setScalar(fawn.def.scale * fawn.modelSize * babyGrowthScale(fawn.id, 0));
               }
             } else if (spawnedId === 'camel' && Math.random() < 0.48 && spawned) {
               const a = Math.random() * Math.PI * 2;
@@ -8067,7 +8637,7 @@ if (tpClipActive > 0.5) {
             this.mobSys.spawn('bee', flower[0], flower[1] + 0.3, flower[2]);
         } else {
           const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 8, 26, biasAngle,
-            [GRASS, SAND, STONE, SNOW_GRASS, VOLCANIC_STONE]);
+            [GRASS, SAND, STONE, SNOW_GRASS, VOLCANIC_STONE], 'bird');
           if (p) this.mobSys.spawn('bird', p[0], p[1], p[2]);
         }
       }
@@ -8093,7 +8663,7 @@ if (tpClipActive > 0.5) {
         if (Math.hypot(tr.x - this.pos.x, tr.z - this.pos.z) > 90) this.mobSys.remove(tr);
       }
       if (traders.length < 2) {
-        const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 20, 38, biasAngle);
+        const p = this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 20, 38, biasAngle, undefined, 'trader');
         // never in water — solid dry ground only
         if (p && this.world.get(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])) !== WATER) {
           this.mobSys.spawn('trader', p[0], p[1], p[2]);
@@ -8101,6 +8671,7 @@ if (tpClipActive > 0.5) {
       }
     }
 
+    const playerExtents = this.playerHalfExtents();
     this.mobSys.update(
       dt,
       this.pos.x,
@@ -8117,13 +8688,21 @@ if (tpClipActive > 0.5) {
         this.burst(x, y, z, particles, 2, 0.35, 0.25);
       },
       this.localBotThreatTargets(),
+      {
+        x: this.pos.x,
+        y: this.pos.y,
+        z: this.pos.z,
+        halfX: playerExtents.halfX,
+        halfZ: playerExtents.halfZ,
+        height: this.playerHeight(),
+      },
     );
 
     this.updateCreatureVoices(dt);
   }
 
-  /** dark-cave spawn: air pocket with a solid floor, below the surface, near the player */
-  private findCaveSpawn(): [number, number, number] | null {
+  /** Dark-cave spawn: a clear air pocket with solid floor and creature separation. */
+  private findCaveSpawn(id: MobId): [number, number, number] | null {
     for (let i = 0; i < 18; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = 8 + Math.random() * 16;
@@ -8137,9 +8716,11 @@ if (tpClipActive > 0.5) {
         if (
           isSolid(this.world.get(x, y - 1, z)) &&
           this.world.get(x, y, z) === AIR &&
-          this.world.get(x, y + 1, z) === AIR
+          this.world.get(x, y + 1, z) === AIR &&
+          this.world.get(x, y + 2, z) === AIR
         ) {
-          return [x + 0.5, y, z + 0.5];
+          const candidate: [number, number, number] = [x + 0.5, y, z + 0.5];
+          if (this.mobSys.canSpawnAt(id, candidate[0], candidate[1], candidate[2])) return candidate;
         }
       }
     }
@@ -8170,6 +8751,7 @@ if (tpClipActive > 0.5) {
       const back = (dmg * this.stats.thorns) / 100;
       m.hp -= back;
       m.hurtFlash = 0.16;
+      this.mobSys.showHealthBar(m);
       if (m.hp <= 0) this.mobDied(m, false);
     }
     this.killedBy = t(m.def.nameKey);
@@ -8197,6 +8779,7 @@ if (tpClipActive > 0.5) {
     if (crit) dmg *= 1.8;
     m.hp -= dmg;
     m.hurtFlash = 0.18;
+    this.mobSys.showHealthBar(m);
     // knockback
     const kx = m.x - this.pos.x;
     const kz = m.z - this.pos.z;
@@ -8353,7 +8936,8 @@ if (tpClipActive > 0.5) {
           if (pd < 0.85) {
             const red = damageReduction(this.stats.armor);
             this.killedBy = t('mob_archer');
-            this.damage(7 * (1 - red), 'mob');
+            const threatDamage = this.survival ? this.hostileDamageScale() : 1;
+            this.damage(7 * threatDamage * (1 - red), 'mob');
             this.burst(a.x, a.y, a.z, [220, 60, 50], 6, 2);
             dead = true;
             break;
@@ -8381,6 +8965,7 @@ if (tpClipActive > 0.5) {
           const dmg = (a.damage ?? 8) * (crit ? (a.critMultiplier ?? 1.6) : 1);
           hit.hp -= dmg;
           hit.hurtFlash = 0.18;
+          this.mobSys.showHealthBar(hit);
           hit.vx += a.vx * 0.06;
           hit.vz += a.vz * 0.06;
           // the arrow lodges in the target — it drops back out on death
@@ -8488,8 +9073,7 @@ if (tpClipActive > 0.5) {
     // every arrow you shot into it clatters back out — walk over and re-collect
     for (let i = 0; i < m.stuckArrows; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, ARROW_ITEM);
     m.stuckArrows = 0;
-    const gained = Math.round(def.score * this.comboMult() * (1 + this.stats.greed / 100));
-    this.score += gained;
+    const gained = this.awardScore(Math.round(def.score * this.comboMult() * (1 + this.stats.greed / 100)));
     this.combo++;
     this.comboTimer = 3;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
@@ -8501,7 +9085,8 @@ if (tpClipActive > 0.5) {
 
     // loot: gear drops as a physical bag AT the death spot — walk over to grab it
     if (def.hostile) {
-      const it = rollLoot(def.level, (Math.random() * 1e9) | 0);
+      // Deeper survival nights count as a stronger enemy tier, unlocking rare materials and rarity.
+      const it = rollLoot(def.level + this.survivalThreatLevel(), (Math.random() * 1e9) | 0);
       if (it) this.spawnDrop(m.x, m.y + 0.7, m.z, LOOT_BAG, it);
     }
     this.playMobVoice(m, 'death', 1.05);
@@ -8692,8 +9277,7 @@ if (tpClipActive > 0.5) {
       else this.inventory.delete(id);
       if (this.selected === i) this.selected = 0;
     }
-    const gained = toolSellPrice(id);
-    this.score += gained;
+    const gained = this.awardScore(toolSellPrice(id));
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
     sfx.pickup(5);
     this.syncHotbar(true);
@@ -8707,8 +9291,7 @@ if (tpClipActive > 0.5) {
     const it = this.bagItems[i];
     this.bagItems.splice(i, 1);
     const matMul = { leather: 30, iron: 80, gold: 140, diamond: 320, netherite: 900 }[it.material];
-    const gained = Math.round(matMul * (1 + it.rarity * 0.6) + it.affixes.length * 40);
-    this.score += gained;
+    const gained = this.awardScore(Math.round(matMul * (1 + it.rarity * 0.6) + it.affixes.length * 40));
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
     sfx.pickup(6);
     this.syncHud(true);
@@ -8819,9 +9402,8 @@ if (tpClipActive > 0.5) {
       sfx.ui(false);
       return;
     }
-    const gained = this.sellPrice(id) * count;
+    const gained = this.awardScore(this.sellPrice(id) * count);
     this.inventory.set(id, 0);
-    this.score += gained;
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b', gained > 400);
     sfx.pickup(6);
     this.syncHotbar(true);
@@ -9179,21 +9761,44 @@ if (tpClipActive > 0.5) {
   }
 
   // ================= POPUPS =================
-  private popup(x: number, y: number, z: number, text: string, color: string, big = false) {
-    const p = this.popups.find((pp) => pp.life <= 0) ?? this.popups[0];
+  private popup(x: number, y: number, z: number, text: string, color: string, big = false, options: PopupOptions = {}) {
+    const anchor = options.anchor ?? 'world';
+    if (anchor === 'crosshair') {
+      // A repeated denial starts a fresh message; gently stack active ones upward instead of reusing
+      // their DOM node, so each warning remains readable for its own full lifetime.
+      for (const active of this.popups) {
+        if (active.life <= 0 || active.anchor !== 'crosshair') continue;
+        active.screenRiseTarget += Math.max(28, active.el.offsetHeight + 8);
+      }
+    }
+    const p = this.popups.find((pp) => pp.life <= 0) ?? this.createPopup();
+    const parent = anchor === 'crosshair' ? this.popupOverlay : this.fx;
+    if (p.el.parentElement !== parent) parent.appendChild(p.el);
     p.x = x + (Math.random() - 0.5) * 0.5;
     p.y = y;
     p.z = z + (Math.random() - 0.5) * 0.5;
-    p.vy = 1.35;
-    p.life = big ? 1.25 : 0.95;
+    p.vy = anchor === 'world' ? 1.35 : 0;
+    p.life = options.duration ?? (big ? 1.25 : 0.95);
     p.max = p.life;
     p.text = text;
     p.color = color;
     p.big = big;
+    p.anchor = anchor;
+    p.screenRise = 0;
+    p.screenRiseTarget = 0;
+    p.screenRiseSpeed = options.screenRiseSpeed ?? 0;
     p.el.textContent = text;
     p.el.style.color = color;
-    p.el.style.fontSize = big ? '30px' : '21px';
+    p.el.style.fontSize = anchor === 'crosshair' ? '18px' : big ? '30px' : '21px';
     p.el.style.letterSpacing = big ? '1px' : '0.5px';
+    p.el.style.whiteSpace = anchor === 'crosshair' ? 'normal' : 'nowrap';
+    p.el.style.maxWidth = anchor === 'crosshair' ? 'min(88vw, 30rem)' : 'none';
+    p.el.style.textAlign = anchor === 'crosshair' ? 'center' : 'left';
+    p.el.style.lineHeight = anchor === 'crosshair' ? '1.25' : 'normal';
+    p.el.style.padding = anchor === 'crosshair' ? '5px 9px' : '0';
+    p.el.style.background = anchor === 'crosshair' ? 'rgba(8,11,10,.86)' : 'transparent';
+    p.el.style.border = anchor === 'crosshair' ? '1px solid rgba(226,86,74,.58)' : '0';
+    p.el.style.borderRadius = anchor === 'crosshair' ? '3px' : '0';
   }
 
   private pushBanner(text: string, sub: string, color: string) {
@@ -9304,20 +9909,21 @@ if (tpClipActive > 0.5) {
 
   private advanceExplorerObjectives() {
     let lastCompleted: ExplorationTask | null = null;
+    let lastScoreAward = 0;
     while (this.objectiveIndex < this.explorationObjectives.length) {
       const task = this.explorationObjectives[this.objectiveIndex];
       if (task.progress < task.target) break;
       lastCompleted = task;
       this.objectiveIndex++;
-      this.score += task.rewardScore;
+      lastScoreAward = this.awardScore(task.rewardScore);
       if (!this.endlessRun) this.timeLeft += task.rewardSeconds;
     }
     if (!lastCompleted) return;
     const rewardTime = `${Math.floor(lastCompleted.rewardSeconds / 60)}:${String(lastCompleted.rewardSeconds % 60).padStart(2, '0')}`;
     const reward = t('objectiveReward')
-      .replace('{score}', String(lastCompleted.rewardScore))
+      .replace('{score}', String(lastScoreAward))
       .replace('{time}', rewardTime);
-    this.popup(this.pos.x, this.pos.y + 1.7, this.pos.z, `+${lastCompleted.rewardScore} · +${lastCompleted.rewardSeconds}${t('secShort')}`, '#93c95d', true);
+    this.popup(this.pos.x, this.pos.y + 1.7, this.pos.z, `+${lastScoreAward} · +${lastCompleted.rewardSeconds}${t('secShort')}`, '#93c95d', true);
     this.pushBanner(t('objectiveComplete'), `${t(lastCompleted.titleKey)} · ${reward}`, '#93c95d');
   }
 
@@ -9331,19 +9937,33 @@ if (tpClipActive > 0.5) {
         continue;
       }
       p.life -= dt;
-      p.y += p.vy * dt;
-      p.vy *= Math.pow(0.25, dt);
-      this.tmpV.set(p.x, p.y, p.z).project(this.camera);
-      if (this.tmpV.z > 1) {
+      if (p.life <= 0) {
+        p.life = 0;
         p.el.style.opacity = '0';
         continue;
       }
-      const sx = (this.tmpV.x * 0.5 + 0.5) * w;
-      const sy = (-this.tmpV.y * 0.5 + 0.5) * h;
+      let sx: number;
+      let sy: number;
+      if (p.anchor === 'crosshair') {
+        p.screenRise += (p.screenRiseTarget - p.screenRise) * Math.min(1, dt * 14) + p.screenRiseSpeed * dt;
+        sx = w * 0.5;
+        sy = h * 0.5 - p.screenRise;
+      } else {
+        p.y += p.vy * dt;
+        p.vy *= Math.pow(0.25, dt);
+        this.tmpV.set(p.x, p.y, p.z).project(this.camera);
+        if (this.tmpV.z > 1) {
+          p.el.style.opacity = '0';
+          continue;
+        }
+        sx = (this.tmpV.x * 0.5 + 0.5) * w;
+        sy = (-this.tmpV.y * 0.5 + 0.5) * h;
+      }
       const k = p.life / p.max;
       const pop = k > 0.86 ? 1 + (1 - k / 0.86) * -0.35 : 1;
       p.el.style.transform = `translate3d(${sx}px,${sy}px,0) translate(-50%,-50%) scale(${pop.toFixed(3)})`;
-      p.el.style.opacity = String(Math.min(1, k * 2.2));
+      const opacity = p.anchor === 'crosshair' ? Math.min(1, p.life / 0.9) : Math.min(1, k * 2.2);
+      p.el.style.opacity = String(opacity);
     }
   }
 
@@ -9366,6 +9986,7 @@ if (tpClipActive > 0.5) {
     if (d.progress) d.progress.style.setProperty('--p', this.mineProgress.toFixed(3));
     if (d.comboBar) d.comboBar.style.transform = `scaleX(${Math.max(0, Math.min(1, this.comboTimer / 3)).toFixed(3)})`;
     if (d.healthBar) d.healthBar.style.width = `${Math.max(0, Math.min(100, this.health)).toFixed(1)}%`;
+    if (d.staminaBar) d.staminaBar.style.width = `${Math.max(0, Math.min(100, this.staminaState.stamina)).toFixed(1)}%`;
     if (d.timeBar) d.timeBar.style.width = `${Math.max(0, Math.min(100, (this.timeLeft / this.runTime) * 100)).toFixed(2)}%`;
     if (d.vignette) {
       if (this.sleepDark > 0.01) {
@@ -9456,6 +10077,7 @@ if (tpClipActive > 0.5) {
       this.score,
       Math.ceil(this.timeLeft),
       Math.ceil(this.health),
+      Math.round(this.staminaState.stamina),
       this.breathState.bubbles,
       this.inWater ? 1 : 0,
       this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6) ? 1 : 0,
@@ -9496,6 +10118,7 @@ if (tpClipActive > 0.5) {
       score: this.score,
       timeLeft: this.timeLeft,
       health: Math.max(0, Math.ceil(this.health)),
+      stamina: this.staminaState.stamina,
       airBubbles: this.breathState.bubbles,
       inWater: this.inWater,
       breathVisible: this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6),
@@ -9618,6 +10241,27 @@ if (tpClipActive > 0.5) {
    * teammates found by `ysdk.multiplayer.sessions.init()`; extra rigs are removed, new ones appear
    * at the world spawn until their first recorded transaction arrives.
    */
+  private findLocalBotSpawn(angle: number): [number, number, number] | null {
+    // Search full rings rather than placing every local survival miner on the same player-relative point.
+    for (let ring = 0; ring <= 20; ring++) {
+      const radius = 2.5 + ring * 0.72;
+      const spokes = ring === 0 ? 12 : 16;
+      for (let spoke = 0; spoke < spokes; spoke++) {
+        const theta = angle + (spoke / spokes) * Math.PI * 2 + ring * 0.17;
+        const x = this.pos.x + Math.cos(theta) * radius;
+        const z = this.pos.z + Math.sin(theta) * radius;
+        const y = this.companionGroundY(x, z, this.pos.y, 4);
+        if (y === null) continue;
+        if (this.mobSys.collidesWithMob(x, y, z, 0.3, 0.3, 1.8, undefined, 0.45)) continue;
+        const occupied = [...this.companions.values()]
+          .filter((other) => !other.dead && Math.abs(other.group.position.y - y) <= 1.8)
+          .map((other) => ({ x: other.group.position.x, z: other.group.position.z }));
+        if (companionSpawnIsClear(x, z, occupied)) return [x, y, z];
+      }
+    }
+    return null;
+  }
+
   setCompanions(seeds: CompanionSeed[]) {
     const wanted = new Set(seeds.map((s) => s.id));
     for (const [id, rig] of [...this.companions]) {
@@ -9632,13 +10276,37 @@ if (tpClipActive > 0.5) {
       const angle = idHue(seed.id) * Math.PI * 2;
       let spawnX = this.pos.x + Math.cos(angle) * 2.5;
       let spawnZ = this.pos.z + Math.sin(angle) * 2.5;
-      let spawnY = rig.localBot ? this.companionGroundY(spawnX, spawnZ, this.pos.y, 4) : null;
-      if (rig.localBot && spawnY === null) {
-        for (let ring = 1; ring <= 5 && spawnY === null; ring++) {
-          const radius = 2.5 + ring * 0.8;
-          spawnX = this.pos.x + Math.cos(angle + ring * 0.7) * radius;
-          spawnZ = this.pos.z + Math.sin(angle + ring * 0.7) * radius;
-          spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 4);
+      let spawnY: number | null = null;
+      if (rig.localBot) {
+        const spawnPoint = this.findLocalBotSpawn(angle);
+        if (spawnPoint) [spawnX, spawnY, spawnZ] = spawnPoint;
+        else {
+          // Last-resort location still gets its own ring and stays well away from the player.
+          const occupied = [...this.companions.values()]
+            .filter((other) => !other.dead)
+            .map((other) => ({ x: other.group.position.x, z: other.group.position.z }));
+          let fallbackFound = false;
+          for (let attempt = 0; attempt < 160; attempt++) {
+            const theta = angle + attempt * 2.399963229728653;
+            const radius = 14 + Math.floor(attempt / 16) * 1.8;
+            const candidateX = this.pos.x + Math.cos(theta) * radius;
+            const candidateZ = this.pos.z + Math.sin(theta) * radius;
+            if (!companionSpawnIsClear(candidateX, candidateZ, occupied)) continue;
+            if (this.mobSys.collidesWithMob(candidateX, this.pos.y, candidateZ, 0.3, 0.3, 1.8, undefined, 0.45)) continue;
+            spawnX = candidateX;
+            spawnZ = candidateZ;
+            spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 12);
+            fallbackFound = true;
+            break;
+          }
+          if (!fallbackFound) {
+            // Four miners cannot exhaust this outer ring, but keep the emergency point separated too.
+            const radius = 48 + this.companions.size * 2;
+            const theta = angle + (this.companions.size + 1) * 2.399963229728653;
+            spawnX = this.pos.x + Math.cos(theta) * radius;
+            spawnZ = this.pos.z + Math.sin(theta) * radius;
+            spawnY = this.companionGroundY(spawnX, spawnZ, this.pos.y, 60);
+          }
         }
       }
       rig.group.position.set(spawnX, spawnY ?? this.pos.y, spawnZ);
@@ -9717,9 +10385,17 @@ if (tpClipActive > 0.5) {
     if (surfaceBlock === WATER || surfaceBlock === LAVA || surfaceY <= 0) return null;
     const groundY = surfaceY + 1.001;
     if (referenceY !== null && Math.abs(groundY - referenceY) > maxDelta) return null;
-    // Keep a two-block-tall body clear of ceilings and branches.
-    for (let y = Math.floor(groundY + 0.02); y <= Math.floor(groundY + 1.78); y++) {
-      if (isSolid(this.world.get(bx, y, bz))) return null;
+    // Keep the miner's full 0.56-block-wide, two-block-tall body clear of ceilings and branches.
+    const minX = Math.floor(x - 0.28);
+    const maxX = Math.floor(x + 0.28);
+    const minZ = Math.floor(z - 0.28);
+    const maxZ = Math.floor(z + 0.28);
+    for (let cy = Math.floor(groundY + 0.02); cy <= Math.floor(groundY + 1.78); cy++) {
+      for (let cz = minZ; cz <= maxZ; cz++) {
+        for (let cx = minX; cx <= maxX; cx++) {
+          if (isSolid(this.world.get(cx, cy, cz))) return null;
+        }
+      }
     }
     return groundY;
   }
@@ -9837,6 +10513,7 @@ if (tpClipActive > 0.5) {
     rig.swingTimer = 0.38;
     target.hp -= 2.8;
     target.hurtFlash = 0.18;
+    this.mobSys.showHealthBar(target);
     target.vx += (target.x - rig.group.position.x) / distance * 1.4;
     target.vz += (target.z - rig.group.position.z) / distance * 1.4;
     if (target.hp <= 0) this.mobDied(target, false);
@@ -9956,9 +10633,11 @@ if (tpClipActive > 0.5) {
         rig.leftLeg.rotation.x = 0;
         rig.rightLeg.rotation.x = 0;
       } else if (!rig.dead) {
-        const swing = rig.moving && moved > 0.0005 ? Math.sin(rig.phase * 2.4) * 0.55 : Math.sin(rig.phase * 0.6) * 0.06;
-        rig.leftLeg.rotation.x = swing;
-        rig.rightLeg.rotation.x = -swing;
+        const walking = rig.moving && moved > 0.0005;
+        const swing = walking ? Math.sin(rig.phase * 2.4) * 0.55 : Math.sin(rig.phase * 0.6) * 0.06;
+        const legSwing = swing * (rig.girl ? GIRL_WALK_LEG_SWING_SCALE : 1);
+        rig.leftLeg.rotation.x = legSwing;
+        rig.rightLeg.rotation.x = -legSwing;
         rig.leftArm.rotation.x = -swing * 0.8;
         rig.rightArm.rotation.x = swing * 0.8;
       }
@@ -10005,6 +10684,7 @@ if (tpClipActive > 0.5) {
     this.renderer?.dispose();
     if (el && el.parentElement) el.parentElement.removeChild(el);
     if (this.fx?.parentElement) this.fx.parentElement.removeChild(this.fx);
+    if (this.popupOverlay?.parentElement) this.popupOverlay.parentElement.removeChild(this.popupOverlay);
   }
 }
 

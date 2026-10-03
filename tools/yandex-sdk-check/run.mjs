@@ -807,6 +807,93 @@ async function scenarioShop() {
 
   const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(shopOpened, 'Магазин открывается при включённом флаге');
+  const shopCategories = await game.page.evaluate(async () => {
+    const select = async (id) => {
+      document.querySelector(`[data-shop-category="${id}"]`)?.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return [...document.querySelectorAll('[data-shop-product]')].map((card) => card.getAttribute('data-shop-product'));
+    };
+    const weaponCards = await select('weapons');
+    const armorCards = await select('armor');
+    const gemCards = await select('gems');
+    const petCards = await select('pets');
+    const petsAreWorkInProgress = petCards.length > 0 && [...document.querySelectorAll('[data-shop-product]')].every((card) => {
+      const button = card.querySelector('button');
+      return !!button?.disabled && /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG/i.test(button.textContent ?? '');
+    });
+    await select('all');
+    return {
+      categoryCount: document.querySelectorAll('[data-shop-category]').length,
+      weaponCards,
+      armorCards,
+      gemCards,
+      petCards,
+      petsAreWorkInProgress,
+    };
+  });
+  check(shopCategories?.categoryCount === 5, 'Внизу каталога ровно пять категорий');
+  check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
+  check(shopCategories?.armorCards?.includes('netherite-armor') && !shopCategories.armorCards.includes('diamond-armor'), 'Категория брони показывает комплект незерита вместо старого алмазного');
+  check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('chest-epic'), 'Самоцветы объединяют наборы монет, сундуки и награды');
+  check(shopCategories?.petCards?.length > 0 && shopCategories.petsAreWorkInProgress, 'Питомцы и скины помечены как «В разработке» и недоступны к выдаче');
+
+  // Ordinary-store drops are an ad gate: a shown-but-unrewarded video must leave the claim untouched.
+  const dailyAdBefore = game.count(await game.calls(), 'adv.showRewardedVideo');
+  await game.page.evaluate(() => { window.__yaMockSeed.rewarded = false; });
+  const dailyClickedWithoutReward = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="drop-daily"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(dailyClickedWithoutReward, 'Ежедневный дроп предлагает rewarded-видео');
+  const failedDropAd = await game.waitFor(
+    'Rewarded-видео ежедневного дропа',
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'adv.showRewardedVideo').length > before,
+    10_000,
+    dailyAdBefore,
+  );
+  check(failedDropAd, 'Нажатие ежедневного дропа запрашивает rewarded-видео');
+  const failedDropSettled = await game.waitFor(
+    'Отказ от награды',
+    () => /Награда не выдана|No reward was granted|Aucune récompense accordée|Keine Belohnung erhalten/i.test(document.body.innerText ?? ''),
+    10_000,
+  );
+  check(failedDropSettled, 'После просмотра без reward-callback игроку сообщают, что награда не выдана');
+  const failedDropState = JSON.parse((await game.storageValue('orerush.rewarded-drops.v1')) ?? '{}');
+  check(!failedDropState.claims?.['drop-daily'] && Object.keys(failedDropState.pending ?? {}).length === 0, 'Просмотр без награды не отмечает claim и не создаёт припасы');
+
+  await game.page.evaluate(() => { window.__yaMockSeed.rewarded = true; });
+  const dailyAdCountBeforeReward = game.count(await game.calls(), 'adv.showRewardedVideo');
+  const dailyClickedForReward = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="drop-daily"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(dailyClickedForReward, 'Ежедневный дроп можно повторно запросить после незасчитанного видео');
+  const dailyGranted = await game.waitFor(
+    'Сохранённые припасы daily-дропа',
+    () => {
+      const raw = window.localStorage.getItem('orerush.rewarded-drops.v1');
+      if (!raw) return false;
+      try {
+        const state = JSON.parse(raw);
+        return typeof state.claims?.['drop-daily'] === 'string'
+          && Object.values(state.pending ?? {}).some((grant) => Array.isArray(grant?.items) && grant.items.length === 4);
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(dailyGranted, 'Только подтверждённый rewarded-callback сохраняет daily claim и набор припасов');
+  const dailyButtonDisabled = await game.page.evaluate(() =>
+    document.querySelector('[data-shop-product="drop-daily"] button')?.disabled === true,
+  );
+  check(dailyButtonDisabled, 'После успешной выдачи ежедневная кнопка блокируется до нового периода');
+  check(game.count(await game.calls(), 'adv.showRewardedVideo') === dailyAdCountBeforeReward + 1, 'Повторный запрос после отказа действительно открыл ещё одно видео');
+
   await game.page.setViewport({ width: 360, height: 640 });
   await wait(400);
   const shopScroll = await game.page.evaluate(() => {
@@ -814,26 +901,99 @@ async function scenarioShop() {
     const header = dialog?.querySelector('header');
     const tabs = dialog?.querySelector('.shop-tabs');
     const catalog = dialog?.querySelector('.shop-catalog');
-    if (!dialog || !header || !tabs || !catalog) return null;
+    const carousel = dialog?.querySelector('[data-shop-carousel]');
+    if (!dialog || !header || !tabs || !catalog || !carousel) return null;
     const before = { headerTop: header.getBoundingClientRect().top, tabsTop: tabs.getBoundingClientRect().top };
-    const catalogRect = catalog.getBoundingClientRect();
-    const canScroll = catalog.scrollHeight > catalog.clientHeight + 2;
-    catalog.scrollTop = catalog.scrollHeight;
+    const carouselRect = carousel.getBoundingClientRect();
+    const card = carousel.querySelector('[data-shop-product]');
+    const cardRect = card?.getBoundingClientRect();
+    const titleRect = card?.querySelector('.shop-product-title')?.getBoundingClientRect();
+    const artRect = card?.querySelector('.shop-product-art')?.getBoundingClientRect();
+    const canScroll = carousel.scrollWidth > carousel.clientWidth + 2;
+    carousel.scrollLeft = Math.min(240, carousel.scrollWidth - carousel.clientWidth);
     const after = { headerTop: header.getBoundingClientRect().top, tabsTop: tabs.getBoundingClientRect().top };
     const result = {
       canScroll,
-      moved: catalog.scrollTop > 0,
+      moved: carousel.scrollLeft > 0,
       headerFixed: Math.abs(before.headerTop - after.headerTop) < 1,
       tabsFixed: Math.abs(before.tabsTop - after.tabsTop) < 1,
-      catalogHeight: catalogRect.height,
-      viewportHeight: window.innerHeight,
+      catalogHeight: catalog.getBoundingClientRect().height,
+      carouselHeight: carouselRect.height,
+      cardWidth: cardRect?.width ?? 0,
+      artBelowTitle: !!titleRect && !!artRect && artRect.top >= titleRect.bottom - 1,
+      pageWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
     };
-    catalog.scrollTop = 0;
+    carousel.scrollLeft = 0;
     return result;
   });
   check(!!shopScroll && shopScroll.catalogHeight > 160, 'Каталог магазина получает основную высоту телефона', JSON.stringify(shopScroll));
-  check(!!shopScroll && shopScroll.canScroll && shopScroll.moved, 'Каталог магазина прокручивается на телефоне', JSON.stringify(shopScroll));
-  check(!!shopScroll && shopScroll.headerFixed && shopScroll.tabsFixed, 'Заголовок и вкладки магазина остаются на месте при прокрутке каталога', JSON.stringify(shopScroll));
+  check(!!shopScroll && shopScroll.canScroll && shopScroll.moved, 'Карточки магазина пролистываются по горизонтали на телефоне', JSON.stringify(shopScroll));
+  check(!!shopScroll && shopScroll.headerFixed && shopScroll.tabsFixed, 'Заголовок и нижние категории остаются закреплены при свайпе карточек', JSON.stringify(shopScroll));
+  check(!!shopScroll && shopScroll.pageWidth <= shopScroll.viewportWidth && shopScroll.cardWidth > 240, 'Карточки остаются читаемыми без горизонтального переполнения страницы', JSON.stringify(shopScroll));
+  check(!!shopScroll && shopScroll.artBelowTitle, 'Иллюстрация карточки идёт сразу под названием', JSON.stringify(shopScroll));
+  const arrowBefore = await game.page.evaluate(() => {
+    const carousel = document.querySelector('[data-shop-carousel]');
+    const next = document.querySelector('[data-shop-next]');
+    return carousel && next
+      ? { available: !next.disabled, scrollWidth: carousel.scrollWidth, clientWidth: carousel.clientWidth }
+      : null;
+  });
+  if (arrowBefore?.available) await game.page.click('[data-shop-next]');
+  await wait(350);
+  const arrowAfter = await game.page.evaluate(() => {
+    const carousel = document.querySelector('[data-shop-carousel]');
+    if (!carousel) return { moved: false, distance: 0 };
+    const distance = carousel.scrollLeft;
+    carousel.scrollLeft = 0;
+    return { moved: distance > 0, distance };
+  });
+  check(!!arrowBefore?.available && arrowAfter.moved, 'Боковая стрелка действительно листает карточки каталога', JSON.stringify({ ...arrowBefore, ...arrowAfter }));
+
+  await game.page.setViewport({ width: 844, height: 390 });
+  await wait(350);
+  const landscapeShop = await game.page.evaluate(() => {
+    const dialog = document.querySelector('.shop-dialog');
+    const carousel = dialog?.querySelector('[data-shop-carousel]');
+    const tabs = dialog?.querySelector('.shop-tabs');
+    if (!dialog || !carousel || !tabs) return null;
+    const dialogRect = dialog.getBoundingClientRect();
+    const carouselRect = carousel.getBoundingClientRect();
+    const tabsRect = tabs.getBoundingClientRect();
+    const firstCardElement = carousel.querySelector('[data-shop-product]');
+    const firstCard = firstCardElement?.getBoundingClientRect();
+    const title = firstCardElement?.querySelector('h3')?.getBoundingClientRect();
+    const artwork = firstCardElement?.querySelector('.shop-product-art')?.getBoundingClientRect();
+    const description = firstCardElement?.querySelector('.shop-product-description')?.getBoundingClientRect();
+    const footer = firstCardElement?.querySelector('.shop-product-footer')?.getBoundingClientRect();
+    const action = firstCardElement?.querySelector('button')?.getBoundingClientRect();
+    const withinCard = (rect) => !!rect && !!firstCard && rect.top >= firstCard.top - 1 && rect.bottom <= firstCard.bottom + 1;
+    return {
+      dialogFits: dialogRect.top >= -1 && dialogRect.bottom <= innerHeight + 1,
+      dialogTop: dialogRect.top,
+      dialogBottom: dialogRect.bottom,
+      viewportHeight: innerHeight,
+      dialogHeight: dialogRect.height,
+      carouselHeight: carouselRect.height,
+      cardVisible: !!firstCard && firstCard.height <= carouselRect.height + 1 && firstCard.right > carouselRect.left && firstCard.left < carouselRect.right,
+      titleVisible: withinCard(title),
+      artworkBelowTitle: !!title && !!artwork && artwork.top >= title.bottom - 1,
+      descriptionVisible: withinCard(description),
+      priceAfterDescription: !!description && !!footer && footer.top >= description.bottom - 1,
+      actionVisible: withinCard(action),
+      cardBounds: firstCard && [firstCard.top, firstCard.bottom],
+      titleBounds: title && [title.top, title.bottom],
+      descriptionBounds: description && [description.top, description.bottom],
+      actionBounds: action && [action.top, action.bottom],
+      tabsVisible: tabsRect.bottom <= dialogRect.bottom + 1 && tabsRect.top >= dialogRect.bottom - 90,
+      pageWidth: document.documentElement.scrollWidth,
+    };
+  });
+  check(!!landscapeShop && landscapeShop.dialogFits && landscapeShop.tabsVisible, 'Магазин и нижние категории помещаются в горизонтальный экран телефона', JSON.stringify(landscapeShop));
+  check(!!landscapeShop && landscapeShop.carouselHeight > 90 && landscapeShop.cardVisible && landscapeShop.titleVisible && landscapeShop.artworkBelowTitle && landscapeShop.descriptionVisible && landscapeShop.priceAfterDescription && landscapeShop.pageWidth <= 844, 'Карточка магазина читаема в альбомной ориентации: название, иллюстрация, описание и цена', JSON.stringify(landscapeShop));
+  check(!!landscapeShop && landscapeShop.actionVisible, 'Кнопка карточки не обрезается в альбомной ориентации', JSON.stringify(landscapeShop));
+
+  await game.page.setViewport({ width: 360, height: 640 });
   await wait(250);
   const priceShown = await game.page.evaluate(() => (document.body.innerText ?? '').includes('99 ₽'));
   check(priceShown, 'В магазине показана цена из каталога Консоли (99 ₽)');
@@ -944,6 +1104,22 @@ async function scenarioShop() {
   await game.clickByText(/ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/); // the shop overlay, if it is still open
   const runStarted = await game.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/);
   check(runStarted, 'Смена выживания запускается для проверки кооператива');
+  const dailySuppliesDelivered = await game.waitFor(
+    'Ежедневные припасы перенесены в активный инвентарь',
+    () => {
+      const raw = window.localStorage.getItem('orerush.rewarded-drops.v1');
+      if (!raw) return false;
+      try {
+        const state = JSON.parse(raw);
+        return Object.keys(state.pending ?? {}).length === 0
+          && state.delivered?.some((key) => key.startsWith('drop-daily:'));
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(dailySuppliesDelivered, 'После старта смены дневные припасы подтверждены как добавленные в инвентарь');
 
   const sessionsLoaded = await game.waitFor(
     'Загрузка сессий оппонентов',
@@ -1039,7 +1215,7 @@ async function scenarioPromo() {
   const highlighted = await discount.page.evaluate(() => {
     const badge = [...document.querySelectorAll('span')].find((s) => /ПО АКЦИИ/.test(s.textContent ?? ''));
     const card = badge?.closest('article');
-    return !!card && /Сумка шахтёра/.test(card.textContent ?? '');
+    return !!card && /Кошель шахтёра/.test(card.textContent ?? '');
   });
   check(highlighted, 'Подсвечен именно товар из ссылки акции (inapp_id: diamonds-599)');
   await discount.page.close();
@@ -1076,9 +1252,9 @@ async function scenarioPromo() {
 
 /**
  * The daily bonus is counted by `ysdk.serverTime()`, not by the device clock, and its date lives in
- * the cloud profile. Day one: a click pays 25 diamonds, the record goes to the cloud, a second click
- * pays nothing. Day two: another device (and another server day, faked with a clock offset while the
- * browser clock stays put) sees yesterday's claim in the cloud and offers the grown bonus.
+ * the cloud profile. A failed rewarded-video callback pays nothing; a successful view pays one or two
+ * diamonds, records the date to cloud, and locks the button until UTC midnight. Day two on another
+ * device sees yesterday's claim and offers the streak-adjusted two-diamond bonus.
  */
 async function scenarioDaily() {
   const DAY_MS = 86_400_000;
@@ -1096,8 +1272,34 @@ async function scenarioDaily() {
   check(before === null || before === '0', 'До первого бонуса алмазов нет', String(before));
 
   const today = new Date().toISOString().slice(0, 10);
-  const claimed = await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
-  check(claimed, 'Клик по ежедневному бонусу сделан');
+  const adCallsBefore = first.count(await first.calls(), 'adv.showRewardedVideo');
+  await first.page.evaluate(() => { window.__yaMockSeed.rewarded = false; });
+  const failedClick = await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
+  check(failedClick, 'Ежедневный бонус требует просмотра rewarded-видео');
+  const failedVideoShown = await first.waitFor(
+    'Запрос неуспешного rewarded-видео',
+    () => (window.__yaCalls ?? []).filter((call) => call.name === 'adv.showRewardedVideo').length > 0,
+    10_000,
+  );
+  check(failedVideoShown, 'Кнопка бонуса вызывает рекламный SDK');
+  const noReward = await first.waitFor(
+    'Неуспешный просмотр не меняет прогресс',
+    () => !window.localStorage.getItem('orerush.daily.v1')
+      && (!window.localStorage.getItem('orerush.diamonds.v1') || window.localStorage.getItem('orerush.diamonds.v1') === '0')
+      && !document.querySelector('[data-daily-bonus]')?.disabled,
+    10_000,
+  );
+  check(noReward, 'Без rewarded-callback дата и алмазы не начисляются');
+  check(first.count(await first.calls(), 'adv.showRewardedVideo') === adCallsBefore + 1, 'Неуспешная попытка действительно открыла рекламное видео');
+
+  await first.page.evaluate(() => { window.__yaMockSeed.rewarded = true; });
+  const rewardedCallsBefore = first.count(await first.calls(), 'adv.showRewardedVideo');
+  const claimed = await first.page.evaluate(() => {
+    const button = document.querySelector('[data-daily-bonus]');
+    button?.click();
+    return Boolean(button && !button.disabled);
+  });
+  check(claimed, 'После отказа бонус можно запросить повторно');
   const stored = await first.waitFor(
     'Запись о бонусе',
     (d) => {
@@ -1112,18 +1314,19 @@ async function scenarioDaily() {
     10_000,
     today,
   );
-  check(stored, 'Дата бонуса (UTC) записана в хранилище', today);
+  check(stored, 'Дата бонуса (UTC) записана только после rewarded-callback', today);
   const balance = await first.storageValue('orerush.diamonds.v1');
-  check(balance === '25', 'Ежедневный бонус начислил 25 алмазов', String(balance));
+  check(balance === '1', 'Первый ежедневный бонус начислил 1 алмаз', String(balance));
   const claimedLabel = await first.page.evaluate(() => {
     const button = document.querySelector('[data-daily-bonus]');
-    return !!button && button.disabled && /\+25/.test(button.textContent ?? '');
+    return !!button && button.disabled && /СЛЕДУЮЩИЙ БОНУС/.test(button.textContent ?? '');
   });
-  check(claimedLabel, 'Кнопка бонуса заблокирована и показывает начисленные алмазы');
+  check(claimedLabel, 'После выдачи кнопка серая, отключена и показывает таймер до следующего дня');
   await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
   await wait(400);
   const again = await first.storageValue('orerush.diamonds.v1');
-  check(again === '25', 'Повторный клик в тот же день ничего не начисляет', String(again));
+  check(again === '1', 'Повторный клик в тот же день не начисляет алмазы второй раз', String(again));
+  check(first.count(await first.calls(), 'adv.showRewardedVideo') === rewardedCallsBefore + 1, 'Успешная повторная попытка вызвала ровно одно видео');
   const cloudRecord = await first.waitFor(
     'Бонус в облаке',
     () => (window.__yaCalls ?? []).some((c) => c.name === 'player.setData' && c.arg?.daily?.last),
@@ -1144,11 +1347,11 @@ async function scenarioDaily() {
     'Бонус второго дня',
     () => {
       const button = document.querySelector('[data-daily-bonus]');
-      return !!button && /\+30/.test(button.textContent ?? '') && /серия 2/.test(button.textContent ?? '');
+      return !!button && /\+2\s+монет незерита/.test(button.textContent ?? '') && /серия 2/.test(button.textContent ?? '');
     },
     30_000,
   );
-  check(grown, 'На следующий день бонус вырос до 30 алмазов за серию 2 (по серверному времени)');
+  check(grown, 'На следующий день бонус вырос до 2 незеритовых монет за серию 2 (по серверному времени)');
   const notClaimedYet = await nextDay.page.evaluate(() => {
     const button = document.querySelector('[data-daily-bonus]');
     return !!button && !button.disabled;
@@ -1422,6 +1625,19 @@ async function layoutReport(page) {
         if (w > 1 && h > 1) hotbarControlOverlaps.push(`${hotbar.className} × ${control.className}`);
       }
     }
+    const breathPanel = document.querySelector('.hud-breath');
+    const breathBubbles = breathPanel?.lastElementChild;
+    const breathRect = breathBubbles?.getBoundingClientRect();
+    const breathPanelRect = breathPanel?.getBoundingClientRect();
+    const breathCenterOffset = breathRect ? (breathRect.left + breathRect.right) * 0.5 - vw * 0.5 : null;
+    let breathHotbarOverlap = null;
+    if (breathPanelRect && hotbar) {
+      const hotbarRect = hotbar.getBoundingClientRect();
+      const overlapWidth = Math.min(breathPanelRect.right, hotbarRect.right) - Math.max(breathPanelRect.left, hotbarRect.left);
+      const overlapHeight = Math.min(breathPanelRect.bottom, hotbarRect.bottom) - Math.max(breathPanelRect.top, hotbarRect.top);
+      if (overlapWidth > 1 && overlapHeight > 1) breathHotbarOverlap = `${Math.round(overlapWidth)}×${Math.round(overlapHeight)} px`;
+    }
+
     const topLeftInfo = document.querySelector('.hud-information--top-left');
     if (hotbar && topLeftInfo) {
       const a = topLeftInfo.getBoundingClientRect();
@@ -1458,6 +1674,8 @@ async function layoutReport(page) {
       hotbarControlOverlaps,
       hotbarSlots,
       hotbarStyle,
+      breathCenterOffset,
+      breathHotbarOverlap,
       swipeBlocked,
     };
   });
@@ -1472,6 +1690,78 @@ async function scenarioLayout() {
   const game = await openGame({ lang: 'ru', deviceType: 'mobile', flags: { 'game.exploreMinutes': '2' } });
   const menu = await game.waitFor('Меню для проверки вёрстки', () => /НАЧАТЬ ДОБЫЧУ/.test(document.body.innerText ?? ''), 30_000);
   check(menu, 'Игра открылась для проверки вёрстки');
+  check(!await game.page.$('[data-developer-shop="1"]'), 'В production-сборке временная кнопка dev-магазина скрыта');
+
+  const characterButton = await game.page.$('[data-character-creator="1"]');
+  check(Boolean(characterButton), 'В главном меню есть отдельный конструктор персонажа');
+  const creatorOpened = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-character-creator="1"]');
+    button?.click();
+    return Boolean(button);
+  });
+  const creatorVisible = await game.waitFor('Окно конструктора персонажа', () => !!document.querySelector('[role="dialog"] #character-title'), 5_000);
+  check(creatorOpened && creatorVisible, 'Конструктор открывается из главного меню');
+  const creatorVariants = await game.page.evaluate(async () => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="character-title"]');
+    if (!dialog) return null;
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(true)));
+    [...dialog.querySelectorAll('button')].find((button) => button.textContent?.includes('ДЕВОЧКА'))?.click();
+    await nextFrame();
+    [...dialog.querySelectorAll('button')].find((button) => button.textContent?.includes('СЗАДИ'))?.click();
+    await nextFrame();
+    const preview = dialog.querySelector('[data-character-preview-view]');
+    return {
+      hairstyles: dialog.querySelectorAll('[data-character-hairstyle]').length,
+      expressions: dialog.querySelectorAll('[data-character-expression]').length,
+      glasses: dialog.querySelectorAll('[data-character-glasses]').length,
+      view: preview?.getAttribute('data-character-preview-view'),
+      skirt: preview?.getAttribute('data-character-preview-skirt'),
+    };
+  });
+  check(!!creatorVariants && creatorVariants.hairstyles >= 9 && creatorVariants.expressions >= 9 && creatorVariants.glasses === 4, 'Конструктор предлагает много стрижек, текстурных лиц и очков', JSON.stringify(creatorVariants));
+  check(creatorVariants?.view === 'back' && creatorVariants.skirt === 'true', 'Задний ракурс девочки показывает отдельный силуэт юбки', JSON.stringify(creatorVariants));
+  const selectionsApplied = await game.page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="character-title"]');
+    if (!dialog) return false;
+    const clickText = (text) => {
+      const button = [...dialog.querySelectorAll('button')].find((item) => (item.textContent ?? '').includes(text));
+      button?.click();
+      return Boolean(button);
+    };
+    const clickColor = (label) => {
+      const button = [...dialog.querySelectorAll('button')].find((item) => item.getAttribute('aria-label') === label);
+      button?.click();
+      return Boolean(button);
+    };
+    return clickText('ДЕВОЧКА') && clickText('ДЛИННАЯ') && clickText('САНДАЛИИ') && clickText('КРУГЛЫЕ') &&
+      clickColor('ЦВЕТ ФУТБОЛКИ: #e2564a') && clickColor('ЦВЕТ ВОЛОС: #b83f35') && clickColor('ЦВЕТ КОЖИ: #8d563d') &&
+      clickColor('Подмигивание');
+  });
+  check(selectionsApplied, 'Конструктор позволяет выбрать пол, причёску, обувь, цвета и эмоцию');
+  const characterSaved = await game.page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="character-title"]');
+    const save = [...(dialog?.querySelectorAll('button') ?? [])].find((item) => /СОХРАНИТЬ ОБЛИК/.test(item.textContent ?? ''));
+    save?.click();
+    const raw = localStorage.getItem('orerush.character.v1');
+    if (!raw) return false;
+    const character = JSON.parse(raw);
+    return character.gender === 'girl' && character.hairstyle === 'long' && character.shoeType === 'sandals' &&
+      character.shirtColor === '#e2564a' && character.hairColor === '#b83f35' && character.skinColor === '#8d563d' &&
+      character.expression === 'wink' && character.glasses === 'round';
+  });
+  check(characterSaved, 'Выбранный облик сохраняется в локальном профиле');
+  const profileWrite = await game.waitFor(
+    'Облачное сохранение персонажа',
+    () => (window.__yaCalls ?? []).some((call) =>
+      call.name === 'player.setData' && call.arg?.character?.gender === 'girl' &&
+      call.arg?.character?.hairstyle === 'long' && call.arg?.character?.shoeType === 'sandals' &&
+      call.arg?.character?.hairColor === '#b83f35' && call.arg?.character?.glasses === 'round',
+    ),
+    15_000,
+  );
+  check(profileWrite, 'Выбранные настройки персонажа доходят до облачного профиля игрока');
+  const savedGenderShown = await game.page.evaluate(() => /ДЕВОЧКА/.test(document.querySelector('[data-character-creator="1"]')?.textContent ?? ''));
+  check(savedGenderShown, 'Главное меню отражает выбранного персонажа после сохранения');
 
   let swipeChecked = false;
   for (const vp of LAYOUT_VIEWPORTS) {
@@ -1537,6 +1827,12 @@ async function scenarioLayout() {
     check(report.overlaps.length === 0, `Забег: элементы не накладываются (${vp.name})`, report.overlaps.slice(0, 4).join(' | '));
     check(report.hudControlOverlaps.length === 0, `Забег: HUD не перекрывает сенсорные органы (${vp.name})`, report.hudControlOverlaps.slice(0, 4).join(' | '));
     check(report.hudHotbarOverlaps.length === 0, `Забег: левая информационная панель не перекрывает хотбар (${vp.name})`, report.hudHotbarOverlaps.join(' | '));
+    check(
+      typeof report.breathCenterOffset === 'number' && Math.abs(report.breathCenterOffset) <= 1,
+      `Забег: пузырьки воздуха центрированы между третьим и четвёртым (${vp.name})`,
+      report.breathCenterOffset === null ? 'индикатор не найден' : `${report.breathCenterOffset.toFixed(1)} px от центра`,
+    );
+    check(report.breathHotbarOverlap === null, `Забег: шкала воздуха не перекрывает хотбар (${vp.name})`, report.breathHotbarOverlap ?? 'пересечений нет');
     check(report.hotbarControlOverlaps.length === 0, `Забег: хотбар не перекрывает сенсорные зоны (${vp.name})`, report.hotbarControlOverlaps.join(' | '));
     const slots = report.hotbarSlots.sort((a, b) => a.index - b.index);
     if (vp.height > vp.width && slots.length === 10) {

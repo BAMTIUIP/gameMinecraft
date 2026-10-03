@@ -491,13 +491,13 @@ export default function Inventory({
                         >
                           {slot ? (
                             slot.id === HAND ? (
-                              <span className="text-sm sm:text-base">✊</span>
+                              <span className="text-2xl leading-none sm:text-3xl lg:text-4xl">✊</span>
                             ) : gearInSlot ? (
                               <span
                                 className="flex flex-col items-center justify-center leading-none"
                                 style={{ color: MATERIALS[gearInSlot.material].color }}
                               >
-                                <span className="text-sm sm:text-base">{SLOT_GLYPH[gearInSlot.slot]}</span>
+                                <span className="text-xl leading-none sm:text-2xl lg:text-3xl">{SLOT_GLYPH[gearInSlot.slot]}</span>
                                 <span className="font-display text-[7px]" style={{ color: RARITY[gearInSlot.rarity].color }}>
                                   ⛨{gearInSlot.armor}
                                 </span>
@@ -505,15 +505,25 @@ export default function Inventory({
                             ) : isToolId(slot.id) ? (
                               <span className="flex h-full w-full items-center justify-center">
                                 {toolSpec ? (
-                                  <ToolSprite id={slot.id} size={20} durability={slot.durability} />
+                                  <ToolSprite
+                                    id={slot.id}
+                                    size={56}
+                                    className="h-[58%] w-[58%] max-h-14 max-w-14"
+                                    durability={slot.durability}
+                                  />
                                 ) : slot.id === TOOL_TORCH ? (
-                                  <span className="text-sm text-torch">⨙</span>
+                                  <span className="text-2xl leading-none text-torch sm:text-3xl lg:text-4xl">⨙</span>
                                 ) : (
                                   <span className="text-[10px] text-white/60">?</span>
                                 )}
                               </span>
                             ) : (
-                              <img src={getBlockIcon(slot.id)} alt="" className="pixelated h-5 w-5 sm:h-6 sm:w-6" draggable={false} />
+                              <img
+                                src={getBlockIcon(slot.id)}
+                                alt=""
+                                className="pixelated h-[58%] max-h-14 max-w-14 w-[58%]"
+                                draggable={false}
+                              />
                             )
                           ) : (
                             <span className="font-display text-[8px] text-white/20">{i === 9 ? 0 : i + 1}</span>

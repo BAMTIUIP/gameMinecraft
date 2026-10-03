@@ -1,0 +1,156 @@
+/** Durable one-shot grants for products bought with netherite coins (legacy balance storage). */
+
+import { markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
+import { storageGet, storageSet } from './storage';
+
+export const SHOP_REWARD_PRODUCT_IDS = [
+  'armor-uncommon',
+  'armor-rare',
+  'armor-epic',
+  'netherite-pickaxe',
+  'netherite-armor',
+  // Retain receipts queued before the store switched tiers; never drop paid rewards on upgrade.
+  'diamond-pickaxe',
+  'diamond-armor',
+  'chest-common',
+  'chest-rare',
+  'chest-epic',
+  'booster-start',
+  'booster-ore',
+  'booster-score',
+] as const;
+export type ShopRewardProductId = (typeof SHOP_REWARD_PRODUCT_IDS)[number];
+
+type Receipt = { id: string; productId: ShopRewardProductId };
+type ShopRewardState = { pending: Receipt[]; delivered: string[] };
+
+const STORAGE_KEY = 'orerush.shop-rewards.v1';
+const RECEIPT_LIMIT = 1024;
+let cached: ShopRewardState | undefined;
+let receiptSequence = 0;
+
+const emptyState = (): ShopRewardState => ({ pending: [], delivered: [] });
+
+export function isShopRewardProduct(id: string): id is ShopRewardProductId {
+  return (SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes(id);
+}
+
+function normalizeState(value: unknown): ShopRewardState {
+  if (!value || typeof value !== 'object') return emptyState();
+  const raw = value as { pending?: unknown; delivered?: unknown };
+  const pending = Array.isArray(raw.pending)
+    ? raw.pending.flatMap((entry): Receipt[] => {
+        if (!entry || typeof entry !== 'object') return [];
+        const item = entry as Partial<Receipt>;
+        return typeof item.id === 'string' && item.id.length <= 96 && isShopRewardProduct(String(item.productId))
+          ? [{ id: item.id, productId: item.productId as ShopRewardProductId }]
+          : [];
+      })
+    : [];
+  const delivered = Array.isArray(raw.delivered)
+    ? [...new Set(raw.delivered.filter((id): id is string => typeof id === 'string' && id.length <= 96))].slice(-RECEIPT_LIMIT)
+    : [];
+  const completed = new Set(delivered);
+  return { pending: pending.filter((entry) => !completed.has(entry.id)), delivered };
+}
+
+function state(): ShopRewardState {
+  if (cached === undefined) {
+    try {
+      cached = normalizeState(JSON.parse(storageGet(STORAGE_KEY) ?? 'null'));
+    } catch {
+      cached = emptyState();
+    }
+  }
+  return cached;
+}
+
+function cloudState(source: ShopRewardState) {
+  return {
+    pending: source.pending.map((entry) => ({ ...entry })),
+    delivered: source.delivered.slice(),
+  };
+}
+
+function write(next: ShopRewardState): boolean {
+  const normalized = normalizeState(next);
+  if (!storageSet(STORAGE_KEY, JSON.stringify(normalized))) return false;
+  cached = normalized;
+  markProfileDirty({ shopRewards: cloudState(normalized) });
+  return true;
+}
+
+/** Save a receipt before the currency is charged so an accepted purchase cannot vanish on refresh. */
+export function queueShopReward(productId: string): string | null {
+  if (!isShopRewardProduct(productId)) return null;
+  const current = state();
+  let id: string;
+  do {
+    receiptSequence += 1;
+    id = `${Date.now().toString(36)}-${receiptSequence.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  } while (current.pending.some((entry) => entry.id === id) || current.delivered.includes(id));
+  const next: ShopRewardState = {
+    pending: [...current.pending, { id, productId }],
+    delivered: current.delivered.slice(),
+  };
+  return write(next) ? id : null;
+}
+
+/** Undo only the receipt created by the current synchronous checkout if charging unexpectedly fails. */
+export function cancelQueuedShopReward(id: string): boolean {
+  const current = state();
+  if (!current.pending.some((entry) => entry.id === id)) return false;
+  return write({
+    pending: current.pending.filter((entry) => entry.id !== id),
+    delivered: current.delivered.slice(),
+  });
+}
+
+export function pendingShopProductRewards(): { keys: string[]; products: ShopRewardProductId[] } | null {
+  const current = state();
+  if (!current.pending.length) return null;
+  return {
+    keys: current.pending.map((entry) => entry.id),
+    products: current.pending.map((entry) => entry.productId),
+  };
+}
+
+/** Acknowledge receipts only after the engine successfully applied (and, in a sandbox, saved) them. */
+export function completePendingShopRewards(keys: string[]): boolean {
+  const current = state();
+  const ready = new Set(keys.filter((id) => current.pending.some((entry) => entry.id === id)));
+  if (!ready.size) return false;
+  const next: ShopRewardState = {
+    pending: current.pending.filter((entry) => !ready.has(entry.id)),
+    delivered: [...new Set([...current.delivered, ...ready])].slice(-RECEIPT_LIMIT),
+  };
+  if (!write(next)) return false;
+  saveProgressNow();
+  return true;
+}
+
+export function applyCloudShopRewards(remote: unknown) {
+  if (!remote || typeof remote !== 'object') return;
+  const local = state();
+  const incoming = normalizeState(remote);
+  const merged = normalizeState({
+    pending: [...local.pending, ...incoming.pending],
+    delivered: [...local.delivered, ...incoming.delivered],
+  });
+  cached = merged;
+  storageSet(STORAGE_KEY, JSON.stringify(merged));
+  if (JSON.stringify(cloudState(merged)) !== JSON.stringify(cloudState(incoming))) {
+    markProfileDirty({ shopRewards: cloudState(merged) });
+  }
+}
+
+/** Test seam for isolated checkout and cloud-merge coverage. */
+export function resetShopRewards() {
+  cached = emptyState();
+  storageSet(STORAGE_KEY, JSON.stringify(cached));
+}
+
+registerCloudPart({
+  collect: () => ({ shopRewards: cloudState(state()) }),
+  apply: (cloud) => applyCloudShopRewards(cloud.shopRewards),
+});
