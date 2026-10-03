@@ -54,6 +54,19 @@ g.document = {
 };
 g.addEventListener = addEventListener;
 Object.defineProperty(globalThis, 'navigator', { value: { language: 'ru' }, configurable: true });
+const sdkListeners = new Map<string, Array<() => void>>();
+const emitSdkEvent = (event: string) => {
+  for (const listener of [...(sdkListeners.get(event) ?? [])]) listener();
+};
+g.YaGames = {
+  init: async () => ({
+    environment: { app: { id: '0' }, i18n: { lang: 'ru' } },
+    serverTime: () => Date.now(),
+    on: (event: string, listener: () => void) => {
+      sdkListeners.set(event, [...(sdkListeners.get(event) ?? []), listener]);
+    },
+  }),
+};
 
 /* --------------------------- AudioContext stub --------------------------- */
 
@@ -119,6 +132,10 @@ function ok(condition: boolean, label: string, detail = '') {
 }
 
 const { audioSuspended, holdAudioForAd, initAudio, resumeAudio, setMuted, suspendAudio } = await import('../../src/game/audio');
+const { initYandex, yaOnPause, yaOnResume } = await import('../../src/game/yandex');
+await initYandex();
+const offPlatformPause = yaOnPause(suspendAudio);
+const offPlatformResume = yaOnResume(resumeAudio);
 
 initAudio();
 contextState = 'running'; // the player interacted: the menu theme is playing
@@ -143,6 +160,8 @@ ok(count('ctx.resume') === 2 && !audioSuspended(), 'Возвращение на 
 // --- the tab picker: the window is blurred while the document stays visible -----------------------
 fire('window', 'blur');
 ok(audioSuspended(), 'Меню выбора вкладок (blur без hidden) держит звук выключенным');
+fire('document', 'visibilitychange'); // visible does not mean focused: keep the independent blur hold
+ok(audioSuspended(), 'Событие видимой вкладки не снимает удержание blur до focus');
 
 // --- platform pause / engine pause hold independently -------------------------------------------
 suspendAudio();
@@ -150,6 +169,14 @@ fire('window', 'focus');
 ok(audioSuspended(), 'Пауза от игры не снимается возвратом фокуса', `hidden=${documentHidden}`);
 resumeAudio();
 ok(!audioSuspended(), 'Игра сняла свою паузу — звук вернулся', String(count('ctx.resume')));
+const platformPauseBefore = count('ctx.suspend');
+emitSdkEvent('game_api_pause');
+ok(audioSuspended() && count('ctx.suspend') > platformPauseBefore, 'SDK game_api_pause приостанавливает звук');
+const platformResumeBefore = count('ctx.resume');
+emitSdkEvent('game_api_resume');
+ok(!audioSuspended() && count('ctx.resume') > platformResumeBefore, 'SDK game_api_resume возобновляет звук');
+offPlatformPause();
+offPlatformResume();
 
 // --- an ad holds the audio on its own ------------------------------------------------------------
 holdAudioForAd(true);
