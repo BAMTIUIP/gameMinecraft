@@ -710,11 +710,13 @@ export default function App() {
   const signIn = useCallback(async () => {
     const ok = await yaOpenAuthDialog();
     if (!ok) return;
-    const snapshot = await startProfileSync();
-    setProfile(snapshot.platform);
+    // startProfileSync() is a startup-only one-shot. After auth the SDK may now point at a different
+    // player, so force a fresh cloud read before applying the newly authorised account's progress.
+    const cloudApplied = await resyncProfile();
     setScores(loadScores());
     setName(loadPlayerName());
-    if (snapshot.cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
+    setDiamonds(diamondsBalance());
+    if (cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
   }, []);
 
   /**

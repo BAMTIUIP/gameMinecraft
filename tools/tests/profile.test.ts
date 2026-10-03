@@ -100,7 +100,7 @@ function ok(condition: boolean, label: string, detail = '') {
 
 // import AFTER the stubs: the modules read window/localStorage at call time, not at import time
 const { initYandex } = await import('../../src/game/yandex');
-const { startProfileSync, markProfileDirty, bumpStats, addTotals, flushProfile, getTotals } = await import('../../src/game/profile');
+const { startProfileSync, resyncProfile, markProfileDirty, bumpStats, addTotals, flushProfile, getTotals, getDiamonds } = await import('../../src/game/profile');
 
 await initYandex();
 ok(count('YaGames.init') === 1, 'initYandex() инициализирует SDK ровно один раз');
@@ -177,5 +177,24 @@ authorized = false;
 const { yaRefreshProfile } = await import('../../src/game/yandex');
 const guest = await yaRefreshProfile(true);
 ok(guest?.authorized === false && guest.name === '', 'У неавторизованного игрока нет имени и аватара из профиля');
+
+// Signing in switches Player after startup: the cached startProfileSync() snapshot is not enough.
+authorized = true;
+cloud = {
+  'orerush.profile': {
+    v: 1,
+    savedAt: Date.now() + 60_000,
+    name: 'AUTH MINER',
+    scores: [{ name: 'AUTH MINER', score: 7000, blocks: 20, tier: 'DIAMOND', depth: 30, combo: 5, date: Date.now(), token: 'auth-run' }],
+    diamonds: 731,
+  },
+};
+const getPlayerBeforeAuthSync = count('ysdk.getPlayer');
+const getDataBeforeAuthSync = count('player.getData');
+const authCloudApplied = await resyncProfile();
+ok(authCloudApplied, 'После входа в аккаунт заново применяется его облачный профиль');
+ok(count('ysdk.getPlayer') > getPlayerBeforeAuthSync, 'После входа заново запрошен Player');
+ok(count('player.getData') > getDataBeforeAuthSync, 'После входа заново прочитан cloud save');
+ok(getDiamonds() === 731, 'Баланс авторизованного аккаунта загружен из облака', String(getDiamonds()));
 
 export { passed, failures, calls };
