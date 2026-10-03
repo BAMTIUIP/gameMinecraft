@@ -863,26 +863,27 @@ async function scenarioShop() {
     const gemCurrencyIcons = [...document.querySelectorAll('[data-shop-product^="diamonds-"]')].map((card) =>
       Boolean(card.querySelector('.shop-product-footer img[src]')),
     );
-    const petCards = await select('pets');
-    const petsAreWorkInProgress = petCards.length > 0 && [...document.querySelectorAll('[data-shop-product]')].every((card) => {
-      const button = card.querySelector('button');
-      return !!button?.disabled && /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG/i.test(button.textContent ?? '');
-    });
-    await select('all');
+    const rewardCards = await select('rewards');
+    const allCards = await select('all');
+    const hasUnfinishedProducts = allCards.some((id) => id.startsWith('pet-') || id.startsWith('skin-'));
+    const hasUnfinishedLabels = [...document.querySelectorAll('[data-shop-product]')].some((card) =>
+      /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG|COMING SOON|СКОРО|BIENTÔT|BALD/i.test(card.textContent ?? ''),
+    );
     return {
       categoryCount: document.querySelectorAll('[data-shop-category]').length,
       weaponCards,
       armorCards,
       gemCards,
       gemCurrencyIcons,
-      petCards,
-      petsAreWorkInProgress,
+      rewardCards,
+      hasUnfinishedProducts,
+      hasUnfinishedLabels,
     };
   });
   check(shopCategories?.categoryCount === 5, 'Внизу каталога ровно пять категорий');
   check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
   check(shopCategories?.armorCards?.includes('netherite-armor') && !shopCategories.armorCards.includes('diamond-armor'), 'Категория брони показывает комплект незерита вместо старого алмазного');
-  check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('chest-epic'), 'Самоцветы объединяют наборы монет, сундуки и награды');
+  check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('diamonds-599'), 'Категория самоцветов показывает наборы внутриигровой валюты');
   check(
     shopCategories?.gemCurrencyIcons?.length === 2 && shopCategories.gemCurrencyIcons.every(Boolean),
     'У каждого активного real-money набора показана иконка валюты из SDK',
@@ -893,7 +894,15 @@ async function scenarioShop() {
     'Наборы, отсутствующие в getCatalog() (неактивные SKU), не показываются в магазине',
     shopCategories?.gemCards?.filter((id) => id.startsWith('diamonds-')).join(', '),
   );
-  check(shopCategories?.petCards?.length > 0 && shopCategories.petsAreWorkInProgress, 'Питомцы и скины помечены как «В разработке» и недоступны к выдаче');
+  check(
+    shopCategories?.rewardCards?.includes('drop-daily')
+      && shopCategories.rewardCards.includes('chest-epic')
+      && shopCategories.rewardCards.includes('booster-start')
+      && !shopCategories.hasUnfinishedProducts
+      && !shopCategories.hasUnfinishedLabels,
+    'Категория наград показывает готовые товары, а незавершённые предложения и метки скрыты',
+    JSON.stringify(shopCategories),
+  );
 
   // Ordinary-store drops are an ad gate: a shown-but-unrewarded video must leave the claim untouched.
   const dailyAdBefore = game.count(await game.calls(), 'adv.showRewardedVideo');

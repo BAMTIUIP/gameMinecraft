@@ -116,8 +116,8 @@ const Row = ({ k, v, accent }: { k: React.ReactNode; v: React.ReactNode; accent?
   </div>
 );
 
-type ShopCategory = 'diamonds' | 'pets' | 'gear' | 'drops' | 'boosters' | 'skins';
-type ShopFilter = 'all' | 'weapons' | 'armor' | 'gems' | 'pets';
+type ShopCategory = 'diamonds' | 'gear' | 'drops' | 'boosters';
+type ShopFilter = 'all' | 'weapons' | 'armor' | 'gems' | 'rewards';
 type ShopMode = 'store' | 'developer';
 type ShopProduct = {
   id: string;
@@ -134,7 +134,6 @@ type ShopProduct = {
   rarityKey?: TKey;
   anyMode?: boolean;
   accountBound?: boolean;
-  inDevelopment?: boolean;
 };
 
 const SHOP_TABS: ReadonlyArray<{ id: ShopFilter; labelKey: TKey }> = [
@@ -142,23 +141,22 @@ const SHOP_TABS: ReadonlyArray<{ id: ShopFilter; labelKey: TKey }> = [
   { id: 'weapons', labelKey: 'shopTabWeapon' },
   { id: 'armor', labelKey: 'shopTabArmor' },
   { id: 'gems', labelKey: 'shopTabGems' },
-  { id: 'pets', labelKey: 'shopTabPets' },
+  { id: 'rewards', labelKey: 'shopTabRewards' },
 ];
 
 function productMatchesShopTab(product: ShopProduct, tab: ShopFilter) {
   if (tab === 'all') return true;
   if (tab === 'weapons') return product.id === 'netherite-pickaxe';
   if (tab === 'armor') return product.id === 'netherite-armor' || product.id.startsWith('armor-');
-  if (tab === 'pets') return product.category === 'pets' || product.category === 'skins';
-  // Gems is the shop's catch-all for currency packs, rewarded drops, chests and next-run boosters.
-  return product.category === 'diamonds' || product.category === 'drops' || product.category === 'boosters';
+  if (tab === 'gems') return product.category === 'diamonds';
+  return product.category === 'drops' || product.category === 'boosters';
 }
 
 function shopTabForProduct(product: ShopProduct | undefined): ShopFilter {
   if (!product) return 'gems';
   if (productMatchesShopTab(product, 'weapons')) return 'weapons';
   if (productMatchesShopTab(product, 'armor')) return 'armor';
-  if (productMatchesShopTab(product, 'pets')) return 'pets';
+  if (productMatchesShopTab(product, 'rewards')) return 'rewards';
   return 'gems';
 }
 
@@ -167,12 +165,6 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'diamonds-599', category: 'diamonds', titleKey: 'shopPack599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 599 },
   { id: 'diamonds-1599', category: 'diamonds', titleKey: 'shopPack1599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 1599, rarityKey: 'shopRarityRare' },
   { id: 'diamonds-5999', category: 'diamonds', titleKey: 'shopPack5999Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#b895ff', diamondAmount: 5999, rarityKey: 'shopRarityEpic' },
-
-  { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '✦', accent: '#e7a84b', inDevelopment: true },
-  { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '✦', accent: '#b895ff', inDevelopment: true, rarityKey: 'shopRarityRare' },
-  { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '✦', accent: '#c98b5b', inDevelopment: true },
-  { id: 'pet-capybara', category: 'pets', titleKey: 'shopPetCapybaraTitle', descriptionKey: 'shopPetCapybaraDesc', icon: '✦', accent: '#c98b5b', inDevelopment: true, rarityKey: 'shopRarityRare' },
-  { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '✦', accent: '#9ca9ba', inDevelopment: true, rarityKey: 'shopRarityEpic' },
 
   { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', diamondCost: SHOP_ITEM_PRICES['armor-uncommon'], rarityKey: 'shopRarityCommon' },
   { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', diamondCost: SHOP_ITEM_PRICES['armor-rare'], rarityKey: 'shopRarityRare' },
@@ -190,10 +182,6 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', diamondCost: SHOP_ITEM_PRICES['booster-start'], badgeKey: 'shopNextRunBadge' },
   { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', diamondCost: SHOP_ITEM_PRICES['booster-ore'], badgeKey: 'shopNextRunBadge' },
   { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['booster-score'], badgeKey: 'shopNextRunBadge' },
-
-  { id: 'skin-miner', category: 'skins', titleKey: 'shopSkinMinerTitle', descriptionKey: 'shopSkinMinerDesc', icon: '♟', accent: '#e7a84b', inDevelopment: true },
-  { id: 'skin-arctic', category: 'skins', titleKey: 'shopSkinArcticTitle', descriptionKey: 'shopSkinArcticDesc', icon: '♟', accent: '#62e8dc', inDevelopment: true },
-  { id: 'skin-nomad', category: 'skins', titleKey: 'shopSkinNomadTitle', descriptionKey: 'shopSkinNomadDesc', icon: '♟', accent: '#b895ff', inDevelopment: true },
 ];
 
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
@@ -1096,28 +1084,22 @@ export function StartScreen({
                     : '';
                   const purchasable = developerMode
                     ? !devAlreadyClaimed
-                    : product.inDevelopment
-                      ? false
-                      : rewardedDrop
-                        ? rewardedAdsEnabled && Boolean(dropStatus?.available)
-                        : product.diamondCost !== undefined
-                          ? diamonds >= product.diamondCost
-                          : product.diamondAmount !== undefined
-                            ? paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined && Boolean(catalogPrice)
-                            : false;
+                    : rewardedDrop
+                      ? rewardedAdsEnabled && Boolean(dropStatus?.available)
+                      : product.diamondCost !== undefined
+                        ? diamonds >= product.diamondCost
+                        : product.diamondAmount !== undefined
+                          ? paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined && Boolean(catalogPrice)
+                          : false;
                   const priceLabel: React.ReactNode = developerMode
                     ? t('devShopPrice')
-                    : product.inDevelopment
-                      ? t('shopInDevelopment')
-                      : rewardedDrop
-                        ? t('shopRewardedPrice')
-                        : product.diamondCost !== undefined
-                          ? <span className="inline-flex items-center gap-1.5">{product.diamondCost.toLocaleString()} <NetheriteCoinIcon className="h-4 w-4" /></span>
-                          : product.diamondAmount !== undefined
-                            ? catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'))
-                            : product.freeDrop
-                              ? t('shopRewardedPrice')
-                              : t('shopPriceSoon');
+                    : rewardedDrop
+                      ? t('shopRewardedPrice')
+                      : product.diamondCost !== undefined
+                        ? <span className="inline-flex items-center gap-1.5">{product.diamondCost.toLocaleString()} <NetheriteCoinIcon className="h-4 w-4" /></span>
+                        : product.diamondAmount !== undefined
+                          ? catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'))
+                          : t('shopRewardedPrice');
                   return (
                     <article
                       key={product.id}
@@ -1145,11 +1127,6 @@ export function StartScreen({
                           {product.badgeKey && (
                             <span className="border border-white/10 bg-black/25 px-1.5 py-1 font-display text-[8px] tracking-wide text-white/50 sm:text-[9px]">
                               {t(product.badgeKey)}
-                            </span>
-                          )}
-                          {product.inDevelopment && (
-                            <span className="border border-[#f4b942]/35 bg-[#f4b942]/[0.08] px-1.5 py-1 font-display text-[8px] tracking-wide text-[#f4ca70] sm:text-[9px]">
-                              {t('shopInDevelopment')}
                             </span>
                           )}
                           {product.anyMode && (
@@ -1203,13 +1180,11 @@ export function StartScreen({
                               ? dropStatus?.available
                                 ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
                                 : dropStatusLabel
-                              : product.inDevelopment
-                                ? t('shopInDevelopment')
-                                : product.diamondCost !== undefined
+                              : product.diamondCost !== undefined
                                   ? purchasable ? t('shopBuy') : t('shopNotEnoughDiamonds')
                                   : product.diamondAmount !== undefined
                                     ? paymentsAvailable ? catalogPrice ? t('shopBuy') : t('shopPriceUnavailable') : t('shopPaymentsUnavailable')
-                                    : t('shopSoonHint')}
+                                    : t('shopItemUnavailable')}
                           onClick={async () => {
                             if (!purchasable || buying !== null) return;
                             setBuying(product.id);
@@ -1287,9 +1262,7 @@ export function StartScreen({
                                     ? t('shopBuying')
                                     : t('shopWatchAd')
                                 : dropStatusLabel
-                              : product.inDevelopment
-                                ? t('shopInDevelopment')
-                                : product.diamondCost !== undefined
+                              : product.diamondCost !== undefined
                                   ? buying === product.id
                                     ? t('shopBuying')
                                     : purchasable ? t('shopBuy') : t('shopNotEnoughDiamonds')
@@ -1301,7 +1274,7 @@ export function StartScreen({
                                         : catalogPrice
                                           ? t('shopBuy')
                                           : t('shopPriceUnavailable')
-                                    : t('shopSoon')}
+                                    : t('shopItemUnavailable')}
                         </button>
                       </div>
                     </article>
@@ -1339,7 +1312,7 @@ export function StartScreen({
             <nav aria-label={t('shop')} className="shop-tabs flex shrink-0 items-stretch justify-between gap-1 border-t border-white/10 bg-black/25 px-2 py-1.5 sm:gap-2 sm:px-4 sm:py-2">
               {SHOP_TABS.map((tab) => {
                 const selected = shopTab === tab.id;
-                const icon = tab.id === 'all' ? '⌂' : tab.id === 'weapons' ? '⚔' : tab.id === 'armor' ? '▣' : tab.id === 'pets' ? '♟' : null;
+                const icon = tab.id === 'all' ? '⌂' : tab.id === 'weapons' ? '⚔' : tab.id === 'armor' ? '▣' : tab.id === 'rewards' ? '✦' : null;
                 return (
                   <button
                     key={tab.id}
