@@ -372,32 +372,6 @@ function ParrotArtwork() {
   );
 }
 
-/** Compact forged coin pile for the paid top-up cards; no raster asset or wallet migration required. */
-function NetheriteCoinStackArtwork() {
-  return (
-    <svg className="h-full w-full" viewBox="0 0 200 120" aria-hidden="true" focusable="false" shapeRendering="crispEdges">
-      <defs>
-        <linearGradient id="coin-stack-bg" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#32251f" /><stop offset=".58" stopColor="#171719" /><stop offset="1" stopColor="#0c1216" /></linearGradient>
-        <linearGradient id="coin-stack-rim" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#e8bc8b" /><stop offset=".4" stopColor="#76564a" /><stop offset=".75" stopColor="#352f32" /><stop offset="1" stopColor="#c08a62" /></linearGradient>
-        <linearGradient id="coin-stack-face" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#66575b" /><stop offset="1" stopColor="#24242a" /></linearGradient>
-        <radialGradient id="coin-stack-glow"><stop stopColor="#e7a46e" stopOpacity=".33" /><stop offset="1" stopColor="#a76249" stopOpacity="0" /></radialGradient>
-      </defs>
-      <rect width="200" height="120" fill="url(#coin-stack-bg)" /><ellipse cx="102" cy="70" rx="75" ry="55" fill="url(#coin-stack-glow)" />
-      <path d="M0 98h200v22H0z" fill="#16191b" /><path d="M24 103h152v4H24z" fill="#654637" opacity=".72" />
-      {/* Side stacks */}
-      <g stroke="#171719" strokeWidth="3">
-        <ellipse cx="55" cy="88" rx="27" ry="9" fill="#332d31" /><path d="M28 77v11c0 5 12 9 27 9s27-4 27-9V77" fill="#3d3438" /><ellipse cx="55" cy="77" rx="27" ry="9" fill="url(#coin-stack-rim)" />
-        <ellipse cx="145" cy="88" rx="27" ry="9" fill="#332d31" /><path d="M118 77v11c0 5 12 9 27 9s27-4 27-9V77" fill="#3d3438" /><ellipse cx="145" cy="77" rx="27" ry="9" fill="url(#coin-stack-rim)" />
-        <ellipse cx="100" cy="97" rx="39" ry="11" fill="#27272c" /><path d="M61 83v14c0 6 17 11 39 11s39-5 39-11V83" fill="#3f373b" /><ellipse cx="100" cy="83" rx="39" ry="11" fill="url(#coin-stack-rim)" />
-      </g>
-      <ellipse cx="100" cy="81" rx="32" ry="7" fill="url(#coin-stack-face)" stroke="#171719" strokeWidth="3" />
-      <path d="M90 74h20v3H90zM88 80h5v10h-5zM107 80h5v10h-5zM94 87h12v3H94z" fill="#e4b184" />
-      <path d="M94 77h12v3H94zM94 81h3v6h-3zM103 81h3v6h-3z" fill="#c28c69" />
-      <path d="M42 74h5v3h-5zM152 64h5v3h-5zM100 47h4v4h-4zM173 91h4v4h-4z" fill="#f0c796" />
-    </svg>
-  );
-}
-
 /** Faceted violet crystal cache, drawn inline to match the supplied gem/booster reference. */
 function AmethystClusterArtwork() {
   return (
@@ -571,7 +545,6 @@ export function ShopArtwork({ productId, accent }: ShopArtworkProps) {
   if (productId === 'pet-wolf') return <WolfArtwork />;
   if (productId === 'pet-owl') return <OwlArtwork />;
   if (productId === 'pet-capybara') return <CapybaraArtwork />;
-  if (productId.startsWith('diamonds-')) return <NetheriteCoinStackArtwork />;
   if (productId === 'booster-score') return <AmethystClusterArtwork />;
   if (productId === 'booster-start') return <GoldenRelicArtwork />;
   if (productId === 'chest-rare') return <DiamondChestArtwork />;
@@ -582,7 +555,6 @@ export function ShopArtwork({ productId, accent }: ShopArtworkProps) {
   if (productId === 'skin-miner') return <MinerSkinArtwork />;
   if (productId === 'skin-nomad') return <NomadSkinArtwork />;
   const chest = productId.startsWith('drop-') || productId.startsWith('chest-');
-  const diamondPack = productId.startsWith('diamonds-');
   const gear = productId.startsWith('armor-') || productId === 'netherite-pickaxe' || productId === 'netherite-armor';
   const booster = productId.startsWith('booster-');
   const pet = productId.startsWith('pet-');
@@ -610,16 +582,6 @@ export function ShopArtwork({ productId, accent }: ShopArtworkProps) {
           <path d="M75 44h10v13H75z" fill={accent} stroke="#222" strokeWidth="3" />
           <path d="M53 29h54v4H53z" fill="#fff" opacity=".22" stroke="none" />
           <path d="M53 64h54v4H53z" fill="#201b18" opacity=".5" stroke="none" />
-        </g>
-      )}
-
-      {diamondPack && (
-        <g stroke="#16323a" strokeWidth="3" strokeLinejoin="miter">
-          <path d="M45 38 56 20h24l12 18-23 31z" fill="#62e8dc" />
-          <path d="M56 20h24l-11 17H45z" fill="#b7fff4" />
-          <path d="M67 37 80 20l12 18-23 31z" fill="#2db8b1" />
-          <path d="M98 49 105 37h16l8 12-15 18z" fill="#a8f8ef" stroke="#2d7775" strokeWidth="2" />
-          <path d="M54 39h13L56 60z" fill="#e3fffc" opacity=".65" stroke="none" />
         </g>
       )}
 
@@ -666,7 +628,7 @@ export function ShopArtwork({ productId, accent }: ShopArtworkProps) {
         </g>
       )}
 
-      {!chest && !diamondPack && !gear && !booster && !pet && (
+      {!chest && !gear && !booster && !pet && (
         <g stroke="#1d292e" strokeWidth="4" strokeLinejoin="miter">
           <path d="M59 19h42v37H59z" fill={accent} />
           <path d="M53 57h54v13H53z" fill="#46545b" />

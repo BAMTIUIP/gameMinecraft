@@ -17,7 +17,7 @@ export function developerShopClaims(): string[] {
   }
 }
 
-/** Grant a catalogue product locally; owned items are one-time, while diamond packs are reusable. */
+/** Grant a catalogue product locally once; this path never opens the payment flow. */
 export function grantDeveloperShopProduct(productId: string, repeatable = false): boolean {
   if (!PRODUCT_ID.test(productId)) return false;
   if (repeatable) return true;

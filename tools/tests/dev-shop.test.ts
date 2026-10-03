@@ -20,8 +20,8 @@ ok(developerShopClaims().includes('pet-parrot'), 'Выданный товар с
 ok(!grantDeveloperShopProduct('pet-parrot'), 'Один тестовый товар нельзя случайно начислить дважды');
 ok(developerShopClaims().length === 1, 'Повторная выдача не создаёт дубликат');
 ok(!grantDeveloperShopProduct('not a product'), 'Некорректный ID товара отклоняется');
-ok(grantDeveloperShopProduct('diamonds-100', true), 'Повторяемый набор алмазов можно выдать в тесте');
-ok(grantDeveloperShopProduct('diamonds-100', true), 'Повторяемый набор алмазов можно выдать повторно');
-ok(!developerShopClaims().includes('diamonds-100'), 'Повторяемый набор не помечается как одноразовый товар');
+ok(grantDeveloperShopProduct('chest-common', true), 'Расходуемый SKU-припас можно выдать в developer-тесте');
+ok(grantDeveloperShopProduct('chest-common', true), 'Повторная выдача расходуемого SKU допустима в developer-тесте');
+ok(!developerShopClaims().includes('chest-common'), 'Повторяемый SKU не помечается как одноразовый товар');
 
 export { passed, failures };

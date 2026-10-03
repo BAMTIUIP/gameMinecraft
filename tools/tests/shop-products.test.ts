@@ -1,4 +1,4 @@
-/** Functional diamond-store receipts: charging, durable delivery, and cloud deduplication. */
+/** Durable direct-purchase receipts, delivery grants and cloud deduplication. */
 const storage = new Map<string, string>();
 const localStorageStub = {
   getItem: (key: string) => storage.get(key) ?? null,
@@ -21,10 +21,10 @@ const ok = (condition: boolean, label: string, detail = '') => {
   else failures.push(detail ? `${label} → ${detail}` : label);
 };
 
-const { addDiamonds, getDiamonds } = await import('../../src/game/profile');
-const { buyShopItem, SHOP_ITEM_PRICES } = await import('../../src/game/shop');
+const shopModule = await import('../../src/game/shop');
 const { Engine } = await import('../../src/game/engine');
 const {
+  SHOP_PRODUCT_IDS,
   applyCloudShopRewards,
   completePendingShopRewards,
   pendingShopProductRewards,
@@ -41,72 +41,69 @@ const createEngineShell = () => {
     toolInstances: new Map(),
     bagItems: [],
     nextToolInstanceId: 0,
-    tier: 'wood',
-    swordTier: 'wood',
+    tier: 0,
+    swordTier: -1,
     scoreBonusMultiplier: 1,
     sandbox: false,
     recalcOwnedToolTiers() {},
     pushBanner() {},
     syncHotbar() {},
     syncHud() {},
+    addToHotbar() {},
   });
   return engine;
 };
 
 resetShopRewards();
-addDiamonds(1_000);
-ok(getDiamonds() === 1_000, 'Test account begins with a known in-game diamond balance');
-const purchased = buyShopItem('chest-common');
-ok(purchased.ok && purchased.cost === SHOP_ITEM_PRICES['chest-common'], 'Common chest uses the displayed diamond price');
-ok(getDiamonds() === 801, 'Successful checkout charges the wallet once');
-const queued = pendingShopProductRewards();
-ok(Boolean(queued && queued.products.length === 1 && queued.products[0] === 'chest-common'), 'A successful purchase is durably queued for delivery');
+ok(SHOP_PRODUCT_IDS.includes('armor-uncommon') && SHOP_PRODUCT_IDS.includes('chest-common'), 'The paid catalogue lists individual reward SKUs');
+ok(!SHOP_PRODUCT_IDS.some((id) => id.startsWith('diamonds-')), 'Coin-pack SKUs are absent from the supported products');
+ok(!('buyDiamondPack' in shopModule) && !('buyShopItem' in shopModule), 'The old wallet and in-game charge APIs no longer exist');
+
+const queuedId = queueShopReward('chest-common');
+let queued = pendingShopProductRewards();
+ok(Boolean(queuedId && queued?.products.length === 1 && queued.products[0] === 'chest-common'), 'A direct product receipt is durably queued for delivery');
 ok(Boolean(queued && completePendingShopRewards(queued.keys)), 'The engine can acknowledge delivered receipts');
 ok(pendingShopProductRewards() === null, 'Acknowledged receipts leave the pending queue');
 ok(!queued || !completePendingShopRewards(queued.keys), 'The same receipt cannot be acknowledged twice');
 
-ok(SHOP_ITEM_PRICES['netherite-pickaxe'] === 2_999 && SHOP_ITEM_PRICES['netherite-armor'] === 4_999, 'Netherite replacements retain the previous premium prices');
-ok(SHOP_ITEM_PRICES['armor-epic'] === 1_999 && SHOP_ITEM_PRICES['chest-epic'] === 1_799, 'Epic gear keeps its previous checkout prices during the material upgrade');
 const epicArmorEngine = createEngineShell();
 const epicArmorGranted = epicArmorEngine.grantShopProductRewards(['armor-epic']);
-ok(epicArmorGranted && epicArmorEngine.bagItems.length === 4 && epicArmorEngine.bagItems.every((item: any) => item.material === 'netherite' && item.rarity === 3), 'Epic armor now grants four mythic netherite pieces');
+ok(epicArmorGranted && epicArmorEngine.bagItems.length === 4 && epicArmorEngine.bagItems.every((item: any) => item.material === 'netherite' && item.rarity === 3), 'The epic armor SKU grants four mythic netherite pieces');
 const epicChestEngine = createEngineShell();
 const epicChestGranted = epicChestEngine.grantShopProductRewards(['chest-epic']);
-ok(epicChestGranted && epicChestEngine.bagItems.length === 1 && epicChestEngine.bagItems[0].material === 'netherite', 'The epic loot chest grants a mythic netherite chest piece');
-addDiamonds(3_000);
-const netheritePickaxe = buyShopItem('netherite-pickaxe');
-ok(netheritePickaxe.ok && netheritePickaxe.cost === 2_999, 'The netherite pickaxe uses its displayed legacy price and queues successfully');
-const pickaxeReceipt = pendingShopProductRewards();
-ok(Boolean(pickaxeReceipt?.products.includes('netherite-pickaxe')), 'The new netherite pickaxe ID is durably queued');
-if (pickaxeReceipt) completePendingShopRewards(pickaxeReceipt.keys);
+ok(epicChestGranted && epicChestEngine.bagItems.length === 1 && epicChestEngine.bagItems[0].material === 'netherite', 'The epic chest SKU grants its mythic netherite chest piece');
+const chestRewardsEngine = createEngineShell();
+const chestRewardsGranted = chestRewardsEngine.grantShopProductRewards(['chest-common', 'chest-rare']);
+ok(chestRewardsGranted && chestRewardsEngine.inventory.size > 0 && chestRewardsEngine.bagItems.length === 1, 'Common and rare direct SKUs grant their matching resources and gear');
 
-const beforeInsufficient = getDiamonds();
-const insufficient = buyShopItem('netherite-armor');
-ok(!insufficient.ok && insufficient.reason === 'not-enough', 'Insufficient funds refuse the netherite armor set');
-ok(getDiamonds() === beforeInsufficient, 'A refused checkout never changes the wallet');
-const unavailable = buyShopItem('pet-parrot');
-ok(!unavailable.ok && unavailable.reason === 'unavailable', 'Work-in-progress pets cannot be purchased');
-ok(getDiamonds() === beforeInsufficient, 'Unavailable products do not charge netherite coins');
+const netheritePick = queueShopReward('netherite-pickaxe');
+const pickReceipt = pendingShopProductRewards();
+ok(Boolean(netheritePick && pickReceipt?.products.includes('netherite-pickaxe')), 'The netherite pickaxe reward can be queued by its direct SKU');
+if (pickReceipt) completePendingShopRewards(pickReceipt.keys);
 
+const unsupported = queueShopReward('diamonds-100');
+ok(unsupported === null, 'A retired coin-pack ID cannot create a reward receipt');
+const unknown = queueShopReward('pet-parrot');
+ok(unknown === null, 'An unrelated or unsupported SKU cannot create a reward receipt');
+
+// Older queued gear receipts remain valid for delivery after the catalogue transition.
 const legacyKey = queueShopReward('diamond-armor');
 const legacyQueue = pendingShopProductRewards();
-ok(Boolean(legacyKey && legacyQueue?.keys.includes(legacyKey) && legacyQueue.products.includes('diamond-armor')), 'A pre-migration diamond-armor receipt remains valid for delivery');
+ok(Boolean(legacyKey && legacyQueue?.keys.includes(legacyKey) && legacyQueue.products.includes('diamond-armor')), 'An already queued legacy gear receipt is retained');
 const legacyEngine = createEngineShell();
 const legacyArmorGranted = legacyEngine.grantShopProductRewards(['diamond-armor']);
-ok(legacyArmorGranted && legacyEngine.bagItems.length === 6 && legacyEngine.bagItems.every((item: any) => item.material === 'diamond'), 'Legacy receipts still receive the original six-piece diamond armor set');
+ok(legacyArmorGranted && legacyEngine.bagItems.length === 6 && legacyEngine.bagItems.every((item: any) => item.material === 'diamond'), 'Legacy receipts still deliver the originally purchased six-piece diamond armor set');
 if (legacyQueue) completePendingShopRewards(legacyQueue.keys);
 
-const second = buyShopItem('booster-score');
-ok(second.ok && second.cost === SHOP_ITEM_PRICES['booster-score'], 'A score booster queues as a paid in-game product');
-const secondQueue = pendingShopProductRewards();
-ok(Boolean(secondQueue?.products.includes('booster-score')), 'The next-run booster remains pending until the engine applies it');
+const boosterId = queueShopReward('booster-score');
+const boosterQueue = pendingShopProductRewards();
+ok(Boolean(boosterId && boosterQueue?.products.includes('booster-score')), 'A score booster remains pending until the engine accepts it');
 
-// Cloud merge unions receipts and lets a delivered marker win over stale pending copies.
-const pendingKey = secondQueue?.keys[0] ?? '';
+const pendingKey = boosterQueue?.keys[0] ?? '';
 applyCloudShopRewards({
   pending: pendingKey ? [{ id: pendingKey, productId: 'booster-score' }] : [],
   delivered: pendingKey ? [pendingKey] : [],
 });
-ok(pendingShopProductRewards() === null, 'A cloud-delivered marker prevents a stale receipt from being granted again');
+ok(pendingShopProductRewards() === null, 'A cloud-delivered marker wins over a stale pending copy');
 
 export { passed, failures };

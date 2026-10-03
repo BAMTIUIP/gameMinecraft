@@ -1,24 +1,15 @@
-/**
- * Off-Yandex half of the shop contract: with no `window.YaGames` there is no payment frame, so the
- * shop must stay a preview — no purchases, no catalogue, no crash — while the diamonds already on the
- * account (bought on Yandex or granted by a build script) remain spendable in the paid revive.
- * A crash here would brick the itch / own-hosting build.
- */
-
+/** Off-Yandex shop contract: no payment SDK means no catalogue or checkout, without breaking the game. */
 const storage = new Map<string, string>();
-storage.set('orerush.diamonds.v1', '150'); // bought earlier, on a platform build
+storage.set('orerush.diamonds.v1', '150'); // stale wallet from an older build; boot must retire it
 
 const localStorageStub = {
-  getItem: (k: string) => (storage.has(k) ? storage.get(k)! : null),
-  setItem: (k: string, v: string) => void storage.set(k, String(v)),
-  removeItem: (k: string) => void storage.delete(k),
+  getItem: (key: string) => (storage.has(key) ? storage.get(key)! : null),
+  setItem: (key: string, value: string) => void storage.set(key, String(value)),
+  removeItem: (key: string) => void storage.delete(key),
   clear: () => storage.clear(),
-  key: (i: number) => [...storage.keys()][i] ?? null,
-  get length() {
-    return storage.size;
-  },
+  key: (index: number) => [...storage.keys()][index] ?? null,
+  get length() { return storage.size; },
 };
-
 const g = globalThis as unknown as Record<string, unknown>;
 g.window = globalThis;
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageStub, configurable: true });
@@ -34,24 +25,20 @@ const ok = (condition: boolean, label: string, detail = '') => {
 };
 
 const { initYandex } = await import('../../src/game/yandex');
-const { startProfileSync, getDiamonds } = await import('../../src/game/profile');
-const { buyDiamondPack, buyRevive, deliverPendingPurchases, diamondsBalance, loadShopCatalog, paymentsAvailable } = await import('../../src/game/shop');
+const profile = await import('../../src/game/profile');
+const shop = await import('../../src/game/shop');
 
 const sdk = await initYandex();
-ok(sdk === null, 'Вне Яндекс Игр SDK не инициализируется (initYandex → null)');
-await startProfileSync();
-ok(!paymentsAvailable(), 'Покупки недоступны без SDK');
+ok(sdk === null, 'Outside Yandex Games the SDK does not initialize');
+await profile.startProfileSync();
+ok(!shop.paymentsAvailable(), 'Purchases are unavailable without the platform SDK');
+ok(storage.has('orerush.diamonds.v1') === false, 'The retired local wallet is removed during profile startup');
 
-const catalog = await loadShopCatalog();
-ok(catalog.size === 0, 'Каталог вне Яндекса пуст (магазин работает на подписях UI)');
-ok((await deliverPendingPurchases()) === 0, 'Незакрытых покупок вне Яндекса нет');
-const buy = await buyDiamondPack('diamonds-100');
-ok(buy.ok === false && buy.reason === 'unavailable', 'Попытка покупки вне Яндекса отклоняется как недоступная', JSON.stringify(buy));
-ok(diamondsBalance() === 150, 'Баланс локальных алмазов не изменился', String(diamondsBalance()));
-
-ok(buyRevive() === true, 'Возрождение за локальные алмазы работает и вне платформы');
-ok(getDiamonds() === 50, 'Возрождение списало ровно 100 алмазов', String(getDiamonds()));
-const poor = await buyDiamondPack('diamonds-100');
-ok(poor.reason === 'unavailable' && getDiamonds() === 50, 'Отказ в покупке не трогает баланс');
+const catalog = await shop.loadShopCatalog();
+ok(catalog.size === 0, 'The shop has no catalogue offers outside Yandex Games');
+ok((await shop.deliverPendingPurchases()) === 0, 'There are no platform receipts to restore offline');
+const buy = await shop.buyShopProduct('chest-common');
+ok(!buy.ok && buy.reason === 'unavailable', 'Direct SKU checkout is rejected when platform payments are unavailable', JSON.stringify(buy));
+ok(!('getDiamonds' in profile) && !('addDiamonds' in profile), 'The old in-game wallet API no longer exists');
 
 export { passed, failures };

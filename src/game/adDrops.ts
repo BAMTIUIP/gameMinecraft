@@ -4,9 +4,9 @@
  * weekly and monthly drops cannot be farmed by moving the device clock or opening several tabs.
  */
 
-import { COAL, COOKED_MEAT, GOLD, IRON, PLANKS, TORCH, BLOCKS } from './blocks';
+import { COAL, COOKED_MEAT, DIAMOND, GOLD, IRON, PLANKS, TORCH, BLOCKS } from './blocks';
 import { showRewardedAd, type AdOutcome } from './ads';
-import { addDiamonds, markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
+import { markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
 import { storageGet, storageSet } from './storage';
 import { yaServerTime } from './yandex';
 
@@ -33,7 +33,6 @@ type LoginProgress = {
 };
 
 export type RewardedDropReward = {
-  diamonds: number;
   items: RewardedDropItem[];
   /** Daily supplies go to the next run; monthly materials wait for the saved sandbox world. */
   delivery?: RewardedDropItemTarget;
@@ -143,7 +142,14 @@ function normalizeLogin(value: unknown): LoginProgress {
   };
 }
 
-function parsePendingKey(key: string): { id: RewardedDropId; period: string } | null {
+type PendingGrantId = RewardedDropId | 'bonus-daily' | 'bonus-shortcut';
+type ParsedPendingKey = { id: PendingGrantId; period: string };
+
+function parsePendingKey(key: string): ParsedPendingKey | null {
+  if (key === 'bonus:shortcut:once') return { id: 'bonus-shortcut', period: 'once' };
+  const dailyBonus = /^bonus:daily:(\d{4}-\d{2}-\d{2})$/.exec(key);
+  if (dailyBonus && validDay(dailyBonus[1])) return { id: 'bonus-daily', period: dailyBonus[1] };
+
   const separator = key.lastIndexOf(':');
   if (separator < 0) return null;
   const id = key.slice(0, separator);
@@ -243,6 +249,38 @@ function writeState(next: RewardedDropState): boolean {
   return true;
 }
 
+function queueBonusItems(key: string, items: readonly RewardedDropItem[]): boolean {
+  const current = state();
+  if (current.pending[key] || current.delivered.includes(key)) return true;
+  const normalizedItems = items.filter(validItem).map(([id, count]) => [id, count] as RewardedDropItem);
+  if (!normalizedItems.length) return false;
+  const next = copyState(current);
+  next.pending[key] = { target: 'next-run', items: normalizedItems };
+  return writeState(next);
+}
+
+/** Queue an idempotent daily-login bonus for delivery to the next run. */
+export function queueDailyBonusItems(day: string, items: readonly RewardedDropItem[]): boolean {
+  if (!validDay(day)) return false;
+  return queueBonusItems(`bonus:daily:${day}`, items);
+}
+
+/** Queue the one-time desktop-shortcut thank-you for delivery to the next run. */
+export function queueShortcutBonusItems(items: readonly RewardedDropItem[]): boolean {
+  return queueBonusItems('bonus:shortcut:once', items);
+}
+
+/** Roll back a daily bonus receipt if the matching daily claim could not be saved. */
+export function cancelDailyBonusItems(day: string): boolean {
+  if (!validDay(day)) return false;
+  const key = `bonus:daily:${day}`;
+  const current = state();
+  if (!current.pending[key] || current.delivered.includes(key)) return false;
+  const next = copyState(current);
+  delete next.pending[key];
+  return writeState(next);
+}
+
 function safeTime(now: number): number {
   return Number.isFinite(now) && now > 0 ? now : yaServerTime();
 }
@@ -310,11 +348,26 @@ export function rewardedDropStatuses(now = yaServerTime()): Record<RewardedDropI
 
 /** Pure reward roll, with injectable randomness for deterministic boundary tests. */
 export function rewardedDropReward(id: RewardedDropId, random: () => number = Math.random): RewardedDropReward {
-  if (id === 'drop-daily') return { diamonds: 0, items: DAILY_ITEMS.map(([blockId, count]) => [blockId, count]), delivery: 'next-run' };
-  if (id === 'drop-weekly') return { diamonds: 1 + Math.floor(Math.max(0, Math.min(0.999999999, random())) * 5), items: [] };
+  const roll = Math.max(0, Math.min(0.999999999, random()));
+  if (id === 'drop-daily') {
+    return { items: DAILY_ITEMS.map(([blockId, count]) => [blockId, count]), delivery: 'next-run' };
+  }
+  if (id === 'drop-weekly') {
+    const bundles = 1 + Math.floor(roll * 5);
+    return {
+      items: [[PLANKS, 8 * bundles], [COAL, 6 * bundles], [IRON, 3 * bundles]],
+      delivery: 'next-run',
+    };
+  }
+
+  const iron = 10 + Math.floor(roll * 41);
   return {
-    diamonds: 10 + Math.floor(Math.max(0, Math.min(0.999999999, random())) * 41),
-    items: MONTHLY_ITEMS.map(([blockId, count]) => [blockId, count]),
+    items: [
+      ...MONTHLY_ITEMS.map(([blockId, count]) => [blockId, count] as RewardedDropItem),
+      [IRON, iron + 12],
+      [GOLD, 4 + Math.ceil(iron / 10)],
+      [DIAMOND, 1 + Math.floor(iron / 25)],
+    ],
     delivery: 'own-world',
   };
 }
@@ -350,9 +403,8 @@ export function claimRewardedDrop(
     };
   }
   if (!writeState(next)) return { ok: false, reason: 'storage' };
-  if (reward.diamonds > 0) addDiamonds(reward.diamonds, 'grant');
-  else saveProgressNow(); // daily supplies have no currency side-effect to trigger the immediate cloud write
-  return { ok: true, diamonds: reward.diamonds, items: reward.items, delivery: reward.delivery };
+  saveProgressNow();
+  return { ok: true, items: reward.items, delivery: reward.delivery };
 }
 
 /** Ad gate used by the ordinary store: only `rewarded: true` reaches the claim/payout function. */

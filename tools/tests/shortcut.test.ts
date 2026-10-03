@@ -48,13 +48,11 @@ const player = {
   getPhoto: () => '',
   getPayingStatus: () => 'not_paying',
   getData: async () => ({}),
-  setData: async () => undefined,
+  setData: async (data: unknown) => record('player.setData', data),
   getStats: async () => ({}),
   setStats: async () => undefined,
   incrementStats: async () => ({}),
 };
-
-const stats: Record<string, number> = {};
 
 g.YaGames = {
   init: async () => {
@@ -91,14 +89,13 @@ function ok(condition: boolean, label: string, detail = '') {
   else failures.push(detail ? `${label} → ${detail}` : label);
 }
 
-// counters of the profile module live in the module itself, so the balance is read through getDiamonds()
 const { initYandex } = await import('../../src/game/yandex');
-const { startProfileSync, getDiamonds, bumpStats, flushProfile } = await import('../../src/game/profile');
-const { SHORTCUT_REWARD, requestShortcut, resetShortcutState, shortcutAccepted, shortcutOffer } = await import('../../src/game/shortcut');
+const { startProfileSync, flushProfile } = await import('../../src/game/profile');
+const { SHORTCUT_REWARD_ITEMS, requestShortcut, resetShortcutState, shortcutAccepted, shortcutOffer } = await import('../../src/game/shortcut');
+const { pendingRewardedDropItems } = await import('../../src/game/adDrops');
 
 await initYandex();
 await startProfileSync();
-const startBalance = getDiamonds();
 
 // --- the platform can show the dialog: the offer is available and cached ------------------------
 const offer = await shortcutOffer();
@@ -113,11 +110,16 @@ const accepted = await requestShortcut();
 ok(accepted === 'accepted', 'showPrompt() вернул accepted', accepted);
 ok(count('shortcut.showPrompt') === 1, 'Окно ярлыка открыто один раз');
 ok(shortcutAccepted(), 'Факт добавления ярлыка сохранён');
-ok(getDiamonds() === startBalance + SHORTCUT_REWARD, 'За ярлык начислена награда', `${startBalance} → ${getDiamonds()}`);
-const saved = JSON.parse(storage.get('orerush.shortcut.v1') ?? '{}') as { at?: number; accepted?: boolean };
-ok(typeof saved.at === 'number' && saved.accepted === true, 'Состояние ярлыка записано в хранилище', storage.get('orerush.shortcut.v1') ?? '');
+const saved = JSON.parse(storage.get('orerush.shortcut.v1') ?? '{}') as { at?: number; accepted?: boolean; rewardQueued?: boolean };
+ok(typeof saved.at === 'number' && saved.accepted === true && saved.rewardQueued, 'Состояние ярлыка и очередь награды записаны');
+const shortcutSupplies = pendingRewardedDropItems('next-run');
+ok(Boolean(shortcutSupplies && shortcutSupplies.items.length === SHORTCUT_REWARD_ITEMS.length), 'The shortcut thank-you is queued as next-run supplies');
+ok(SHORTCUT_REWARD_ITEMS.every(([id, count]) => shortcutSupplies?.items.some((item) => item[0] === id && item[1] === count)), 'The queued bundle matches the advertised supplies');
 await flushProfile(true);
-ok((stats.diamondsBought ?? 0) === 0, 'Подарок не попал в статистику покупок (diamondsBought)', JSON.stringify(stats));
+const cloudArgs = calls.filter((call) => call.name === 'player.setData').at(-1)?.arg as Record<string, { adDrops?: { pending?: Record<string, { items?: unknown[] }> }; diamonds?: number }> | undefined;
+const cloudProfile = cloudArgs?.['orerush.profile'];
+ok((cloudProfile?.adDrops?.pending?.['bonus:shortcut:once']?.items?.length ?? 0) === SHORTCUT_REWARD_ITEMS.length, 'Shortcut supplies are saved to the cloud before delivery');
+ok(!('diamonds' in (cloudProfile ?? {})), 'Shortcut cloud save contains no retired wallet field');
 
 // --- a second call in the same session never reaches the platform -------------------------------
 const again = await requestShortcut();
@@ -155,10 +157,10 @@ storage.delete('orerush.shortcut.v1');
 resetShortcutState();
 canShow = true;
 outcome = 'dismissed';
-const balanceBefore = getDiamonds();
+const queuedBeforeDismiss = pendingRewardedDropItems('next-run')?.items.reduce((sum, item) => sum + item[1], 0) ?? 0;
 const dismissed = await requestShortcut();
 ok(dismissed === 'dismissed', 'Закрытое окно — обычный исход, а не ошибка', dismissed);
-ok(getDiamonds() === balanceBefore, 'Без добавления ярлыка награда не начисляется', String(getDiamonds()));
+ok((pendingRewardedDropItems('next-run')?.items.reduce((sum, item) => sum + item[1], 0) ?? 0) === queuedBeforeDismiss, 'Без добавления ярлыка дополнительная награда не ставится в очередь');
 ok(!shortcutAccepted(), 'Закрытое окно не считается добавлением');
 
 // --- a failure is silent and allows a retry next session ----------------------------------------
@@ -175,10 +177,10 @@ ok((await shortcutOffer()).available === true, 'В следующей сесси
 // --- the reward is paid once even if the platform returns accepted twice ------------------------
 storage.set('orerush.shortcut.v1', JSON.stringify({ at: 0, accepted: true }));
 resetShortcutState();
-const balanceBeforeSecond = getDiamonds();
+const queuedBeforeSecond = pendingRewardedDropItems('next-run')?.items.reduce((sum, item) => sum + item[1], 0) ?? 0;
 const repeated = await requestShortcut();
 ok(repeated === 'unavailable', 'Уже добавленный ярлык повторно не предлагается', repeated);
-ok(getDiamonds() === balanceBeforeSecond, 'Награда не начисляется дважды', String(getDiamonds()));
+ok((pendingRewardedDropItems('next-run')?.items.reduce((sum, item) => sum + item[1], 0) ?? 0) === queuedBeforeSecond, 'Повторный запуск не дублирует supply-bundle');
 
 // --- simultaneous checks and taps share one platform prompt and one reward ----------------------
 storage.delete('orerush.shortcut.v1');
@@ -199,12 +201,10 @@ canShowGate = null;
 ok(firstOfferRace.available && secondOfferRace.available, 'Параллельные проверки получают один доступный ответ');
 ok(count('shortcut.canShowPrompt') === availabilityCallsBeforeRace + 1, 'Параллельные проверки делят один canShowPrompt()');
 const promptCallsBeforeRace = count('shortcut.showPrompt');
-const balanceBeforeRace = getDiamonds();
+const queuedBeforeRace = pendingRewardedDropItems('next-run')?.items.reduce((sum, item) => sum + item[1], 0) ?? 0;
 const [firstTap, secondTap] = await Promise.all([requestShortcut(), requestShortcut()]);
 ok(firstTap === 'accepted' && secondTap === 'accepted', 'Параллельные клики получают один результат');
 ok(count('shortcut.showPrompt') === promptCallsBeforeRace + 1, 'Параллельные клики открывают только один SDK-диалог');
-ok(getDiamonds() === balanceBeforeRace + SHORTCUT_REWARD, 'За один принятый диалог выдана только одна награда');
-
-bumpStats({ runs: 0 }); // keep the stats object touched, as other suites do
+ok((pendingRewardedDropItems('next-run')?.items.reduce((sum, item) => sum + item[1], 0) ?? 0) === queuedBeforeRace, 'The stable shortcut reward key prevents concurrent duplicate supplies');
 
 export { passed, failures };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
 import { requestGameReview, reviewOffer } from './game/review';
-import { requestShortcut, SHORTCUT_REWARD, shortcutOffer } from './game/shortcut';
+import { requestShortcut, shortcutOffer } from './game/shortcut';
 import {
   coopEnabled,
   publishCoopSession,
@@ -33,7 +33,7 @@ import {
   yaServerTime,
   type YaProfile,
 } from './game/yandex';
-import { addDiamonds, addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { watchAndClaimDailyReward } from './game/daily';
@@ -43,7 +43,7 @@ import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote
 import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { completePendingRewardedDropItems, pendingRewardedDropItems, recordRewardedDropLogin, watchAndClaimRewardedDrop, type RewardedDropId } from './game/adDrops';
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
-import { buyAdFree as buyAdFreeProduct, buyDiamondPack, buyRevive, buyShopItem as purchaseShopItem, deliverPendingPurchases, diamondsBalance, DIAMOND_PACKS, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
+import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct } from './game/devShop';
 import {
@@ -175,8 +175,7 @@ export default function App() {
   const [adBusy, setAdBusy] = useState(false);
   const [adNotice, setAdNotice] = useState<string | null>(null);
   const [revivesUsed, setRevivesUsed] = useState(0);
-  // shop: real payments go through the Yandex payment frame, the balance lives in the cloud profile
-  const [diamonds, setDiamonds] = useState(0);
+  // Store prices and currency icons are formatted by the active Yandex Games catalogue.
   const [shopPrices, setShopPrices] = useState<ShopCatalog>(() => new Map());
   const [canPay, setCanPay] = useState(false);
   const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
@@ -267,7 +266,6 @@ export default function App() {
       } else {
         setAdFreeOwned(hasAdFreeEntitlement());
       }
-      setDiamonds(diamondsBalance());
       setLbAvailable(leaderboardAvailable());
       // Desktop shortcut: a quiet check at startup — the button only appears when the platform can
       // actually show the native dialog on this device.
@@ -389,7 +387,6 @@ export default function App() {
           setCharacterCustomization(getCharacterCustomization());
           setScores(loadScores());
           setName(loadPlayerName());
-          setDiamonds(diamondsBalance());
           engineRef.current?.toMenu();
         })
         .finally(() => pauseProfileSync(false));
@@ -735,7 +732,6 @@ export default function App() {
     if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
     setScores(loadScores());
     setName(loadPlayerName());
-    setDiamonds(diamondsBalance());
     if (cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
   }, []);
 
@@ -779,8 +775,7 @@ export default function App() {
     try {
       const result = await watchAndClaimDailyReward();
       if (result.ok) {
-        setDiamonds(diamondsBalance());
-        setDailyNote(t('dailyTaken').replace('{n}', String(result.amount)));
+        setDailyNote(t('dailyTaken'));
       } else if (result.reason === 'ad') {
         setDailyNote(t('adNotShown'));
       } else if (result.reason === 'storage') {
@@ -802,8 +797,7 @@ export default function App() {
     const result = await requestShortcut();
     setCanShortcut(false);
     if (result === 'accepted') {
-      setDiamonds(diamondsBalance());
-      setShortcutNote(t('shortcutDone').replace('{n}', String(SHORTCUT_REWARD)));
+      setShortcutNote(t('shortcutDone'));
     } else if (result === 'dismissed') {
       setShortcutNote(t('shortcutDismissed'));
     } else if (result === 'failed') {
@@ -826,11 +820,9 @@ export default function App() {
     if (catalog.size) setShopPrices(catalog);
   }, []);
 
-  /** Opens the Yandex payment frame and settles the balance when it closes. */
-  const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
-    const result = await buyDiamondPack(productId);
-    setDiamonds(result.diamonds);
-    return result;
+  /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
+  const buyInGameShopItem = useCallback((productId: string): Promise<ShopItemBuyResult> => {
+    return buyShopProduct(productId);
   }, []);
 
   const buyAdFree = useCallback(async () => {
@@ -854,43 +846,15 @@ export default function App() {
     }
   }, []);
 
-  const buyInGameShopItem = useCallback((productId: string): ShopItemBuyResult => {
-    const result = purchaseShopItem(productId);
-    setDiamonds(result.diamonds);
-    return result;
-  }, []);
-
   /** A shop drop is committed only after the SDK confirms the rewarded video was counted. */
   const claimShopDrop = useCallback(async (dropId: RewardedDropId) => {
-    const result = await watchAndClaimRewardedDrop(dropId);
-    if (result.ok && result.diamonds > 0) setDiamonds(diamondsBalance());
-    return result;
+    return watchAndClaimRewardedDrop(dropId);
   }, []);
 
   /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!import.meta.env.DEV || isTvRef.current) return false;
-    const diamonds = DIAMOND_PACKS[productId];
-    if (!grantDeveloperShopProduct(productId, diamonds !== undefined)) return false;
-    if (diamonds) addDiamonds(diamonds, 'grant');
-    setDiamonds(diamondsBalance());
-    return true;
-  }, []);
-
-  /** Paid alternative to the rewarded video: same revive, paid with diamonds. */
-  const reviveWithDiamonds = useCallback(() => {
-    const engine = engineRef.current;
-    if (!engine || engine.phase !== 'gameover') return;
-    if (diamondsBalance() < REVIVE_DIAMOND_PRICE) {
-      setAdNotice(t('notEnoughDiamonds'));
-      return;
-    }
-    if (!engine.reviveAfterAd(REVIVE_SECONDS)) return;
-    // the balance was checked a line above, so a refusal here would be a race, not a shortfall:
-    // the revive is already granted and the diamonds stay with the player
-    buyRevive();
-    setDiamonds(diamondsBalance());
-    setAdNotice(null);
+    return grantDeveloperShopProduct(productId);
   }, []);
 
   const playing = hud.phase === 'playing' || hud.phase === 'paused';
@@ -949,7 +913,6 @@ export default function App() {
           cloudSavedAt={cloudSavedAt}
           shopEnabled={SHOP_SCREENS_ENABLED && flags['shop.enabled'] !== 'false' && !isTv && !tvMode()}
           developerShopEnabled={false}
-          diamonds={diamonds}
           shopPrices={shopPrices}
           onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
@@ -958,7 +921,6 @@ export default function App() {
           adFreeNotice={adFreeNotice}
           onBuyAdFree={buyAdFree}
           rewardedAdsEnabled={rewardedAdsAvailable()}
-          onBuyPack={buyPack}
           onBuyShopItem={buyInGameShopItem}
           onClaimRewardedDrop={claimShopDrop}
           onDeveloperClaim={grantDeveloperProduct}
@@ -1032,9 +994,6 @@ export default function App() {
           adBusy={adBusy}
           adNotice={adNotice}
           reviveSeconds={REVIVE_SECONDS}
-          diamonds={diamonds}
-          diamondPrice={REVIVE_DIAMOND_PRICE}
-          onDiamondRevive={reviveWithDiamonds}
           myRank={myRank}
           squadNote={squadNote}
           onCopyResult={copyResult}

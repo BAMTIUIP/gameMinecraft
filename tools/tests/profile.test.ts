@@ -100,7 +100,7 @@ function ok(condition: boolean, label: string, detail = '') {
 
 // import AFTER the stubs: the modules read window/localStorage at call time, not at import time
 const { initYandex } = await import('../../src/game/yandex');
-const { startProfileSync, resyncProfile, markProfileDirty, bumpStats, addTotals, flushProfile, getTotals, getDiamonds } = await import('../../src/game/profile');
+const { startProfileSync, resyncProfile, markProfileDirty, bumpStats, addTotals, flushProfile, getTotals } = await import('../../src/game/profile');
 
 await initYandex();
 ok(count('YaGames.init') === 1, 'initYandex() инициализирует SDK ровно один раз');
@@ -195,6 +195,8 @@ const authCloudApplied = await resyncProfile();
 ok(authCloudApplied, 'После входа в аккаунт заново применяется его облачный профиль');
 ok(count('ysdk.getPlayer') > getPlayerBeforeAuthSync, 'После входа заново запрошен Player');
 ok(count('player.getData') > getDataBeforeAuthSync, 'После входа заново прочитан cloud save');
-ok(getDiamonds() === 731, 'Баланс авторизованного аккаунта загружен из облака', String(getDiamonds()));
+ok(storage.get('orerush.highscores.v1')?.includes('auth-run') === true, 'Рекорд выбранного аккаунта восстановлен из cloud save');
+ok(!storage.has('orerush.diamonds.v1'), 'Облачный профиль не создаёт локальный баланс из устаревшей записи');
+ok(!('getDiamonds' in await import('../../src/game/profile')), 'API внутриигрового кошелька удалён из профиля');
 
 export { passed, failures, calls };

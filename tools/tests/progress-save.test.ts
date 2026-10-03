@@ -8,7 +8,7 @@
  *  - **when** it is stored: right after the action, not on a timer — every progress-changing action
  *    must be visible in `localStorage` synchronously, and the cloud write must leave the game without
  *    waiting for the queue's debounce;
- *  - **what survives a refresh**: records, currency, lifetime counters, name, daily reward state and
+ *  - **what survives a refresh**: records, lifetime counters, name, daily reward state and
  *    the built sandbox world. The last one has a save button of its own and is additionally written
  *    when the page is hidden.
  * A real page reload and a device rotation are checked in the browser scenario
@@ -37,6 +37,7 @@ const root = findRoot(process.cwd());
 /* ------------------------------- DOM stubs ------------------------------- */
 
 const storage = new Map<string, string>();
+storage.set('orerush.diamonds.v1', '25'); // legacy wallet: startup must retire it
 const localStorageStub = {
   getItem: (k: string) => (storage.has(k) ? storage.get(k)! : null),
   setItem: (k: string, v: string) => void storage.set(k, String(v)),
@@ -104,12 +105,13 @@ function ok(condition: boolean, label: string, detail = '') {
 }
 
 const { initYandex } = await import('../../src/game/yandex');
-const { addDiamonds, addTotals, flushProfile, getDiamonds, getTotals, saveProgressNow, spendDiamonds, startProfileSync } = await import('../../src/game/profile');
+const { addTotals, flushProfile, getTotals, saveProgressNow, startProfileSync } = await import('../../src/game/profile');
 const { dailyReward, resetDailyState, watchAndClaimDailyReward } = await import('../../src/game/daily');
 const { loadScores, savePlayerName, submitScore } = await import('../../src/ui/scores');
 
 await initYandex();
 await startProfileSync();
+ok(!storage.has('orerush.diamonds.v1'), 'The obsolete wallet is removed during profile startup');
 await flushProfile(true); // settle the boot-time write before counting calls
 
 /** let the queued cloud promise run (no timers are involved: the write must not need them) */
@@ -118,13 +120,6 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 /* ---- 1. the local mirror is written by the action itself ---- */
 
 const readJson = (key: string) => JSON.parse(storage.get(key) ?? 'null');
-
-addDiamonds(25);
-ok(storage.get('orerush.diamonds.v1') === '25', 'Алмазы сразу записаны в браузерное хранилище (перезагрузка их не потеряет)', storage.get('orerush.diamonds.v1') ?? 'нет');
-ok(getDiamonds() === 25, 'Баланс обновился', String(getDiamonds()));
-
-ok(spendDiamonds(100) === false && getDiamonds() === 25, 'Неудачная трата ничего не списывает');
-ok(spendDiamonds(20) === true && storage.get('orerush.diamonds.v1') === '5', 'Трата алмазов тоже сохраняется сразу же', storage.get('orerush.diamonds.v1') ?? 'нет');
 
 const totals = addTotals({ runs: 1, blocksMined: 12, deepest: 9, bestScore: 4321, playSeconds: 60 });
 const storedTotals = readJson('orerush.totals.v1') as Record<string, number>;
@@ -153,22 +148,24 @@ ok(loadScores().some((row) => row.token === 'run-test-1'), 'Чтение таб�
 savePlayerName('MINER-9');
 ok(storage.get('orerush.playername.v1') === 'MINER-9', 'Новое имя сохранено в хранилище', storage.get('orerush.playername.v1') ?? 'нет');
 
-// a daily bonus is an action too: the date and the balance are both on disk at once
+// a daily bonus is an action too: the claim guard and supply receipt are both on disk at once
 resetDailyState();
 ok(dailyReward().available === true, 'Ежедневный бонус готов к начислению');
 const claim = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: true }));
 ok(claim.ok === true && storage.get('orerush.daily.v1')?.includes('2026-10-02') === true, 'Дата получения бонуса записана сразу', storage.get('orerush.daily.v1') ?? 'нет');
-ok(Number(storage.get('orerush.diamonds.v1')) === 5 + claim.amount, 'Алмазы бонуса тоже сразу на диске', storage.get('orerush.diamonds.v1') ?? 'нет');
+const rewardQueue = JSON.parse(storage.get('orerush.rewarded-drops.v1') ?? '{}') as { pending?: Record<string, { items?: unknown[] }> };
+ok((rewardQueue.pending?.['bonus:daily:2026-10-02']?.items?.length ?? 0) === 4, 'The free daily reward is immediately persisted as a four-item supply bundle');
 
 /* ---- 2. the cloud write does not wait for the debounce ---- */
 
 const setDataBefore = count('player.setData');
-const balanceBefore = getDiamonds();
-addDiamonds(10);
+const oresBefore = getTotals().oresFound;
+addTotals({ oresFound: 2 });
 await settle();
 ok(count('player.setData') > setDataBefore, 'Клиент отправил прогресс в облако сразу после действия, а не по таймеру', `вызовов: ${count('player.setData')}`);
-const lastCloud = calls.filter((c) => c.name === 'player.setData').at(-1)?.arg as Record<string, { diamonds?: number }> | undefined;
-ok(lastCloud?.['orerush.profile']?.diamonds === balanceBefore + 10, 'В облако ушёл новый баланс', JSON.stringify(lastCloud?.['orerush.profile']?.diamonds));
+const lastCloud = calls.filter((c) => c.name === 'player.setData').at(-1)?.arg as Record<string, { totals?: { oresFound?: number }; diamonds?: number }> | undefined;
+ok(lastCloud?.['orerush.profile']?.totals?.oresFound === oresBefore + 2, 'В облако ушёл новый lifetime total', JSON.stringify(lastCloud?.['orerush.profile']?.totals?.oresFound));
+ok(!('diamonds' in (lastCloud?.['orerush.profile'] ?? {})), 'В облачном профиле нет поля внутриигрового кошелька');
 
 const statsBefore = count('player.incrementStats');
 addTotals({ oresFound: 2 });
@@ -184,7 +181,7 @@ ok(count('player.setData') >= beforeManual, 'saveProgressNow() доносит о
 /* ---- 3. what the game boots from (a refresh reads the same localStorage) ---- */
 
 ok(loadScores().some((row) => row.token === 'run-test-1'), 'Перезагрузка страницы перечитает таблицу рекордов из хранилища');
-ok(Number(storage.get('orerush.diamonds.v1')) === getDiamonds(), 'Перезагрузка перечитает баланс алмазов', storage.get('orerush.diamonds.v1') ?? 'нет');
+ok(!storage.has('orerush.diamonds.v1'), 'Перезагрузка не восстанавливает удалённый внутриигровой кошелёк');
 ok(JSON.parse(storage.get('orerush.totals.v1') ?? '{}').bestScore === 4321, 'Перезагрузка перечитает рекорды и счётчики');
 ok(storage.has('orerush.daily.v1'), 'Перезагрузка не даст получить бонус второй раз');
 
@@ -202,7 +199,7 @@ const rankingStart = app.indexOf('const loadWorldRanking', signInStart);
 const signInSource = app.slice(signInStart, rankingStart > signInStart ? rankingStart : undefined);
 ok(/resyncProfile\(\)/.test(signInSource), 'После авторизации заново читается профиль выбранного аккаунта');
 ok(/saveWorld\(true\)/.test(app) && /pagehide/.test(app), 'Мир песочницы автоматически сохраняется при уходе со страницы (и есть кнопка сохранения)');
-ok(/saveProgressNow/.test(profile) && /storageSet\(DIAMONDS_KEY, String\(diamonds\)\)/.test(profile), 'Модуль профиля пишет локальную копию первым делом');
+ok(/saveProgressNow/.test(profile) && /storageRemove\('orerush\.diamonds\.v1'\)/.test(profile), 'Модуль профиля удаляет устаревший кошелёк при инициализации');
 ok(/storageSet\(TOTALS_KEY, JSON.stringify\(totals\)\)/.test(profile), 'Счётчики живут в локальной копии');
 ok(/window\.addEventListener\('resize', this\.onResize\)/.test(engine), 'Движок перестраивает картинку под новый размер окна (поворот экрана не теряет состояние)');
 ok(/static hasSavedWorld/.test(engine) || /hasSavedWorld\(\)/.test(engine), 'Сохранённый мир предлагается к продолжению при следующем запуске');
