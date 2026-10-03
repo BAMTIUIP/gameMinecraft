@@ -370,12 +370,12 @@ const resumeListeners = new Set<Listener>();
 const platformListeners = new Map<YaPlatformEvent, Set<Listener>>();
 const platformSubscriptions = new Map<YaPlatformEvent, () => void>();
 
-function emit(listeners: Set<Listener>) {
+function emit(listeners: Set<Listener>, source = 'event') {
   for (const cb of [...listeners]) {
     try {
       cb();
     } catch (err) {
-      console.error('[Yandex SDK] pause/resume handler failed', err);
+      console.error(`[Yandex SDK] ${source} handler failed`, err);
     }
   }
 }
@@ -385,11 +385,11 @@ function subscribePauseResume(sdk: YSDK) {
   try {
     sdk.on?.('game_api_pause', () => {
       platformPaused = true;
-      emit(pauseListeners);
+      emit(pauseListeners, 'game_api_pause');
     });
     sdk.on?.('game_api_resume', () => {
       platformPaused = false;
-      emit(resumeListeners);
+      emit(resumeListeners, 'game_api_resume');
     });
   } catch (err) {
     console.error('[Yandex SDK] game_api_pause/resume subscription failed', err);
@@ -403,7 +403,7 @@ function attachPlatformEvent(event: YaPlatformEvent) {
   const sdk = ysdk;
   const handler: Listener = () => {
     const listeners = platformListeners.get(event);
-    if (listeners) emit(listeners);
+    if (listeners) emit(listeners, event);
   };
   try {
     const returned = sdk.on(event, handler);

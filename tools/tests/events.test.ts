@@ -147,6 +147,17 @@ ok(
   count('ysdk.on') === eventSubscriptionsBefore && count('ysdk.off') === eventUnsubscriptionsBefore,
   'Общий SDK-listener остаётся, пока на событие есть другие игровые подписчики',
 );
+let nextEventListenerRan = false;
+const offThrowingEvent = yaOnPlatformEvent('ACCOUNT_SELECTION_DIALOG_OPENED', () => {
+  throw new Error('broken platform-event handler');
+});
+const offSafeEvent = yaOnPlatformEvent('ACCOUNT_SELECTION_DIALOG_OPENED', () => {
+  nextEventListenerRan = true;
+});
+emit('ACCOUNT_SELECTION_DIALOG_OPENED');
+ok(nextEventListenerRan, 'Исключение одного обработчика не прерывает остальных подписчиков SDK');
+offThrowingEvent();
+offSafeEvent();
 const prompts: number[] = [];
 const offPrompt = onExitPrompt(() => prompts.push(Date.now()));
 emit('HISTORY_BACK');
