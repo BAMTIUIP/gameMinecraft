@@ -9,11 +9,10 @@
  * developer console on games.yandex.ru.
  *
  * Two scenarios run in separate browser contexts:
- *   A. a player with cloud progress from another device and one undelivered purchase — the game must
- *      merge the cloud profile, deliver the purchase (before consuming it!) and play a full shift
- *      with а rewarded video, a paid revive and a fullscreen ad;
- *   B. the shop: catalogue prices from the Console, a real purchase click, the balance and the
- *      consumption order.
+ *   A. a player with cloud progress from another device and one undelivered direct-SKU purchase — the
+ *      game must merge the cloud profile, persist and deliver that product receipt before consuming
+ *      it, then play a full shift with a rewarded revive and a fullscreen ad;
+ *   B. the shop: catalogue prices from the platform, a direct product purchase and its durable receipt.
  *
  * Browser: uses the first of
  *   1. $CHROME_PATH / $PUPPETEER_EXECUTABLE_PATH,
@@ -281,8 +280,8 @@ async function scenarioProgress() {
       },
     },
     stats: { bestScore: 9999, blocksMined: 4242 },
-    // a purchase that went through on another device and was never delivered
-    purchases: [{ productID: 'diamonds-100', purchaseToken: 'pending-token-1', developerPayload: '' }],
+    // a direct-SKU purchase that went through on another device and was never delivered
+    purchases: [{ productID: 'chest-common', purchaseToken: 'pending-token-1', developerPayload: '' }],
     adsFill: true,
     rewarded: true,
   });
@@ -317,8 +316,10 @@ async function scenarioProgress() {
   check(restored, 'Облачные рекорды подтянуты в локальную таблицу');
 
   check(game.names(log).includes('payments.getPurchases'), 'Необработанные покупки проверяются на старте (1.13.1)');
-  const balance = await game.storageValue('orerush.diamonds.v1');
-  check(balance === '100', 'Незакрытая покупка зачислена на баланс алмазов', `баланс: ${balance}`);
+  const shopRewards = JSON.parse((await game.storageValue('orerush.shop-rewards.v1')) ?? '{}');
+  const restoredChest = shopRewards.pending?.some((receipt) => receipt.productId === 'chest-common');
+  check(restoredChest, 'Незакрытая покупка восстановила долговечную награду прямого SKU');
+  check(await game.storageValue('orerush.diamonds.v1') === null, 'Старый баланс не создаётся при восстановлении покупки');
   const consumeAt = game.names(log).indexOf('payments.consumePurchase');
   const saveAt = log.map((c) => c.name).lastIndexOf('player.setData');
   check(consumeAt >= 0, 'Токен покупки погашен (payments.consumePurchase)');
@@ -509,39 +510,21 @@ async function scenarioProgress() {
   );
   check(reviewGone === false, 'Кнопка исчезла — за сессию игру оценивают один раз');
 
-  // ===================== 7. the results screen offers both revives =====================
-  const bothRevives = await game.page.evaluate(() => {
+  // ===================== 7. results offer only the preserved rewarded revive =====================
+  const reviveOffers = await game.page.evaluate(() => {
     const text = document.body.innerText ?? '';
     return {
-      rewarded: /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|NOCHMAL|REJOUER/i.test(text),
-      diamonds: /ПРОДОЛЖИТЬ · 100|CONTINUE · 100|WEITER · 100|CONTINUER · 100/.test(text),
+      rewarded: /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|WERBUNG ANSEHEN|VOIR UNE PUB/i.test(text),
+      paidWalletRevive: /ПРОДОЛЖИТЬ · 100|CONTINUE · 100|WEITER · 100|CONTINUER · 100/i.test(text),
     };
   });
-  check(bothRevives.rewarded, 'Rewarded-возрождение осталось на месте (регрессия UI покупок)');
-  check(bothRevives.diamonds, 'Платное возрождение предложено рядом с рекламным, с ценой из REVIVE_DIAMOND_PRICE');
+  check(reviveOffers.rewarded, 'Rewarded-возрождение остаётся доступно после забега');
+  check(!reviveOffers.paidWalletRevive, 'Платное возрождение за удалённый внутриигровой баланс отсутствует');
+  check(game.count(await game.calls(), 'payments.purchase') === 0, 'Экран итогов не открывает платёжное окно');
 
-  // ===================== 8. paid revive spends the diamonds =====================
-  const startsBeforeRevive = game.count(await game.calls(), 'GameplayAPI.start');
-  const paidReviveClicked = await game.clickByText(/ПРОДОЛЖИТЬ · 100|CONTINUE · 100|WEITER · 100|CONTINUER · 100/);
-  check(paidReviveClicked, 'Кнопка платного возрождения нажата');
-  const spent = await game.waitFor('Списание алмазов', () => window.localStorage.getItem('orerush.diamonds.v1') === '0', 20_000);
-  check(spent, 'Стоимость возрождения списана с баланса');
-  const revived = await game.waitFor(
-    'Возврат в забег после платного возрождения',
-    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before,
-    15_000,
-    startsBeforeRevive,
-  );
-  check(revived, 'Платное возрождение вернуло игрока в забег (GameplayAPI.start)');
-  check(
-    game.count(await game.calls(), 'payments.purchase') === 0,
-    'Возрождение за алмазы не открывает платёжное окно (оплата из баланса)',
-  );
-
-  // ===================== 9. restart from the pause menu → fullscreen ad =====================
-  await game.page.keyboard.press('Escape');
-  await wait(1500);
-  const restartClicked = await game.clickByText(/ЗАНОВО|RESTART|NEU STARTEN|RECOMMENCER/);
+  // ===================== 8. restart from the results screen → fullscreen ad =====================
+  const gameplayStartsBeforeRestart = game.count(await game.calls(), 'GameplayAPI.start');
+  const restartClicked = await game.clickByText(/ЕЩЁ РАЗ|MINE AGAIN|NOCHMAL|REJOUER/);
   const fullscreenCall = (await game.calls()).filter((c) => c.name === 'adv.showFullscreenAdv').at(-1)?.arg;
   check(
     (fullscreenCall?.callbacks ?? []).includes('onClose') &&
@@ -556,11 +539,20 @@ async function scenarioProgress() {
     10_000,
   );
   check(restartClicked && fullscreenShown, 'Полноэкранная реклама вызвана действием игрока (кнопка «Заново»)');
+  const restarted = await game.waitFor(
+    'Новый забег начался после рекламы',
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before
+      && !document.querySelector('.gameover-layout'),
+    15_000,
+    gameplayStartsBeforeRestart,
+  );
+  check(restarted, 'После закрытия полноэкранной рекламы действительно запущен новый забег');
 
   // ===================== 10. the next shift ends → rewarded revive =====================
   const newShift = await game.waitFor(
     'Второй экран итогов',
-    () => /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|NOCHMAL|REJOUER/i.test(document.body.innerText ?? ''),
+    () => !!document.querySelector('.gameover-layout')
+      && /СМОТРЕТЬ РЕКЛАМУ · ПРОДОЛЖИТЬ|WATCH AD · CONTINUE|NOCHMAL|REJOUER/i.test(document.body.innerText ?? ''),
     150_000,
   );
   check(newShift, 'Следующая смена тоже доходит до экрана итогов');
@@ -569,14 +561,21 @@ async function scenarioProgress() {
   );
   check(reviewAgain === false, 'На следующем экране итогов оценку больше не предлагают (раз за сессию)');
   const startsBeforeAd = game.count(await game.calls(), 'GameplayAPI.start');
+  const rewardedCallsBefore = game.count(await game.calls(), 'adv.showRewardedVideo');
   const reviveClicked = await game.clickByText(/СМОТРЕТЬ РЕКЛАМУ|WATCH AD|WERBUNG|VOIR UNE PUB/);
   check(reviveClicked, 'Кнопка rewarded-видео предложена на экране итогов');
   const rewardedShown = await game.waitFor(
     'adv.showRewardedVideo',
-    () => (window.__yaCalls ?? []).some((c) => c.name === 'adv.showRewardedVideo'),
+    (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'adv.showRewardedVideo').length > before,
     15_000,
+    rewardedCallsBefore,
   );
-  check(rewardedShown, 'Клик вызвал ysdk.adv.showRewardedVideo()');
+  const reviveDebug = rewardedShown ? '' : JSON.stringify(await game.page.evaluate(() => ({
+    buttons: [...document.querySelectorAll('button')].map((button) => ({ text: button.textContent, disabled: button.disabled })),
+    notices: [...document.querySelectorAll('[role="status"]')].map((notice) => notice.textContent),
+    recentCalls: (window.__yaCalls ?? []).slice(-12).map((call) => call.name),
+  })));
+  check(rewardedShown, 'Клик вызвал ysdk.adv.showRewardedVideo()', reviveDebug);
   const rewardedRevive = await game.waitFor(
     'Возврат в забег после награды',
     (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before,
@@ -744,10 +743,10 @@ async function scenarioProgress() {
 
   const beforeReload = await game.page.evaluate(() => ({
     scores: window.localStorage.getItem('orerush.highscores.v1'),
-    diamonds: window.localStorage.getItem('orerush.diamonds.v1'),
     totals: window.localStorage.getItem('orerush.totals.v1'),
     name: window.localStorage.getItem('orerush.playername.v1'),
     daily: window.localStorage.getItem('orerush.daily.v1'),
+    rewardedDrops: window.localStorage.getItem('orerush.rewarded-drops.v1'),
   }));
   await game.page.evaluate(() => sessionStorage.setItem('__yaKeepStorage', '1'));
   await game.page.reload({ waitUntil: 'domcontentloaded' });
@@ -759,13 +758,15 @@ async function scenarioProgress() {
   check(afterReload, 'После обновления страницы игра снова открывается (пункт 1.9)');
   const reloaded = await game.page.evaluate(() => ({
     scores: window.localStorage.getItem('orerush.highscores.v1'),
-    diamonds: window.localStorage.getItem('orerush.diamonds.v1'),
     totals: window.localStorage.getItem('orerush.totals.v1'),
     name: window.localStorage.getItem('orerush.playername.v1'),
     daily: window.localStorage.getItem('orerush.daily.v1'),
+    rewardedDrops: window.localStorage.getItem('orerush.rewarded-drops.v1'),
   }));
   const survived = Object.keys(beforeReload).every((key) => beforeReload[key] === reloaded[key]);
-  check(survived, 'Рекорды, алмазы, счётчики, имя и бонус пережили обновление страницы', JSON.stringify({ beforeReload, reloaded }).slice(0, 200));
+  const noLegacyWallet = await game.page.evaluate(() => !window.localStorage.getItem('orerush.diamonds.v1'));
+  check(survived, 'Рекорды, счётчики, имя и обе записи о припасах пережили обновление страницы', JSON.stringify({ beforeReload, reloaded }).slice(0, 200));
+  check(noLegacyWallet, 'После перезагрузки не появляется старый внутриигровой баланс');
   const recordInMenu = await game.page.evaluate(() => {
     const score = String(Number(JSON.parse(window.localStorage.getItem('orerush.highscores.v1') ?? '[]')?.[0]?.score ?? 0));
     const digits = (document.body.innerText ?? '').replace(/\D+/g, '');
@@ -864,13 +865,16 @@ async function scenarioShop() {
     };
     const weaponCards = await select('weapons');
     const armorCards = await select('armor');
-    const gemCards = await select('gems');
-    const gemCurrencyIcons = [...document.querySelectorAll('[data-shop-product^="diamonds-"]')].map((card) =>
-      Boolean(card.querySelector('.shop-product-footer img[src]')),
-    );
+    const offerCards = await select('offers');
+    const petCards = await select('pets');
     const rewardCards = await select('rewards');
     const allCards = await select('all');
-    const hasUnfinishedProducts = allCards.some((id) => id.startsWith('pet-') || id.startsWith('skin-'));
+    const pricedCards = [...document.querySelectorAll('[data-shop-product]')].filter((card) =>
+      !['drop-daily', 'drop-weekly', 'drop-monthly'].includes(card.getAttribute('data-shop-product')),
+    );
+    const priceCurrencyIcons = pricedCards.map((card) => Boolean(card.querySelector('.shop-product-footer img[src]')));
+    const hasUnfinishedProducts = allCards.some((id) => (id.startsWith('pet-') && !['pet-wolf', 'pet-monkey'].includes(id)) || id.startsWith('skin-'));
+    const hasLegacyCoinPacks = allCards.some((id) => id.startsWith('diamonds-'));
     const hasUnfinishedLabels = [...document.querySelectorAll('[data-shop-product]')].some((card) =>
       /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG|COMING SOON|СКОРО|BIENTÔT|BALD/i.test(card.textContent ?? ''),
     );
@@ -878,34 +882,30 @@ async function scenarioShop() {
       categoryCount: document.querySelectorAll('[data-shop-category]').length,
       weaponCards,
       armorCards,
-      gemCards,
-      gemCurrencyIcons,
+      offerCards,
+      petCards,
       rewardCards,
+      priceCurrencyIcons,
       hasUnfinishedProducts,
+      hasLegacyCoinPacks,
       hasUnfinishedLabels,
     };
   });
-  check(shopCategories?.categoryCount === 5, 'Внизу каталога ровно пять категорий');
+  check(shopCategories?.categoryCount === 6, 'Внизу каталога шесть категорий, включая отдельную вкладку питомцев');
   check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
-  check(shopCategories?.armorCards?.includes('netherite-armor') && !shopCategories.armorCards.includes('diamond-armor'), 'Категория брони показывает комплект незерита вместо старого алмазного');
-  check(shopCategories?.gemCards?.includes('diamonds-100') && shopCategories.gemCards.includes('diamonds-599'), 'Категория самоцветов показывает наборы внутриигровой валюты');
+  check(shopCategories?.armorCards?.includes('netherite-armor') && shopCategories.armorCards.includes('armor-epic'), 'Категория брони содержит прямые товары Яндекс Игр');
+  check(shopCategories?.offerCards?.includes('booster-start') && shopCategories.offerCards.includes('booster-score'), 'Категория предложений показывает прямые SKU-бустеры');
+  check(shopCategories?.petCards?.length === 2 && shopCategories.petCards.includes('pet-wolf') && shopCategories.petCards.includes('pet-monkey'), 'Вкладка питомцев содержит волка и обезьяну с прямыми SKU');
+  check(shopCategories?.rewardCards?.includes('drop-daily') && shopCategories.rewardCards.includes('chest-epic'), 'Категория наград сохраняет бесплатную рекламу и платные предметы');
+  check(!shopCategories?.hasLegacyCoinPacks, 'В магазине отсутствуют наборы внутриигровых монет');
   check(
-    shopCategories?.gemCurrencyIcons?.length === 2 && shopCategories.gemCurrencyIcons.every(Boolean),
-    'У каждого активного real-money набора показана иконка валюты из SDK',
-    JSON.stringify(shopCategories?.gemCurrencyIcons),
+    Boolean(shopCategories?.priceCurrencyIcons?.length) && shopCategories.priceCurrencyIcons.every(Boolean),
+    'У каждого платного предложения показана иконка валюты из SDK-каталога',
+    JSON.stringify(shopCategories?.priceCurrencyIcons),
   );
   check(
-    !shopCategories?.gemCards?.includes('diamonds-1599') && !shopCategories?.gemCards?.includes('diamonds-5999'),
-    'Наборы, отсутствующие в getCatalog() (неактивные SKU), не показываются в магазине',
-    shopCategories?.gemCards?.filter((id) => id.startsWith('diamonds-')).join(', '),
-  );
-  check(
-    shopCategories?.rewardCards?.includes('drop-daily')
-      && shopCategories.rewardCards.includes('chest-epic')
-      && shopCategories.rewardCards.includes('booster-start')
-      && !shopCategories.hasUnfinishedProducts
-      && !shopCategories.hasUnfinishedLabels,
-    'Категория наград показывает готовые товары, а незавершённые предложения и метки скрыты',
+    !shopCategories?.hasUnfinishedProducts && !shopCategories?.hasUnfinishedLabels,
+    'Незавершённые предложения и метки скрыты',
     JSON.stringify(shopCategories),
   );
 
@@ -1078,15 +1078,16 @@ async function scenarioShop() {
   const currencyIcon = await game.page.evaluate(() =>
     [...document.querySelectorAll('img')].some((img) => (img.getAttribute('src') ?? '').startsWith('data:image/gif')),
   );
-  check(currencyIcon, 'Иконка портальной валюты взята из каталога (getPriceCurrencyImage)');
+  check(currencyIcon, 'Иконка валюты Яндекс Игр взята из каталога (getPriceCurrencyImage)');
   await game.page.setViewport({ width: 1280, height: 720 });
   await wait(250);
 
   const before = game.count(await game.calls(), 'payments.purchase');
   const buyClicked = await game.page.evaluate(() => {
-    const buttons = [...document.querySelectorAll('button')].filter((b) => /КУПИТЬ|BUY|ACHETER|KAUFEN/.test(b.textContent ?? ''));
-    if (!buttons.length) return false;
-    buttons[0].click();
+    const card = document.querySelector('[data-shop-product="chest-common"]');
+    const button = card?.querySelector('button');
+    if (!button || button.disabled) return false;
+    button.click();
     return true;
   });
   check(buyClicked, 'Кнопка покупки активна');
@@ -1102,13 +1103,105 @@ async function scenarioShop() {
     () => (window.__yaCalls ?? []).some((c) => c.name === 'payments.consumePurchase'),
     10_000,
   );
-  check(consumed, 'После начисления алмазов покупка погашена');
-  const newBalance = await game.storageValue('orerush.diamonds.v1');
-  check(newBalance === '100', 'Алмазы начислены на баланс', `баланс: ${newBalance}`);
-  const purchasedProductId = (await game.calls()).find((call) => call.name === 'payments.purchase' && call.arg?.id === 'diamonds-100')?.arg?.id;
-  check(purchasedProductId === 'diamonds-100' && newBalance === '100', 'Набор diamonds-100 из карточки начислил именно 100 монет', `${purchasedProductId}: ${newBalance}`);
-  const noticeShown = await game.page.evaluate(() => /Покупка совершена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
+  check(consumed, 'После сохранения товарная покупка погашена');
+  const purchaseReceiptState = JSON.parse((await game.storageValue('orerush.shop-rewards.v1')) ?? '{}');
+  const chestReceiptSaved = purchaseReceiptState.pending?.some((receipt) => receipt.productId === 'chest-common');
+  check(chestReceiptSaved, 'Прямая покупка chest-common сохранена как durable receipt');
+  const purchasedProductId = (await game.calls()).find((call) => call.name === 'payments.purchase' && call.arg?.id === 'chest-common')?.arg?.id;
+  check(purchasedProductId === 'chest-common', 'Кнопка товара запускает покупку именно выбранного SKU', String(purchasedProductId));
+  check(await game.storageValue('orerush.diamonds.v1') === null, 'Прямая покупка не создаёт внутриигровой валютный баланс');
+  const noticeShown = await game.page.evaluate(() => /Покупка оформлена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
   check(noticeShown, 'Игрок видит подтверждение покупки');
+
+  const petTab = await game.page.evaluate(() => {
+    const tab = document.querySelector('[data-shop-category="pets"]');
+    tab?.click();
+    return !!tab;
+  });
+  check(petTab, 'Отдельная вкладка питомцев открывается');
+  const petOffer = await game.page.evaluate(() => {
+    const card = document.querySelector('[data-shop-product="pet-wolf"]');
+    return {
+      present: !!card,
+      priceFromCatalog: Boolean(card?.textContent?.includes('199 TST')),
+      currencyIconFromCatalog: Boolean(card?.querySelector('.shop-product-footer img[src]')),
+    };
+  });
+  check(petOffer.present && petOffer.priceFromCatalog && petOffer.currencyIconFromCatalog, 'Волк показывается с ценой и значком валюты из каталога SDK', JSON.stringify(petOffer));
+  const wolfConsumeBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const wolfPurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const wolfBuyClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="pet-wolf"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(wolfBuyClicked, 'Покупка постоянного волка доступна один раз');
+  const wolfPurchaseRequested = await game.waitFor(
+    'Покупка pet-wolf',
+    (beforeCount) => (window.__yaCalls ?? []).slice(beforeCount).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'pet-wolf'),
+    10_000,
+    wolfPurchaseBefore,
+  );
+  check(wolfPurchaseRequested, 'Оплата запускается напрямую для SKU pet-wolf');
+  const wolfOwned = await game.waitFor(
+    'Постоянное владение волком сохранено',
+    () => {
+      try {
+        return JSON.parse(window.localStorage.getItem('orerush.pets.v1') ?? '{}').wolfOwned === true;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(wolfOwned, 'Покупка сохраняет постоянное право на волка');
+  const wolfNotConsumed = game.count(await game.calls(), 'payments.consumePurchase') === wolfConsumeBefore;
+  check(wolfNotConsumed, 'Постоянный SKU питомца остаётся в Yandex и не погашается как расходуемый');
+  const wolfOwnedButton = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-shop-product="pet-wolf"] button')?.disabled),
+    { timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(wolfOwnedButton, 'После покупки вместо повторного списания показывается состояние «уже куплен»');
+
+  const monkeyOffer = await game.page.evaluate(() => {
+    const card = document.querySelector('[data-shop-product="pet-monkey"]');
+    return {
+      present: !!card,
+      priceFromCatalog: Boolean(card?.textContent?.includes('249 TST')),
+      currencyIconFromCatalog: Boolean(card?.querySelector('.shop-product-footer img[src]')),
+    };
+  });
+  check(monkeyOffer.present && monkeyOffer.priceFromCatalog && monkeyOffer.currencyIconFromCatalog, 'Обезьяна показывается с ценой и значком валюты из каталога SDK', JSON.stringify(monkeyOffer));
+  const monkeyConsumeBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const monkeyPurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const monkeyBuyClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="pet-monkey"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(monkeyBuyClicked, 'Покупка постоянной обезьяны доступна напрямую');
+  const monkeyPurchaseRequested = await game.waitFor(
+    'Покупка pet-monkey',
+    (beforeCount) => (window.__yaCalls ?? []).slice(beforeCount).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'pet-monkey'),
+    10_000,
+    monkeyPurchaseBefore,
+  );
+  check(monkeyPurchaseRequested, 'Оплата запускается напрямую для SKU pet-monkey');
+  const monkeyOwned = await game.waitFor(
+    'Постоянное владение обезьяной сохранено',
+    () => {
+      try {
+        return JSON.parse(window.localStorage.getItem('orerush.pets.v1') ?? '{}').monkeyOwned === true;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(monkeyOwned, 'Покупка сохраняет постоянное право на обезьяну');
+  check(game.count(await game.calls(), 'payments.consumePurchase') === monkeyConsumeBefore, 'Постоянный SKU обезьяны не погашается как расходуемый товар');
 
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
   check(fatal.length === 0, 'Магазин работает без ошибок в консоли', fatal.slice(0, 3).join(' | '));
@@ -1126,7 +1219,6 @@ async function scenarioShop() {
     [...document.querySelectorAll('button')].some((b) => /НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/i.test(b.textContent ?? '')),
   );
   check(shortcutButton, 'В настройках появилась кнопка «добавить ярлык»');
-  const balanceBeforeShortcut = Number((await game.storageValue('orerush.diamonds.v1')) ?? 0);
   const shortcutClicked = await game.clickByText(/НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/);
   check(shortcutClicked, 'Кнопка ярлыка нажата');
   const promptShown = await game.waitFor(
@@ -1141,8 +1233,19 @@ async function scenarioShop() {
     10_000,
   );
   check(rewardShown, 'После добавления ярлыка игра сообщает о награде');
-  const balanceAfterShortcut = Number((await game.storageValue('orerush.diamonds.v1')) ?? 0);
-  check(balanceAfterShortcut === balanceBeforeShortcut + 250, 'Алмазы за ярлык начислены на баланс', `${balanceBeforeShortcut} → ${balanceAfterShortcut}`);
+  const shortcutSuppliesSaved = await game.waitFor(
+    'Награда за ярлык в очереди припасов',
+    () => {
+      try {
+        const state = JSON.parse(window.localStorage.getItem('orerush.rewarded-drops.v1') ?? '{}');
+        return (state.pending?.['bonus:shortcut:once']?.items?.length ?? 0) === 4;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(shortcutSuppliesSaved, 'Награда за ярлык поставлена в очередь как разовая supply-награда');
   const shortcutGone = await game.page.evaluate(() =>
     [...document.querySelectorAll('button')].some((b) => /НА РАБОЧИЙ СТОЛ|ADD TO DESKTOP|SUR LE BUREAU|AUF DEN DESKTOP/i.test(b.textContent ?? '')),
   );
@@ -1200,6 +1303,97 @@ async function scenarioShop() {
     10_000,
   );
   check(dailySuppliesDelivered, 'После старта смены дневные припасы подтверждены как добавленные в инвентарь');
+
+  await game.page.keyboard.press('Tab');
+  const petTokenShown = await game.waitFor(
+    'Жетон купленного волка в инвентаре нового режима',
+    () => Boolean(document.querySelector('[data-pet-resource="wolf"]') && document.querySelector('[data-pet-slot="wolf"]')),
+    10_000,
+  );
+  check(petTokenShown, 'После покупки и старта любого режима в инвентаре появляется жетон питомца и его отдельный слот');
+  const wolfSelected = await game.page.evaluate(() => {
+    const selector = document.querySelector('[data-pet-select="wolf"]');
+    selector?.click();
+    return Boolean(selector);
+  });
+  check(wolfSelected, 'Перед wolf-only проверкой явно выбран вид «волк»');
+  const petEquipClicked = await game.page.evaluate(() => {
+    const token = document.querySelector('[data-pet-resource="wolf"]');
+    token?.click();
+    return !!token;
+  });
+  check(petEquipClicked, 'Жетон питомца можно установить в новый слот касанием/кликом');
+  const petEquipped = await game.waitFor(
+    'Волк установлен и доступно E-взаимодействие',
+    () => document.querySelector('[data-pet-slot="wolf"]')?.getAttribute('data-pet-equipped') === 'true',
+    10_000,
+  );
+  check(petEquipped, 'Установка жетона помечает питомца экипированным');
+  await game.page.keyboard.press('Tab');
+  // The companion can react to a nearby mob and move out of range within a few frames. Poll every
+  // rendered frame here instead of the generic 250 ms SDK wait so the short interaction window is not missed.
+  const petNearby = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-pet-interact]')),
+    { polling: 'raf', timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(petNearby, 'Рядом с экипированным волком появляется подсказка взаимодействия');
+  await game.page.keyboard.press('e');
+  const petReacted = await game.page.waitForFunction(
+    () => /виляет хвостом|лает|кружится|wags its tail|barks happily|spins with joy/i.test(document.body.innerText ?? ''),
+    { polling: 'raf', timeout: 4_000 },
+  ).then(() => true).catch(() => false);
+  const petReactionDebug = petReacted ? '' : JSON.stringify(await game.page.evaluate(() => ({
+    prompt: Boolean(document.querySelector('[data-pet-interact]')),
+    target: document.querySelector('.hud-information--center')?.textContent?.trim() ?? null,
+    inventory: Boolean(document.querySelector('[data-pet-slot]')),
+    pointerLocked: document.pointerLockElement !== null,
+  })));
+  check(petReacted, 'Клавиша E вызывает одну из случайных реакций волка', petReactionDebug);
+  await game.page.keyboard.press('Tab');
+  await game.page.evaluate(() => document.querySelector('[data-pet-slot="wolf"] [data-pet-toggle]')?.click());
+  const petReturned = await game.waitFor(
+    'Возврат жетона после снятия питомца',
+    () => document.querySelector('[data-pet-slot="wolf"]')?.getAttribute('data-pet-equipped') === 'false'
+      && Boolean(document.querySelector('[data-pet-resource="wolf"]')),
+    10_000,
+  );
+  check(petReturned, 'Снятие волка убирает питомца и возвращает жетон в инвентарь');
+
+  const monkeyTokenShown = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-pet-resource="monkey"]')),
+    { timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(monkeyTokenShown, 'После покупки обезьяны её отдельный жетон доступен в инвентаре');
+  await game.page.evaluate(() => document.querySelector('[data-pet-resource="monkey"]')?.click());
+  const monkeyEquipped = await game.waitFor(
+    'Обезьяна установлена в общий слот питомца',
+    () => document.querySelector('[data-pet-slot="monkey"]')?.getAttribute('data-pet-equipped') === 'true',
+    10_000,
+  );
+  check(monkeyEquipped, 'Обезьяну можно экипировать в тот же слот, что и волка');
+  await game.page.keyboard.press('Tab');
+  const monkeyNear = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-pet-interact]')),
+    { polling: 'raf', timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(monkeyNear, 'Рядом с обезьяной появляется подсказка взаимодействия');
+  await game.page.keyboard.press('e');
+  const monkeyReacted = await game.waitFor(
+    'Обезьяна отвечает собственной реакцией',
+    () => /Обезьянка падает|Обезьянка несколько раз|Обезьянка смеётся|Обезьянка кружится|The monkey flops|The monkey bounces|The monkey laughs|The monkey spins/i.test(document.body.innerText ?? ''),
+    4_000,
+  );
+  check(monkeyReacted, 'Поглаживание вызывает одну из четырёх реакций обезьяны, а не волчью анимацию');
+  await game.page.keyboard.press('Tab');
+  await game.page.evaluate(() => document.querySelector('[data-pet-slot="monkey"] [data-pet-toggle]')?.click());
+  const monkeyReturned = await game.waitFor(
+    'Возврат жетона обезьяны',
+    () => document.querySelector('[data-pet-slot="monkey"]')?.getAttribute('data-pet-equipped') === 'false'
+      && Boolean(document.querySelector('[data-pet-resource="monkey"]')),
+    10_000,
+  );
+  check(monkeyReturned, 'Снятие обезьяны возвращает её жетон в инвентарь');
+  await game.page.keyboard.press('Tab');
 
   const sessionsLoaded = await game.waitFor(
     'Загрузка сессий оппонентов',
@@ -1283,17 +1477,17 @@ async function scenarioShop() {
   check(noAdFreeOffer, 'Без активного disable_ads кнопка отключения рекламы не показывается');
   const emptyShopOpened = await emptyCatalog.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(emptyShopOpened, 'Магазин открывается при пустом каталоге');
-  const noInactiveOffers = await emptyCatalog.waitFor(
+  const onlyFreeRewards = await emptyCatalog.waitFor(
     'Отсутствие неактивных предложений',
     () => {
       const dialog = document.querySelector('.shop-dialog');
-      return !!dialog && ![...dialog.querySelectorAll('[data-shop-product]')].some((card) =>
-        (card.getAttribute('data-shop-product') ?? '').startsWith('diamonds-'),
-      );
+      const ids = [...(dialog?.querySelectorAll('[data-shop-product]') ?? [])]
+        .map((card) => card.getAttribute('data-shop-product') ?? '');
+      return Boolean(dialog) && ids.length > 0 && ids.every((id) => id.startsWith('drop-'));
     },
     10_000,
   );
-  check(noInactiveOffers, 'При пустом каталоге в игре отсутствуют предложения real-money coin packs');
+  check(onlyFreeRewards, 'При пустом каталоге остаются бесплатные рекламные награды, но нет платных SKU');
   await emptyCatalog.page.close();
 }
 
@@ -1309,7 +1503,7 @@ async function scenarioPromo() {
   // --- 1. discount promo: a specific purchase is promised -------------------------------
   const discount = await openGame({
     lang: 'ru',
-    referrer: { type: 'promo', promoId: 'SPRING_DISCOUNT', intent: 'open_starter_pack', inappId: 'diamonds-599' },
+    referrer: { type: 'promo', promoId: 'SPRING_DISCOUNT', intent: 'open_starter_pack', inappId: 'chest-common' },
   });
   const shopByPromo = await discount.waitFor(
     'Магазин по акции',
@@ -1326,9 +1520,9 @@ async function scenarioPromo() {
   const highlighted = await discount.page.evaluate(() => {
     const badge = [...document.querySelectorAll('span')].find((s) => /ПО АКЦИИ/.test(s.textContent ?? ''));
     const card = badge?.closest('article');
-    return !!card && /Кошель шахтёра/.test(card.textContent ?? '');
+    return !!card && /Обычный сундук припасов/.test(card.textContent ?? '');
   });
-  check(highlighted, 'Подсвечен именно товар из ссылки акции (inapp_id: diamonds-599)');
+  check(highlighted, 'Подсвечен именно товар из ссылки акции (inapp_id: chest-common)');
   await discount.page.close();
 
   // --- 2. screen promo: only an intent is named -----------------------------------------
@@ -1362,10 +1556,10 @@ async function scenarioPromo() {
 /* ---------------------- scenario D: daily reward (server time) ---------------------- */
 
 /**
- * The daily bonus is counted by `ysdk.serverTime()`, not by the device clock, and its date lives in
- * the cloud profile. A failed rewarded-video callback pays nothing; a successful view pays one or two
- * diamonds, records the date to cloud, and locks the button until UTC midnight. Day two on another
- * device sees yesterday's claim and offers the streak-adjusted two-diamond bonus.
+ * The daily bonus is counted by `ysdk.serverTime()`, not by the device clock, and its date and queued
+ * supplies live in the cloud profile. A failed rewarded-video callback grants nothing; a successful
+ * view saves a free supply bundle and locks the button until UTC midnight. Day two on another device
+ * sees yesterday's claim and offers the streak-adjusted double bundle.
  */
 async function scenarioDaily() {
   const DAY_MS = 86_400_000;
@@ -1379,8 +1573,7 @@ async function scenarioDaily() {
     30_000,
   );
   check(bonusButton, 'В меню есть активная кнопка ежедневного бонуса');
-  const before = await first.storageValue('orerush.diamonds.v1');
-  check(before === null || before === '0', 'До первого бонуса алмазов нет', String(before));
+  check(await first.storageValue('orerush.diamonds.v1') === null, 'У daily-бонуса нет устаревшего валютного баланса');
 
   const today = await first.page.evaluate(() =>
     new Date(Date.now() + (window.__yaMockSeed.serverTimeOffsetMs ?? 0)).toISOString().slice(0, 10),
@@ -1397,12 +1590,21 @@ async function scenarioDaily() {
   check(failedVideoShown, 'Кнопка бонуса вызывает рекламный SDK');
   const noReward = await first.waitFor(
     'Неуспешный просмотр не меняет прогресс',
-    () => !window.localStorage.getItem('orerush.daily.v1')
-      && (!window.localStorage.getItem('orerush.diamonds.v1') || window.localStorage.getItem('orerush.diamonds.v1') === '0')
-      && !document.querySelector('[data-daily-bonus]')?.disabled,
+    () => {
+      let hasClaimOrReward = false;
+      try {
+        const drops = JSON.parse(window.localStorage.getItem('orerush.rewarded-drops.v1') ?? '{}');
+        hasClaimOrReward = Object.keys(drops.claims ?? {}).length > 0 || Object.keys(drops.pending ?? {}).length > 0;
+      } catch {
+        hasClaimOrReward = true;
+      }
+      return !window.localStorage.getItem('orerush.daily.v1')
+        && !hasClaimOrReward
+        && !document.querySelector('[data-daily-bonus]')?.disabled;
+    },
     10_000,
   );
-  check(noReward, 'Без rewarded-callback дата и алмазы не начисляются');
+  check(noReward, 'Без rewarded-callback claim и supply-награда не начисляются');
   check(first.count(await first.calls(), 'adv.showRewardedVideo') === adCallsBefore + 1, 'Неуспешная попытка действительно открыла рекламное видео');
 
   await first.page.evaluate(() => { window.__yaMockSeed.rewarded = true; });
@@ -1428,24 +1630,31 @@ async function scenarioDaily() {
     today,
   );
   check(stored, 'Дата бонуса (UTC) записана только после rewarded-callback', today);
-  const balance = await first.storageValue('orerush.diamonds.v1');
-  check(balance === '1', 'Первый ежедневный бонус начислил 1 алмаз', String(balance));
+  const supplyReceipt = JSON.parse((await first.storageValue('orerush.rewarded-drops.v1')) ?? '{}');
+  check((supplyReceipt.pending?.[`bonus:daily:${today}`]?.items?.length ?? 0) === 4, 'Первый ежедневный rewarded-бонус сохраняет четыре предмета');
+  check(await first.storageValue('orerush.diamonds.v1') === null, 'Ежедневная награда не создаёт виртуальный валютный баланс');
   const claimedLabel = await first.page.evaluate(() => {
     const button = document.querySelector('[data-daily-bonus]');
     return !!button && button.disabled && /СЛЕДУЮЩИЙ БОНУС/.test(button.textContent ?? '');
   });
   check(claimedLabel, 'После выдачи кнопка серая, отключена и показывает таймер до следующего дня');
+  const receiptBeforeRepeat = await first.storageValue('orerush.rewarded-drops.v1');
   await first.clickByText(/ЕЖЕДНЕВНЫЙ БОНУС/);
   await wait(400);
-  const again = await first.storageValue('orerush.diamonds.v1');
-  check(again === '1', 'Повторный клик в тот же день не начисляет алмазы второй раз', String(again));
+  const receiptAfterRepeat = await first.storageValue('orerush.rewarded-drops.v1');
+  check(receiptAfterRepeat === receiptBeforeRepeat, 'Повторный клик в тот же день не дублирует supply-награду');
   check(first.count(await first.calls(), 'adv.showRewardedVideo') === rewardedCallsBefore + 1, 'Успешная повторная попытка вызвала ровно одно видео');
   const cloudRecord = await first.waitFor(
-    'Бонус в облаке',
-    () => (window.__yaCalls ?? []).some((c) => c.name === 'player.setData' && c.arg?.daily?.last),
+    'Бонус и припасы в облаке',
+    (day) => (window.__yaCalls ?? []).some((c) =>
+      c.name === 'player.setData'
+      && c.arg?.daily?.last === day
+      && (c.arg?.adDrops?.pending?.[`bonus:daily:${day}`]?.items?.length ?? 0) === 4,
+    ),
     15_000,
+    today,
   );
-  check(cloudRecord, 'Дата бонуса уходит в облачный профиль (player.setData)');
+  check(cloudRecord, 'Дата claim и supply-награда синхронизированы в облаке до доставки');
   await first.page.close();
 
   // the next server day on another device: the browser clock is untouched, the platform clock moved
@@ -1460,11 +1669,11 @@ async function scenarioDaily() {
     'Бонус второго дня',
     () => {
       const button = document.querySelector('[data-daily-bonus]');
-      return !!button && /\+2\s+монет незерита/.test(button.textContent ?? '') && /серия 2/.test(button.textContent ?? '');
+      return !!button && /серия 2/.test(button.textContent ?? '') && /припасы/.test(button.textContent ?? '');
     },
     30_000,
   );
-  check(grown, 'На следующий день бонус вырос до 2 незеритовых монет за серию 2 (по серверному времени)');
+  check(grown, 'На следующий день бонус вырос до двойного набора припасов за серию 2 (по серверному времени)');
   const notClaimedYet = await nextDay.page.evaluate(() => {
     const button = document.querySelector('[data-daily-bonus]');
     return !!button && !button.disabled;
@@ -1762,7 +1971,9 @@ async function layoutReport(page) {
 
     let swipeBlocked = null;
     try {
-      const target = document.querySelector('button') ?? document.body;
+      // Simulate a pull gesture on the page background, not on a scrollable game panel: those panels
+      // intentionally keep their own touch scrolling.
+      const target = document.body;
       const touch = new Touch({ identifier: 1, target, clientX: 20, clientY: 20 });
       const event = new TouchEvent('touchmove', { touches: [touch], changedTouches: [touch], cancelable: true, bubbles: true });
       target.dispatchEvent(event);
@@ -2153,7 +2364,7 @@ async function scenarioLanguages() {
       languageTitle: 'LANGUAGE',
       music: 'MUSIC ON',
       shop: 'SHOP',
-      balance: 'NETHERITE COINS',
+      shopBadge: 'LIVE',
       close: 'CLOSE',
       hud: 'DEPTH',
       resume: 'RESUME',
@@ -2174,7 +2385,7 @@ async function scenarioLanguages() {
       languageTitle: 'ЯЗЫК',
       music: 'МУЗЫКА ВКЛ',
       shop: 'МАГАЗИН',
-      balance: 'МОНЕТЫ НЕЗЕРИТА',
+      shopBadge: 'ПОКУПКИ',
       close: 'ЗАКРЫТЬ',
       hud: 'ГЛУБИНА',
       resume: 'ПРОДОЛЖИТЬ',
@@ -2183,7 +2394,7 @@ async function scenarioLanguages() {
       resumeHint: 'НАЖМИТЕ ESC ДЛЯ ПРОДОЛЖЕНИЯ',
       foreign: [
         'MINE NOW', 'SETTINGS', 'CONTROLS', 'RESUME', 'RESTART', 'MAIN MENU', 'QUIT',
-        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'NETHERITE COINS', 'MUSIC ON',
+        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'MUSIC ON',
       ],
     },
     {
@@ -2198,7 +2409,7 @@ async function scenarioLanguages() {
       languageTitle: 'LANGUE',
       music: 'MUSIQUE ACTIVÉE',
       shop: 'BOUTIQUE',
-      balance: 'PIÈCES EN NETHERITE',
+      shopBadge: 'ACHATS',
       close: 'FERMER',
       hud: 'PROFONDEUR',
       resume: 'REPRENDRE',
@@ -2207,7 +2418,7 @@ async function scenarioLanguages() {
       resumeHint: 'APPUYEZ SUR ESC POUR REPRENDRE',
       foreign: [
         'MINE NOW', 'SETTINGS', 'CONTROLS', 'RESUME', 'RESTART', 'MAIN MENU', 'QUIT',
-        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'NETHERITE COINS', 'MUSIC ON',
+        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'MUSIC ON',
       ],
     },
     {
@@ -2222,7 +2433,7 @@ async function scenarioLanguages() {
       languageTitle: 'SPRACHE',
       music: 'MUSIK AN',
       shop: 'SHOP',
-      balance: 'NETHERITMÜNZEN',
+      shopBadge: 'KÄUFE',
       close: 'SCHLIESSEN',
       hud: 'TIEFE',
       resume: 'FORTSETZEN',
@@ -2231,7 +2442,7 @@ async function scenarioLanguages() {
       resumeHint: 'DRÜCKE ESC ZUM FORTSETZEN',
       foreign: [
         'MINE NOW', 'SETTINGS', 'CONTROLS', 'RESUME', 'RESTART', 'MAIN MENU', 'QUIT',
-        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'NETHERITE COINS', 'MUSIC ON',
+        'CREATE CHARACTER', 'CHARACTER STUDIO', 'SAVE LOOK', 'MUSIC ON',
       ],
     },
   ];
@@ -2336,7 +2547,7 @@ async function scenarioLanguages() {
     check(shopOpened, `Магазин открывается на языке ${item.code}`);
     const shopReady = await game.waitFor(
       `Витрина магазина ${item.code}`,
-      (arg) => (document.body.innerText ?? '').includes(arg.balance),
+      (arg) => Boolean(document.querySelector('.shop-dialog')) && (document.body.innerText ?? '').includes(arg.shopBadge),
       20_000,
       item,
     );

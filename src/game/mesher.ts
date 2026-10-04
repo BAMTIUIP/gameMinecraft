@@ -29,6 +29,7 @@ import {
   CHEST_DESERT,
   CHEST_JUNGLE,
   CHEST_PLAINS,
+  CHEST_STORAGE,
   CHEST_UNDERWATER,
   CHEST_VOLCANIC,
   CHEST_WINTER,
@@ -483,6 +484,7 @@ function addBirdNest(P: number[], C: number[], I: number[], x: number, y: number
 type ChestPalette = { body: number; lid: number; band: number; iron: number; jewel: number };
 const CHEST_PALETTES: Record<number, ChestPalette> = {
   [CHEST_PLAINS]: { body: 0x80502e, lid: 0xa76635, band: 0xd4a84d, iron: 0x49342a, jewel: 0xf2ca60 },
+  [CHEST_STORAGE]: { body: 0x765033, lid: 0x9c6638, band: 0xc29443, iron: 0x3f3028, jewel: 0xe7bd55 },
   [CHEST_WINTER]: { body: 0x3f6474, lid: 0x628fa1, band: 0xc3dce1, iron: 0x2f4556, jewel: 0xc2f1ff },
   [CHEST_AUTUMN]: { body: 0x87452e, lid: 0xb86631, band: 0xdba94b, iron: 0x452c26, jewel: 0xffd16a },
   [CHEST_JUNGLE]: { body: 0x435b37, lid: 0x648347, band: 0xa49a49, iron: 0x2b3a2a, jewel: 0xb8d35b },
@@ -1255,7 +1257,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           const neighbor = world.get(nx, ny, nz);
           if (wat) {
             // water renders only against air/cutouts, never between water cells
-            if (neighbor === WATER || isOpaque(neighbor)) continue;
+            if (neighbor === WATER || isOpaque(neighbor) || isTreasureChest(neighbor)) continue;
           } else if (isDoor) {
             // Hide internal horizontal seam between bottom and top halves of a 2-block door
             if ((f === 2 || f === 3) && neighbor === id) continue;

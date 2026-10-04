@@ -20,6 +20,9 @@ import { AFFIXES, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item,
 import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
+import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
+import { MonkeyIcon } from './MonkeyIcon';
+import { WolfIcon } from './WolfIcon';
 
 // ---------- helpers ----------
 
@@ -55,6 +58,10 @@ type Props = {
   onClose: () => void;
   onEquip: (uid: string) => void;
   onUnequip: (slot: Slot) => void;
+  onEquipPet: (kind: PetKind) => void;
+  onUnequipPet: (kind: PetKind) => void;
+  onSelectPetKind: (kind: PetKind) => void;
+  onCyclePetCoat: (kind: PetKind, direction: number) => void;
   onSell: (id: number) => void;
   onBuy: (i: number) => void;
   onUpgrade: (uid: string) => void;
@@ -106,6 +113,10 @@ export default function Inventory({
   onClose,
   onEquip,
   onUnequip,
+  onEquipPet,
+  onUnequipPet,
+  onSelectPetKind,
+  onCyclePetCoat,
   onSell,
   onBuy,
   onUpgrade,
@@ -135,7 +146,10 @@ export default function Inventory({
       ? []
       : hud.inventory.filter((it) => invCat === 'all' || getItemInvCategory(it.id) === invCat);
   const filteredGear = invCat === 'all' || invCat === 'armor' ? hud.bagItems : [];
-  const totalShownCount = filteredStacks.length + filteredGear.length;
+  const totalShownCount = filteredStacks.length + filteredGear.length + (hud.petTokenAvailable ? hud.petOwnedKinds.length : 0);
+  const petDisplayKind = hud.petEquippedKind ?? hud.petSelectedKind;
+  const petDisplayOwned = hud.petOwnedKinds.includes(petDisplayKind);
+  const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
 
   return (
     <div className="absolute inset-0 z-30 overflow-y-auto bg-pit-950/85 backdrop-blur-[3px]">
@@ -192,7 +206,7 @@ export default function Inventory({
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="font-display text-sm tracking-widest text-torch">{t('haul')}</span>
               <span className="font-display text-[11px] text-white/35">
-                {hud.inventory.length + hud.bagItems.length} {t('stacks')}
+                {hud.inventory.length + hud.bagItems.length + (hud.petTokenAvailable ? hud.petOwnedKinds.length : 0)} {t('stacks')}
               </span>
             </div>
 
@@ -228,6 +242,40 @@ export default function Inventory({
               </div>
             ) : (
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
+                {hud.petTokenAvailable && hud.petOwnedKinds.map((kind) => {
+                  const coatIndex = hud.petCoatIndices[kind];
+                  const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
+                  const resourceKey = kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource';
+                  return (
+                    <button
+                      key={`pet-${kind}-token`}
+                      type="button"
+                      data-pet-resource={kind}
+                      aria-label={t(resourceKey)}
+                      onClick={() => onEquipPet(kind)}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', `pet:${kind}`);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      title={`${t(resourceKey)} — ${t('petEquipHint')}`}
+                      className="anim-pop notch group relative flex aspect-square cursor-grab flex-col items-center justify-center gap-0.5 transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
+                      style={{
+                        background: 'linear-gradient(180deg,#3a3026,#171a17)',
+                        border: '2px solid #c59b66',
+                        boxShadow: 'inset 2px 2px 0 rgba(255,255,255,.08), 0 0 10px rgba(197,155,102,.18)',
+                      }}
+                    >
+                      {kind === 'wolf' ? <WolfIcon coatIndex={coatIndex} size={42} /> : <MonkeyIcon coatIndex={coatIndex} size={39} />}
+                      <span className="max-w-full truncate px-1 font-display text-[8px] leading-none text-[#e8d5b4]">
+                        {t(resourceKey)}
+                      </span>
+                      <span className="pointer-events-none absolute inset-x-0 -bottom-5 z-20 hidden truncate bg-black/80 px-1 text-center font-display text-[9px] text-torch group-hover:block">
+                        {t(coats[coatIndex]?.nameKey ?? coats[0].nameKey)}
+                      </span>
+                    </button>
+                  );
+                })}
                 {filteredStacks.map((it, i) => {
                   const spec = getToolSpec(it.id);
                   const isTool = isToolId(it.id);
@@ -342,7 +390,7 @@ export default function Inventory({
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-6">
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:grid-cols-7">
                 {SLOTS.map((slot) => {
                   const it = hud.equipped[slot];
                   const rar = it ? RARITY[it.rarity] : null;
@@ -404,6 +452,104 @@ export default function Inventory({
                     </div>
                   );
                 })}
+                <div
+                  key="pet-shared-slot"
+                  data-pet-slot={petDisplayKind}
+                  data-pet-shared-slot="true"
+                  data-pet-kind={hud.petEquippedKind ?? petDisplayKind}
+                  data-pet-equipped={hud.petEquipped ? 'true' : 'false'}
+                  data-pet-coat-index={petDisplayCoatIndex}
+                  onDragOver={(e) => {
+                    if (!hud.petTokenAvailable) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    const data = e.dataTransfer.getData('text/plain');
+                    const kind = data.startsWith('pet:') ? data.slice(4) : '';
+                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petTokenAvailable || !hud.petOwnedKinds.includes(kind)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onEquipPet(kind);
+                  }}
+                  className="notch flex min-w-0 flex-col gap-1 p-1"
+                >
+                  {hud.petOwnedKinds.length > 1 && (
+                    <div className="flex items-center justify-center gap-1 border-b border-white/10 pb-0.5">
+                      {hud.petOwnedKinds.map((kind) => (
+                        <button
+                          key={`pet-select-${kind}`}
+                          type="button"
+                          data-pet-select={kind}
+                          disabled={hud.petEquipped}
+                          aria-label={t(kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource')}
+                          onClick={() => onSelectPetKind(kind)}
+                          className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
+                          style={{
+                            borderColor: (hud.petEquippedKind ?? hud.petSelectedKind) === kind ? '#c59b66' : '#ffffff18',
+                            background: (hud.petEquippedKind ?? hud.petSelectedKind) === kind ? '#c59b6624' : 'transparent',
+                            opacity: hud.petEquipped && hud.petEquippedKind !== kind ? 0.4 : 1,
+                          }}
+                        >
+                          {kind === 'wolf'
+                            ? <WolfIcon coatIndex={hud.petCoatIndices.wolf} size={23} />
+                            : <MonkeyIcon coatIndex={hud.petCoatIndices.monkey} size={21} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    data-pet-toggle={petDisplayKind}
+                    disabled={!hud.petOwned}
+                    onClick={() => {
+                      if (hud.petEquipped && hud.petEquippedKind) onUnequipPet(hud.petEquippedKind);
+                      else if (petDisplayOwned) onEquipPet(petDisplayKind);
+                    }}
+                    title={hud.petEquipped ? t('petUnequipHint') : hud.petTokenAvailable ? t('petEquipHint') : t('petNotOwned')}
+                    className="notch flex min-h-[54px] w-full flex-col items-center justify-center gap-0.5 px-1 py-1 transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
+                    style={{
+                      background: hud.petEquipped ? 'linear-gradient(180deg,#3a3026,#171a17)' : 'rgba(255,255,255,.02)',
+                      border: `2px solid ${hud.petEquipped || hud.petTokenAvailable ? '#c59b66' : '#1d2823'}`,
+                    }}
+                  >
+                    <span className="font-display text-[9px] tracking-wider text-white/40">{t('petSlot')}</span>
+                    {petDisplayOwned
+                      ? petDisplayKind === 'wolf'
+                        ? <WolfIcon coatIndex={petDisplayCoatIndex} size={31} />
+                        : <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
+                      : <span className="text-2xl leading-none text-white/25">🐾</span>}
+                    <span className="max-w-full truncate font-display text-[8px] leading-none text-[#e8d5b4]">
+                      {hud.petEquipped ? t('petEquippedLabel') : hud.petTokenAvailable ? t('petReady') : t('petNotOwned')}
+                    </span>
+                  </button>
+                  {petDisplayOwned && (
+                    <div className="flex min-w-0 items-center justify-between gap-0.5 border-t border-white/10 pt-0.5">
+                      <button
+                        type="button"
+                        data-pet-coat-prev
+                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatPrevious' : 'petMonkeyCoatPrevious')}
+                        onClick={() => onCyclePetCoat(petDisplayKind, -1)}
+                        className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
+                      >
+                        ‹
+                      </button>
+                      <span className="min-w-0 truncate text-center font-display text-[8px] text-torch">
+                        {t((petDisplayKind === 'wolf' ? WOLF_COATS : MONKEY_COATS)[petDisplayCoatIndex]?.nameKey
+                          ?? (petDisplayKind === 'wolf' ? WOLF_COATS : MONKEY_COATS)[0].nameKey)}
+                      </span>
+                      <button
+                        type="button"
+                        data-pet-coat-next
+                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatNext' : 'petMonkeyCoatNext')}
+                        onClick={() => onCyclePetCoat(petDisplayKind, 1)}
+                        className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {(st.fire > 0 || st.frost > 0 || st.vamp > 0 || st.thorns > 0 || st.reach > 0) && (

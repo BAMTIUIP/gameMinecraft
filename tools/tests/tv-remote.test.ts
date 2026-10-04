@@ -9,8 +9,8 @@
  *     press at a time;
  *  3. Back and OK are handled: Back pauses on the first press and asks about leaving on the second
  *     (or asks right away in a menu), OK activates the focused menu item and digs during a run;
- *  4. there are no in-app purchases — `ysdk.getPayments` appears nowhere, the shop sells only for the
- *     earned crystals and on a TV it is hidden altogether;
+ *  4. payments stay hidden on a TV — the ordinary shop uses direct platform-currency purchases, but
+ *     `ysdk.getPayments` is never called on the TV device;
  *  5. the game links to no other games.
  * The pure rules (`backIntent`, `pickCandidate`) are tested directly, the navigation is driven on a
  * small fake DOM, and the wiring in App/engine is pinned by a source scan. Bundled with esbuild and
@@ -437,7 +437,7 @@ ok(/toggleFullscreen/.test(read('src/game/params.ts')), 'Полноэкранн�
 ok(/height: 100%/.test(css) || /100vh/.test(css), 'Страница растянута на весь экран');
 
 /* no purchases on a TV: the platform is not even asked for the payment object */
-const { buyDiamondPack, deliverPendingPurchases, loadShopCatalog, paymentsAvailable } = await import('../../src/game/shop');
+const { buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable } = await import('../../src/game/shop');
 const shop = read('src/game/shop.ts');
 ok(/!tvDevice\(\) && yaPaymentsAvailable\(\)/.test(shop), 'На ТВ магазин объявлен недоступным до обращения к SDK');
 ok(/if \(tvDevice\(\)\) return new Map\(\)/.test(shop), 'Каталог цен на ТВ не запрашивается');
@@ -448,7 +448,7 @@ paymentsCalls = 0;
 ok(paymentsAvailable() === false, 'На ТВ магазин закрыт');
 ok((await loadShopCatalog()).size === 0, 'Каталог покупок на ТВ пуст');
 ok((await deliverPendingPurchases()) === 0, 'Доставка отложенных покупок на ТВ ничего не делает');
-const tvPurchase = await buyDiamondPack('diamonds-100');
+const tvPurchase = await buyShopProduct('chest-common');
 ok(!tvPurchase.ok && tvPurchase.reason === 'unavailable', 'Прямая попытка покупки на ТВ отклоняется до обращения к SDK');
 ok(paymentsCalls === 0, 'Платёжные методы SDK на ТВ не вызываются вовсе', `вызовов: ${paymentsCalls}`);
 deviceType = 'desktop';

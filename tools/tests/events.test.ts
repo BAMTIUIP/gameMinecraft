@@ -116,7 +116,7 @@ function ok(condition: boolean, label: string, detail = '') {
 
 const { initYandex, yaOnMultiplayer, yaOnPause, yaOnPlatformEvent, yaOnResume, yaPlatformPaused } = await import('../../src/game/yandex');
 const { confirmExit, dismissExit, exitPromptShown, onAccountSwitch, onExitPrompt, resetPlatformState, startPlatformEvents } = await import('../../src/game/platform');
-const { flushProfile, getDiamonds, markProfileDirty, pauseProfileSync, resyncProfile } = await import('../../src/game/profile');
+const { flushProfile, getTotals, markProfileDirty, pauseProfileSync, resyncProfile } = await import('../../src/game/profile');
 
 await initYandex();
 
@@ -191,7 +191,7 @@ ok(flushedWhileOpen === false, 'Во время выбора аккаунта з
 ok(count('player.setData') === writesWhileOpen, 'Во время диалога ничего не отправлено', String(count('player.setData')));
 
 // The selected account has its own save. Re-read it before releasing the old account's queued writes.
-cloudBlob = { 'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, diamonds: 500, totals: { bestScore: 4000 } } };
+cloudBlob = { 'orerush.profile': { v: 1, savedAt: Date.now() + 60_000, diamonds: 500, totals: { bestScore: 4000 } } }; // stale wallet field must be ignored
 const readsBefore = count('player.getData');
 const playerFetchesBefore = playerFetches;
 emit('ACCOUNT_SELECTION_DIALOG_CLOSED');
@@ -199,7 +199,8 @@ await accountResync;
 ok(phases.join(',') === 'opened,closed', 'Закрытие диалога доходит до игры', phases.join(','));
 ok(playerFetches > playerFetchesBefore, 'После смены аккаунта заново получен объект Player (getPlayer)', `${playerFetchesBefore} → ${playerFetches}`);
 ok(count('player.getData') > readsBefore, 'Прогресс запрошен заново (player.getData)', String(count('player.getData') - readsBefore));
-ok(getDiamonds() === 500, 'Принят прогресс выбранного аккаунта (алмазы из облака)', String(getDiamonds()));
+ok(getTotals().bestScore >= 4000, 'Приняты lifetime totals выбранного аккаунта, legacy wallet игнорируется', String(getTotals().bestScore));
+ok(!('getDiamonds' in await import('../../src/game/profile')), 'Профиль больше не предоставляет API внутриигрового кошелька');
 const writesAfterResync = count('player.setData');
 await flushProfile(true);
 ok(count('player.setData') === writesAfterResync, 'Старый queued-профиль не отправляется в выбранный аккаунт');

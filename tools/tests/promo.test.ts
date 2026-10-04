@@ -40,7 +40,7 @@ const environment: { app: { id: string }; i18n: { lang: string }; payload?: stri
   app: { id: '4242' },
   i18n: { lang: 'ru' },
   payload: 'campaign-42',
-  referrer: { type: 'promo', promoId: 'SPRING_DISCOUNT', intent: 'open_starter_pack', inappId: 'diamonds-599' },
+  referrer: { type: 'promo', promoId: 'SPRING_DISCOUNT', intent: 'open_starter_pack', inappId: 'chest-common' },
 };
 
 const player = {
@@ -100,14 +100,14 @@ ok(
   'ysdk.environment.referrer отдаёт акцию',
   JSON.stringify(referrer),
 );
-ok(referrer?.intent === 'open_starter_pack' && referrer?.inappId === 'diamonds-599', 'Поля intent и inapp_id сохранены');
+ok(referrer?.intent === 'open_starter_pack' && referrer?.inappId === 'chest-common', 'Поля intent и inapp_id сохранены');
 
 // --- routing of the deep link ------------------------------------------------------------------
 const entry = promoEntry();
-ok(entry?.promoId === 'SPRING_DISCOUNT' && entry.inappId === 'diamonds-599', 'promoEntry() разбирает ссылку', JSON.stringify(entry));
+ok(entry?.promoId === 'SPRING_DISCOUNT' && entry.inappId === 'chest-common', 'promoEntry() разбирает ссылку', JSON.stringify(entry));
 const discount = promoAction();
 ok(
-  discount?.kind === 'shop' && discount.productId === 'diamonds-599',
+  discount?.kind === 'shop' && discount.productId === 'chest-common',
   'Акция со скидкой ведёт в магазин на конкретную покупку',
   JSON.stringify(discount),
 );

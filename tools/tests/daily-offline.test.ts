@@ -1,21 +1,13 @@
-/**
- * Off-Yandex half of the daily-reward contract: without the platform there is no server clock, so the
- * game falls back to the device clock (`yaServerTime()`), the bonus still works for a local player,
- * and nothing pretends to be a cloud record.
- */
-
+/** Off-Yandex daily reward uses local UTC time and keeps the free supply grant available. */
 const storage = new Map<string, string>();
 const localStorageStub = {
-  getItem: (k: string) => (storage.has(k) ? storage.get(k)! : null),
-  setItem: (k: string, v: string) => void storage.set(k, String(v)),
-  removeItem: (k: string) => void storage.delete(k),
+  getItem: (key: string) => (storage.has(key) ? storage.get(key)! : null),
+  setItem: (key: string, value: string) => void storage.set(key, String(value)),
+  removeItem: (key: string) => void storage.delete(key),
   clear: () => storage.clear(),
-  key: (i: number) => [...storage.keys()][i] ?? null,
-  get length() {
-    return storage.size;
-  },
+  key: (index: number) => [...storage.keys()][index] ?? null,
+  get length() { return storage.size; },
 };
-
 const g = globalThis as unknown as Record<string, unknown>;
 g.window = globalThis;
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageStub, configurable: true });
@@ -31,28 +23,30 @@ const ok = (condition: boolean, label: string, detail = '') => {
 };
 
 const { initYandex, yaServerTime } = await import('../../src/game/yandex');
-const { getDiamonds, startProfileSync, flushProfile } = await import('../../src/game/profile');
+const { startProfileSync, flushProfile } = await import('../../src/game/profile');
 const { DAILY_BASE, dailyReward, utcDay, watchAndClaimDailyReward } = await import('../../src/game/daily');
+const { pendingRewardedDropItems } = await import('../../src/game/adDrops');
 
 const sdk = await initYandex();
-ok(sdk === null, 'Вне Яндекс Игр SDK не инициализируется (initYandex → null)');
+ok(sdk === null, 'Outside Yandex Games, SDK initialization returns null');
 const before = Date.now();
-ok(Math.abs(yaServerTime() - before) < 5_000, 'Без сервера время берётся с часов устройства', String(yaServerTime()));
+ok(Math.abs(yaServerTime() - before) < 5_000, 'Without the platform, time uses the device clock', String(yaServerTime()));
 await startProfileSync();
 
 const view = dailyReward();
-ok(view.available && view.amount === DAILY_BASE, 'Вне Яндекса ежедневный бонус работает по местному времени', JSON.stringify(view));
-ok(view.today === utcDay(), 'Дата считается тем же способом (UTC YYYY-MM-DD)', view.today);
+ok(view.available && view.items.length === 4 && view.items[0][1] === 8 * DAILY_BASE, 'The daily supply reward is available offline');
+ok(view.today === utcDay(), 'The daily date uses UTC YYYY-MM-DD', view.today);
 const failed = await watchAndClaimDailyReward(async () => ({ shown: false, rewarded: false, skipped: 'offline' }));
-ok(!failed.ok && failed.reason === 'ad' && getDiamonds() === 0, 'Вне платформы неуспешная реклама не выдаёт бонус');
+ok(!failed.ok && failed.reason === 'ad', 'An unverified offline ad gives no supplies');
 const claim = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: true }));
-ok(claim.ok && getDiamonds() === DAILY_BASE, 'Подтверждённый просмотр начисляет бонус и без платформы', String(getDiamonds()));
-ok(!dailyReward().available, 'Повторно в тот же день бонус не предлагается');
-const balance = getDiamonds();
+ok(claim.ok && claim.items.length === 4, 'A verified rewarded callback grants supplies without the platform');
+const queued = pendingRewardedDropItems('next-run');
+ok(Boolean(queued?.items.length === 4), 'The local reward is queued for the next run');
+ok(!dailyReward().available, 'A successful claim cannot be repeated on the same day');
 const duplicate = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: true }));
-ok(!duplicate.ok && getDiamonds() === balance, 'Второе начисление ничего не меняет', String(getDiamonds()));
+ok(!duplicate.ok, 'A second same-day attempt remains blocked');
 const flushed = await flushProfile(true);
-ok(flushed, 'Запись профиля вне Яндекса не падает');
-ok(!!storage.get('orerush.daily.v1'), 'Состояние бонуса лежит в локальном хранилище');
+ok(flushed, 'Profile saving does not crash outside Yandex Games');
+ok(Boolean(storage.get('orerush.daily.v1')), 'The daily guard is stored locally');
 
 export { passed, failures };

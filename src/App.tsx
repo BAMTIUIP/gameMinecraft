@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
 import { requestGameReview, reviewOffer } from './game/review';
-import { requestShortcut, SHORTCUT_REWARD, shortcutOffer } from './game/shortcut';
+import { requestShortcut, shortcutOffer } from './game/shortcut';
 import {
   coopEnabled,
   publishCoopSession,
@@ -17,6 +17,7 @@ import TouchControls from './ui/TouchControls';
 import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Screens';
 import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, type ScoreEntry } from './ui/scores';
 import Inventory from './ui/Inventory';
+import ChestInventory from './ui/ChestInventory';
 import { EMPTY_STATS, type Slot } from './game/items';
 import { getLang, initLang, resolveLang, setLang, t, type Lang } from './game/i18n';
 import {
@@ -33,7 +34,7 @@ import {
   yaServerTime,
   type YaProfile,
 } from './game/yandex';
-import { addDiamonds, addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
+import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
 import { allFlags, flagBool, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { watchAndClaimDailyReward } from './game/daily';
@@ -43,9 +44,10 @@ import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote
 import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import { completePendingRewardedDropItems, pendingRewardedDropItems, recordRewardedDropLogin, watchAndClaimRewardedDrop, type RewardedDropId } from './game/adDrops';
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
-import { buyAdFree as buyAdFreeProduct, buyDiamondPack, buyRevive, buyShopItem as purchaseShopItem, deliverPendingPurchases, diamondsBalance, DIAMOND_PACKS, loadShopCatalog, paymentsAvailable, REVIVE_DIAMOND_PRICE, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
+import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
-import { grantDeveloperShopProduct } from './game/devShop';
+import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
+import { hasMonkeyPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -61,8 +63,9 @@ import { getCharacterCustomization, saveCharacterCustomization, type CharacterCu
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
 const REVIVE_SECONDS = 60;
 const MAX_REVIVES_PER_RUN = 2;
-/** Ordinary shop is back; the developer-only free catalogue remains explicitly disabled. */
+/** Ordinary shop is enabled; the free developer catalogue is restricted to local DEV builds. */
 const SHOP_SCREENS_ENABLED = true;
+setDeveloperShopEnabled(import.meta.env.DEV && !tvMode());
 
 /** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
 function coopSink(engine: Engine): CoopSink {
@@ -113,6 +116,7 @@ const INITIAL_HUD: HudState = {
   freeLook: true,
   runTime: EXPLORATION_RUN_TIME,
   inventoryOpen: false,
+  chest: null,
   tutorialTip: null,
   explorationObjectives: [],
   objectiveIndex: 0,
@@ -130,6 +134,15 @@ const INITIAL_HUD: HudState = {
   swordTier: -1,
   equipped: {},
   bagItems: [],
+  petOwned: false,
+  petOwnedKinds: [],
+  petTokenAvailable: false,
+  petEquipped: false,
+  petEquippedKind: null,
+  petSelectedKind: 'wolf',
+  petCoatIndices: { wolf: 0, monkey: 0 },
+  petCoatIndex: 0,
+  petInteractNear: false,
   stats: EMPTY_STATS,
   killedBy: null,
   offers: [],
@@ -175,11 +188,16 @@ export default function App() {
   const [adBusy, setAdBusy] = useState(false);
   const [adNotice, setAdNotice] = useState<string | null>(null);
   const [revivesUsed, setRevivesUsed] = useState(0);
-  // shop: real payments go through the Yandex payment frame, the balance lives in the cloud profile
-  const [diamonds, setDiamonds] = useState(0);
+  // Store prices and currency icons are formatted by the active Yandex Games catalogue.
   const [shopPrices, setShopPrices] = useState<ShopCatalog>(() => new Map());
   const [canPay, setCanPay] = useState(false);
   const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
+  const [wolfPetOwned, setWolfPetOwned] = useState(() => hasWolfPet());
+  const [monkeyPetOwned, setMonkeyPetOwned] = useState(() => hasMonkeyPet());
+  const refreshPetOwnership = useCallback(() => {
+    setWolfPetOwned(hasWolfPet());
+    setMonkeyPetOwned(hasMonkeyPet());
+  }, []);
   const [adFreeBusy, setAdFreeBusy] = useState(false);
   const [adFreeNotice, setAdFreeNotice] = useState<string | null>(null);
   // leaderboard: the platform keeps the rating, the game only submits results and draws the top
@@ -225,8 +243,10 @@ export default function App() {
     // Yandex Games: auto-detect the user's language from the platform (rule 2.14).
     // An explicit in-game choice (saved in safeStorage) always wins.
     void initYandex().then(async () => {
-      // Yandex may have installed safeStorage after the first render; refresh the local ad-free cache
-      // before remote flags, the catalogue and the platform's default sticky banner are reconciled.
+      // Yandex may have installed safeStorage after the first render; refresh permanent entitlements
+      // before cloud reconciliation, catalogue loading and the platform's default sticky banner.
+      refreshPetStateFromStorage();
+      refreshPetOwnership();
       setAdFreeOwned(hasAdFreeEntitlement());
       const platformLang = yaLang();
       if (platformLang && storageGet('orerush.lang') === null) {
@@ -238,6 +258,7 @@ export default function App() {
       // Cloud profile: pull records/settings made on another device and report our own progress.
       // Outside Yandex this resolves immediately with platform: null.
       const snapshot = await startProfileSync();
+      refreshPetOwnership();
       // Apply cloud progress first, then record today's unique trusted-UTC login date.
       recordRewardedDropLogin();
       setProfile(snapshot.platform);
@@ -259,15 +280,15 @@ export default function App() {
       if (paymentsAvailable()) {
         const catalog = await loadShopCatalog();
         const restored = await deliverPendingPurchases();
-        // Publish the catalogue after getPurchases() settles so a returning owner never sees a
-        // second-purchase button while their permanent entitlement is still being restored.
+        // Publish entitlements after getPurchases() settles so returning owners never see a second-purchase button.
+        refreshPetOwnership();
         setAdFreeOwned(hasAdFreeEntitlement());
         setShopPrices(catalog);
         if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
       } else {
+        refreshPetOwnership();
         setAdFreeOwned(hasAdFreeEntitlement());
       }
-      setDiamonds(diamondsBalance());
       setLbAvailable(leaderboardAvailable());
       // Desktop shortcut: a quiet check at startup — the button only appears when the platform can
       // actually show the native dialog on this device.
@@ -384,12 +405,12 @@ export default function App() {
         })
         .then(async () => {
           const restored = await deliverPendingPurchases();
+          refreshPetOwnership();
           setAdFreeOwned(hasAdFreeEntitlement());
           if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
           setCharacterCustomization(getCharacterCustomization());
           setScores(loadScores());
           setName(loadPlayerName());
-          setDiamonds(diamondsBalance());
           engineRef.current?.toMenu();
         })
         .finally(() => pauseProfileSync(false));
@@ -463,6 +484,10 @@ export default function App() {
 
   const equip = useCallback((uid: string) => engineRef.current?.equip(uid), []);
   const unequip = useCallback((slot: Slot) => engineRef.current?.unequip(slot), []);
+  const equipPet = useCallback((kind: PetKind) => engineRef.current?.setPetEquipped(kind, true), []);
+  const unequipPet = useCallback((kind: PetKind) => engineRef.current?.setPetEquipped(kind, false), []);
+  const selectPetKind = useCallback((kind: PetKind) => engineRef.current?.selectPetKind(kind), []);
+  const cyclePetCoat = useCallback((kind: PetKind, direction: number) => engineRef.current?.cyclePetCoat(kind, direction), []);
   const sell = useCallback((id: number) => engineRef.current?.sellResource(id), []);
   const buyOffer = useCallback((i: number) => engineRef.current?.buyOffer(i), []);
   const upgradeItem = useCallback((uid: string) => engineRef.current?.upgradeToNetherite(uid), []);
@@ -670,6 +695,11 @@ export default function App() {
   const craft = useCallback((key: string) => engineRef.current?.craft(key), []);
   const openInventory = useCallback(() => engineRef.current?.openInventory(), []);
   const closeInventory = useCallback(() => engineRef.current?.closeInventory(), []);
+  const transferChestItem = useCallback(
+    (id: number, amount: number, toChest: boolean) => engineRef.current?.transferChestItem(id, amount, toChest) ?? false,
+    [],
+  );
+  const takeAllFromChest = useCallback(() => engineRef.current?.takeAllFromChest() ?? false, []);
 
   // live profile updates (avatar appears after the first getPlayer, sign-in refreshes it)
   useEffect(() => onProfileChange((snap: ProfileSnapshot) => setProfile(snap.platform)), []);
@@ -687,7 +717,9 @@ export default function App() {
 
   useEffect(() => {
     isTvRef.current = isTv;
-  }, [isTv]);
+    setDeveloperShopEnabled(import.meta.env.DEV && !isTv && !tvMode());
+    refreshPetOwnership();
+  }, [isTv, refreshPetOwnership]);
   useEffect(() => {
     exitPromptOpenRef.current = exitPrompt;
     // A TV player must see where the remote is pointing: when the leave dialog opens, the focus (and
@@ -731,13 +763,13 @@ export default function App() {
     // player, so force a fresh cloud read before applying the newly authorised account's progress.
     const cloudApplied = await resyncProfile();
     const restored = await deliverPendingPurchases();
+    refreshPetOwnership();
     setAdFreeOwned(hasAdFreeEntitlement());
     if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
     setScores(loadScores());
     setName(loadPlayerName());
-    setDiamonds(diamondsBalance());
     if (cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
-  }, []);
+  }, [refreshPetOwnership]);
 
   /**
    * World ranking: loaded when the player opens the tab (and by the refresh button). The module
@@ -779,8 +811,7 @@ export default function App() {
     try {
       const result = await watchAndClaimDailyReward();
       if (result.ok) {
-        setDiamonds(diamondsBalance());
-        setDailyNote(t('dailyTaken').replace('{n}', String(result.amount)));
+        setDailyNote(t('dailyTaken'));
       } else if (result.reason === 'ad') {
         setDailyNote(t('adNotShown'));
       } else if (result.reason === 'storage') {
@@ -802,8 +833,7 @@ export default function App() {
     const result = await requestShortcut();
     setCanShortcut(false);
     if (result === 'accepted') {
-      setDiamonds(diamondsBalance());
-      setShortcutNote(t('shortcutDone').replace('{n}', String(SHORTCUT_REWARD)));
+      setShortcutNote(t('shortcutDone'));
     } else if (result === 'dismissed') {
       setShortcutNote(t('shortcutDismissed'));
     } else if (result === 'failed') {
@@ -826,12 +856,12 @@ export default function App() {
     if (catalog.size) setShopPrices(catalog);
   }, []);
 
-  /** Opens the Yandex payment frame and settles the balance when it closes. */
-  const buyPack = useCallback(async (productId: string): Promise<BuyResult> => {
-    const result = await buyDiamondPack(productId);
-    setDiamonds(result.diamonds);
+  /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
+  const buyInGameShopItem = useCallback(async (productId: string): Promise<ShopItemBuyResult> => {
+    const result = await buyShopProduct(productId);
+    if ((productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
     return result;
-  }, []);
+  }, [refreshPetOwnership]);
 
   const buyAdFree = useCallback(async () => {
     if (adFreeBusyRef.current) return;
@@ -854,44 +884,18 @@ export default function App() {
     }
   }, []);
 
-  const buyInGameShopItem = useCallback((productId: string): ShopItemBuyResult => {
-    const result = purchaseShopItem(productId);
-    setDiamonds(result.diamonds);
-    return result;
-  }, []);
-
   /** A shop drop is committed only after the SDK confirms the rewarded video was counted. */
   const claimShopDrop = useCallback(async (dropId: RewardedDropId) => {
-    const result = await watchAndClaimRewardedDrop(dropId);
-    if (result.ok && result.diamonds > 0) setDiamonds(diamondsBalance());
-    return result;
+    return watchAndClaimRewardedDrop(dropId);
   }, []);
 
   /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
-    if (!import.meta.env.DEV || isTvRef.current) return false;
-    const diamonds = DIAMOND_PACKS[productId];
-    if (!grantDeveloperShopProduct(productId, diamonds !== undefined)) return false;
-    if (diamonds) addDiamonds(diamonds, 'grant');
-    setDiamonds(diamondsBalance());
-    return true;
-  }, []);
-
-  /** Paid alternative to the rewarded video: same revive, paid with diamonds. */
-  const reviveWithDiamonds = useCallback(() => {
-    const engine = engineRef.current;
-    if (!engine || engine.phase !== 'gameover') return;
-    if (diamondsBalance() < REVIVE_DIAMOND_PRICE) {
-      setAdNotice(t('notEnoughDiamonds'));
-      return;
-    }
-    if (!engine.reviveAfterAd(REVIVE_SECONDS)) return;
-    // the balance was checked a line above, so a refusal here would be a race, not a shortfall:
-    // the revive is already granted and the diamonds stay with the player
-    buyRevive();
-    setDiamonds(diamondsBalance());
-    setAdNotice(null);
-  }, []);
+    if (!import.meta.env.DEV || isTvRef.current || tvMode()) return false;
+    const granted = grantDeveloperShopProduct(productId);
+    if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) refreshPetOwnership();
+    return granted;
+  }, [refreshPetOwnership]);
 
   const playing = hud.phase === 'playing' || hud.phase === 'paused';
 
@@ -921,7 +925,7 @@ export default function App() {
         />
       )}
 
-      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} />}
+      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} petInteractNear={hud.petInteractNear} />}
 
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (
@@ -948,9 +952,10 @@ export default function App() {
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
           shopEnabled={SHOP_SCREENS_ENABLED && flags['shop.enabled'] !== 'false' && !isTv && !tvMode()}
-          developerShopEnabled={false}
-          diamonds={diamonds}
+          developerShopEnabled={import.meta.env.DEV && !isTv && !tvMode()}
           shopPrices={shopPrices}
+          wolfPetOwned={wolfPetOwned}
+          monkeyPetOwned={monkeyPetOwned}
           onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
           adFreeOwned={adFreeOwned}
@@ -958,7 +963,6 @@ export default function App() {
           adFreeNotice={adFreeNotice}
           onBuyAdFree={buyAdFree}
           rewardedAdsEnabled={rewardedAdsAvailable()}
-          onBuyPack={buyPack}
           onBuyShopItem={buyInGameShopItem}
           onClaimRewardedDrop={claimShopDrop}
           onDeveloperClaim={grantDeveloperProduct}
@@ -981,7 +985,15 @@ export default function App() {
           onSaveCharacter={saveCharacter}
         />
       )}
-      {hud.phase === 'playing' && hud.inventoryOpen && (
+      {hud.phase === 'playing' && hud.inventoryOpen && hud.chest && (
+        <ChestInventory
+          hud={hud}
+          onTransfer={transferChestItem}
+          onTakeAll={takeAllFromChest}
+          onClose={closeInventory}
+        />
+      )}
+      {hud.phase === 'playing' && hud.inventoryOpen && !hud.chest && (
         <Inventory
           hud={hud}
           onCraft={craft}
@@ -989,6 +1001,10 @@ export default function App() {
           onClose={closeInventory}
           onEquip={equip}
           onUnequip={unequip}
+          onEquipPet={equipPet}
+          onUnequipPet={unequipPet}
+          onSelectPetKind={selectPetKind}
+          onCyclePetCoat={cyclePetCoat}
           onSell={sell}
           onBuy={buyOffer}
           onUpgrade={upgradeItem}
@@ -1032,9 +1048,6 @@ export default function App() {
           adBusy={adBusy}
           adNotice={adNotice}
           reviveSeconds={REVIVE_SECONDS}
-          diamonds={diamonds}
-          diamondPrice={REVIVE_DIAMOND_PRICE}
-          onDiamondRevive={reviveWithDiamonds}
           myRank={myRank}
           squadNote={squadNote}
           onCopyResult={copyResult}

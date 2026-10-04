@@ -58,6 +58,7 @@ import {
   FLOWER_PURPLE,
   FLOWER_WHITE,
   FARMLAND,
+  CHEST_STORAGE,
   HAY_BALE,
   BIRD_NEST, CHICKEN_NEST,
   ICE,
@@ -107,10 +108,11 @@ import {
   isResource,
   isSolid,
   isTreasureChest,
+  isBiomeTreasureChest,
   isOpenChest,
+  openChestId,
   isUnderwaterChest,
   baseChestId,
-  CHEST_OPEN_OFFSET,
 } from './blocks';
 import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
@@ -142,9 +144,23 @@ import {
   toolRepairCost,
   toolWearStage,
 } from './tools';
-import { babyGrowthScale, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, buildMonkeyCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
+import {
+  MONKEY_COATS,
+  WOLF_COATS,
+  getMonkeyCoatIndex,
+  getWolfCoatIndex,
+  hasMonkeyPet,
+  hasWolfPet,
+  refreshPetStateFromStorage,
+  setMonkeyCoatIndex,
+  setWolfCoatIndex,
+  type MonkeyCoat,
+  type PetKind,
+  type WolfCoat,
+} from './pets';
 import { companionSpawnIsClear } from './companionSpawn';
 import {
   canSpawnSurvivalHostiles,
@@ -174,7 +190,7 @@ import {
   type Slot,
   type Stats,
 } from './items';
-import { blockName, matName, pickaxeLabel, rarName, recipeText, toolLabelForId, t, type TKey } from './i18n';
+import { blockName, matName, pickaxeLabel, recipeText, toolLabelForId, t, type TKey } from './i18n';
 import { yaServerTime } from './yandex';
 import { deviceKind } from './params';
 
@@ -351,6 +367,7 @@ export type HudState = {
   /** teammates replayed from asynchronous multiplayer sessions (empty outside co-op) */
   squad: CompanionStatus[];
   inventoryOpen: boolean;
+  chest: { id: number; name: string; items: Array<{ id: number; count: number }> } | null;
   tutorialTip: TutorialTip | null;
   explorationObjectives: HudObjective[];
   objectiveIndex: number;
@@ -377,6 +394,17 @@ export type HudState = {
   swordTier: number;
   equipped: Partial<Record<Slot, Item>>;
   bagItems: Item[];
+  /** Permanent Yandex entitlements and the one shared, per-run companion equipment slot. */
+  petOwned: boolean;
+  petOwnedKinds: PetKind[];
+  petTokenAvailable: boolean;
+  petEquipped: boolean;
+  petEquippedKind: PetKind | null;
+  petSelectedKind: PetKind;
+  petCoatIndices: Record<PetKind, number>;
+  /** Selected-kind coat index retained for existing HUD/test consumers. */
+  petCoatIndex: number;
+  petInteractNear: boolean;
   stats: Stats;
   killedBy: string | null;
 };
@@ -409,6 +437,8 @@ export const SESSION_LENGTHS = [
 export type TradeOffer = { item: Item; cost: Array<[number, number]>; sold: boolean };
 const MAX_PARTICLES = 520;
 const MAX_DROPS = 44;
+const CHEST_SLOT_LIMIT = 27;
+const CHEST_STACK_LIMIT = 999;
 const GRAVITY = 30;
 const JUMP_V = 9.4;
 const WALK = 4.6;
@@ -467,6 +497,7 @@ type Drop = {
   vy: number;
   vz: number;
   age: number;
+  count?: number;
   mesh: THREE.Mesh;
   /** clearance between the pickup origin and the floor, including bobbing */
   clearance: number;
@@ -478,8 +509,72 @@ type Drop = {
   pickupDelay?: number;
   /** true when thrown by the player via G (avoids duplicate mining score on re-pickup) */
   thrown?: boolean;
+  /** a chest resource carried by the wolf (storage contents are not mining-score drops) */
+  fromChest?: boolean;
+  /** Temporarily ignored after the wolf has repeatedly failed to reach it. */
+  wolfPetIgnoreUntil?: number;
   /** durable tool instance carried by this drop */
   toolInstance?: ToolInstance | null;
+  /** temporarily carried to the player by the equipped wolf companion */
+  petCarried?: boolean;
+};
+
+type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
+type WolfChestTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number; swimming: boolean };
+const WOLF_PET_PLAYER_GAP = 1.28;
+const WOLF_PET_INTERACTION_RANGE = 2.2;
+const WOLF_PET_REST_DELAY = 0.28;
+const WOLF_PET_FOLLOW_RESUME_DELAY = 0.14;
+const WOLF_PET_FETCH_STALL_SECONDS = 0.42;
+const WOLF_PET_FETCH_MOVING_ABANDON_SECONDS = 1.0;
+const WOLF_PET_FETCH_RETRY_SECONDS = 4.0;
+const WOLF_PET_TELEPORT_REVEAL_SECONDS = 1.0;
+
+type WolfPetRig = {
+  kind: PetKind;
+  group: THREE.Group;
+  model: THREE.Group;
+  pose: THREE.Group;
+  body: THREE.Object3D | null;
+  head: THREE.Object3D | null;
+  jaw: THREE.Object3D | null;
+  tail: THREE.Object3D | null;
+  legs: THREE.Object3D[];
+  target: THREE.Vector3;
+  navWaypoint: THREE.Vector3;
+  navGoal: THREE.Vector3;
+  navTimer: number;
+  restAnchor: THREE.Vector3;
+  restYaw: number;
+  restAnchorValid: boolean;
+  stillTimer: number;
+  moveStartTimer: number;
+  teleportRevealTimer: number;
+  yawTarget: number;
+  phase: number;
+  hopTimer: number;
+  moving: boolean;
+  sitting: boolean;
+  attackTimer: number;
+  attackPoseTimer: number;
+  reaction: WolfPetReaction;
+  reactionTimer: number;
+  reactionAge: number;
+  reactionSoundTimer: number;
+  fetchTarget: Drop | null;
+  chestTarget: WolfChestTarget | null;
+  chestScanTimer: number;
+  chestBlockedTimer: number;
+  chestIgnoredKey: string;
+  chestIgnoreUntil: number;
+  fetchBlockedDrop: Drop | null;
+  fetchBlockedTimer: number;
+  fetchNoProgressTimer: number;
+  fetchNoPath: boolean;
+  carrying: Drop | null;
+  swimming: boolean;
+  underwater: boolean;
+  reactionLookTimer: number;
 };
 
 /* =========================== co-op rig helpers =========================== */
@@ -510,6 +605,193 @@ function addCharacterBox(parent: THREE.Object3D, w: number, h: number, d: number
   mesh.position.set(x, y, z);
   parent.add(mesh);
   return mesh;
+}
+
+/** Small voxel wolf assembled from reusable cuboids; forward is local -Z, like the mob models. */
+function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
+  const group = new THREE.Group();
+  group.name = 'equipped-wolf-pet';
+  group.userData.companion = 'wolf-pet';
+  const model = new THREE.Group();
+  group.add(model);
+
+  const bodyMat = new THREE.MeshLambertMaterial({ color: coat.body });
+  const darkMat = new THREE.MeshLambertMaterial({ color: coat.dark });
+  const lightMat = new THREE.MeshLambertMaterial({ color: coat.light });
+  const muzzleMat = new THREE.MeshLambertMaterial({ color: coat.muzzle });
+  const bellyMat = new THREE.MeshLambertMaterial({ color: coat.belly });
+  const eyeWhiteMat = new THREE.MeshLambertMaterial({ color: '#f8f4e8' });
+  const eyeMat = new THREE.MeshLambertMaterial({ color: '#151719' });
+  const noseMat = new THREE.MeshLambertMaterial({ color: '#17191b' });
+  const innerEarMat = new THREE.MeshLambertMaterial({ color: coat.dark });
+
+  const box = (parent: THREE.Object3D, w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number) =>
+    addCharacterBox(parent, w, h, d, mat, x, y, z);
+
+  const body = new THREE.Group();
+  body.position.set(0, 0.58, 0.02);
+  model.add(body);
+  box(body, 0.82, 0.48, 0.92, bodyMat, 0, 0, 0.02);
+  box(body, 0.52, 0.43, 0.28, bodyMat, 0, 0.02, -0.47);
+  box(body, 0.38, 0.34, 0.075, lightMat, 0, -0.035, -0.618);
+  box(body, 0.5, 0.16, 0.48, bellyMat, 0, -0.19, -0.025);
+
+  if (coat.marking === 'striped') {
+    for (const z of [-0.28, 0, 0.28]) box(body, 0.78, 0.035, 0.09, darkMat, 0, 0.245, z);
+  } else if (coat.marking === 'spotted') {
+    for (const side of [-1, 1]) {
+      box(body, 0.025, 0.12, 0.13, darkMat, side * 0.415, 0.07, -0.17);
+      box(body, 0.025, 0.1, 0.11, lightMat, side * 0.415, -0.085, 0.13);
+      box(body, 0.025, 0.08, 0.1, darkMat, side * 0.415, 0.12, 0.25);
+    }
+  }
+
+  const head = new THREE.Group();
+  head.position.set(0, 0.91, -0.56);
+  model.add(head);
+  box(head, 0.48, 0.44, 0.44, bodyMat, 0, 0, 0);
+  box(head, 0.3, 0.18, 0.25, muzzleMat, 0, -0.13, -0.3);
+  box(head, 0.13, 0.1, 0.065, noseMat, 0, -0.105, -0.445);
+  for (const side of [-1, 1]) {
+    box(head, 0.085, 0.08, 0.035, eyeWhiteMat, side * 0.14, 0.055, -0.228);
+    box(head, 0.038, 0.05, 0.022, eyeMat, side * 0.14, 0.052, -0.255);
+    box(head, 0.15, 0.2, 0.14, darkMat, side * 0.16, 0.29, 0.015);
+    box(head, 0.065, 0.105, 0.025, innerEarMat, side * 0.16, 0.29, -0.069);
+  }
+
+  const jaw = new THREE.Group();
+  jaw.position.set(0, -0.19, -0.29);
+  head.add(jaw);
+  box(jaw, 0.22, 0.055, 0.17, coat.marking === 'plain' ? muzzleMat : lightMat, 0, -0.005, -0.035);
+  box(jaw, 0.045, 0.025, 0.035, noseMat, -0.055, 0, -0.105);
+  box(jaw, 0.045, 0.025, 0.035, noseMat, 0.055, 0, -0.105);
+
+  const tail = new THREE.Group();
+  tail.position.set(0, 0.77, 0.48);
+  model.add(tail);
+  const tailBase = box(tail, 0.17, 0.17, 0.35, bodyMat, 0, 0, 0.17);
+  tailBase.rotation.x = 0.28;
+  box(tail, 0.15, 0.15, 0.1, darkMat, 0, 0.035, 0.37);
+
+  const legs: THREE.Group[] = [];
+  for (const z of [-0.3, 0.31]) {
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Group();
+      leg.position.set(side * 0.25, 0.39, z);
+      box(leg, 0.18, 0.37, 0.19, bodyMat, 0, -0.17, 0);
+      box(leg, 0.205, 0.1, 0.23, darkMat, 0, -0.35, -0.015);
+      model.add(leg);
+      legs.push(leg);
+    }
+  }
+
+  return {
+    kind: 'wolf',
+    group,
+    model,
+    pose: model,
+    body,
+    head,
+    jaw,
+    tail,
+    legs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: true,
+    attackTimer: 0.35,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+  };
+}
+
+/** Use the ordinary jungle monkey mesh, with a palette chosen for this permanent pet. */
+function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
+  const group = new THREE.Group();
+  group.name = 'equipped-monkey-pet';
+  group.userData.companion = 'monkey-pet';
+  const model = new THREE.Group();
+  const pose = new THREE.Group();
+  pose.position.y = 0.36;
+  model.add(pose);
+  const monkey = buildMonkeyCompanionBody(coat);
+  monkey.group.position.y = -0.36;
+  pose.add(monkey.group);
+  group.add(model);
+  return {
+    kind: 'monkey',
+    group,
+    model,
+    pose,
+    body: null,
+    head: monkey.head,
+    jaw: null,
+    tail: monkey.tail,
+    legs: monkey.limbs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: true,
+    attackTimer: 0.35,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+  };
 }
 
 const CHARACTER_HEAD_SIZE = 0.4;
@@ -864,6 +1146,10 @@ export class Engine {
   private chestLids = new Map<number, Array<{ cell: string; group: THREE.Group }>>();
   private chestLidByCell = new Map<string, THREE.Group>();
   private chestLidAnims: Array<{ group: THREE.Group; t: number; dur: number; keys: Array<[number, number]> }> = [];
+  /** Chest contents are sidecar block-entity state keyed by world cell; empty entries stay present. */
+  private chestInventories = new Map<string, Map<number, number>>();
+  private chestBonusGear = new Map<string, Item[]>();
+  private activeChest: { x: number; y: number; z: number } | null = null;
   /** horizontal draw distance in blocks (auto-tuned by the fps watchdog) */
   private renderDist = 132;
   private maxRenderDist = 132;
@@ -987,6 +1273,14 @@ export class Engine {
   private swordTier = -1;
   private equipped: Partial<Record<Slot, Item>> = {};
   private bagItems: Item[] = [];
+  private petOwned = false;
+  private petOwnedKinds: PetKind[] = [];
+  private petTokenAvailable = false;
+  private petEquipped = false;
+  private petEquippedKind: PetKind | null = null;
+  private petSelectedKind: PetKind = 'wolf';
+  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0 };
+  private petCoatIndex = 0;
   private stats: Stats = { ...EMPTY_STATS };
   private attackCd = 0;
   private sunLight!: THREE.DirectionalLight;
@@ -1091,6 +1385,9 @@ export class Engine {
   /** ghost miners from asynchronous multiplayer sessions; keyed by the platform's opponent id */
   private companionLayer = new THREE.Group();
   private companions = new Map<string, CompanionRig>();
+  /** Wolves are created only by equipping the owned pet token; they are never ordinary mob spawns. */
+  private wolfPetLayer = new THREE.Group();
+  private wolfPetRig: WolfPetRig | null = null;
 
   /** the multiplayer recorder listens here: it gets the pose a few times per second while playing */
   private poseSink: ((pose: PlayerPose) => void) | null = null;
@@ -1263,6 +1560,7 @@ export class Engine {
     this.buildThirdPersonFogCap();
     this.buildFxLayer();
     this.scene.add(this.companionLayer);
+    this.scene.add(this.wolfPetLayer);
     this.bindInput();
     this.layoutViewModel(w / h);
     this.setRenderDist(this.renderDist);
@@ -2522,6 +2820,9 @@ if (tpClipActive > 0.5) {
     this.weatherSpawnAcc = 0;
     this.visualClimateReady = false;
     seedNoise(seed);
+    this.chestInventories.clear();
+    this.chestBonusGear.clear();
+    this.activeChest = null;
     this.world.reset(seed);
     this.rand = mulberry32(seed);
     this.setMenuClockForMode();
@@ -3190,7 +3491,7 @@ if (tpClipActive > 0.5) {
       return;
     }
     // touch: the PLACE button doubles as the door/window toggle
-    if (v && !this.interact()) this.tryPlace();
+    if (v && !this.interact(true)) this.tryPlace();
     this.placing = v;
   }
   selectSlot(i: number) {
@@ -3362,7 +3663,7 @@ if (tpClipActive > 0.5) {
         chunks.push([key, ch.state, Engine.rleEnc(ch.blocks), Engine.rleEnc(ch.height)]);
       }
       const data = {
-        v: 2,
+        v: 3,
         savedAt: yaServerTime(),
         seed: this.world.seed,
         clock: this.clock,
@@ -3383,6 +3684,8 @@ if (tpClipActive > 0.5) {
         equipped: this.equipped,
         bagItems: this.bagItems,
         hive: Array.from(this.hiveHoney.entries()),
+        chests: Array.from(this.chestInventories, ([cell, items]) => [cell, Array.from(items.entries())]),
+        chestBonusGear: Array.from(this.chestBonusGear.entries()),
         birdNests: this.birdNests,
         vineTips: Array.from(this.vineTips.entries()),
         kills: this.kills,
@@ -3416,19 +3719,42 @@ if (tpClipActive > 0.5) {
     } catch {
       return false;
     }
-    if (!data || (data.v !== 1 && data.v !== 2)) return false;
+    if (!data || (data.v !== 1 && data.v !== 2 && data.v !== 3)) return false;
 
     // fresh run scaffolding first (clears mobs/doors/trees/fluids/meshes)
     this.startRun(undefined, true);
 
     // then overwrite the world with the saved chunks
     this.world.reset(data.seed);
+    this.chestInventories.clear();
+    this.chestBonusGear.clear();
+    this.activeChest = null;
     for (const [key, state, blocksRLE, heightRLE] of data.chunks) {
       const blocks = new Uint8Array(CHUNK * WY * CHUNK);
       const height = new Int16Array(CHUNK * CHUNK);
       Engine.rleDec(blocksRLE, blocks.length, blocks);
       Engine.rleDec(heightRLE, height.length, height);
       this.world.chunks.set(key, { blocks, height, state });
+    }
+    if (Array.isArray(data.chests)) {
+      for (const entry of data.chests) {
+        if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) continue;
+        const items = new Map<number, number>();
+        for (const rawPair of entry[1]) {
+          if (!Array.isArray(rawPair)) continue;
+          const id = Math.floor(Number(rawPair[0]));
+          const count = Math.min(CHEST_STACK_LIMIT, Math.floor(Number(rawPair[1])));
+          if (id > AIR && BLOCKS[id] && Number.isFinite(count) && count > 0) items.set(id, count);
+        }
+        this.chestInventories.set(entry[0], items);
+      }
+    }
+    if (Array.isArray(data.chestBonusGear)) {
+      for (const entry of data.chestBonusGear) {
+        if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) continue;
+        const items = entry[1].filter((item: unknown) => item && typeof item === 'object').map((item: Item) => ensureGearHid(item));
+        if (items.length) this.chestBonusGear.set(entry[0], items);
+      }
     }
     this.clearAllMeshes();
 
@@ -3554,7 +3880,20 @@ if (tpClipActive > 0.5) {
 
   // ================= PHASE CONTROL =================
   startRun(seconds?: number, sandbox = false) {
+    if (this.activeChest) this.closeActiveChest();
     const survivalRun = this.survival;
+    this.clearWolfPetRig();
+    refreshPetStateFromStorage();
+    this.petOwnedKinds = [];
+    if (hasWolfPet()) this.petOwnedKinds.push('wolf');
+    if (hasMonkeyPet()) this.petOwnedKinds.push('monkey');
+    this.petOwned = this.petOwnedKinds.length > 0;
+    this.petTokenAvailable = this.petOwned;
+    this.petEquipped = false;
+    this.petEquippedKind = null;
+    this.petSelectedKind = this.petOwnedKinds[0] ?? 'wolf';
+    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex() };
+    this.petCoatIndex = this.petCoatIndices[this.petSelectedKind];
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
     initAudio();
@@ -3586,6 +3925,7 @@ if (tpClipActive > 0.5) {
     this.selected = 0;
     this.deathCause = null;
     this.inventoryOpen = false;
+    this.activeChest = null;
     this.lastCraft = null;
     this.tutorialTip = null;
     this.tutorialTipTimer = 0;
@@ -3611,6 +3951,7 @@ if (tpClipActive > 0.5) {
       d.active = false;
       d.mesh.visible = false;
       d.toolInstance = null;
+      d.petCarried = false;
       if (d.fancy) {
         this.scene.remove(d.fancy);
         d.fancy = null;
@@ -3921,6 +4262,11 @@ if (tpClipActive > 0.5) {
   }
 
   toMenu() {
+    if (this.activeChest) this.closeActiveChest();
+    this.clearWolfPetRig();
+    this.petEquipped = false;
+    this.petEquippedKind = null;
+    this.petTokenAvailable = this.petOwned;
     this.phase = 'menu';
     this.inventoryOpen = false;
     this.sandbox = false;
@@ -3963,6 +4309,7 @@ if (tpClipActive > 0.5) {
 
   endRun(cause: 'time' | 'lava' | 'fall' | 'mob') {
     if (this.phase !== 'playing') return;
+    if (this.activeChest) this.closeActiveChest();
     this.sleeping = false;
     this.sleepDark = 0;
     this.phase = 'gameover';
@@ -3990,6 +4337,7 @@ if (tpClipActive > 0.5) {
    */
   reviveAfterAd(seconds = 60): boolean {
     if (this.phase !== 'gameover') return false;
+    if (this.activeChest) this.closeActiveChest();
     const cause = this.deathCause;
     this.phase = 'playing';
     this.deathCause = null;
@@ -4063,6 +4411,7 @@ if (tpClipActive > 0.5) {
     else this.updateGameOver(dt);
 
     this.updateCompanions(dt);
+    this.updateWolfPet(dt);
     if (this.poseSink && this.phase === 'playing') {
       this.poseAcc += dt;
       if (this.poseAcc >= 0.25) {
@@ -5459,6 +5808,7 @@ if (tpClipActive > 0.5) {
 
   private breakBlock(x: number, y: number, z: number, id: number) {
     const def = BLOCKS[id];
+    if (isTreasureChest(id)) this.spillChestContents(x, y, z, id);
     this.world.set(x, y, z, AIR);
     if (id === BED) {
       // A bed is 2 blocks long: breaking either half removes the partner half too
@@ -5522,6 +5872,8 @@ if (tpClipActive > 0.5) {
       for (let i = 0; i < stored; i++) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, HONEY);
       if (stored > 0) this.burst(x + 0.5, y + 0.5, z + 0.5, [244, 184, 58], 12, 2.6);
       this.angerBees(x, y, z);
+    } else if (isTreasureChest(id)) {
+      // Contents and the reusable chest item were spilled before the block was removed.
     } else if (id === COCONUT_LEAVES || id === BANANA_LEAVES) {
       this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, id === COCONUT_LEAVES ? COCONUT : BANANA);
     } else if (id === APPLE_LEAVES) {
@@ -5811,9 +6163,11 @@ if (tpClipActive > 0.5) {
     return null;
   }
 
-  /** E — trade with the trader, open the door/window under the crosshair, or close ones nearby */
-  interact(): boolean {
+  /** E — pet the equipped wolf, trade with the trader, or use a nearby world object. */
+  interact(skipPet = false): boolean {
     if (this.phase !== 'playing') return false;
+    // A nearby companion must not consume the E action intended for the chest under the crosshair.
+    if (!skipPet && this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE) && !isTreasureChest(this.target?.id ?? AIR)) return this.petWolf();
     // trader first — walking up to him and pressing E opens the trade tab
     if (this.traderNear()) {
       this.queueTutorialTip('mechanic:trader', t('tutorialTraderTitle'), t('tutorialTraderBody'), '#d98cff', 'trader');
@@ -5836,9 +6190,9 @@ if (tpClipActive > 0.5) {
       this.openInventory();
       return true;
     }
-    // Biome-themed treasure chests open directly into the player's haul.
+    // Generated and player-placed chests share the same storage interface.
     if (tg && isTreasureChest(tg.id)) {
-      this.openTreasureChest(tg.x, tg.y, tg.z, tg.id);
+      this.openChestAt(tg.x, tg.y, tg.z, tg.id);
       return true;
     }
     // bed → sleep through the night
@@ -5893,26 +6247,22 @@ if (tpClipActive > 0.5) {
     return closed;
   }
 
-  /** Chest contents are seed-and-position deterministic, so an unopened chest needs no sidecar save data. */
-  private openTreasureChest(x: number, y: number, z: number, id: number) {
-    if (this.world.get(x, y, z) !== id || !isTreasureChest(id)) return false;
+  /** Generate the original biome-cache loot once, then keep it as block-entity state until claimed. */
+  private chestInventoryAt(x: number, y: number, z: number, id: number): Map<number, number> {
+    const key = Engine.chestCellKey(x, y, z);
+    this.chestInventories ??= new Map();
+    const saved = this.chestInventories.get(key);
+    if (saved) return saved;
+
+    const loot = new Map<number, number>();
+    this.chestInventories.set(key, loot);
     const base = baseChestId(id);
-    const [br, bg, bb] = BLOCKS[base].tint;
-    const bannerColor = `rgb(${br}, ${bg}, ${bb})`;
-    // A looted chest stays in the world: it creaks its lid and shows an empty interior.
-    if (isOpenChest(id)) {
-      this.swingChestLid(
-        x, y, z, CHEST_LID_OPEN_ANGLE,
-        [[0, CHEST_LID_OPEN_ANGLE], [0.3, CHEST_LID_OPEN_ANGLE + 0.2], [1, CHEST_LID_OPEN_ANGLE]],
-        0.5,
-      );
-      this.pushBanner(t('chestEmpty'), blockName(base, BLOCKS[base].name), bannerColor);
-      sfx.creak(false);
-      this.syncHud(true);
-      return true;
-    }
+    // Open biome chests without sidecar data are from v1/v2 saves: they were already looted.
+    // Reusable storage chests and newly placed chests start empty.
+    if (!isBiomeTreasureChest(base) || isOpenChest(id)) return loot;
+
     const underwater = isUnderwaterChest(base);
-    const seed = (this.world.seed ^ Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791) ^ Math.imul(id, 2654435761)) >>> 0;
+    const seed = (this.world.seed ^ Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791) ^ Math.imul(base, 2654435761)) >>> 0;
     const rand = mulberry32(seed);
     const commonPool = underwater
       ? [
@@ -5940,7 +6290,6 @@ if (tpClipActive > 0.5) {
           { id: NETHERITE, weight: 2, min: 1, max: 1 },
         ];
     const totalWeight = commonPool.reduce((sum, entry) => sum + entry.weight, 0);
-    const loot = new Map<number, number>();
     const pulls = 3 + Math.floor(rand() * 3);
     for (let pull = 0; pull < pulls; pull++) {
       let roll = rand() * totalWeight;
@@ -5955,7 +6304,8 @@ if (tpClipActive > 0.5) {
       const count = reward.min + Math.floor(rand() * (reward.max - reward.min + 1));
       loot.set(reward.id, (loot.get(reward.id) ?? 0) + count);
     }
-    // Some caches also contain a small cluster of mineable ore blocks, not only ingots/gems.
+
+    // Some caches also contain a mineable ore block, not only ingots and gems.
     if (rand() < (underwater ? 0.16 : 0.2)) {
       const ores = [
         { id: COAL_ORE, weight: 24 }, { id: IRON_ORE, weight: 22 }, { id: REDSTONE_ORE, weight: 16 },
@@ -5975,38 +6325,155 @@ if (tpClipActive > 0.5) {
       loot.set(oreId, (loot.get(oreId) ?? 0) + oreCount);
     }
 
-    // the chest survives as its opened variant, so the looted state rides along in world saves
-    this.world.set(x, y, z, base + CHEST_OPEN_OFFSET);
-    this.rebuildAt(x, z);
-    this.swingChestLid(x, y, z, 0, [[0, 0], [1, CHEST_LID_OPEN_ANGLE]], 0.62);
-    sfx.creak(true);
-    const summary: string[] = [];
-    for (const [rewardId, count] of loot) {
-      this.inventory.set(rewardId, (this.inventory.get(rewardId) ?? 0) + count);
-      this.addToHotbar(rewardId);
-      summary.push(`×${count} ${blockName(rewardId, BLOCKS[rewardId]?.name ?? '')}`);
-    }
-
-    // A rare bonus slot can contain enchanted-grade equipment instead of only raw materials.
+    // Keep the old rare armour bonus available: it is claimed when a player opens
+    // the cache, or spills as a loot bag if they break the chest first.
     if (rand() < (underwater ? 0.055 : 0.075)) {
       const materialRoll = rand();
       const material: Material = materialRoll < 0.3 ? 'iron' : materialRoll < 0.52 ? 'gold' : materialRoll < 0.94 ? 'diamond' : 'netherite';
       const slot: Slot = (['head', 'chest', 'legs', 'feet', 'hands', 'offhand'] as Slot[])[Math.floor(rand() * 6)];
       const rarity: Rarity = rand() < 0.24 ? 3 : 2;
-      const item = makeItem(slot, material, rarity, rand);
-      this.bagItems.push(item);
-      summary.push(`${t(SLOT_KEY[slot])} · ${matName(MATERIALS[material].label)} · ${rarName(rarity, RARITY[rarity].name)}`);
+      this.chestBonusGear ??= new Map();
+      this.chestBonusGear.set(key, [makeItem(slot, material, rarity, rand)]);
     }
-    if (rand() < 0.025) {
-      this.inventory.set(NETHERITE_INGOT, (this.inventory.get(NETHERITE_INGOT) ?? 0) + 1);
-      this.addToHotbar(NETHERITE_INGOT);
-      summary.push(blockName(NETHERITE_INGOT, BLOCKS[NETHERITE_INGOT].name));
+    if (rand() < 0.025) loot.set(NETHERITE_INGOT, (loot.get(NETHERITE_INGOT) ?? 0) + 1);
+    return loot;
+  }
+
+  /** Spill the complete block-entity inventory and reusable block exactly once on destruction. */
+  private spillChestContents(x: number, y: number, z: number, id: number): boolean {
+    if (!isTreasureChest(id)) return false;
+    const key = Engine.chestCellKey(x, y, z);
+    const contents = new Map(this.chestInventoryAt(x, y, z, id));
+    const bonus = (this.chestBonusGear?.get(key) ?? []).slice();
+    this.chestInventories.delete(key);
+    this.chestBonusGear.delete(key);
+    if (this.activeChest?.x === x && this.activeChest.y === y && this.activeChest.z === z) {
+      this.closeActiveChest();
+      this.inventoryOpen = false;
+      this.invTab = 'tools';
+    }
+    for (const [itemId, count] of contents) {
+      if (count > 0) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, itemId, null, { count });
+    }
+    for (const gear of bonus) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, LOOT_BAG, gear);
+    this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, CHEST_STORAGE);
+    return true;
+  }
+
+  private closeActiveChest() {
+    const active = this.activeChest;
+    if (!active) return;
+    const id = this.world.get(active.x, active.y, active.z);
+    if (isTreasureChest(id) && isOpenChest(id)) {
+      const base = baseChestId(id);
+      this.world.set(active.x, active.y, active.z, base);
+      this.rebuildAt(active.x, active.z);
+      this.swingChestLid(active.x, active.y, active.z, CHEST_LID_OPEN_ANGLE,
+        [[0, CHEST_LID_OPEN_ANGLE], [1, 0]], 0.32);
+      sfx.creak(false);
+    }
+    this.activeChest = null;
+  }
+
+  /** Open either a generated treasure cache or a reusable player-placed storage chest. */
+  private openChestAt(x: number, y: number, z: number, id: number) {
+    if (this.world.get(x, y, z) !== id || !isTreasureChest(id)) return false;
+    const base = baseChestId(id);
+    const key = Engine.chestCellKey(x, y, z);
+    const [br, bg, bb] = BLOCKS[base].tint;
+    this.chestInventoryAt(x, y, z, id);
+
+    if (!isOpenChest(id)) {
+      this.world.set(x, y, z, openChestId(base));
+      this.rebuildAt(x, z);
+      this.swingChestLid(x, y, z, 0, [[0, 0], [1, CHEST_LID_OPEN_ANGLE]], 0.62);
+      sfx.creak(true);
+    } else {
+      this.swingChestLid(
+        x, y, z, CHEST_LID_OPEN_ANGLE,
+        [[0, CHEST_LID_OPEN_ANGLE], [0.3, CHEST_LID_OPEN_ANGLE + 0.2], [1, CHEST_LID_OPEN_ANGLE]],
+        0.5,
+      );
+      sfx.creak(false);
     }
 
-    this.pushBanner(t('chestOpened'), summary.join(' · '), bannerColor);
-    this.burst(x + 0.5, y + 0.4, z + 0.5, BLOCKS[base].tint, 14, 2.2);
+    const bonus = this.chestBonusGear?.get(key) ?? [];
+    if (bonus.length) {
+      this.bagItems.push(...bonus.map((item) => ensureGearHid(item)));
+      this.chestBonusGear.delete(key);
+    }
+    this.activeChest = { x, y, z };
     this.target = null;
-    sfx.upgrade();
+    this.pushBanner(t('chestOpened'), blockName(base, BLOCKS[base].name), `rgb(${br}, ${bg}, ${bb})`);
+    this.openInventory();
+    this.syncHud(true);
+    return true;
+  }
+
+  private activeChestItems(): Map<number, number> | null {
+    const active = this.activeChest;
+    if (!active) return null;
+    const id = this.world.get(active.x, active.y, active.z);
+    if (!isTreasureChest(id)) return null;
+    return this.chestInventoryAt(active.x, active.y, active.z, id);
+  }
+
+  /** Transfer a stack amount between the opened chest and the player's pack. */
+  transferChestItem(id: number, amount: number, toChest: boolean): boolean {
+    const chest = this.activeChestItems();
+    if (!chest || !Number.isInteger(id) || id <= AIR || id >= 200 || !BLOCKS[id] || getToolSpec(id)) {
+      sfx.ui(false);
+      return false;
+    }
+    const requested = Math.max(1, Math.floor(Number(amount) || 1));
+    if (toChest) {
+      const owned = this.inventory.get(id) ?? 0;
+      const stored = chest.get(id) ?? 0;
+      if (owned <= 0 || (!stored && chest.size >= CHEST_SLOT_LIMIT)) {
+        sfx.ui(false);
+        return false;
+      }
+      const moved = Math.min(requested, owned, CHEST_STACK_LIMIT - stored);
+      if (moved <= 0) {
+        sfx.ui(false);
+        return false;
+      }
+      const remaining = owned - moved;
+      if (remaining > 0) this.inventory.set(id, remaining);
+      else this.inventory.delete(id);
+      chest.set(id, stored + moved);
+    } else {
+      const stored = chest.get(id) ?? 0;
+      if (stored <= 0) {
+        sfx.ui(false);
+        return false;
+      }
+      const moved = Math.min(requested, stored);
+      const remaining = stored - moved;
+      if (remaining > 0) chest.set(id, remaining);
+      else chest.delete(id);
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + moved);
+      this.addToHotbar(id);
+    }
+    sfx.pickup(1);
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
+  /** Move every stack from the active chest into the player's inventory. */
+  takeAllFromChest(): boolean {
+    const chest = this.activeChestItems();
+    if (!chest || chest.size === 0) {
+      sfx.ui(false);
+      return false;
+    }
+    for (const [id, count] of chest) {
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+      this.addToHotbar(id);
+    }
+    chest.clear();
+    sfx.pickup(3);
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -7207,9 +7674,10 @@ if (tpClipActive > 0.5) {
         continue;
 
       // unsupported → crumble
+      const chestSpilled = isTreasureChest(id) && this.spillChestContents(x, y, z, id);
       this.world.set(x, y, z, AIR);
       const def = BLOCKS[id];
-      if (def.drop) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, def.drop);
+      if (!chestSpilled && def.drop) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, def.drop);
       this.burst(x + 0.5, y + 0.5, z + 0.5, def.tint, 6, 2.2);
       this.markDirtyAt(x, z);
       crumbled = true;
@@ -7310,6 +7778,7 @@ if (tpClipActive > 0.5) {
     // Placing lava into a water cell is itself a contact, not a free swap.
     const placed = id === LAVA && targetCell === WATER ? VOLCANIC_STONE : id;
     this.world.set(px, py, pz, placed);
+    if (placed === CHEST_STORAGE) this.chestInventories.set(Engine.chestCellKey(px, py, pz), new Map());
     if (placed === BED) {
       // Place the 2nd block (head) of the 2-block Minecraft bed along player's facing direction
       const pref: [number, number] =
@@ -7922,16 +8391,20 @@ if (tpClipActive > 0.5) {
     z: number,
     id: number,
     gear: Item | null = null,
-    opts?: { vx?: number; vy?: number; vz?: number; pickupDelay?: number; thrown?: boolean; toolInstance?: ToolInstance },
-  ) {
+    opts?: { vx?: number; vy?: number; vz?: number; pickupDelay?: number; thrown?: boolean; fromChest?: boolean; toolInstance?: ToolInstance; count?: number },
+  ): Drop {
     const d = this.drops.find((dd) => !dd.active) ?? this.drops[0];
     d.active = true;
     d.id = id;
     d.gear = gear ? ensureGearHid(gear) : null;
     d.toolInstance = opts?.toolInstance ? { ...opts.toolInstance } : null;
     d.age = 0;
+    d.count = Math.max(1, Math.floor(opts?.count ?? 1));
     d.pickupDelay = opts?.pickupDelay ?? 0.22;
     d.thrown = opts?.thrown ?? false;
+    d.fromChest = opts?.fromChest ?? false;
+    d.petCarried = false;
+    d.wolfPetIgnoreUntil = 0;
     d.x = x;
     d.y = y;
     d.z = z;
@@ -7960,6 +8433,7 @@ if (tpClipActive > 0.5) {
       d.mesh.visible = true;
       this.applyDropUV(d, id);
     }
+    return d;
   }
 
   private applyDropUV(d: Drop, id: number) {
@@ -7984,7 +8458,7 @@ if (tpClipActive > 0.5) {
     for (const d of this.drops) {
       if (!d.active) continue;
       d.age += dt;
-      if (!frozen) {
+      if (!frozen && !d.petCarried) {
         const dist = Math.hypot(d.x - eye.x, d.y - eye.y, d.z - eye.z);
         const delay = d.pickupDelay ?? 0.22;
         // attraction radius: short by default, extended by the MAGNET affix
@@ -8032,6 +8506,7 @@ if (tpClipActive > 0.5) {
           d.active = false;
           d.mesh.visible = false;
           d.toolInstance = null;
+          d.petCarried = false;
           if (d.fancy) {
             this.scene.remove(d.fancy);
             d.fancy = null;
@@ -8057,6 +8532,9 @@ if (tpClipActive > 0.5) {
   private collect(d: Drop) {
     d.active = false;
     d.mesh.visible = false;
+    d.petCarried = false;
+    if (this.wolfPetRig?.carrying === d) this.wolfPetRig.carrying = null;
+    if (this.wolfPetRig?.fetchTarget === d) this.wolfPetRig.fetchTarget = null;
     const carriedTool = d.toolInstance;
     d.toolInstance = null;
     if (d.fancy) {
@@ -8083,12 +8561,13 @@ if (tpClipActive > 0.5) {
       this.syncHud(true);
       return;
     }
+    const itemCount = Math.max(1, Math.floor(d.count ?? 1));
     // Picking up a dropped weapon or tool; durable items keep their exact wear/identity.
     if (d.id >= 200) {
       if (isDurabilityTool(d.id)) {
         this.addToolInstance(d.id, carriedTool?.durability, carriedTool?.instanceId);
       } else {
-        this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+        this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + itemCount);
         this.addToHotbar(d.id);
       }
       this.recalcOwnedToolTiers();
@@ -8097,10 +8576,10 @@ if (tpClipActive > 0.5) {
       this.syncHud(true);
       return;
     }
-    if (d.thrown) {
-      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+    if (d.thrown || d.fromChest) {
+      this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + itemCount);
       this.addToHotbar(d.id);
-      sfx.pickup(2);
+      sfx.pickup(d.thrown ? 2 : 1);
       this.syncHotbar(true);
       this.syncHud(true);
       return;
@@ -8108,21 +8587,23 @@ if (tpClipActive > 0.5) {
     const def = BLOCKS[d.id];
     const comboMult = this.comboMult();
     const tierMult = PICKAXE_TIERS[this.tier].mult;
-    const gained = this.awardScore(Math.max(1, Math.round(def.score * comboMult * tierMult)));
-    this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + 1);
+    const gained = this.awardScore(Math.max(1, Math.round(def.score * comboMult * tierMult)) * itemCount);
+    this.inventory.set(d.id, (this.inventory.get(d.id) ?? 0) + itemCount);
     this.addToHotbar(d.id);
-    if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound++;
+    if ((d.id >= 5 && d.id <= 8) || (d.id >= REDSTONE && d.id <= QUARTZ)) this.oresFound += itemCount;
     if (!this.endlessRun && def.timeBonus > 0) {
-      this.timeLeft += def.timeBonus;
-      this.popup(d.x, d.y + 0.6, d.z, `+${def.timeBonus}${t('secShort')}`, '#7ee7a0', true);
+      const bonus = def.timeBonus * itemCount;
+      this.timeLeft += bonus;
+      this.popup(d.x, d.y + 0.6, d.z, `+${bonus}${t('secShort')}`, '#7ee7a0', true);
     }
-    if (d.id === DIAMOND || d.id === EMERALD) this.health = Math.min(100, this.health + 16);
-    else if (d.id === GOLD || d.id === LAPIS || d.id === QUARTZ) this.health = Math.min(100, this.health + 8);
-    else if (d.id === IRON || d.id === REDSTONE) this.health = Math.min(100, this.health + 4);
-    else if (d.id === COAL) this.health = Math.min(100, this.health + 2);
+    const heal = d.id === DIAMOND || d.id === EMERALD ? 16
+      : d.id === GOLD || d.id === LAPIS || d.id === QUARTZ ? 8
+        : d.id === IRON || d.id === REDSTONE ? 4
+          : d.id === COAL ? 2 : 0;
+    if (heal > 0) this.health = Math.min(100, this.health + heal * itemCount);
 
     this.popup(d.x, d.y + 0.3, d.z, `+${gained}`, gained >= 200 ? '#f7d34b' : gained >= 40 ? '#8fe3ff' : '#ffffff', gained >= 100);
-    this.burst(d.x, d.y, d.z, def.tint, 8, 2.4);
+    this.burst(d.x, d.y, d.z, def.tint, Math.min(18, 8 + itemCount), 2.4);
     sfx.pickup(this.combo);
     this.syncHotbar(true);
     this.syncHud(true);
@@ -9612,6 +10093,86 @@ if (tpClipActive > 0.5) {
     this.placeInSlot(id, slot);
   }
 
+  private ensurePetRuntimeState(kind: PetKind) {
+    if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
+    if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
+    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0 };
+    if (this.petEquippedKind === undefined) this.petEquippedKind = null;
+    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+  }
+
+  /** Equip one owned per-run companion token in the shared slot; only one pet follows at a time. */
+  setPetEquipped(kind: PetKind, equipped: boolean): boolean {
+    this.ensurePetRuntimeState(kind);
+    if (equipped) {
+      if (this.petEquipped) return this.petEquippedKind === kind;
+      if (this.phase !== 'playing' || !this.petOwnedKinds.includes(kind) || !this.petTokenAvailable) {
+        sfx.ui(false);
+        return false;
+      }
+      this.petSelectedKind = kind;
+      this.petCoatIndex = this.petCoatIndices[kind];
+      this.petEquipped = true;
+      this.petEquippedKind = kind;
+      this.petTokenAvailable = false;
+      this.createWolfPetRig(kind);
+      sfx.ui(true);
+    } else {
+      if (!this.petEquipped || this.petEquippedKind !== kind) return false;
+      this.petEquipped = false;
+      this.petEquippedKind = null;
+      this.petSelectedKind = kind;
+      this.petCoatIndex = this.petCoatIndices[kind];
+      this.petTokenAvailable = this.petOwned;
+      this.clearWolfPetRig();
+      sfx.ui(false);
+    }
+    this.syncHud(true);
+    return true;
+  }
+
+  /** Compatibility wrapper retained for wolf-token callers. */
+  setWolfPetEquipped(equipped: boolean): boolean {
+    return this.setPetEquipped('wolf', equipped);
+  }
+
+  setMonkeyPetEquipped(equipped: boolean): boolean {
+    return this.setPetEquipped('monkey', equipped);
+  }
+
+  /** Select which owned companion will use the shared equipment slot next. */
+  selectPetKind(kind: PetKind): boolean {
+    this.ensurePetRuntimeState(kind);
+    if (this.petEquipped || !this.petOwnedKinds.includes(kind)) return false;
+    if (this.petSelectedKind === kind) return true;
+    this.petSelectedKind = kind;
+    this.petCoatIndex = this.petCoatIndices[kind];
+    this.syncHud(true);
+    return true;
+  }
+
+  /** Cycle a species' independent coat palette; every species keeps its own saved appearance. */
+  cyclePetCoat(kind: PetKind, direction = 1): boolean {
+    this.ensurePetRuntimeState(kind);
+    if (!this.petOwnedKinds.includes(kind) || !Number.isFinite(direction) || direction === 0) return false;
+    const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
+    const current = this.petCoatIndices[kind];
+    const delta = direction < 0 ? -1 : 1;
+    const requested = (current + delta + coats.length) % coats.length;
+    const saved = kind === 'wolf' ? setWolfCoatIndex(requested) : setMonkeyCoatIndex(requested);
+    if (saved === current) return false;
+    this.petCoatIndices[kind] = saved;
+    if (kind === this.petSelectedKind || kind === this.petEquippedKind) this.petCoatIndex = saved;
+    if (this.wolfPetRig?.kind === kind) this.rebuildWolfPetRigForCoat();
+    this.syncHud(true);
+    return true;
+  }
+
+  /** Wolf-specific compatibility wrapper. */
+  cycleWolfPetCoat(direction = 1): boolean {
+    return this.cyclePetCoat('wolf', direction);
+  }
+
   openInventory() {
     if (this.phase !== 'playing' && this.phase !== 'paused') return;
     // A platform/ad pause is authoritative; inventory must not resume it behind the SDK's back.
@@ -9646,7 +10207,9 @@ if (tpClipActive > 0.5) {
 
   closeInventory() {
     if (!this.inventoryOpen) return;
+    if (this.activeChest) this.closeActiveChest();
     this.inventoryOpen = false;
+    if (this.sandbox) this.saveWorld(true);
     this.invTab = 'tools';
     // A real platform pause may have arrived while the live inventory was open.
     if (this.phase === 'paused' && !this.pausedBySystem) this.phase = 'playing';
@@ -10073,6 +10636,14 @@ if (tpClipActive > 0.5) {
       this.lastHudCheck = now;
     }
     const targetBlock = this.target;
+    const activeChest = this.activeChest ?? null;
+    const activeChestBlock = activeChest ? this.world.get(activeChest.x, activeChest.y, activeChest.z) : AIR;
+    const activeChestItems = activeChest && isTreasureChest(activeChestBlock)
+      ? (this.chestInventories?.get(Engine.chestCellKey(activeChest.x, activeChest.y, activeChest.z)) ?? new Map<number, number>())
+      : null;
+    const chestSignature = activeChestItems
+      ? `${activeChest!.x},${activeChest!.y},${activeChest!.z}:` + [...activeChestItems].sort((a, b) => a[0] - b[0]).map(([id, count]) => `${id}x${count}`).join(',')
+      : '-';
     const wearKey = [...this.toolInstances.values()].map((item) => `${item.instanceId}:${item.durability}`).join(',');
     const objectiveKey = `${this.objectiveIndex}/${this.explorationObjectives.map((task) => task.progress).join(',')}`;
     const key = [
@@ -10098,6 +10669,17 @@ if (tpClipActive > 0.5) {
       this.locked || this.lockPending ? 1 : 0,
       this.lockFailed ? 1 : 0,
       this.inventoryOpen ? 1 : 0,
+      chestSignature,
+      this.petOwned ? 1 : 0,
+      this.petOwnedKinds.join(','),
+      this.petTokenAvailable ? 1 : 0,
+      this.petEquipped ? 1 : 0,
+      this.petEquippedKind ?? '-',
+      this.petSelectedKind,
+      this.petCoatIndices.wolf,
+      this.petCoatIndices.monkey,
+      this.petCoatIndex,
+      this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE) ? 1 : 0,
       this.lastCraft ?? '-',
       targetBlock ? targetBlock.id : 0,
       this.hotbar.map((id, i) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}:${this.hotbarInstanceIds[i] ?? -1}`).join('|'),
@@ -10176,6 +10758,15 @@ if (tpClipActive > 0.5) {
       swordTier: this.swordTier,
       equipped: { ...this.equipped },
       bagItems: this.bagItems.slice(),
+      petOwned: this.petOwned,
+      petOwnedKinds: [...this.petOwnedKinds],
+      petTokenAvailable: this.petTokenAvailable,
+      petEquipped: this.petEquipped,
+      petEquippedKind: this.petEquippedKind,
+      petSelectedKind: this.petSelectedKind,
+      petCoatIndices: { ...this.petCoatIndices },
+      petCoatIndex: this.petCoatIndices[this.petSelectedKind],
+      petInteractNear: this.phase === 'playing' && this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE),
       stats: this.stats,
       killedBy: this.killedBy,
       offers: this.offers,
@@ -10187,6 +10778,13 @@ if (tpClipActive > 0.5) {
       sandbox: this.sandbox,
       endless: this.endlessRun,
       inventoryOpen: this.inventoryOpen,
+      chest: activeChestItems && activeChest
+        ? {
+            id: baseChestId(activeChestBlock),
+            name: blockName(baseChestId(activeChestBlock), BLOCKS[baseChestId(activeChestBlock)]?.name ?? t('chestStorageTitle')),
+            items: [...activeChestItems].map(([id, count]) => ({ id, count })).sort((a, b) => a.id - b.id),
+          }
+        : null,
       tutorialTip: this.tutorialTip,
       explorationObjectives: this.objectiveHudState(),
       objectiveIndex: this.objectiveIndex,
@@ -10402,6 +11000,1349 @@ if (tpClipActive > 0.5) {
       }
     }
     return groundY;
+  }
+
+  /** Highest actual solid support in a column; non-solid foliage never becomes a fake floor. */
+  private petGroundSurfaceY(x: number, z: number): number | null {
+    const top = this.world.topSolidY(x, z);
+    for (let y = top; y >= 0; y--) {
+      const block = this.world.get(x, y, z);
+      if (block === WATER || block === LAVA) return null;
+      if (isSolid(block)) return y;
+    }
+    return null;
+  }
+
+  private petFootprintExtents(angle: number, kind: PetKind = this.wolfPetRig?.kind ?? 'wolf') {
+    const halfWidth = kind === 'wolf' ? 0.43 : 0.34;
+    const halfLength = kind === 'wolf' ? 1.05 : 0.84;
+    const sin = Math.abs(Math.sin(angle));
+    const cos = Math.abs(Math.cos(angle));
+    return {
+      x: cos * halfWidth + sin * halfLength,
+      z: cos * halfLength + sin * halfWidth,
+    };
+  }
+
+  /** Companion-sized oriented body test; allows a one-block climb but never places the mesh in terrain. */
+  private wolfPetGroundY(
+    x: number,
+    z: number,
+    referenceY: number | null,
+    maxDelta = 1.35,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    kind: PetKind = this.wolfPetRig?.kind ?? 'wolf',
+  ): number | null {
+    const desired = this.petFootprintExtents(yaw, kind);
+    const current = this.petFootprintExtents(this.wolfPetRig?.group.rotation.y ?? yaw, kind);
+    // Sweep both the current and desired headings so the long mesh can turn without clipping corners.
+    const radiusX = Math.max(desired.x, current.x);
+    const radiusZ = Math.max(desired.z, current.z);
+    const minX = Math.floor(x - radiusX);
+    const maxX = Math.floor(x + radiusX);
+    const minZ = Math.floor(z - radiusZ);
+    const maxZ = Math.floor(z + radiusZ);
+    let surfaceY = -Infinity;
+    for (let cz = minZ; cz <= maxZ; cz++) {
+      for (let cx = minX; cx <= maxX; cx++) {
+        if (!this.world.hasColumn(cx, cz)) return null;
+        const columnTop = this.petGroundSurfaceY(cx, cz);
+        if (columnTop === null) return null;
+        surfaceY = Math.max(surfaceY, columnTop);
+      }
+    }
+    if (surfaceY <= 0) return null;
+    const groundY = surfaceY + 1.001;
+    if (referenceY !== null && Math.abs(groundY - referenceY) > maxDelta) return null;
+
+    // The footprint's highest adjacent block acts as a one-block step, just like the miner's mantle.
+    for (let cy = Math.floor(groundY + 0.03); cy <= Math.floor(groundY + 1.43); cy++) {
+      for (let cz = minZ; cz <= maxZ; cz++) {
+        for (let cx = minX; cx <= maxX; cx++) {
+          if (!this.world.hasColumn(cx, cz) || isSolid(this.world.get(cx, cy, cz))) return null;
+        }
+      }
+    }
+    return groundY;
+  }
+
+  private buildPetRig(kind: PetKind): WolfPetRig {
+    return kind === 'wolf'
+      ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
+      : buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0]);
+  }
+
+  private createWolfPetRig(kind: PetKind) {
+    const rig = this.buildPetRig(kind);
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const candidates: Array<[number, number]> = [[0.45, 1.85], [0.45, -1.85], [1.2, 1.7], [1.2, -1.7], [0, 2.1]];
+    let spawn: [number, number, number] | null = null;
+    for (const [behind, side] of candidates) {
+      const x = this.pos.x - forwardX * behind + sideX * side;
+      const z = this.pos.z - forwardZ * behind + sideZ * side;
+      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, kind);
+      if (y === null || Math.hypot(x - this.pos.x, z - this.pos.z) < 1.35) continue;
+      spawn = [x, y, z];
+      break;
+    }
+    if (!spawn) {
+      for (const radius of [2.1, 2.8, 3.6, 4.5]) {
+        for (let spoke = 0; spoke < 12; spoke++) {
+          const angle = this.yaw + (spoke / 12) * Math.PI * 2;
+          const x = this.pos.x + Math.cos(angle) * radius;
+          const z = this.pos.z + Math.sin(angle) * radius;
+          const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, kind);
+          if (y === null) continue;
+          spawn = [x, y, z];
+          break;
+        }
+        if (spawn) break;
+      }
+    }
+    const [spawnX, spawnY, spawnZ] = spawn ?? [this.pos.x + sideX * 2.1, this.pos.y, this.pos.z + sideZ * 2.1];
+    rig.group.position.set(spawnX, spawnY, spawnZ);
+    rig.group.rotation.y = this.yaw;
+    rig.yawTarget = this.yaw;
+    rig.target.copy(rig.group.position);
+    rig.navWaypoint.copy(rig.group.position);
+    rig.navGoal.copy(rig.group.position);
+    this.wolfPetLayer.add(rig.group);
+    this.wolfPetRig = rig;
+  }
+
+  private clearWolfPetRig() {
+    const rig = this.wolfPetRig;
+    if (!rig) return;
+    if (rig.carrying) rig.carrying.petCarried = false;
+    if (rig.fetchTarget) rig.fetchTarget.petCarried = false;
+    this.wolfPetLayer.remove(rig.group);
+    disposeObject(rig.group);
+    this.wolfPetRig = null;
+  }
+
+  private rebuildWolfPetRigForCoat() {
+    const current = this.wolfPetRig;
+    if (!current) return;
+    const next = this.buildPetRig(current.kind);
+    next.group.position.copy(current.group.position);
+    next.group.rotation.copy(current.group.rotation);
+    next.target.copy(current.target);
+    next.navWaypoint.copy(current.navWaypoint);
+    next.navGoal.copy(current.navGoal);
+    next.navTimer = current.navTimer;
+    next.restAnchor.copy(current.restAnchor);
+    next.restYaw = current.restYaw;
+    next.restAnchorValid = current.restAnchorValid;
+    next.stillTimer = current.stillTimer;
+    next.moveStartTimer = current.moveStartTimer;
+    next.teleportRevealTimer = current.teleportRevealTimer;
+    next.yawTarget = current.yawTarget;
+    next.phase = current.phase;
+    next.hopTimer = current.hopTimer;
+    next.moving = current.moving;
+    next.sitting = current.sitting;
+    next.attackTimer = current.attackTimer;
+    next.attackPoseTimer = current.attackPoseTimer;
+    next.reaction = current.reaction;
+    next.reactionTimer = current.reactionTimer;
+    next.reactionAge = current.reactionAge;
+    next.reactionSoundTimer = current.reactionSoundTimer;
+    next.chestTarget = current.chestTarget;
+    next.chestScanTimer = current.chestScanTimer;
+    next.chestBlockedTimer = current.chestBlockedTimer;
+    next.chestIgnoredKey = current.chestIgnoredKey;
+    next.chestIgnoreUntil = current.chestIgnoreUntil;
+    next.fetchTarget = current.fetchTarget;
+    next.fetchBlockedDrop = current.fetchBlockedDrop;
+    next.fetchBlockedTimer = current.fetchBlockedTimer;
+    next.fetchNoProgressTimer = current.fetchNoProgressTimer;
+    next.fetchNoPath = current.fetchNoPath;
+    next.carrying = current.carrying;
+    next.swimming = current.swimming;
+    next.underwater = current.underwater;
+    next.reactionLookTimer = current.reactionLookTimer;
+    this.wolfPetLayer.remove(current.group);
+    disposeObject(current.group);
+    this.wolfPetLayer.add(next.group);
+    this.wolfPetRig = next;
+  }
+
+  private wolfPetIsNear(radius: number): boolean {
+    const rig = this.wolfPetRig;
+    if (!this.petEquipped || !rig || !rig.group.visible) return false;
+    return Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z) <= radius
+      && Math.abs(rig.group.position.y - this.pos.y) <= 2.2;
+  }
+
+  private petWolf(): boolean {
+    const rig = this.wolfPetRig;
+    if (!rig || !this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE)) return false;
+    if (rig.kind === 'wolf') {
+      const reactions = ['wag', 'bark', 'spin'] as const;
+      rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
+      rig.reactionTimer = rig.reaction === 'spin' ? 1.05 : 1.45;
+    } else {
+      const reactions = ['monkey-flop', 'monkey-hops', 'monkey-scratch', 'monkey-spin'] as const;
+      rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
+      rig.reactionTimer = rig.reaction === 'monkey-flop' ? 2.55
+        : rig.reaction === 'monkey-hops' ? 2.25
+          : rig.reaction === 'monkey-scratch' ? 1.45
+            : 1.55;
+    }
+    rig.reactionAge = 0;
+    rig.reactionSoundTimer = 0.48;
+    rig.reactionLookTimer = rig.reaction === 'spin' || rig.reaction === 'monkey-spin' ? 0.42 : rig.reactionTimer;
+    const lookX = this.pos.x - rig.group.position.x;
+    const lookZ = this.pos.z - rig.group.position.z;
+    if (Math.hypot(lookX, lookZ) > 0.001) rig.yawTarget = Math.atan2(-lookX, -lookZ);
+    const messageByReaction: Record<Exclude<WolfPetReaction, null>, TKey> = {
+      wag: 'petReactionWag',
+      bark: 'petReactionBark',
+      spin: 'petReactionSpin',
+      'monkey-flop': 'petMonkeyReactionFlop',
+      'monkey-hops': 'petMonkeyReactionHops',
+      'monkey-scratch': 'petMonkeyReactionScratch',
+      'monkey-spin': 'petMonkeyReactionSpin',
+    };
+    if (rig.kind === 'monkey') {
+      sfx.creature('monkey', { state: 'idle', volume: 0.86, pitch: 0.96 + Math.random() * 0.16 });
+    } else if (rig.reaction === 'bark') {
+      sfx.creature('wolf', { state: 'idle', volume: 0.8, pitch: 1 + Math.random() * 0.12 });
+    } else {
+      sfx.ui(true);
+    }
+    this.popup(this.pos.x, this.pos.y + 2.1, this.pos.z, t(messageByReaction[rig.reaction!]), '#f3d49a', false, { duration: 1.5 });
+    this.syncHud(true);
+    return true;
+  }
+
+  private setWolfPetFollowTarget(rig: WolfPetRig, movingPlayer: boolean): boolean {
+    let forwardX = -Math.sin(this.yaw);
+    let forwardZ = -Math.cos(this.yaw);
+    if (movingPlayer) {
+      const speed = Math.hypot(this.vel.x, this.vel.z);
+      if (speed > 0.15) {
+        // Trail the miner's actual travel vector, not the camera yaw (which may be strafing or backing up).
+        forwardX = this.vel.x / speed;
+        forwardZ = this.vel.z / speed;
+      }
+    }
+    const sideX = -forwardZ;
+    const sideZ = forwardX;
+    const targetYaw = Math.atan2(-forwardX, -forwardZ);
+    const candidates: Array<[number, number]> = movingPlayer
+      ? [[2.0, 0.25], [2.1, 0.65], [2.1, -0.65], [2.55, 0], [1.8, 1.05], [1.8, -1.05]]
+      : [[0.45, 1.85], [0.45, -1.85], [1.1, 1.75], [1.1, -1.75], [0, 2.05]];
+    for (const [behind, lateral] of candidates) {
+      const x = this.pos.x - forwardX * behind + sideX * lateral;
+      const z = this.pos.z - forwardZ * behind + sideZ * lateral;
+      if (Math.hypot(x - this.pos.x, z - this.pos.z) < WOLF_PET_PLAYER_GAP) continue;
+      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, targetYaw);
+      if (y === null) continue;
+      rig.target.set(x, y, z);
+      return true;
+    }
+    // If the preferred side is over water, in a wall, or over a ledge, choose another safe side.
+    for (const radius of [2.0, 2.4, 3.0, 3.7, 4.5]) {
+      for (let spoke = 0; spoke < 12; spoke++) {
+        const angle = targetYaw + (spoke / 12) * Math.PI * 2;
+        const x = this.pos.x + Math.cos(angle) * radius;
+        const z = this.pos.z + Math.sin(angle) * radius;
+        const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, targetYaw);
+        if (y === null) continue;
+        rig.target.set(x, y, z);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Reappear beside and slightly ahead of the player so a distant catch-up is visible in first person. */
+  private setWolfPetTeleportTarget(rig: WolfPetRig): boolean {
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const candidates: Array<[number, number]> = [
+      [1.05, 1.55], [1.05, -1.55], [1.65, 1.1], [1.65, -1.1],
+      [0.25, 1.95], [0.25, -1.95], [1.95, 0.35], [1.95, -0.35],
+      [0, 2.15], [0, -2.15],
+    ];
+    for (const [ahead, lateral] of candidates) {
+      const x = this.pos.x + forwardX * ahead + sideX * lateral;
+      const z = this.pos.z + forwardZ * ahead + sideZ * lateral;
+      if (Math.hypot(x - this.pos.x, z - this.pos.z) < 1.5) continue;
+      const facePlayerYaw = Math.atan2(-(this.pos.x - x), -(this.pos.z - z));
+      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, facePlayerYaw);
+      if (y === null) continue;
+      rig.target.set(x, y, z);
+      rig.yawTarget = facePlayerYaw;
+      return true;
+    }
+    return false;
+  }
+
+  private wolfPetWaterSurfaceY(x: number, z: number, referenceY: number): number | null {
+    const bx = Math.floor(x);
+    const bz = Math.floor(z);
+    if (!this.world.hasColumn(bx, bz)) return null;
+    const top = Math.min(WY - 1, Math.floor(referenceY + 9));
+    const bottom = Math.max(0, Math.floor(referenceY - 18));
+    for (let y = top; y >= bottom; y--) {
+      if (this.world.get(bx, y, bz) === WATER && this.world.get(bx, y + 1, bz) !== WATER) return y + 1;
+    }
+    return null;
+  }
+
+  /** Swimming uses a 3D body sweep; water is passable, but the wolf still never enters solid blocks. */
+  private wolfPetSwimClear(x: number, y: number, z: number, yaw: number): boolean {
+    if (y < 0 || y + (this.wolfPetRig?.kind === 'monkey' ? 1.28 : 1.55) >= WY) return false;
+    const kind = this.wolfPetRig?.kind ?? 'wolf';
+    const desired = this.petFootprintExtents(yaw, kind);
+    const current = this.petFootprintExtents(this.wolfPetRig?.group.rotation.y ?? yaw, kind);
+    const radiusX = Math.max(desired.x, current.x);
+    const radiusZ = Math.max(desired.z, current.z);
+    const minX = Math.floor(x - radiusX);
+    const maxX = Math.floor(x + radiusX);
+    const minZ = Math.floor(z - radiusZ);
+    const maxZ = Math.floor(z + radiusZ);
+    for (let cy = Math.floor(y + 0.02); cy <= Math.floor(y + 1.5); cy++) {
+      for (let cz = minZ; cz <= maxZ; cz++) {
+        for (let cx = minX; cx <= maxX; cx++) {
+          if (!this.world.hasColumn(cx, cz) || isSolid(this.world.get(cx, cy, cz))) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private wolfPetIsInWater(rig: WolfPetRig): boolean {
+    const x = Math.floor(rig.group.position.x);
+    const z = Math.floor(rig.group.position.z);
+    if (!this.world.hasColumn(x, z)) return false;
+    return [0.25, 0.62, 1.02].some((probe) => this.world.get(x, Math.floor(rig.group.position.y + probe), z) === WATER);
+  }
+
+  /** Pick a clear water-space beside the player, tracking their depth when they dive. */
+  private setWolfPetSwimTarget(rig: WolfPetRig, movingPlayer: boolean, teleport = false): boolean {
+    const underwater = this.headUnderwater();
+    rig.swimming = true;
+    rig.underwater = underwater;
+    let forwardX = -Math.sin(this.yaw);
+    let forwardZ = -Math.cos(this.yaw);
+    if (movingPlayer) {
+      const speed = Math.hypot(this.vel.x, this.vel.z);
+      if (speed > 0.15) {
+        forwardX = this.vel.x / speed;
+        forwardZ = this.vel.z / speed;
+      }
+    }
+    const sideX = -forwardZ;
+    const sideZ = forwardX;
+    const targetYaw = Math.atan2(-forwardX, -forwardZ);
+    const candidates: Array<[number, number]> = teleport
+      ? [[1.05, 1.55], [1.05, -1.55], [1.65, 1.1], [1.65, -1.1], [0.25, 1.95], [0.25, -1.95], [0, 2.15], [0, -2.15]]
+      : movingPlayer
+        ? [[2.0, 0.25], [2.1, 0.65], [2.1, -0.65], [2.55, 0], [1.8, 1.05], [1.8, -1.05], [1.4, 1.25], [1.4, -1.25]]
+        : [[0.45, 1.65], [0.45, -1.65], [1.0, 1.55], [1.0, -1.55], [0, 1.45], [0, -1.45]];
+    for (const [distance, lateral] of candidates) {
+      const x = teleport
+        ? this.pos.x + forwardX * distance + sideX * lateral
+        : this.pos.x - forwardX * distance + sideX * lateral;
+      const z = teleport
+        ? this.pos.z + forwardZ * distance + sideZ * lateral
+        : this.pos.z - forwardZ * distance + sideZ * lateral;
+      if (Math.hypot(x - this.pos.x, z - this.pos.z) < WOLF_PET_PLAYER_GAP) continue;
+      const surfaceY = this.wolfPetWaterSurfaceY(x, z, this.pos.y);
+      if (surfaceY === null) continue;
+      const targetY = underwater ? Math.min(this.pos.y, surfaceY - 1.15) : surfaceY - 0.72;
+      if (this.world.get(Math.floor(x), Math.floor(targetY + 0.3), Math.floor(z)) !== WATER) continue;
+      const facePlayerYaw = teleport ? Math.atan2(-(this.pos.x - x), -(this.pos.z - z)) : targetYaw;
+      if (!this.wolfPetSwimClear(x, targetY, z, facePlayerYaw)) continue;
+      rig.target.set(x, targetY, z);
+      rig.yawTarget = facePlayerYaw;
+      return true;
+    }
+    return false;
+  }
+
+  private wolfPetSwimStepUpY(x: number, z: number, referenceY: number, yaw: number): number | null {
+    const kind = this.wolfPetRig?.kind ?? 'wolf';
+    const desired = this.petFootprintExtents(yaw, kind);
+    const current = this.petFootprintExtents(this.wolfPetRig?.group.rotation.y ?? yaw, kind);
+    const radiusX = Math.max(desired.x, current.x);
+    const radiusZ = Math.max(desired.z, current.z);
+    const minX = Math.floor(x - radiusX);
+    const maxX = Math.floor(x + radiusX);
+    const minZ = Math.floor(z - radiusZ);
+    const maxZ = Math.floor(z + radiusZ);
+    let highestGround = -Infinity;
+    for (let cz = minZ; cz <= maxZ; cz++) {
+      for (let cx = minX; cx <= maxX; cx++) {
+        if (!this.world.hasColumn(cx, cz)) return null;
+        for (let cy = Math.min(WY - 1, Math.floor(referenceY + 1.2)); cy >= Math.max(0, Math.floor(referenceY - 1.8)); cy--) {
+          if (!isSolid(this.world.get(cx, cy, cz))) continue;
+          highestGround = Math.max(highestGround, cy);
+          break;
+        }
+      }
+    }
+    const stepY = highestGround + 1.001;
+    return stepY > referenceY + 0.04 && stepY - referenceY <= 1.05 ? stepY : null;
+  }
+
+  private moveWolfPetSwimming(rig: WolfPetRig, dt: number, speed: number) {
+    rig.moving = false;
+    rig.navTimer = 0;
+    const pos = rig.group.position;
+    const dx = rig.target.x - pos.x;
+    const dy = rig.target.y - pos.y;
+    const dz = rig.target.z - pos.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < 0.12) return;
+    const stride = Math.min(distance, Math.max(0, speed * dt));
+    if (stride <= 0) return;
+    const horizontalDistance = Math.hypot(dx, dz);
+    const horizontalStride = distance > 0 ? stride * horizontalDistance / distance : 0;
+    const baseAngle = Math.atan2(dz, dx);
+    const stepY = distance > 0 ? dy / distance * stride : 0;
+    const playerDistanceAtStart = Math.hypot(pos.x - this.pos.x, pos.z - this.pos.z);
+    for (const turn of [0, 0.42, -0.42, 0.86, -0.86, 1.28, -1.28]) {
+      const angle = baseAngle + turn;
+      const stepX = Math.cos(angle) * horizontalStride;
+      const stepZ = Math.sin(angle) * horizontalStride;
+      const yaw = horizontalStride > 0.001 ? Math.atan2(-stepX, -stepZ) : rig.yawTarget;
+      const subdivisions = Math.max(1, Math.ceil(Math.max(Math.abs(stepX), Math.abs(stepY), Math.abs(stepZ)) / 0.14));
+      let clear = true;
+      let endY = pos.y;
+      for (let part = 1; part <= subdivisions; part++) {
+        const progress = part / subdivisions;
+        const x = pos.x + stepX * progress;
+        const z = pos.z + stepZ * progress;
+        let y = pos.y + stepY * progress;
+        if (stepY > 0) y = Math.max(y, endY);
+        const playerDistance = Math.hypot(x - this.pos.x, z - this.pos.z);
+        if (playerDistance < WOLF_PET_PLAYER_GAP && playerDistance < playerDistanceAtStart + 0.025) {
+          clear = false;
+          break;
+        }
+        if (!this.wolfPetSwimClear(x, y, z, yaw)) {
+          const stepUp = stepY > 0.001 ? this.wolfPetSwimStepUpY(x, z, endY, yaw) : null;
+          if (stepUp === null || !this.wolfPetSwimClear(x, stepUp, z, yaw)) {
+            clear = false;
+            break;
+          }
+          y = stepUp;
+        }
+        endY = y;
+      }
+      if (!clear) continue;
+      pos.set(pos.x + stepX, endY, pos.z + stepZ);
+      if (horizontalStride > 0.001) rig.yawTarget = yaw;
+      rig.moving = true;
+      return;
+    }
+  }
+
+  private updateWolfPetSwimFollow(rig: WolfPetRig, dt: number, movingPlayer: boolean) {
+    rig.swimming = true;
+    rig.underwater = this.headUnderwater();
+    rig.sitting = false;
+    if (movingPlayer) {
+      if (rig.restAnchorValid) {
+        rig.moveStartTimer += dt;
+        if (rig.moveStartTimer < WOLF_PET_FOLLOW_RESUME_DELAY) {
+          rig.target.copy(rig.restAnchor);
+          rig.moving = false;
+          return;
+        }
+      }
+      rig.moveStartTimer = 0;
+      rig.stillTimer = 0;
+      rig.restAnchorValid = false;
+      if (!this.setWolfPetSwimTarget(rig, true)) {
+        rig.target.copy(rig.group.position);
+        rig.moving = false;
+        return;
+      }
+      this.moveWolfPetSwimming(rig, dt, 5.2);
+      return;
+    }
+
+    rig.moveStartTimer = 0;
+    rig.stillTimer += dt;
+    if (!rig.restAnchorValid && rig.stillTimer < WOLF_PET_REST_DELAY) {
+      rig.target.copy(rig.group.position);
+      rig.moving = false;
+      return;
+    }
+    if (!rig.restAnchorValid) {
+      if (!this.setWolfPetSwimTarget(rig, false)) rig.target.copy(rig.group.position);
+      rig.restAnchor.copy(rig.target);
+      rig.restYaw = rig.yawTarget;
+      rig.restAnchorValid = true;
+    }
+    rig.target.copy(rig.restAnchor);
+    rig.yawTarget = rig.restYaw;
+    this.moveWolfPetSwimming(rig, dt, 4.4);
+  }
+
+  /** If the player has reached shore first, keep paddling toward the dry follow position. */
+  private updateWolfPetSwimLandFollow(rig: WolfPetRig, dt: number, movingPlayer: boolean) {
+    rig.swimming = true;
+    rig.underwater = false;
+    rig.sitting = false;
+    rig.restAnchorValid = false;
+    rig.stillTimer = 0;
+    rig.moveStartTimer = 0;
+    if (!this.setWolfPetFollowTarget(rig, movingPlayer)) {
+      rig.target.copy(rig.group.position);
+      rig.moving = false;
+      return;
+    }
+    this.moveWolfPetSwimming(rig, dt, movingPlayer ? 6.2 : 4.4);
+  }
+
+  /** A small A* surface search used when direct steering meets a wall or a blocked doorway. */
+  private findWolfPetWaypoint(rig: WolfPetRig, goalX: number, goalZ: number): THREE.Vector3 | null {
+    const startX = Math.floor(rig.group.position.x);
+    const startZ = Math.floor(rig.group.position.z);
+    const goalCellX = Math.floor(goalX);
+    const goalCellZ = Math.floor(goalZ);
+    const key = (x: number, z: number) => `${x},${z}`;
+    const startKey = key(startX, startZ);
+    const goalKey = key(goalCellX, goalCellZ);
+    if (startKey === goalKey) return null;
+
+    type Node = { x: number; z: number; y: number; g: number; f: number };
+    const heuristic = (x: number, z: number) => Math.abs(goalCellX - x) + Math.abs(goalCellZ - z);
+    const start: Node = { x: startX, z: startZ, y: rig.group.position.y, g: 0, f: heuristic(startX, startZ) };
+    const open: Node[] = [start];
+    const bestCost = new Map<string, number>([[startKey, 0]]);
+    const parents = new Map<string, string>();
+    const nodes = new Map<string, Node>([[startKey, start]]);
+    const closed = new Set<string>();
+    let found: string | null = null;
+
+    for (let expanded = 0; open.length > 0 && expanded < 520; expanded++) {
+      let bestIndex = 0;
+      for (let i = 1; i < open.length; i++) if (open[i].f < open[bestIndex].f) bestIndex = i;
+      const current = open.splice(bestIndex, 1)[0];
+      const currentKey = key(current.x, current.z);
+      if (closed.has(currentKey)) continue;
+      if (currentKey === goalKey) {
+        found = currentKey;
+        break;
+      }
+      closed.add(currentKey);
+
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const x = current.x + dx;
+        const z = current.z + dz;
+        if (Math.abs(x - startX) > 12 || Math.abs(z - startZ) > 12) continue;
+        const nextKey = key(x, z);
+        if (closed.has(nextKey)) continue;
+        const centerX = x + 0.5;
+        const centerZ = z + 0.5;
+        const playerDistance = Math.hypot(centerX - this.pos.x, centerZ - this.pos.z);
+        if (playerDistance < WOLF_PET_PLAYER_GAP && nextKey !== startKey) continue;
+        const groundY = this.wolfPetGroundY(centerX, centerZ, current.y, 3.3, Math.atan2(-dx, -dz));
+        if (groundY === null) continue;
+        const rise = groundY - current.y;
+        // The player can step/jump one block; larger drops are safe to descend but not to climb.
+        if (rise > 1.05 || rise < -2.65) continue;
+        const cost = current.g + 1 + Math.max(0, rise) * 0.35 + Math.max(0, -rise) * 0.12;
+        if (cost >= (bestCost.get(nextKey) ?? Infinity)) continue;
+        const next: Node = { x, z, y: groundY, g: cost, f: cost + heuristic(x, z) };
+        bestCost.set(nextKey, cost);
+        parents.set(nextKey, currentKey);
+        nodes.set(nextKey, next);
+        open.push(next);
+      }
+    }
+
+    if (!found) return null;
+    let cursor = found;
+    while (parents.get(cursor) !== startKey) {
+      const parent = parents.get(cursor);
+      if (!parent) return null;
+      cursor = parent;
+    }
+    const first = nodes.get(cursor);
+    return first ? new THREE.Vector3(first.x + 0.5, first.y, first.z + 0.5) : null;
+  }
+
+  private moveWolfPet(rig: WolfPetRig, dt: number, speed: number) {
+    rig.moving = false;
+    const pos = rig.group.position;
+    rig.navTimer = Math.max(0, rig.navTimer - dt);
+    const navGoalShift = Math.hypot(rig.navGoal.x - rig.target.x, rig.navGoal.z - rig.target.z);
+    const navDistance = Math.hypot(rig.navWaypoint.x - pos.x, rig.navWaypoint.z - pos.z);
+    if (rig.navTimer > 0 && (navGoalShift > 1.15 || navDistance < 0.24)) rig.navTimer = 0;
+
+    const tryStep = (destinationX: number, destinationZ: number): boolean => {
+      const dx = destinationX - pos.x;
+      const dz = destinationZ - pos.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance < 0.12) return true;
+      const stride = Math.min(distance, Math.max(0, speed * dt));
+      if (stride <= 0) return false;
+      const angle = Math.atan2(dz, dx);
+      const playerDistanceAtStart = Math.hypot(pos.x - this.pos.x, pos.z - this.pos.z);
+      rig.yawTarget = Math.atan2(-dx, -dz);
+      for (const turn of [0, 0.42, -0.42, 0.86, -0.86, 1.28, -1.28]) {
+        const moveAngle = angle + turn;
+        const stepX = Math.cos(moveAngle) * stride;
+        const stepZ = Math.sin(moveAngle) * stride;
+        const subdivisions = Math.max(1, Math.ceil(stride / 0.16));
+        let lastGroundY = pos.y;
+        let steppedUp = false;
+        let clear = true;
+        for (let part = 1; part <= subdivisions; part++) {
+          const progress = part / subdivisions;
+          const x = pos.x + stepX * progress;
+          const z = pos.z + stepZ * progress;
+          const playerDistance = Math.hypot(x - this.pos.x, z - this.pos.z);
+          // Keep a full step of breathing room around the miner; if already too close, only allow
+          // moves that increase separation so the wolf can get itself unstuck safely.
+          if (playerDistance < WOLF_PET_PLAYER_GAP && playerDistance < playerDistanceAtStart + 0.025) {
+            clear = false;
+            break;
+          }
+          const groundY = this.wolfPetGroundY(x, z, lastGroundY, 3.3, Math.atan2(-stepX, -stepZ));
+          if (groundY === null) {
+            clear = false;
+            break;
+          }
+          const rise = groundY - lastGroundY;
+          if (rise > 1.05 || rise < -2.65) {
+            clear = false;
+            break;
+          }
+          if (groundY > pos.y + 0.12) steppedUp = true;
+          lastGroundY = groundY;
+        }
+        if (!clear) continue;
+        pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
+        if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, 0.28);
+        rig.yawTarget = Math.atan2(-stepX, -stepZ);
+        rig.moving = true;
+        return true;
+      }
+      return false;
+    };
+
+    if (rig.navTimer > 0 && tryStep(rig.navWaypoint.x, rig.navWaypoint.z)) return;
+    rig.navTimer = 0;
+    if (tryStep(rig.target.x, rig.target.z)) return;
+
+    const waypoint = this.findWolfPetWaypoint(rig, rig.target.x, rig.target.z);
+    if (!waypoint) return;
+    rig.navWaypoint.copy(waypoint);
+    rig.navGoal.copy(rig.target);
+    rig.navTimer = 1.8;
+    tryStep(waypoint.x, waypoint.z);
+  }
+
+  private isWolfPetFetchDropCandidate(drop: Drop): boolean {
+    if (!drop.active || drop.petCarried || drop.thrown || drop.id === LOOT_BAG || drop.id <= AIR || drop.id >= 200 || !BLOCKS[drop.id]) return false;
+    if (drop.age < (drop.pickupDelay ?? 0.22) + 0.18) return false;
+    if ((drop.wolfPetIgnoreUntil ?? 0) > this.time) return false;
+    const playerDistance = Math.hypot(drop.x - this.pos.x, drop.z - this.pos.z);
+    const playerPickupDistance = Math.hypot(drop.x - this.pos.x, drop.y - (this.pos.y + 1.1), drop.z - this.pos.z);
+    return playerDistance <= 11 && playerPickupDistance >= 1.5 && Math.abs(drop.y - this.pos.y) <= 5;
+  }
+
+  private closestWolfFetchDrop(rig: WolfPetRig): Drop | null {
+    let best: Drop | null = null;
+    let bestScore = Infinity;
+    for (const drop of this.drops) {
+      if (!this.isWolfPetFetchDropCandidate(drop)) continue;
+      const playerDistance = Math.hypot(drop.x - this.pos.x, drop.z - this.pos.z);
+      const petDistance = Math.hypot(drop.x - rig.group.position.x, drop.z - rig.group.position.z);
+      const score = petDistance + playerDistance * 0.08;
+      if (score < bestScore) {
+        best = drop;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  private wolfChestHasLoot(target: WolfChestTarget): boolean {
+    const id = this.world.get(target.x, target.y, target.z);
+    if (!isTreasureChest(id) || baseChestId(id) !== baseChestId(target.id)) return false;
+    const chest = this.chestInventoryAt(target.x, target.y, target.z, id);
+    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && itemId < 200 && !!BLOCKS[itemId] && !getToolSpec(itemId));
+  }
+
+  /** Find a nearby stocked chest and one clear adjacent position the wolf can reach. */
+  private closestWolfChestTarget(rig: WolfPetRig): WolfChestTarget | null {
+    let best: WolfChestTarget | null = null;
+    let bestScore = Infinity;
+    const playerX = this.pos.x;
+    const playerY = this.pos.y;
+    const playerZ = this.pos.z;
+    const minX = Math.floor(playerX) - 10;
+    const maxX = Math.floor(playerX) + 10;
+    const minZ = Math.floor(playerZ) - 10;
+    const maxZ = Math.floor(playerZ) + 10;
+    const minY = Math.max(0, Math.floor(playerY) - 10);
+    const maxY = Math.min(WY - 1, Math.floor(playerY) + 10);
+    const sides: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (!this.world.hasColumn(x, z)) continue;
+        for (let y = minY; y <= maxY; y++) {
+          const id = this.world.get(x, y, z);
+          if (!isTreasureChest(id)) continue;
+          const playerDistance = Math.hypot(x + 0.5 - playerX, y + 0.5 - (playerY + 0.85), z + 0.5 - playerZ);
+          if (playerDistance > 10) continue;
+          const key = Engine.chestCellKey(x, y, z);
+          if (key === rig.chestIgnoredKey && this.time < rig.chestIgnoreUntil) continue;
+          const chestTargetBase: WolfChestTarget = { x, y, z, id, standX: 0, standY: 0, standZ: 0, swimming: false };
+          if (!this.wolfChestHasLoot(chestTargetBase)) continue;
+
+          // Underwater caches should be approached as swimming targets even if the wolf could
+          // technically walk along the seabed. Ordinary land chests prefer a grounded approach.
+          const submerged = isUnderwaterChest(id) || this.world.get(x, y + 1, z) === WATER;
+          for (const [dx, dz] of sides) {
+            for (const offset of [1.85, 2.1]) {
+              const standX = x + 0.5 + dx * offset;
+              const standZ = z + 0.5 + dz * offset;
+              if (Math.hypot(standX - playerX, standZ - playerZ) < WOLF_PET_PLAYER_GAP + 0.2) continue;
+              const faceYaw = Math.atan2(-(x + 0.5 - standX), -(z + 0.5 - standZ));
+              const cellX = Math.floor(standX);
+              const cellZ = Math.floor(standZ);
+              if (!this.world.hasColumn(cellX, cellZ)) continue;
+
+              if (submerged) {
+                for (const standY of [y + 0.05, y - 0.45, y + 0.55, y - 0.95]) {
+                  if (this.world.get(cellX, Math.floor(standY + 0.3), cellZ) !== WATER) continue;
+                  if (!this.wolfPetSwimClear(standX, standY, standZ, faceYaw)) continue;
+                  const score = Math.hypot(standX - rig.group.position.x, standY - rig.group.position.y, standZ - rig.group.position.z) + playerDistance * 0.08;
+                  if (score < bestScore) {
+                    best = { ...chestTargetBase, standX, standY, standZ, swimming: true };
+                    bestScore = score;
+                  }
+                }
+                continue;
+              }
+
+              const groundY = this.wolfPetGroundY(standX, standZ, rig.group.position.y, 10, faceYaw);
+              if (groundY !== null) {
+                const score = Math.hypot(standX - rig.group.position.x, groundY - rig.group.position.y, standZ - rig.group.position.z) + playerDistance * 0.08;
+                if (score < bestScore) {
+                  best = { ...chestTargetBase, standX, standY: groundY, standZ, swimming: false };
+                  bestScore = score;
+                }
+                continue;
+              }
+
+              // If the dry route is blocked by shore terrain, allow a nearby water approach.
+              for (const standY of [y + 0.05, y - 0.45, y + 0.55]) {
+                if (this.world.get(cellX, Math.floor(standY + 0.3), cellZ) !== WATER) continue;
+                if (!this.wolfPetSwimClear(standX, standY, standZ, faceYaw)) continue;
+                const score = Math.hypot(standX - rig.group.position.x, standY - rig.group.position.y, standZ - rig.group.position.z) + playerDistance * 0.08;
+                if (score < bestScore) {
+                  best = { ...chestTargetBase, standX, standY, standZ, swimming: true };
+                  bestScore = score;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  private setWolfPetChestLid(target: WolfChestTarget, open: boolean) {
+    const currentId = this.world.get(target.x, target.y, target.z);
+    if (!isTreasureChest(currentId)) return;
+    const active = this.activeChest;
+    // Never close the lid while the player has this very chest open in their inventory.
+    if (!open && active?.x === target.x && active.y === target.y && active.z === target.z) return;
+    if (isOpenChest(currentId) === open) return;
+    const base = baseChestId(currentId);
+    this.world.set(target.x, target.y, target.z, open ? openChestId(base) : base);
+    this.rebuildAt(target.x, target.z);
+    this.swingChestLid(
+      target.x,
+      target.y,
+      target.z,
+      open ? 0 : CHEST_LID_OPEN_ANGLE,
+      [[0, open ? 0 : CHEST_LID_OPEN_ANGLE], [1, open ? CHEST_LID_OPEN_ANGLE : 0]],
+      open ? 0.42 : 0.3,
+    );
+    sfx.creak(open);
+    if (!open && this.sandbox) this.saveWorld(true);
+  }
+
+  /** The wolf can reach into a stocked chest itself, but brings only one item per trip. */
+  private updateWolfPetChest(rig: WolfPetRig, dt: number): boolean {
+    rig.chestScanTimer = Math.max(0, rig.chestScanTimer - dt);
+    if (rig.chestTarget) {
+      const target = rig.chestTarget;
+      const playerDistance = Math.hypot(target.x + 0.5 - this.pos.x, target.y + 0.5 - (this.pos.y + 0.85), target.z + 0.5 - this.pos.z);
+      if (playerDistance > 10 || !this.wolfChestHasLoot(target) ||
+          (Engine.chestCellKey(target.x, target.y, target.z) === rig.chestIgnoredKey && this.time < rig.chestIgnoreUntil)) {
+        rig.chestTarget = null;
+        rig.chestBlockedTimer = 0;
+        rig.chestScanTimer = 0;
+      }
+    }
+    if (!rig.chestTarget && rig.chestScanTimer <= 0) {
+      rig.chestTarget = this.closestWolfChestTarget(rig);
+      rig.chestScanTimer = 0.48;
+    }
+    const target = rig.chestTarget;
+    if (!target) return false;
+
+    rig.fetchTarget = null;
+    rig.fetchBlockedDrop = null;
+    rig.fetchBlockedTimer = 0;
+    rig.fetchNoProgressTimer = 0;
+    rig.fetchNoPath = false;
+    rig.restAnchorValid = false;
+    rig.stillTimer = 0;
+    rig.moveStartTimer = 0;
+    rig.sitting = false;
+    rig.target.set(target.standX, target.standY, target.standZ);
+    const dx = target.standX - rig.group.position.x;
+    const dy = target.standY - rig.group.position.y;
+    const dz = target.standZ - rig.group.position.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance <= 0.48) {
+      const currentId = this.world.get(target.x, target.y, target.z);
+      const chest = this.chestInventoryAt(target.x, target.y, target.z, currentId);
+      const item = [...chest].find(([id, count]) => id > AIR && id < 200 && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
+      if (!item) {
+        this.setWolfPetChestLid(target, false);
+        rig.chestTarget = null;
+        rig.chestBlockedTimer = 0;
+        rig.chestScanTimer = 0;
+        return true;
+      }
+      this.setWolfPetChestLid(target, true);
+      const [id, count] = item;
+      if (count > 1) chest.set(id, count - 1);
+      else chest.delete(id);
+      const drop = this.spawnDrop(rig.group.position.x, rig.group.position.y + 0.7, rig.group.position.z, id, null, { count: 1, pickupDelay: 0, fromChest: true });
+      drop.petCarried = true;
+      rig.carrying = drop;
+      rig.chestBlockedTimer = 0;
+      rig.chestScanTimer = 0.5;
+      rig.moving = false;
+      sfx.pickup(1);
+      if (this.activeChest?.x === target.x && this.activeChest.y === target.y && this.activeChest.z === target.z) this.syncHud(true);
+      if (this.sandbox) this.saveWorld(true);
+      return true;
+    }
+
+    rig.yawTarget = Math.atan2(-(target.x + 0.5 - rig.group.position.x), -(target.z + 0.5 - rig.group.position.z));
+    if (target.swimming || this.wolfPetIsInWater(rig)) {
+      rig.swimming = true;
+      rig.underwater = target.swimming;
+      this.moveWolfPetSwimming(rig, dt, 5.4);
+    } else {
+      if (rig.swimming) {
+        rig.swimming = false;
+        rig.underwater = false;
+      }
+      this.moveWolfPet(rig, dt, 5.1);
+    }
+    if (rig.moving) rig.chestBlockedTimer = 0;
+    else rig.chestBlockedTimer += dt;
+    if (rig.chestBlockedTimer >= 1.8) {
+      rig.chestIgnoredKey = Engine.chestCellKey(target.x, target.y, target.z);
+      rig.chestIgnoreUntil = this.time + WOLF_PET_FETCH_RETRY_SECONDS;
+      rig.chestTarget = null;
+      rig.chestBlockedTimer = 0;
+      rig.chestScanTimer = 0;
+      return false;
+    }
+    return true;
+  }
+
+  private nearestWolfThreat(): Mob | null {
+    let best: Mob | null = null;
+    let bestDistance = 9.5;
+    for (const mob of this.mobSys.mobs) {
+      if (!mob.alive || mob.hidden || !mob.def.hostile) continue;
+      const playerDistance = Math.hypot(mob.x - this.pos.x, mob.z - this.pos.z);
+      if (playerDistance >= bestDistance || Math.abs(mob.y - this.pos.y) > 5) continue;
+      best = mob;
+      bestDistance = playerDistance;
+    }
+    return best;
+  }
+
+  private updateWolfPetCombat(rig: WolfPetRig, dt: number, target: Mob) {
+    const dx = target.x - rig.group.position.x;
+    const dz = target.z - rig.group.position.z;
+    const distance = Math.hypot(dx, dz) || 1;
+    rig.sitting = false;
+    const swimming = this.inWater || this.wolfPetIsInWater(rig);
+    if (swimming) {
+      if (!rig.swimming) {
+        rig.restAnchorValid = false;
+        rig.navTimer = 0;
+      }
+      rig.swimming = true;
+      rig.underwater = this.inWater && this.headUnderwater();
+    } else if (rig.swimming) {
+      rig.swimming = false;
+      rig.underwater = false;
+      rig.restAnchorValid = false;
+      rig.navTimer = 0;
+    }
+    if (distance > 1.25) {
+      const standX = target.x - (dx / distance) * 0.92;
+      const standZ = target.z - (dz / distance) * 0.92;
+      const targetYaw = Math.atan2(-dx, -dz);
+      if (swimming) {
+        const surfaceY = this.wolfPetWaterSurfaceY(standX, standZ, this.pos.y);
+        const swimY = this.inWater && surfaceY !== null
+          ? this.headUnderwater() ? Math.min(this.pos.y, surfaceY - 1.15) : surfaceY - 0.72
+          : this.wolfPetGroundY(standX, standZ, rig.group.position.y, 5, targetYaw) ?? this.pos.y;
+        if (this.wolfPetSwimClear(standX, swimY, standZ, targetYaw)) rig.target.set(standX, swimY, standZ);
+        this.moveWolfPetSwimming(rig, dt, 7.7);
+      } else {
+        const groundY = this.wolfPetGroundY(standX, standZ, rig.group.position.y, 5, targetYaw);
+        if (groundY !== null) rig.target.set(standX, groundY, standZ);
+        this.moveWolfPet(rig, dt, 7.7);
+      }
+      return;
+    }
+
+    rig.target.copy(rig.group.position);
+    rig.moving = false;
+    rig.yawTarget = Math.atan2(-dx, -dz);
+    rig.attackTimer -= dt;
+    if (rig.attackTimer > 0) return;
+    rig.attackTimer = 1.08;
+    rig.attackPoseTimer = 0.32;
+    if (rig.jaw) rig.jaw.rotation.x = -0.28;
+    target.hp -= 4.2;
+    target.hurtFlash = 0.18;
+    this.mobSys.showHealthBar(target);
+    target.vx += (target.x - rig.group.position.x) / distance * 1.7;
+    target.vz += (target.z - rig.group.position.z) / distance * 1.7;
+    if (target.onGround) target.vy = Math.max(target.vy, 1.6);
+    this.burst(target.x, target.y + 0.42, target.z, [206, 178, 128], 4, 1.25, 0.62);
+    sfx.creature(rig.kind === 'wolf' ? 'wolf' : 'monkey', { state: 'attack', volume: 0.34, pitch: 0.88 + Math.random() * 0.12 });
+    if (target.hp <= 0) this.mobDied(target, false);
+  }
+
+  private updateWolfPetFetch(rig: WolfPetRig, dt: number, movingPlayer: boolean) {
+    if (rig.fetchTarget && (!rig.fetchTarget.active || rig.fetchTarget.petCarried || rig.fetchTarget.thrown)) {
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+      rig.fetchBlockedTimer = 0;
+      rig.fetchNoProgressTimer = 0;
+      rig.fetchNoPath = false;
+    }
+
+    // In water, shadow the player first. If the player reaches shore before the pet, keep swimming
+    // toward the dry follow point; a pending drop is retried once the wolf is back on land.
+    const wolfInWater = this.wolfPetIsInWater(rig);
+    if (this.inWater || wolfInWater) {
+      if (!rig.swimming) {
+        rig.restAnchorValid = false;
+        rig.stillTimer = 0;
+        rig.moveStartTimer = 0;
+        rig.navTimer = 0;
+      }
+      rig.fetchBlockedTimer = 0;
+      rig.fetchNoProgressTimer = 0;
+      rig.fetchNoPath = false;
+      if (this.inWater) {
+        const swimmingMovement = movingPlayer || (this.headUnderwater() && Math.abs(this.vel.y) > 0.25);
+        this.updateWolfPetSwimFollow(rig, dt, swimmingMovement);
+      } else this.updateWolfPetSwimLandFollow(rig, dt, movingPlayer);
+      return;
+    }
+    if (rig.swimming) {
+      rig.swimming = false;
+      rig.underwater = false;
+      rig.restAnchorValid = false;
+      rig.stillTimer = 0;
+      rig.moveStartTimer = 0;
+      rig.navTimer = 0;
+    }
+
+    if (!rig.fetchTarget) rig.fetchTarget = this.closestWolfFetchDrop(rig);
+    if (rig.fetchTarget) {
+      rig.restAnchorValid = false;
+      rig.stillTimer = 0;
+      rig.moveStartTimer = 0;
+      const drop = rig.fetchTarget;
+      if (rig.fetchBlockedDrop !== drop) {
+        rig.fetchBlockedDrop = drop;
+        rig.fetchBlockedTimer = 0;
+        rig.fetchNoPath = false;
+        rig.navTimer = 0;
+      }
+      rig.target.set(drop.x, drop.y, drop.z);
+      const distance = Math.hypot(drop.x - rig.group.position.x, drop.z - rig.group.position.z);
+      rig.sitting = false;
+      if (distance <= 0.72) {
+        drop.petCarried = true;
+        drop.vx = drop.vy = drop.vz = 0;
+        rig.carrying = drop;
+        rig.fetchTarget = null;
+        rig.fetchBlockedDrop = null;
+        rig.fetchBlockedTimer = 0;
+        rig.fetchNoProgressTimer = 0;
+        rig.fetchNoPath = false;
+        sfx.pickup(1);
+        return;
+      }
+
+      if (!rig.fetchNoPath) this.moveWolfPet(rig, dt, 7.1);
+      else rig.moving = false;
+      if (rig.moving) {
+        rig.fetchBlockedTimer = 0;
+        rig.fetchNoProgressTimer = 0;
+      } else {
+        rig.fetchBlockedTimer += dt;
+        if (movingPlayer) rig.fetchNoProgressTimer += dt;
+        else rig.fetchNoProgressTimer = 0;
+        if (!rig.fetchNoPath && rig.navTimer <= 0) rig.fetchNoPath = true;
+
+        if (movingPlayer && rig.fetchNoProgressTimer >= WOLF_PET_FETCH_MOVING_ABANDON_SECONDS) {
+          drop.wolfPetIgnoreUntil = Math.max(drop.wolfPetIgnoreUntil ?? 0, this.time + WOLF_PET_FETCH_RETRY_SECONDS);
+          rig.fetchTarget = null;
+          rig.fetchBlockedDrop = null;
+          rig.fetchBlockedTimer = 0;
+          rig.fetchNoProgressTimer = 0;
+          rig.fetchNoPath = false;
+        } else if (rig.fetchBlockedTimer >= WOLF_PET_FETCH_STALL_SECONDS) {
+          drop.wolfPetIgnoreUntil = Math.max(drop.wolfPetIgnoreUntil ?? 0, this.time + WOLF_PET_FETCH_RETRY_SECONDS);
+          rig.fetchTarget = this.closestWolfFetchDrop(rig);
+          rig.fetchBlockedDrop = null;
+          rig.fetchBlockedTimer = 0;
+          rig.fetchNoPath = false;
+          rig.navTimer = 0;
+        }
+      }
+      if (rig.fetchTarget) return;
+    }
+
+    if (movingPlayer) {
+      rig.fetchNoProgressTimer = 0;
+      if (rig.restAnchorValid) {
+        rig.moveStartTimer += dt;
+        if (rig.moveStartTimer < WOLF_PET_FOLLOW_RESUME_DELAY) {
+          rig.target.copy(rig.restAnchor);
+          rig.moving = false;
+          return;
+        }
+      }
+      rig.moveStartTimer = 0;
+      rig.stillTimer = 0;
+      rig.restAnchorValid = false;
+      rig.sitting = false;
+      this.setWolfPetFollowTarget(rig, true);
+      this.moveWolfPet(rig, dt, 7.8);
+      return;
+    }
+
+    // Let the player finish turning/stopping before choosing a parked position. Once seated, the
+    // anchor and facing stay fixed in world space until movement resumes.
+    rig.moveStartTimer = 0;
+    rig.fetchNoProgressTimer = 0;
+    rig.stillTimer += dt;
+    if (!rig.restAnchorValid && rig.stillTimer < WOLF_PET_REST_DELAY) {
+      rig.target.copy(rig.group.position);
+      rig.navTimer = 0;
+      rig.moving = false;
+      rig.sitting = false;
+      return;
+    }
+    if (!rig.restAnchorValid) {
+      if (!this.setWolfPetFollowTarget(rig, false)) rig.target.copy(rig.group.position);
+      rig.restAnchor.copy(rig.target);
+      rig.restYaw = this.yaw;
+      rig.restAnchorValid = true;
+    }
+    rig.target.copy(rig.restAnchor);
+    this.moveWolfPet(rig, dt, 4.9);
+    const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
+    rig.sitting = !rig.moving && playerDistance < 2.35;
+    if (rig.sitting) rig.yawTarget = rig.restYaw;
+  }
+
+  private updateWolfPetDelivery(rig: WolfPetRig, dt: number, movingPlayer: boolean) {
+    const drop = rig.carrying;
+    if (!drop || !drop.active) {
+      rig.carrying = null;
+      this.updateWolfPetFetch(rig, dt, movingPlayer);
+      return;
+    }
+    const distance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
+    if (distance <= 2.05) {
+      rig.carrying = null;
+      drop.petCarried = false;
+      drop.x = this.pos.x;
+      drop.y = this.pos.y + 0.8;
+      drop.z = this.pos.z;
+      this.collect(drop);
+      if (rig.chestTarget) this.setWolfPetChestLid(rig.chestTarget, false);
+      rig.chestTarget = null;
+      rig.reaction = 'wag';
+      rig.reactionTimer = 0.75;
+      return;
+    }
+    rig.sitting = false;
+    const wolfInWater = this.wolfPetIsInWater(rig);
+    if (this.inWater || wolfInWater) {
+      if (!rig.swimming) {
+        rig.restAnchorValid = false;
+        rig.navTimer = 0;
+      }
+      rig.swimming = true;
+      rig.underwater = this.inWater && this.headUnderwater();
+      const targetFound = this.inWater
+        ? this.setWolfPetSwimTarget(rig, movingPlayer)
+        : this.setWolfPetFollowTarget(rig, movingPlayer);
+      if (targetFound) this.moveWolfPetSwimming(rig, dt, 7.8);
+      else {
+        rig.target.copy(rig.group.position);
+        rig.moving = false;
+      }
+      return;
+    }
+    if (rig.swimming) {
+      rig.swimming = false;
+      rig.underwater = false;
+      rig.restAnchorValid = false;
+      rig.navTimer = 0;
+    }
+    this.setWolfPetFollowTarget(rig, false);
+    this.moveWolfPet(rig, dt, 7.8);
+  }
+
+  private syncWolfPetCarriedDrop(rig: WolfPetRig) {
+    const drop = rig.carrying;
+    if (!drop || !drop.active || !drop.petCarried) return;
+    const forwardX = -Math.sin(rig.group.rotation.y);
+    const forwardZ = -Math.cos(rig.group.rotation.y);
+    drop.x = rig.group.position.x + forwardX * 0.38;
+    drop.y = rig.group.position.y + 0.76;
+    drop.z = rig.group.position.z + forwardZ * 0.38;
+    drop.vx = drop.vy = drop.vz = 0;
+  }
+
+  private updateWolfPet(dt: number) {
+    const rig = this.wolfPetRig;
+    if (!rig) return;
+    if (!this.petEquipped) {
+      this.clearWolfPetRig();
+      return;
+    }
+    if (this.phase !== 'playing') {
+      rig.group.visible = this.phase === 'paused';
+      return;
+    }
+
+    rig.group.visible = true;
+    const movingPlayer = Math.hypot(this.vel.x, this.vel.z) > 0.72 || Math.abs(this.vel.y) > 0.72;
+    const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
+    if (!rig.carrying && playerDistance > 14) {
+      const teleportTargetFound = this.inWater
+        ? this.setWolfPetSwimTarget(rig, movingPlayer, true)
+        : this.setWolfPetTeleportTarget(rig);
+      if (teleportTargetFound) {
+        if (!this.inWater) {
+          rig.swimming = false;
+          rig.underwater = false;
+        }
+        rig.group.position.copy(rig.target);
+        rig.group.rotation.y = rig.yawTarget;
+        rig.navTimer = 0;
+        rig.restAnchor.copy(rig.target);
+        rig.restYaw = rig.yawTarget;
+        rig.restAnchorValid = true;
+        rig.stillTimer = 0;
+        rig.moveStartTimer = 0;
+        rig.teleportRevealTimer = WOLF_PET_TELEPORT_REVEAL_SECONDS;
+        rig.reaction = 'wag';
+        rig.reactionTimer = WOLF_PET_TELEPORT_REVEAL_SECONDS;
+      }
+    }
+
+    const threat = this.nearestWolfThreat();
+    if (threat && !rig.carrying) {
+      rig.teleportRevealTimer = 0;
+      rig.restAnchorValid = false;
+      rig.moveStartTimer = 0;
+      rig.fetchTarget = null;
+      this.updateWolfPetCombat(rig, dt, threat);
+    } else if (rig.carrying) {
+      this.updateWolfPetDelivery(rig, dt, movingPlayer);
+    } else if (rig.teleportRevealTimer > 0) {
+      if (this.inWater && !rig.swimming) {
+        rig.restAnchorValid = false;
+        rig.stillTimer = 0;
+        rig.moveStartTimer = 0;
+      } else if (!this.inWater && rig.swimming) {
+        rig.restAnchorValid = false;
+        rig.stillTimer = 0;
+        rig.moveStartTimer = 0;
+      }
+      rig.swimming = this.inWater;
+      rig.underwater = this.inWater && this.headUnderwater();
+      rig.teleportRevealTimer = Math.max(0, rig.teleportRevealTimer - dt);
+      rig.target.copy(rig.group.position);
+      rig.moving = false;
+      rig.sitting = false;
+    } else if (!this.updateWolfPetChest(rig, dt)) {
+      this.updateWolfPetFetch(rig, dt, movingPlayer);
+    }
+
+    if (rig.reactionTimer > 0) {
+      rig.reactionAge += dt;
+      rig.reactionTimer = Math.max(0, rig.reactionTimer - dt);
+    }
+    if (rig.reactionTimer === 0) {
+      rig.reaction = null;
+      rig.reactionAge = 0;
+      rig.reactionLookTimer = 0;
+    }
+    if (rig.kind === 'monkey'
+      && (rig.reaction === 'monkey-flop' || rig.reaction === 'monkey-hops' || rig.reaction === 'monkey-spin')
+      && rig.reactionTimer > 0) {
+      rig.reactionSoundTimer -= dt;
+      if (rig.reactionSoundTimer <= 0) {
+        sfx.creature('monkey', { state: 'idle', volume: 0.68, pitch: 0.94 + Math.random() * 0.18 });
+        rig.reactionSoundTimer = rig.reaction === 'monkey-flop' ? 0.48 : 0.55;
+      }
+    }
+
+    rig.phase += dt * (rig.moving || rig.swimming ? 8.4 : 1.7);
+    rig.hopTimer = Math.max(0, rig.hopTimer - dt);
+    rig.attackPoseTimer = Math.max(0, rig.attackPoseTimer - dt);
+    const walking = rig.moving;
+    const hop = rig.hopTimer > 0 ? Math.sin((1 - rig.hopTimer / 0.28) * Math.PI) * 0.28 : 0;
+    const bob = rig.swimming ? Math.sin(rig.phase * 1.65) * 0.035 : walking ? Math.abs(Math.sin(rig.phase * 2.2)) * 0.035 : 0;
+    rig.model.position.y = bob + hop;
+    rig.model.rotation.x = rig.swimming
+      ? rig.underwater ? Math.max(-0.28, Math.min(0.28, this.pitch * 0.24)) : 0.08
+      : 0;
+
+    if (rig.kind === 'wolf') {
+      if (rig.body) {
+        rig.body.position.y = rig.sitting ? 0.5 : 0.58;
+        rig.body.rotation.x = rig.sitting ? 0.12 : 0;
+      }
+      if (rig.swimming) {
+        const paddle = Math.sin(rig.phase * 2.5) * 0.48;
+        rig.legs.forEach((leg, index) => {
+          leg.rotation.x = paddle * (index < 2 ? 1 : -1);
+        });
+      } else if (walking || !rig.sitting) {
+        const swing = walking ? Math.sin(rig.phase * 2.3) * 0.56 : 0;
+        rig.legs.forEach((leg, index) => {
+          const frontBack = index < 2 ? 1 : -1;
+          leg.rotation.x = swing * frontBack;
+        });
+      } else {
+        rig.legs.forEach((leg, index) => {
+          leg.rotation.x = index < 2 ? 0 : -1.02;
+        });
+      }
+      const wag = rig.reaction === 'wag' ? 0.8 : rig.sitting ? 0.19 : 0.08;
+      if (rig.tail) {
+        rig.tail.rotation.y = Math.sin(this.time * (rig.reaction === 'wag' ? 16 : 7)) * wag;
+        rig.tail.rotation.x = rig.swimming ? -0.3 : rig.reaction === 'wag' ? -0.24 : -0.08;
+      }
+      if (rig.head) rig.head.rotation.x = rig.reaction === 'bark' ? Math.sin(this.time * 18) * 0.16 : 0;
+      if (rig.jaw) rig.jaw.rotation.x = rig.reaction === 'bark' ? Math.abs(Math.sin(this.time * 18)) * 0.42 : 0;
+    } else {
+      const leftArm = rig.legs[0];
+      const leftFoot = rig.legs[1];
+      const rightArm = rig.legs[2];
+      const rightFoot = rig.legs[3];
+      rightArm.position.y = 0.51;
+      leftArm.position.y = 0.51;
+      rig.pose.rotation.set(0, 0, 0);
+      if (rig.swimming) {
+        const paddle = Math.sin(rig.phase * 2.5) * 0.52;
+        leftArm.rotation.x = paddle;
+        rightArm.rotation.x = -paddle;
+        leftFoot.rotation.x = -paddle * 0.72;
+        rightFoot.rotation.x = paddle * 0.72;
+      } else if (walking) {
+        const swing = Math.sin(rig.phase * 2.3) * 0.48;
+        leftArm.rotation.x = -swing;
+        rightArm.rotation.x = swing;
+        leftFoot.rotation.x = swing;
+        rightFoot.rotation.x = -swing;
+        leftArm.rotation.z = rightArm.rotation.z = 0;
+      } else {
+        leftArm.rotation.x = rightArm.rotation.x = 0;
+        leftArm.rotation.z = rightArm.rotation.z = 0;
+        leftFoot.rotation.x = rightFoot.rotation.x = rig.sitting ? -0.12 : 0;
+      }
+      leftArm.rotation.z = rightArm.rotation.z = 0;
+      if (rig.reaction === 'monkey-flop') {
+        const fall = Math.min(1, rig.reactionAge / 0.24);
+        rig.pose.rotation.x = fall * 1.43;
+        rig.model.position.y = bob + 0.025;
+        leftArm.rotation.z = Math.sin(rig.reactionAge * 18) * 1.18;
+        rightArm.rotation.z = Math.sin(rig.reactionAge * 22 + 1.7) * 1.22;
+        leftFoot.rotation.x = Math.sin(rig.reactionAge * 20 + 0.6) * 1.3;
+        rightFoot.rotation.x = Math.sin(rig.reactionAge * 17 + 2.1) * 1.28;
+      } else if (rig.reaction === 'monkey-hops') {
+        const bounce = Math.abs(Math.sin(rig.reactionAge * 7.8));
+        rig.model.position.y = bob + bounce * 0.36;
+        rig.pose.rotation.x = Math.sin(rig.reactionAge * 7.8) * 0.08;
+        leftArm.rotation.z = Math.sin(rig.reactionAge * 12) * 0.55;
+        rightArm.rotation.z = -Math.sin(rig.reactionAge * 12 + 0.7) * 0.55;
+        leftFoot.rotation.x = Math.sin(rig.reactionAge * 7.8 + Math.PI) * 0.38;
+        rightFoot.rotation.x = -Math.sin(rig.reactionAge * 7.8 + Math.PI) * 0.38;
+      } else if (rig.reaction === 'monkey-scratch') {
+        const oneHop = rig.reactionAge < 0.36 ? Math.sin(Math.PI * rig.reactionAge / 0.36) : 0;
+        rig.model.position.y = bob + oneHop * 0.42;
+        if (rig.reactionAge > 0.3) rightArm.position.y = 0.72;
+        rightArm.rotation.z = rig.reactionAge > 0.3 ? 2.72 + Math.sin(rig.reactionAge * 19) * 0.16 : 0;
+        if (rig.head) rig.head.rotation.z = rig.reactionAge > 0.3 ? Math.sin(rig.reactionAge * 5.5) * 0.11 : 0;
+      } else if (rig.reaction === 'monkey-spin') {
+        rig.pose.rotation.z = Math.sin(rig.reactionAge * 10) * 0.04;
+      }
+      if (rig.attackPoseTimer > 0) {
+        const jab = Math.sin((1 - rig.attackPoseTimer / 0.32) * Math.PI);
+        rightArm.rotation.z = Math.max(rightArm.rotation.z, jab * 1.9);
+      }
+      if (rig.tail) {
+        const tailWag = rig.reaction === 'wag' ? 0.58 : rig.swimming ? 0.34 : walking ? 0.22 : 0.13;
+        rig.tail.rotation.y = Math.sin(this.time * (rig.reaction === 'wag' ? 15 : walking ? 6 : 2.7)) * tailWag;
+        rig.tail.rotation.x = -0.2 + (rig.swimming ? -0.09 : Math.sin(this.time * 2.1) * 0.035);
+      }
+      if (rig.head && rig.reaction !== 'monkey-scratch') rig.head.rotation.z = 0;
+    }
+
+    if (rig.reactionLookTimer > 0) {
+      rig.reactionLookTimer = Math.max(0, rig.reactionLookTimer - dt);
+      const faceX = this.pos.x - rig.group.position.x;
+      const faceZ = this.pos.z - rig.group.position.z;
+      if (Math.hypot(faceX, faceZ) > 0.001) rig.yawTarget = Math.atan2(-faceX, -faceZ);
+    }
+    if ((rig.reaction === 'spin' || rig.reaction === 'monkey-spin') && rig.reactionLookTimer <= 0) {
+      rig.group.rotation.y += dt * (rig.kind === 'monkey' ? 8.5 : 7.5);
+    } else {
+      let dy = rig.yawTarget - rig.group.rotation.y;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      rig.group.rotation.y += dy * Math.min(1, dt * 6);
+    }
+    this.syncWolfPetCarriedDrop(rig);
   }
 
   private botMinePriority(id: number): number {
@@ -10665,6 +12606,8 @@ if (tpClipActive > 0.5) {
   }
 
   dispose() {
+    this.clearWolfPetRig();
+    this.clearCompanions();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);

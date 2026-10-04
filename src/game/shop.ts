@@ -1,73 +1,40 @@
 /**
- * Shop: in-app purchases and the in-game currency (https://yandex.ru/dev/games/doc/ru/sdk/sdk-purchases).
+ * Yandex Games shop purchases. Consumable shop products are bought directly with the platform's
+ * currency; the game has no intermediate wallet or purchasable coin packs.
  *
- * Two rules from the documentation shape everything here:
- *
- *  1. **Save first, consume second.** `payments.consumePurchase()` deletes the purchase for good, so
- *     the netherite coins reach the player's cloud data (in the legacy `diamonds` profile field, with
- *     the write flushed) *before* the token is consumed. A crash in between means the purchase is delivered again, never lost.
- *  2. **Check for unprocessed purchases at every start** (requirement 1.13.1): a payment that went
- *     through while the network died is delivered on the next launch — that is `deliverPendingPurchases()`.
- *
- * The catalogue itself lives in the Yandex Console; the game only maps its product ids onto what it
- * sells and takes the price strings (and the portal-currency icon) from `payments.getCatalog()`,
- * because requirement 1.13.2 forbids hardcoding the currency.
+ * Product prices and currency icons come only from `payments.getCatalog()`. After a successful
+ * payment, the reward receipt and purchase token are flushed to the player's cloud profile before
+ * `consumePurchase()` is called. If storage or the network is unavailable, the receipt remains
+ * unconsumed and `getPurchases()` retries delivery at the next launch.
  */
 
-import { addDiamonds, flushProfile, getDiamonds, hasDeliveredPurchase, markPurchaseDelivered, spendDiamonds } from './profile';
+import { flushProfile, hasDeliveredPurchase, markPurchaseDelivered } from './profile';
 import { cacheAdFreeEntitlement, hasAdFreeEntitlement, reconcileAdFreePurchases, AD_FREE_PRODUCT_ID } from './adFree';
-import { cancelQueuedShopReward, queueShopReward, type ShopRewardProductId } from './shopRewards';
+import {
+  isShopProductId,
+  queueShopReward,
+  SHOP_PRODUCT_IDS,
+  type ShopProductId,
+} from './shopRewards';
 import { tvDevice } from './params';
+import { hasPet, MONKEY_PET_PRODUCT_ID, unlockPet, WOLF_PET_PRODUCT_ID } from './pets';
 import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
 
-export { AD_FREE_PRODUCT_ID } from './adFree';
-
-/** Legacy Console product ids mapped to the netherite coins credited to the legacy balance field. */
-export const DIAMOND_PACKS: Readonly<Record<string, number>> = {
-  'diamonds-100': 100,
-  'diamonds-599': 599,
-  'diamonds-1599': 1599,
-  'diamonds-5999': 5999,
-};
-
-/** Netherite-coin cost of the rewarded-video alternative on the results screen. */
-export const REVIVE_DIAMOND_PRICE = 100;
-
-/** Functional, in-game purchases; receipts are durably queued for the next world/run. */
-export const SHOP_ITEM_PRICES: Readonly<Record<ShopRewardProductId, number>> = {
-  'armor-uncommon': 349,
-  'armor-rare': 899,
-  'armor-epic': 1_999,
-  'netherite-pickaxe': 2_999,
-  'netherite-armor': 4_999,
-  // Keep old in-memory checkout IDs valid while durable pre-upgrade receipts are being applied.
-  'diamond-pickaxe': 2_999,
-  'diamond-armor': 4_999,
-  'chest-common': 199,
-  'chest-rare': 699,
-  'chest-epic': 1_799,
-  'booster-start': 249,
-  'booster-ore': 399,
-  'booster-score': 499,
-};
+export { AD_FREE_PRODUCT_ID, SHOP_PRODUCT_IDS };
 
 export type ShopItemBuyResult =
-  | { ok: true; productId: ShopRewardProductId; cost: number; diamonds: number }
-  | { ok: false; productId: string; reason: 'unavailable' | 'not-enough' | 'storage'; diamonds: number };
+  | { ok: true; productId: ShopProductId; syncPending: boolean }
+  | { ok: false; productId: string; reason: 'unavailable' | 'cancelled' | 'failed' };
 
 export type ShopPrice = {
-  /** `<цена> <код валюты>` exactly as the Console reports it */
+  /** `<amount> <currency>` exactly as the Yandex Console reports it. */
   label: string;
-  /** Valid portal-currency icon URL from the catalogue; products without one are not offered. */
+  /** SDK-provided image for the platform currency. */
   currencyIcon: string;
   fromCatalog: boolean;
 };
 
 export type ShopCatalog = Map<string, ShopPrice>;
-
-export type BuyResult =
-  | { ok: true; productId: string; diamonds: number }
-  | { ok: false; productId: string; reason: 'unavailable' | 'cancelled' | 'failed'; diamonds: number };
 
 export type AdFreeBuyResult =
   | { ok: true }
@@ -76,41 +43,18 @@ export type AdFreeBuyResult =
 let catalogCache: ShopCatalog | null = null;
 let catalogPromise: Promise<ShopCatalog> | null = null;
 
-/**
- * Requirement 1.6.3 (TV adaptation): TV games must not sell anything, so in TV mode the game does not
- * even ask the platform for the payment object — `getPayments()` is never called, `getPurchases()` is
- * never called and the shop button is hidden in the UI. Real purchases stay available everywhere else.
- */
+/** TV adaptation: purchases are unavailable and no payment SDK method is called in TV mode. */
 export function paymentsAvailable(): boolean {
   return !tvDevice() && yaPaymentsAvailable();
 }
 
-export function diamondsBalance(): number {
-  return getDiamonds();
-}
-
-/** Spend netherite coins and durably queue the matching reward receipt. */
-export function buyShopItem(productId: string): ShopItemBuyResult {
-  const cost = SHOP_ITEM_PRICES[productId as ShopRewardProductId];
-  if (!Number.isFinite(cost) || cost <= 0) return { ok: false, productId, reason: 'unavailable', diamonds: getDiamonds() };
-  if (getDiamonds() < cost) return { ok: false, productId, reason: 'not-enough', diamonds: getDiamonds() };
-
-  const receipt = queueShopReward(productId);
-  if (!receipt) return { ok: false, productId, reason: 'storage', diamonds: getDiamonds() };
-  if (!spendDiamonds(cost)) {
-    cancelQueuedShopReward(receipt);
-    return { ok: false, productId, reason: 'not-enough', diamonds: getDiamonds() };
-  }
-  return { ok: true, productId: productId as ShopRewardProductId, cost, diamonds: getDiamonds() };
-}
-
 /**
- * Fetch the catalogue once and keep it in memory: prices come from the Console, so they are correct
- * for the player's currency and region. Without the catalogue the shop falls back to the labels
- * baked into the UI (useful outside Yandex Games, where the shop is a preview anyway).
+ * Fetch the catalogue once and keep it in memory. The Yandex Console formats the price for the
+ * player's region and platform currency; offers missing either a formatted price or currency icon
+ * are deliberately omitted instead of showing a guessed/hardcoded price.
  */
 export async function loadShopCatalog(): Promise<ShopCatalog> {
-  if (tvDevice()) return new Map(); // TV: no purchase UI, so no catalogue request either
+  if (tvDevice()) return new Map();
   if (catalogCache) return catalogCache;
   if (catalogPromise) return catalogPromise;
 
@@ -119,9 +63,8 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
     const products = await yaGetCatalog();
     for (const product of products ?? []) {
       const label = typeof product?.price === 'string' ? product.price.trim() : '';
-      // `price` is the Console-formatted `<amount> <currency code>`; never fall back to a bare
-      // `priceValue`, which would hide the portal currency the docs require the game to display.
       if (!product?.id || !label) continue;
+
       let currencyIcon: string | null = null;
       try {
         const image = product.getPriceCurrencyImage?.('small');
@@ -129,19 +72,16 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
       } catch {
         currencyIcon = null;
       }
-      // Requirement 1.13.2: never display an in-app offer without both the SDK-formatted price and
-      // the portal-currency icon. A broken catalog row is omitted instead of falling back to art/text.
       if (!currencyIcon) continue;
-      catalog.set(product.id, {
-        label: product.price,
-        currencyIcon,
-        fromCatalog: true,
-      });
+      catalog.set(product.id, { label, currencyIcon, fromCatalog: true });
     }
-    // An empty catalogue means the request failed: don't cache it, so the next shop visit retries.
+
+    // An empty catalogue means the request failed or there are no complete offers; let a later shop
+    // visit retry rather than permanently caching an empty response.
     if (catalog.size) catalogCache = catalog;
     return catalog;
   })();
+
   catalogPromise = request;
   try {
     return await request;
@@ -150,87 +90,118 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
   }
 }
 
-/** Test seam: forget the cached catalogue (used by the unit tests). */
+/** Test seam: forget the cached catalogue. */
 export function resetShopCatalog() {
   catalogCache = null;
   catalogPromise = null;
 }
 
+type SettlementResult = {
+  recognized: boolean;
+  queued: boolean;
+  saved: boolean;
+};
+
 /**
- * Deliver everything the player paid for but never received: iterate the unconsumed purchases, grant
- * netherite coins to the legacy balance field, flush the data to the cloud and only then consume the
- * token. Returns the number of coins credited — the UI shows a "purchase restored" banner when it is above zero.
+ * Make one consumable receipt durable, then consume it. A token already marked delivered is never
+ * granted again; it is still flushed before retrying a previously failed consume.
+ */
+async function settleShopPurchase(productId: string, purchaseToken: string): Promise<SettlementResult> {
+  if (!purchaseToken || !isShopProductId(productId)) {
+    return { recognized: false, queued: false, saved: false };
+  }
+
+  // Pets are permanent account entitlements: keep each Yandex receipt so getPurchases() restores
+  // ownership, and never pass the receipt to consumePurchase().
+  if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) {
+    const kind = productId === WOLF_PET_PRODUCT_ID ? 'wolf' : 'monkey';
+    const newlyOwned = !hasPet(kind);
+    if (!unlockPet(kind)) return { recognized: true, queued: false, saved: false };
+    const saved = await flushProfile(true);
+    return { recognized: true, queued: newlyOwned, saved };
+  }
+
+  const alreadyDelivered = hasDeliveredPurchase(purchaseToken);
+  let queued = false;
+  if (!alreadyDelivered) {
+    if (!queueShopReward(productId)) {
+      // Keep the platform purchase unconsumed. Startup delivery will retry once local storage works.
+      return { recognized: true, queued: false, saved: false };
+    }
+    markPurchaseDelivered(purchaseToken);
+    queued = true;
+  }
+
+  if (!(await flushProfile(true))) {
+    // Nothing is consumed unless both the reward receipt and token reached the player's cloud save.
+    return { recognized: true, queued, saved: false };
+  }
+
+  if (!(await yaConsumePurchase(purchaseToken))) {
+    // The reward is safe in the cloud; the marker prevents a duplicate if Yandex returns this token
+    // again on the next launch. Retrying consume is harmless.
+    console.warn('[shop] could not consume purchase, delivery will be retried next launch');
+  }
+  return { recognized: true, queued, saved: true };
+}
+
+/**
+ * Deliver paid shop products that were confirmed but never consumed. Permanent ad-free ownership is
+ * reconciled from the same list and is never consumed. Retired/unknown SKUs are left untouched.
+ * Returns the number of newly queued shop rewards.
  */
 export async function deliverPendingPurchases(): Promise<number> {
   if (tvDevice() || !yaPaymentsAvailable()) return 0;
   const purchases = await yaGetPurchases();
   if (purchases === null) return 0;
-  // getPurchases() is also the restore path for the permanent ad-free SKU. Reconcile only on a
-  // successful response; if it is empty this account does not own the entitlement.
+
   reconcileAdFreePurchases(purchases);
-  if (!purchases.length) return 0;
-
-  let credited = 0;
+  let delivered = 0;
   for (const purchase of purchases) {
-    if (purchase.productID === AD_FREE_PRODUCT_ID) {
-      // Permanent purchases remain in getPurchases() and must never be sent to consumePurchase().
-      continue;
-    }
-    const amount = DIAMOND_PACKS[purchase.productID];
-    if (!amount) {
-      // An unknown product may belong to another system: leave it untouched instead of consuming it.
-      console.warn('[shop] unknown product in purchases, not consuming', purchase.productID);
+    if (purchase.productID === AD_FREE_PRODUCT_ID) continue;
+    if (!isShopProductId(purchase.productID)) {
+      // Old coin-pack IDs and unrelated products are intentionally not consumed or granted.
+      console.warn('[shop] retired or unknown product in purchases, not consuming', purchase.productID);
       continue;
     }
 
-    // A token may already be marked locally because an earlier consume or cloud write failed. Never
-    // credit it twice, but always flush the current balance + delivered-token marker before retrying
-    // consume — the marker alone does not prove that the cloud write succeeded.
-    const alreadyDelivered = hasDeliveredPurchase(purchase.purchaseToken);
-    if (!alreadyDelivered) {
-      addDiamonds(amount, 'purchase');
-      markPurchaseDelivered(purchase.purchaseToken);
-    }
-    if (!(await flushProfile(true))) {
-      // nothing reached the platform: do not consume, the next launch starts over
-      console.warn('[shop] could not save the purchase reward, it will be delivered again next launch');
-      continue;
-    }
-    if (!alreadyDelivered) credited += amount;
-
-    const consumed = await yaConsumePurchase(purchase.purchaseToken);
-    if (!consumed) console.warn('[shop] could not consume purchase, delivery will be retried next launch');
+    const settlement = await settleShopPurchase(purchase.productID, purchase.purchaseToken);
+    if (settlement.recognized && settlement.queued && settlement.saved) delivered += 1;
   }
-  return credited;
+  return delivered;
+}
+
+/** Buy one catalogue shop product directly with Yandex Games platform currency. */
+export async function buyShopProduct(productId: string): Promise<ShopItemBuyResult> {
+  if (!isShopProductId(productId) || !paymentsAvailable()) {
+    return { ok: false, productId, reason: 'unavailable' };
+  }
+
+  const catalog = await loadShopCatalog();
+  if (!catalog.has(productId)) return { ok: false, productId, reason: 'unavailable' };
+
+  const purchase = await yaPurchase(productId, JSON.stringify({ source: 'shop-item', v: 2 }));
+  if (!purchase) return { ok: false, productId, reason: 'cancelled' };
+  if (purchase.productID !== productId) {
+    // Do not consume an unexpected receipt. If it is a supported SKU, the startup restore path will
+    // deliver exactly the product Yandex reports rather than trusting the button that was clicked.
+    console.warn('[shop] purchase returned a different product id', purchase.productID, productId);
+    return { ok: false, productId, reason: 'failed' };
+  }
+
+  const settlement = await settleShopPurchase(purchase.productID, purchase.purchaseToken);
+  if (!settlement.recognized) return { ok: false, productId, reason: 'failed' };
+  return {
+    ok: true,
+    productId: productId as ShopProductId,
+    // A confirmed payment stays recoverable in Yandex until cloud receipt storage succeeds.
+    syncPending: !settlement.saved,
+  };
 }
 
 /**
- * Buy a legacy-ID coin pack: the payment frame opens, and on success netherite coins are credited
- * and saved before the purchase is consumed. Cancelling the frame is a normal outcome and changes nothing.
- */
-export async function buyDiamondPack(productId: string): Promise<BuyResult> {
-  if (!DIAMOND_PACKS[productId]) return { ok: false, productId, reason: 'failed', diamonds: getDiamonds() };
-  if (!paymentsAvailable()) return { ok: false, productId, reason: 'unavailable', diamonds: getDiamonds() };
-
-  const purchase = await yaPurchase(productId, JSON.stringify({ source: 'shop', v: 1 }));
-  if (!purchase) return { ok: false, productId, reason: 'cancelled', diamonds: getDiamonds() };
-
-  const amount = DIAMOND_PACKS[purchase.productID] ?? DIAMOND_PACKS[productId];
-  addDiamonds(amount, 'purchase');
-  markPurchaseDelivered(purchase.purchaseToken); // pairs with the balance: one reward per token
-  const saved = await flushProfile(true);
-  if (!saved) {
-    // the data did not reach the platform: keep the purchase unconsumed and let the next launch
-    // deliver it (that is exactly what the "check unprocessed purchases" step is for)
-    return { ok: false, productId, reason: 'failed', diamonds: getDiamonds() };
-  }
-  await yaConsumePurchase(purchase.purchaseToken);
-  return { ok: true, productId, diamonds: getDiamonds() };
-}
-
-/**
- * Buy the permanent ad-free entitlement. Its active catalogue row is required, and unlike coin packs
- * the receipt is not consumed: getPurchases() is how Yandex restores this ownership on later boots.
+ * Buy the permanent ad-free entitlement. Its active catalogue row is required, and unlike consumable
+ * shop products the receipt stays in Yandex so getPurchases() can restore ownership on later boots.
  */
 export async function buyAdFree(): Promise<AdFreeBuyResult> {
   if (hasAdFreeEntitlement()) return { ok: true };
@@ -246,12 +217,6 @@ export async function buyAdFree(): Promise<AdFreeBuyResult> {
     return { ok: false, reason: 'failed' };
   }
 
-  // Keep the permanent receipt in Yandex Games; never call consumePurchase() for this SKU.
   cacheAdFreeEntitlement(true);
   return { ok: true };
-}
-
-/** Spend netherite coins on a mid-run revive (the paid alternative to a rewarded video). */
-export function buyRevive(): boolean {
-  return spendDiamonds(REVIVE_DIAMOND_PRICE);
 }

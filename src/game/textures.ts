@@ -19,6 +19,8 @@ import {
   QUARTZ,
   NETHERITE,
   NETHERITE_INGOT,
+  CHEST_STORAGE_OPEN,
+  isTreasureChest,
 } from './blocks';
 
 export const TILE = 16;
@@ -2002,6 +2004,39 @@ export function getBlockIcon(id: number): string {
   c.width = c.height = size;
   const ctx = c.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
+
+  if (isTreasureChest(id)) {
+    const fill = (x: number, y: number, w: number, h: number, color: string) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+    };
+    const open = id === CHEST_STORAGE_OPEN || (id >= 118 && id <= 125);
+    // Chunky pixel-art chest: a bevelled lid, dark iron straps and a bright latch.
+    fill(6, 15, 36, 27, '#251b16');
+    fill(8, 18, 32, 22, '#81502d');
+    fill(8, 18, 32, 4, '#a76d37');
+    fill(8, 36, 32, 4, '#59371f');
+    fill(13, 19, 4, 20, '#d0a24b');
+    fill(31, 19, 4, 20, '#d0a24b');
+    if (open) {
+      fill(8, 20, 32, 13, '#160f0d');
+      fill(11, 17, 26, 5, '#c28b48');
+      fill(12, 10, 24, 8, '#9a6032');
+      fill(13, 11, 22, 4, '#bb7b3f');
+      fill(8, 32, 32, 4, '#d1a64f');
+    } else {
+      fill(7, 12, 34, 9, '#936033');
+      fill(9, 10, 30, 5, '#b27a41');
+      fill(10, 14, 28, 4, '#d0a24b');
+      fill(22, 20, 5, 12, '#3e3024');
+      fill(23, 22, 3, 5, '#f0cb67');
+    }
+    fill(7, 41, 8, 4, '#30231b');
+    fill(33, 41, 8, 4, '#30231b');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
 
   if (id === TORCH) {
     // Custom 3D isometric voxel lantern icon matching logo.png

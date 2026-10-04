@@ -656,7 +656,7 @@ input[type='text'] {
   .shop-dialog > header > div:first-child { width: 2.1rem; height: 2.1rem; font-size: 1.2rem; }
   .shop-dialog > header h2 { font-size: 1.2rem; }
   .shop-dialog > header p { margin-top: 0.2rem; font-size: 0.62rem; }
-  .shop-currency-note { margin: 0.4rem 0.5rem 0; padding: 0.4rem 0.5rem; }
+  .shop-payment-note { margin: 0.4rem 0.5rem 0; padding: 0.4rem 0.5rem; }
   .shop-promo-banner { margin: 0.35rem 0.5rem 0; padding: 0.35rem 0.5rem; }
   .shop-dialog .shop-tabs { gap: 0.25rem; padding: 0.35rem 0.35rem calc(0.35rem + env(safe-area-inset-bottom)); }
   .shop-dialog .shop-tabs button { padding: 0.35rem 0.15rem; }
@@ -670,13 +670,13 @@ input[type='text'] {
   .shop-dialog { height: calc(100dvh - 2rem); max-height: calc(100dvh - 2rem); }
   .shop-dialog > header { padding-block: 0.4rem !important; }
   .shop-dialog > header p { display: none; }
-  .shop-currency-note { margin-top: 0.3rem; padding-block: 0.3rem; }
+  .shop-payment-note { margin-top: 0.3rem; padding-block: 0.3rem; }
   .shop-catalog { padding-block: 0.25rem 0.35rem; }
   .shop-product-card {
     display: grid;
     grid-template-columns: minmax(0, 32%) minmax(0, 1fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-    grid-template-areas: "meta meta" "title title" "art amount" "art description" "art footer";
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "meta meta" "title title" "art description" "art footer";
     align-content: stretch;
     gap: 0.1rem 0.5rem;
     padding: 0.25rem 0.4rem;
@@ -685,7 +685,6 @@ input[type='text'] {
   .shop-product-card .shop-product-meta > span:last-child { width: 1.8rem; height: 1.8rem; font-size: 0.9rem; }
   .shop-product-card .shop-product-art { grid-area: art; align-self: stretch; width: 100%; height: auto; min-height: 0; margin: 0; }
   .shop-product-title { grid-area: title; min-width: 0; margin: 0 !important; font-size: 0.75rem; }
-  .shop-product-amount { grid-area: amount; min-width: 0; margin: 0 !important; gap: 0.25rem; font-size: 0.875rem !important; }
   .shop-product-description { grid-area: description; min-height: 0; margin: 0 !important; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 0.55rem; line-height: 1.2; }
   .shop-product-footer { grid-area: footer; min-width: 0; margin: 0 !important; padding-top: 0.15rem !important; align-self: end; }
   .shop-product-footer button { min-height: 1.45rem; padding: 0.1rem 0.3rem; font-size: 0.48rem; }

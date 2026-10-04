@@ -6,9 +6,9 @@ import type { ScoreEntry } from './scores';
 import { blockName, LANGS, matName, t, type Lang, type TKey } from '../game/i18n';
 import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
-import { SHORTCUT_REWARD } from '../game/shortcut';
+
 import { FitBox } from './FitBox';
-import { AD_FREE_PRODUCT_ID, DIAMOND_PACKS, SHOP_ITEM_PRICES, type BuyResult, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
+import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
 import { developerShopClaims } from '../game/devShop';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
 import { yaServerTime } from '../game/yandex';
@@ -18,7 +18,6 @@ import { fullscreenAvailable } from '../game/params';
 import { BLOCKS } from '../game/blocks';
 import { isRewardedDrop, rewardedDropStatuses, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
 import { ShopArtwork } from './ShopArtwork';
-import { NetheriteCoinIcon } from './NetheriteCoinIcon';
 import {
   BagIcon,
   ClockIcon,
@@ -116,8 +115,8 @@ const Row = ({ k, v, accent }: { k: React.ReactNode; v: React.ReactNode; accent?
   </div>
 );
 
-type ShopCategory = 'diamonds' | 'gear' | 'drops' | 'boosters';
-type ShopFilter = 'all' | 'weapons' | 'armor' | 'gems' | 'rewards';
+type ShopCategory = 'gear' | 'drops' | 'boosters' | 'pets';
+type ShopFilter = 'all' | 'weapons' | 'armor' | 'offers' | 'rewards' | 'pets';
 type ShopMode = 'store' | 'developer';
 type ShopProduct = {
   id: string;
@@ -126,9 +125,6 @@ type ShopProduct = {
   descriptionKey: TKey;
   icon: string;
   accent: string;
-  diamondAmount?: number;
-  rubles?: number;
-  diamondCost?: number;
   freeDrop?: boolean;
   badgeKey?: TKey;
   rarityKey?: TKey;
@@ -140,7 +136,8 @@ const SHOP_TABS: ReadonlyArray<{ id: ShopFilter; labelKey: TKey }> = [
   { id: 'all', labelKey: 'shopTabAll' },
   { id: 'weapons', labelKey: 'shopTabWeapon' },
   { id: 'armor', labelKey: 'shopTabArmor' },
-  { id: 'gems', labelKey: 'shopTabGems' },
+  { id: 'offers', labelKey: 'shopTabBoosters' },
+  { id: 'pets', labelKey: 'shopTabPets' },
   { id: 'rewards', labelKey: 'shopTabRewards' },
 ];
 
@@ -148,40 +145,39 @@ function productMatchesShopTab(product: ShopProduct, tab: ShopFilter) {
   if (tab === 'all') return true;
   if (tab === 'weapons') return product.id === 'netherite-pickaxe';
   if (tab === 'armor') return product.id === 'netherite-armor' || product.id.startsWith('armor-');
-  if (tab === 'gems') return product.category === 'diamonds';
-  return product.category === 'drops' || product.category === 'boosters';
+  if (tab === 'offers') return product.category === 'boosters';
+  if (tab === 'pets') return product.category === 'pets';
+  return product.category === 'drops';
 }
 
 function shopTabForProduct(product: ShopProduct | undefined): ShopFilter {
-  if (!product) return 'gems';
+  if (!product) return 'offers';
   if (productMatchesShopTab(product, 'weapons')) return 'weapons';
   if (productMatchesShopTab(product, 'armor')) return 'armor';
+  if (productMatchesShopTab(product, 'pets')) return 'pets';
   if (productMatchesShopTab(product, 'rewards')) return 'rewards';
-  return 'gems';
+  return 'offers';
 }
 
 const SHOP_PRODUCTS: readonly ShopProduct[] = [
-  { id: 'diamonds-100', category: 'diamonds', titleKey: 'shopPack100Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 100 },
-  { id: 'diamonds-599', category: 'diamonds', titleKey: 'shopPack599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 599 },
-  { id: 'diamonds-1599', category: 'diamonds', titleKey: 'shopPack1599Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#62e8dc', diamondAmount: 1599, rarityKey: 'shopRarityRare' },
-  { id: 'diamonds-5999', category: 'diamonds', titleKey: 'shopPack5999Title', descriptionKey: 'shopDiamondPackDesc', icon: '◆', accent: '#b895ff', diamondAmount: 5999, rarityKey: 'shopRarityEpic' },
-
-  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', diamondCost: SHOP_ITEM_PRICES['armor-uncommon'], rarityKey: 'shopRarityCommon' },
-  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', diamondCost: SHOP_ITEM_PRICES['armor-rare'], rarityKey: 'shopRarityRare' },
-  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['armor-epic'], rarityKey: 'shopRarityEpic' },
-  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', diamondCost: SHOP_ITEM_PRICES['netherite-pickaxe'], rarityKey: 'shopRarityLegendary' },
-  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', diamondCost: SHOP_ITEM_PRICES['netherite-armor'], rarityKey: 'shopRarityLegendary' },
+  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
+  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
+  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
+  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
+  { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
 
   { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
   { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
   { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '▣', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
-  { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', diamondCost: SHOP_ITEM_PRICES['chest-common'], rarityKey: 'shopRarityCommon' },
-  { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', diamondCost: SHOP_ITEM_PRICES['chest-rare'], rarityKey: 'shopRarityRare' },
-  { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['chest-epic'], rarityKey: 'shopRarityEpic' },
+  { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', rarityKey: 'shopRarityCommon' },
+  { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
+  { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
 
-  { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', diamondCost: SHOP_ITEM_PRICES['booster-start'], badgeKey: 'shopNextRunBadge' },
-  { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', diamondCost: SHOP_ITEM_PRICES['booster-ore'], badgeKey: 'shopNextRunBadge' },
-  { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', diamondCost: SHOP_ITEM_PRICES['booster-score'], badgeKey: 'shopNextRunBadge' },
+  { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', badgeKey: 'shopNextRunBadge' },
+  { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', badgeKey: 'shopNextRunBadge' },
+  { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', badgeKey: 'shopNextRunBadge' },
 ];
 
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
@@ -492,8 +488,9 @@ export function StartScreen({
   cloudSavedAt,
   shopEnabled,
   developerShopEnabled,
-  diamonds,
   shopPrices,
+  wolfPetOwned,
+  monkeyPetOwned,
   onOpenShop,
   paymentsAvailable,
   adFreeOwned,
@@ -501,7 +498,6 @@ export function StartScreen({
   adFreeNotice,
   onBuyAdFree,
   rewardedAdsEnabled,
-  onBuyPack,
   onBuyShopItem,
   onClaimRewardedDrop,
   onDeveloperClaim,
@@ -549,10 +545,11 @@ export function StartScreen({
   shopEnabled: boolean;
   /** visible only in Vite development mode and never on a TV */
   developerShopEnabled: boolean;
-  /** netherite-coin balance (retained in the legacy profile field) */
-  diamonds: number;
   /** prices from the Yandex Console catalogue, keyed by product id */
   shopPrices: ShopCatalog;
+  /** restored permanent companion ownership; prevents another purchase for the same account */
+  wolfPetOwned: boolean;
+  monkeyPetOwned: boolean;
   /** retries the catalogue request when the shop is opened after an initial failure */
   onOpenShop: () => void;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
@@ -567,10 +564,8 @@ export function StartScreen({
   onBuyAdFree: () => void;
   /** true only when rewarded ads are enabled and the SDK exposes a rewarded-video method */
   rewardedAdsEnabled: boolean;
-  /** opens the Yandex payment frame for real-money netherite-coin bundles */
-  onBuyPack: (productId: string) => Promise<BuyResult>;
-  /** spends netherite coins and queues the matching gear, chest, or booster reward */
-  onBuyShopItem: (productId: string) => ShopItemBuyResult;
+  /** buys a catalogue SKU directly with Yandex Games platform currency */
+  onBuyShopItem: (productId: string) => Promise<ShopItemBuyResult>;
   /** asks for a rewarded video, then commits the drop only when its reward callback was counted */
   onClaimRewardedDrop: (dropId: RewardedDropId) => Promise<RewardedDropClaimResult>;
   /** grant one local free test entitlement; no platform payment or purchase is made */
@@ -589,7 +584,7 @@ export function StartScreen({
   shortcutNote: string | null;
   /** promo deep link: the shop should open on this product, with the campaign banner visible */
   promo: { productId: string | null; promoId: string } | null;
-  /** opens a rewarded video for the small daily netherite-coin bonus */
+  /** opens a rewarded video for the daily supply bonus */
   onClaimDaily: () => void;
   dailyBusy: boolean;
   /** brief result of the last ad attempt */
@@ -618,7 +613,7 @@ export function StartScreen({
   // to the promised screen instead of leaving them on the main menu (sdk-environment).
   useEffect(() => {
     if (!promo || !shopEnabled) return;
-    setShopTab(promo.productId ? shopTabForProduct(SHOP_PRODUCTS.find((product) => product.id === promo.productId)) : 'gems');
+    setShopTab(promo.productId ? shopTabForProduct(SHOP_PRODUCTS.find((product) => product.id === promo.productId)) : 'offers');
     setPromoProductId(promo.productId);
     setShopMode('store');
     setShowShop(true);
@@ -632,12 +627,22 @@ export function StartScreen({
     return () => window.clearInterval(timer);
   }, []);
   const daily = dailyReward();
+  const dailyAvailableLabel = dailyBusy
+    ? t('shopBuying')
+    : !rewardedAdsEnabled
+      ? t('shopAdUnavailable')
+      : dailyNote ?? [
+          t('dailyTitle'),
+          t('dailySupplies'),
+          t('shopWatchAd'),
+          t('dailyStreak').replace('{n}', String(daily.streak)),
+        ].join(' · ');
   const adFreePrice = shopPrices.get(AD_FREE_PRODUCT_ID);
   // Requirement 1.13.6: a real-money offer must exist in the active Yandex catalogue. Do not show
   // stale/inactive Console SKUs as disabled pseudo-offers; outside Yandex the shop remains a preview.
   const visibleShopProducts = useMemo(
     () => SHOP_PRODUCTS.filter((product) =>
-      shopMode !== 'store' || !paymentsAvailable || product.diamondAmount === undefined || shopPrices.has(product.id),
+      shopMode !== 'store' || !paymentsAvailable || product.freeDrop || shopPrices.has(product.id),
     ),
     [shopMode, paymentsAvailable, shopPrices],
   );
@@ -826,14 +831,10 @@ export function StartScreen({
                   : 'border-white/10 bg-black/20 text-white/40'
               }`}
             >
-              <NetheriteCoinIcon className="h-4 w-4 shrink-0" />
+              <CubeIcon size={14} className="shrink-0" />
               <span>
                 {daily.available
-                  ? dailyBusy
-                    ? t('shopBuying')
-                    : !rewardedAdsEnabled
-                      ? t('shopAdUnavailable')
-                      : dailyNote ?? `${t('dailyTitle')} · +${daily.amount} ${t('shopCoinUnit')} · ${t('shopWatchAd')} · ${t('dailyStreak').replace('{n}', String(daily.streak))}`
+                  ? dailyAvailableLabel
                   : t('dailyNextReset').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))}
               </span>
             </button>
@@ -852,7 +853,7 @@ export function StartScreen({
                   }}
                   className="btn-mc notch flex min-w-0 items-center justify-center gap-1.5 bg-gradient-to-b from-[#3c4e62] to-[#263442] px-2 py-3 text-[10px] text-white/90 sm:gap-2 sm:px-4 sm:py-3.5 sm:text-base"
                 >
-                  <NetheriteCoinIcon className="h-5 w-5 shrink-0" />
+                  <BagIcon size={18} className="shrink-0" />
                   <span>{t('shop')}</span>
                 </button>
               )}
@@ -1011,22 +1012,12 @@ export function StartScreen({
             className="shop-dialog bevel notch my-auto flex min-h-0 w-[min(98vw,1120px)] flex-col overflow-hidden border border-[#536c80]/70 bg-[#0b1115] shadow-[0_20px_80px_rgba(0,0,0,.8)]"
           >
             <header className="flex shrink-0 items-center gap-2.5 border-b border-white/10 bg-gradient-to-r from-[#15242b] via-[#182229] to-[#241c32] p-3 sm:gap-4 sm:p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#bd8a62]/45 bg-[#73513e]/20 sm:h-14 sm:w-14">
-                <NetheriteCoinIcon className="h-7 w-7 sm:h-9 sm:w-9" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#62e8dc]/25 bg-[#62e8dc]/[0.06] sm:h-14 sm:w-14">
+                <BagIcon size={28} className="text-[#9cece7]" />
               </div>
               <div className="min-w-0 flex-1">
                 <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{shopMode === 'developer' ? t('devShopTitle') : t('shop')}</h2>
                 <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{shopMode === 'developer' ? t('devShopSubtitle') : t('shopSubtitle')}</p>
-              </div>
-              <div className="hidden min-w-28 border border-[#bd8a62]/35 bg-black/25 px-3 py-1.5 text-right sm:block">
-                <div className="font-display text-[9px] tracking-[0.2em] text-white/40">{t('shopBalance')}</div>
-                <div className="flex items-center justify-end gap-1.5 font-display text-lg leading-tight text-[#edbd8c]" aria-label={`${diamonds.toLocaleString()} ${t('shopBalance')}`}>
-                  <NetheriteCoinIcon className="h-4 w-4" />{diamonds.toLocaleString()}
-                </div>
-                <div className="text-[8px] text-white/35">{t('shopBalanceHint')}</div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5 border border-[#bd8a62]/35 bg-black/25 px-2 py-1 font-display text-sm text-[#edbd8c] sm:hidden" aria-label={`${diamonds.toLocaleString()} ${t('shopBalance')}`}>
-                <NetheriteCoinIcon className="h-4 w-4" />{diamonds.toLocaleString()}
               </div>
               <button
                 type="button"
@@ -1038,14 +1029,11 @@ export function StartScreen({
               </button>
             </header>
 
-            <div className="shop-currency-note mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
-              <NetheriteCoinIcon className="h-5 w-5 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[9px] tracking-wide text-[#9cece7] sm:text-[10px]">{shopMode === 'developer' ? t('devShopTitle') : t('shopPortalCurrency')}</div>
-                <p className="mt-0.5 text-[9px] leading-snug text-white/50 sm:text-[11px]">
-                  {shopMode === 'developer' ? t('devShopNotice') : paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
-                </p>
-              </div>
+            <div className="shop-payment-note mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#62e8dc]/20 bg-gradient-to-r from-[#0c252b] to-[#171326] px-2.5 py-2 sm:mx-4 sm:mt-3 sm:px-3 sm:py-2.5">
+              <BagIcon size={20} className="shrink-0 text-[#9cece7]" />
+              <p className="min-w-0 flex-1 text-[9px] leading-snug text-white/50 sm:text-[11px]">
+                {shopMode === 'developer' ? t('devShopNotice') : paymentsAvailable ? t('shopRealNotice') : t('shopMockNotice')}
+              </p>
               <span className="shrink-0 border border-white/10 bg-black/20 px-1.5 py-1 font-display text-[8px] tracking-widest text-white/45 sm:px-2 sm:text-[9px]">
                 {shopMode === 'developer' ? t('devShopFreeBadge') : paymentsAvailable ? t('shopLiveBadge') : t('shopMockBadge')}
               </span>
@@ -1076,30 +1064,23 @@ export function StartScreen({
                   const developerMode = shopMode === 'developer';
                   const rewardedDrop = isRewardedDrop(product.id);
                   const dropStatus = rewardedDrop ? rewardedDrops[product.id as RewardedDropId] : null;
-                  const devAlreadyClaimed = DIAMOND_PACKS[product.id] === undefined && devClaims.includes(product.id);
+                  const devAlreadyClaimed = devClaims.includes(product.id);
+                  const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-monkey' && monkeyPetOwned;
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
-                  const purchasable = developerMode
+                  const purchasable = !alreadyOwned && (developerMode
                     ? !devAlreadyClaimed
                     : rewardedDrop
                       ? rewardedAdsEnabled && Boolean(dropStatus?.available)
-                      : product.diamondCost !== undefined
-                        ? diamonds >= product.diamondCost
-                        : product.diamondAmount !== undefined
-                          ? paymentsAvailable && DIAMOND_PACKS[product.id] !== undefined && Boolean(catalogPrice)
-                          : false;
+                      : paymentsAvailable && Boolean(catalogPrice));
                   const priceLabel: React.ReactNode = developerMode
                     ? t('devShopPrice')
                     : rewardedDrop
                       ? t('shopRewardedPrice')
-                      : product.diamondCost !== undefined
-                        ? <span className="inline-flex items-center gap-1.5">{product.diamondCost.toLocaleString()} <NetheriteCoinIcon className="h-4 w-4" /></span>
-                        : product.diamondAmount !== undefined
-                          ? catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'))
-                          : t('shopRewardedPrice');
+                      : catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));
                   return (
                     <article
                       key={product.id}
@@ -1141,7 +1122,7 @@ export function StartScreen({
                           )}
                         </div>
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/10 bg-black/20 font-display text-xl sm:h-10 sm:w-10 sm:text-2xl" style={{ color: product.accent }}>
-                          {product.diamondAmount !== undefined ? <NetheriteCoinIcon className="h-5 w-5 sm:h-6 sm:w-6" /> : product.icon}
+                          {product.icon}
                         </span>
                       </div>
 
@@ -1149,42 +1130,31 @@ export function StartScreen({
                       <div className="shop-product-art mt-1 flex h-[92px] items-center justify-center overflow-hidden border border-white/[0.04] bg-[radial-gradient(ellipse_at_50%_70%,rgba(98,232,220,.08),transparent_68%)]">
                         <ShopArtwork productId={product.id} accent={product.accent} />
                       </div>
-                      {product.diamondAmount !== undefined && (
-                        <div className="shop-product-amount mt-1 flex flex-wrap items-center gap-1.5 font-display text-lg leading-none text-[#edbd8c] sm:text-xl">
-                          <NetheriteCoinIcon className="h-4 w-4 sm:h-5 sm:w-5" />{product.diamondAmount.toLocaleString()}
-                          <span className="text-[9px] leading-tight text-white/45">{t('shopCoinUnit')}</span>
-                        </div>
-                      )}
                       <p className="shop-product-description mt-1.5 flex-1 text-[10px] leading-relaxed text-white/55 sm:text-[11px]">{t(product.descriptionKey)}</p>
 
                       <div className="shop-product-footer mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
                         <div>
                           <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }}>
-                            {!developerMode && product.diamondAmount !== undefined && catalogPrice?.currencyIcon && (
+                            {!developerMode && !rewardedDrop && catalogPrice?.currencyIcon && (
                               <img src={catalogPrice.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
                             )}
                             {priceLabel}
                           </div>
-                          {!developerMode && catalogPrice && product.diamondAmount !== undefined && (
-                            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-white/55">
-                              <NetheriteCoinIcon className="h-3 w-3" />{product.diamondAmount.toLocaleString()} {t('shopCoinUnit')}
-                            </div>
-                          )}
                         </div>
                         <button
                           type="button"
                           disabled={!purchasable || buying !== null}
-                          title={developerMode
-                            ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
-                            : rewardedDrop
+                          title={alreadyOwned
+                            ? t('shopOwned')
+                            : developerMode
+                              ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
+                              : rewardedDrop
                               ? dropStatus?.available
                                 ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
                                 : dropStatusLabel
-                              : product.diamondCost !== undefined
-                                  ? purchasable ? t('shopBuy') : t('shopNotEnoughDiamonds')
-                                  : product.diamondAmount !== undefined
-                                    ? paymentsAvailable ? catalogPrice ? t('shopBuy') : t('shopPriceUnavailable') : t('shopPaymentsUnavailable')
-                                    : t('shopItemUnavailable')}
+                              : !product.freeDrop
+                                ? paymentsAvailable ? catalogPrice ? t('shopBuy') : t('shopPriceUnavailable') : t('shopPaymentsUnavailable')
+                                : t('shopItemUnavailable')}
                           onClick={async () => {
                             if (!purchasable || buying !== null) return;
                             setBuying(product.id);
@@ -1204,13 +1174,10 @@ export function StartScreen({
                               const result = await onClaimRewardedDrop(product.id as RewardedDropId);
                               setBuying(null);
                               if (result.ok) {
-                                const rewardParts = [
-                                  ...(result.diamonds > 0 ? [`${result.diamonds} ${result.diamonds === 1 ? t('shopCoinUnitOne') : t('shopCoinUnit')}`] : []),
-                                  ...result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`),
-                                ];
+                                const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
                                 const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
                                 const deliveryNote = result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
-                                setShopNotice(result.items.length ? `${notice} · ${deliveryNote}` : notice);
+                                setShopNotice(`${notice} · ${deliveryNote}`);
                               } else if (result.reason === 'ad') {
                                 setShopNotice(t('shopDropAdFailed'));
                               } else if (result.reason === 'claimed') {
@@ -1220,27 +1187,21 @@ export function StartScreen({
                               }
                               return;
                             }
-                            if (product.diamondCost !== undefined) {
-                              const result = onBuyShopItem(product.id);
-                              setBuying(null);
-                              setShopNotice(result.ok
-                                ? t('shopItemPurchaseDone').replace('{item}', t(product.titleKey))
-                                : result.reason === 'not-enough'
-                                  ? t('notEnoughDiamonds')
-                                  : result.reason === 'storage'
-                                    ? t('shopItemSaveFailed')
-                                    : t('shopItemUnavailable'));
-                              return;
-                            }
-                            const result = await onBuyPack(product.id);
+                            const result = await onBuyShopItem(product.id);
                             setBuying(null);
-                            setShopNotice(
-                              result.ok
-                                ? t('shopPurchaseDone').replace('{n}', String(DIAMOND_PACKS[product.id]))
-                                : result.reason === 'cancelled'
-                                  ? t('shopPurchaseCancelled')
-                                  : t('shopPurchaseFailed'),
-                            );
+                            if (result.ok) {
+                              setShopNotice(result.syncPending
+                                ? t('shopPurchasePending')
+                                : product.id === 'pet-wolf' || product.id === 'pet-monkey'
+                                  ? t('shopPetPurchaseDone')
+                                  : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
+                            } else {
+                              setShopNotice(result.reason === 'cancelled'
+                                ? t('shopPurchaseCancelled')
+                                : result.reason === 'unavailable'
+                                  ? t('shopItemUnavailable')
+                                  : t('shopPurchaseFailed'));
+                            }
                           }}
                           className={`notch shrink-0 border-[3px] px-2.5 py-2 font-display text-[9px] tracking-wide sm:px-3 sm:text-[10px] ${
                             purchasable
@@ -1248,8 +1209,10 @@ export function StartScreen({
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {developerMode
-                            ? devAlreadyClaimed
+                          {alreadyOwned
+                            ? t('shopOwned')
+                            : developerMode
+                              ? devAlreadyClaimed
                               ? t('devShopTaken')
                               : buying === product.id
                                 ? t('devShopTaking')
@@ -1262,19 +1225,15 @@ export function StartScreen({
                                     ? t('shopBuying')
                                     : t('shopWatchAd')
                                 : dropStatusLabel
-                              : product.diamondCost !== undefined
-                                  ? buying === product.id
-                                    ? t('shopBuying')
-                                    : purchasable ? t('shopBuy') : t('shopNotEnoughDiamonds')
-                                  : product.diamondAmount !== undefined
-                                    ? buying === product.id
-                                      ? t('shopBuying')
-                                      : !paymentsAvailable
-                                        ? t('shopPaymentsUnavailable')
-                                        : catalogPrice
-                                          ? t('shopBuy')
-                                          : t('shopPriceUnavailable')
-                                    : t('shopItemUnavailable')}
+                              : !product.freeDrop
+                                ? buying === product.id
+                                  ? t('shopBuying')
+                                  : !paymentsAvailable
+                                    ? t('shopPaymentsUnavailable')
+                                    : catalogPrice
+                                      ? t('shopBuy')
+                                      : t('shopPriceUnavailable')
+                                : t('shopItemUnavailable')}
                         </button>
                       </div>
                     </article>
@@ -1312,7 +1271,7 @@ export function StartScreen({
             <nav aria-label={t('shop')} className="shop-tabs flex shrink-0 items-stretch justify-between gap-1 border-t border-white/10 bg-black/25 px-2 py-1.5 sm:gap-2 sm:px-4 sm:py-2">
               {SHOP_TABS.map((tab) => {
                 const selected = shopTab === tab.id;
-                const icon = tab.id === 'all' ? '⌂' : tab.id === 'weapons' ? '⚔' : tab.id === 'armor' ? '▣' : tab.id === 'rewards' ? '✦' : null;
+                const icon = tab.id === 'all' ? '⌂' : tab.id === 'weapons' ? '⚔' : tab.id === 'armor' ? '▣' : tab.id === 'offers' ? '⚡' : '✦';
                 return (
                   <button
                     key={tab.id}
@@ -1325,7 +1284,7 @@ export function StartScreen({
                     style={selected ? { background: 'linear-gradient(180deg,#dfc29b,#9f7257)', border: '2px solid #d3a782', boxShadow: '0 0 12px rgba(196,145,105,.18)' } : { border: '2px solid #06090a' }}
                   >
                     <span aria-hidden="true" className="flex h-4 items-center justify-center text-[14px] leading-none">
-                      {tab.id === 'gems' ? <NetheriteCoinIcon className="h-3.5 w-3.5" /> : icon}
+                      {icon}
                     </span>
                     <span className="truncate text-[8px] sm:text-[10px]">{t(tab.labelKey)}</span>
                   </button>
@@ -1442,7 +1401,7 @@ export function StartScreen({
                       </button>
                     )}
                     <div className="mt-2 text-[11px] leading-relaxed text-white/55">
-                      {shortcutNote ?? t('shortcutSub').replace('{n}', String(SHORTCUT_REWARD))}
+                      {shortcutNote ?? t('shortcutSub')}
                     </div>
                   </div>
                 </div>
@@ -1924,9 +1883,6 @@ export function GameOverScreen({
   adBusy,
   adNotice,
   reviveSeconds,
-  diamonds,
-  diamondPrice,
-  onDiamondRevive,
   myRank,
   squadNote,
   canRate,
@@ -1949,10 +1905,6 @@ export function GameOverScreen({
   adBusy: boolean;
   adNotice: string | null;
   reviveSeconds: number;
-  /** in-game currency balance and the price of the paid alternative to the rewarded video */
-  diamonds: number;
-  diamondPrice: number;
-  onDiamondRevive: () => void;
   /** place in the Yandex leaderboard (undefined = no leaderboard, null = no result yet) */
   myRank?: number | null;
   /** closing line under the squad table: the shift was published / teammates are local */
@@ -2090,36 +2042,21 @@ export function GameOverScreen({
                 </button>
               </div>
 
-              {(canRevive || diamondPrice > 0) && (
+              {canRevive && (
                 <div className="gameover-offer-actions">
-                  {canRevive && (
-                    <button
-                      onClick={onRevive}
-                      disabled={adBusy}
-                      className="gameover-action gameover-offer-action btn-mc notch flex min-w-0 flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-[#62e8dc] to-[#2f9c96] text-center text-pit-950 disabled:opacity-60"
-                    >
-                      <span className="flex flex-wrap items-center justify-center gap-2 font-display leading-tight">
-                        <span className="border border-pit-950/40 bg-pit-950/15 px-1 py-0.5 font-display text-[8px] tracking-widest">
-                          {t('adBadge')}
-                        </span>
-                        {t('watchAdRevive')}
+                  <button
+                    onClick={onRevive}
+                    disabled={adBusy}
+                    className="gameover-action gameover-offer-action btn-mc notch flex min-w-0 flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-[#62e8dc] to-[#2f9c96] text-center text-pit-950 disabled:opacity-60"
+                  >
+                    <span className="flex flex-wrap items-center justify-center gap-2 font-display leading-tight">
+                      <span className="border border-pit-950/40 bg-pit-950/15 px-1 py-0.5 font-display text-[8px] tracking-widest">
+                        {t('adBadge')}
                       </span>
-                      <span className="text-[10px] leading-snug opacity-80">{t('watchAdReviveSub').replace('{sec}', String(reviveSeconds))}</span>
-                    </button>
-                  )}
-                  {diamondPrice > 0 && (
-                    <button
-                      onClick={onDiamondRevive}
-                      disabled={adBusy || diamonds < diamondPrice}
-                      title={diamonds < diamondPrice ? t('notEnoughDiamonds') : undefined}
-                      className="gameover-action gameover-offer-action btn-mc notch flex min-w-0 flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-[#8ee9e2] to-[#3aa9a3] text-center text-pit-950 disabled:opacity-50"
-                    >
-                      <span className="font-display leading-tight">
-                        <NetheriteCoinIcon className="mr-1 inline h-4 w-4 align-[-0.2em]" />{t('continueWithCoins').replace('{n}', String(diamondPrice))}
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] leading-snug opacity-80"><NetheriteCoinIcon className="h-3.5 w-3.5" />{diamonds.toLocaleString()}</span>
-                    </button>
-                  )}
+                      {t('watchAdRevive')}
+                    </span>
+                    <span className="text-[10px] leading-snug opacity-80">{t('watchAdReviveSub').replace('{sec}', String(reviveSeconds))}</span>
+                  </button>
                 </div>
               )}
 

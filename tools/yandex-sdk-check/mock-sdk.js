@@ -281,7 +281,14 @@
               return keys ? Object.fromEntries(keys.filter((k) => k in cloud).map((k) => [k, cloud[k]])) : { ...cloud };
             },
             setData: async (data, flush) => {
-              record('player.setData', { keys: Object.keys(data), flush: flush ?? false, daily: data['orerush.profile']?.daily ?? null, character: data['orerush.profile']?.character ?? null });
+              record('player.setData', {
+                keys: Object.keys(data),
+                flush: flush ?? false,
+                daily: data['orerush.profile']?.daily ?? null,
+                adDrops: data['orerush.profile']?.adDrops ?? null,
+                shopRewards: data['orerush.profile']?.shopRewards ?? null,
+                character: data['orerush.profile']?.character ?? null,
+              });
               Object.assign(cloud, data);
             },
             getStats: async (keys) => {
@@ -334,40 +341,37 @@
             getCatalog: async () => {
               record('payments.getCatalog');
               if (Array.isArray(seed.catalog)) return seed.catalog;
+              const currencyImage = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=';
+              const offer = (id, title, description, price, currencyCode = 'TST') => {
+                const priceValue = price.replace(/[^\d.]/g, '');
+                return {
+                  id,
+                  title,
+                  description,
+                  imageURI: '',
+                  price,
+                  priceValue,
+                  priceCurrencyCode: currencyCode,
+                  getPriceCurrencyImage: () => currencyImage,
+                };
+              };
+              // The test catalogue includes direct product SKUs. The mixed RUB/TST price formats
+              // ensure the UI reads both label and currency icon from the SDK rather than hardcoding.
               return [
-                {
-                  id: 'diamonds-100',
-                  title: 'Pocket of Netherite coins',
-                  description: '100 Netherite coins',
-                  imageURI: '',
-                  price: '99 ₽',
-                  priceValue: '99',
-                  priceCurrencyCode: 'RUB',
-                  getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
-                },
-                {
-                  // the debug panel mock from https://yandex.ru/dev/games/doc/ru/requirements/1/13#currency-detection
-                  // reports the test currency TST with the ¥ icon: the game must print whatever the
-                  // catalogue returns instead of assuming roubles
-                  id: 'diamonds-599',
-                  title: 'Miner coin pouch',
-                  description: '599 Netherite coins',
-                  imageURI: '',
-                  price: '499 TST',
-                  priceValue: '499',
-                  priceCurrencyCode: 'TST',
-                  getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
-                },
-                {
-                  id: 'disable_ads',
-                  title: 'Remove ads',
-                  description: 'Permanent ad-free entitlement',
-                  imageURI: '',
-                  price: '299 TST',
-                  priceValue: '299',
-                  priceCurrencyCode: 'TST',
-                  getPriceCurrencyImage: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=',
-                },
+                offer('armor-uncommon', 'Uncommon armor', 'Iron armor set', '199 TST'),
+                offer('armor-rare', 'Rare armor', 'Gold armor set', '299 TST'),
+                offer('armor-epic', 'Epic armor', 'Netherite armor set', '399 TST'),
+                offer('netherite-pickaxe', 'Netherite pickaxe', 'Direct item purchase', '499 TST'),
+                offer('netherite-armor', 'Netherite armor', 'Complete armor set', '799 TST'),
+                offer('pet-wolf', 'Wolf companion', 'Permanent companion', '199 TST'),
+                offer('pet-monkey', 'Monkey companion', 'Permanent color-selectable companion', '249 TST'),
+                offer('chest-common', 'Common supply chest', 'Supplies for a run', '99 ₽', 'RUB'),
+                offer('chest-rare', 'Rare ore chest', 'Supplies and gear', '199 TST'),
+                offer('chest-epic', 'Epic treasure chest', 'Resources and gear', '399 TST'),
+                offer('booster-start', 'Quick start', 'Starter supplies', '99 TST'),
+                offer('booster-ore', 'Ore seeker', 'Guaranteed ore cache', '149 TST'),
+                offer('booster-score', 'Score surge', 'Next-run score boost', '199 TST'),
+                offer('disable_ads', 'Remove ads', 'Permanent ad-free entitlement', '299 TST'),
               ];
             },
             getPurchases: async () => {

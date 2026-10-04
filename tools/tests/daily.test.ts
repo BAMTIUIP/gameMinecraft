@@ -1,4 +1,4 @@
-/** Daily-bonus ad gate, small payout, UTC reset, and cloud merge. */
+/** Daily rewarded-ad supplies, UTC reset, streak sizing and cloud reconciliation. */
 
 type Call = { name: string; arg: unknown };
 const calls: Call[] = [];
@@ -53,9 +53,13 @@ function ok(condition: boolean, label: string, detail = '') {
 }
 const day = (offset: number) => new Date(BASE + offset * DAY_MS).toISOString().slice(0, 10);
 const rewarded = async () => ({ shown: true, rewarded: true });
+const savedBonus = (key: string) => {
+  const state = JSON.parse(storage.get('orerush.rewarded-drops.v1') ?? '{}') as { pending?: Record<string, { items?: number[][] }> };
+  return state.pending?.[key]?.items ?? [];
+};
 
 const { initYandex, yaServerTime } = await import('../../src/game/yandex');
-const { getDiamonds, markProfileDirty, startProfileSync, flushProfile } = await import('../../src/game/profile');
+const { markProfileDirty, startProfileSync, flushProfile } = await import('../../src/game/profile');
 const {
   DAILY_BASE,
   DAILY_MAX,
@@ -68,68 +72,73 @@ const {
   utcDay,
   watchAndClaimDailyReward,
 } = await import('../../src/game/daily');
+const { PLANKS, COAL, COOKED_MEAT, TORCH } = await import('../../src/game/blocks');
 
 await initYandex();
-ok(yaServerTime() === BASE, 'Серверное время берётся из SDK');
-ok(utcDay() === day(0), 'Дата считается в UTC по серверному времени', utcDay());
-ok(DAILY_BASE === 1 && DAILY_STREAK_BONUS === 1 && DAILY_MAX === 2, 'Дневная выплата ограничена одним-двумя алмазами');
-ok(dailySecondsUntilReset(BASE) === 12 * 60 * 60, 'Отсчёт показывает секунды до полуночи UTC');
+ok(yaServerTime() === BASE, 'The trusted clock comes from the SDK');
+ok(utcDay() === day(0), 'The daily date uses the UTC server day', utcDay());
+ok(DAILY_BASE === 1 && DAILY_STREAK_BONUS === 1 && DAILY_MAX === 2, 'The daily streak is capped at a two-bundle supply reward');
+ok(dailySecondsUntilReset(BASE) === 12 * 60 * 60, 'The countdown reaches the next UTC midnight');
 
 const first = dailyReward();
-ok(first.available && first.amount === 1 && first.streak === 1, 'Первый бонус доступен за один алмаз', JSON.stringify(first));
-ok(dailyState() === null && getDiamonds() === 0, 'До подтверждённой рекламы ничего не начислено');
+ok(first.available && first.streak === 1 && first.items.length === 4, 'The first daily ad offer is one supplies bundle', JSON.stringify(first));
+ok(dailyState() === null, 'No daily claim is stored before a verified video');
+ok(first.items.some(([id, count]) => id === PLANKS && count === 8), 'The base bundle includes planks');
+ok(first.items.some(([id, count]) => id === COAL && count === 6), 'The base bundle includes coal');
+ok(first.items.some(([id, count]) => id === COOKED_MEAT && count === 3) && first.items.some(([id, count]) => id === TORCH && count === 4), 'The base bundle includes food and torches');
 
 const failed = await watchAndClaimDailyReward(async () => ({ shown: true, rewarded: false, skipped: 'error' }));
-ok(!failed.ok && failed.reason === 'ad', 'Закрытая или неуспешная реклама не даёт ежедневную награду');
-ok(dailyReward().available && dailyState() === null && getDiamonds() === 0, 'Неуспешный просмотр не сохраняет claim и не меняет баланс');
+ok(!failed.ok && failed.reason === 'ad', 'An uncompleted video gives no daily reward');
+ok(dailyReward().available && dailyState() === null, 'An unsuccessful video does not save the claim');
 const thrown = await watchAndClaimDailyReward(async () => { throw new Error('SDK offline'); });
-ok(!thrown.ok && thrown.reason === 'ad' && getDiamonds() === 0, 'Ошибка рекламного SDK также ничего не начисляет');
+ok(!thrown.ok && thrown.reason === 'ad', 'An ad SDK error gives no reward');
 
 const firstClaim = await watchAndClaimDailyReward(rewarded);
-ok(firstClaim.ok && firstClaim.amount === 1 && firstClaim.streak === 1, 'После rewarded-callback выдан первый бонус');
-ok(getDiamonds() === 1, 'На баланс начислен один алмаз');
+ok(firstClaim.ok && firstClaim.streak === 1 && firstClaim.items.length === 4, 'A verified callback grants the first supply bundle');
+const firstPending = savedBonus(`bonus:daily:${day(0)}`);
+ok(firstPending.length === 4 && firstPending.some(([id, count]) => id === PLANKS && count === 8), 'The daily supplies are durably queued for the next run');
 const saved = JSON.parse(storage.get('orerush.daily.v1') ?? '{}') as { last?: string; streak?: number; at?: number };
-ok(saved.last === day(0) && saved.streak === 1 && saved.at === BASE, 'Дата и серия сохранены после показа');
+ok(saved.last === day(0) && saved.streak === 1 && saved.at === BASE, 'The daily claim date/streak is saved after the ad');
 
 let duplicateAdShown = false;
 const twice = await watchAndClaimDailyReward(async () => {
   duplicateAdShown = true;
   return { shown: true, rewarded: true };
 });
-ok(!twice.ok && twice.reason === 'claimed' && !duplicateAdShown, 'Повторный claim за день не запускает рекламу и не платит');
+ok(!twice.ok && twice.reason === 'claimed' && !duplicateAdShown, 'A second same-day claim neither opens another ad nor grants supplies');
 
 const realNow = Date.now;
 Date.now = () => BASE + 30 * DAY_MS;
-ok(!dailyReward().available, 'Перевод системных часов не открывает бонус заново');
+ok(!dailyReward().available, 'Changing the device clock does not reopen the reward');
 Date.now = realNow;
 
 serverNow = BASE + DAY_MS;
 const streak2 = dailyReward();
-ok(streak2.available && streak2.streak === 2 && streak2.amount === 2, 'На следующий день бонус достигает лимита двух алмазов');
+ok(streak2.available && streak2.streak === 2 && streak2.items.some(([id, count]) => id === PLANKS && count === 16), 'The next-day streak earns a double supply bundle');
 const secondClaim = await watchAndClaimDailyReward(rewarded);
-ok(secondClaim.ok && getDiamonds() === 3, 'Второй день начисляет ровно два алмаза');
+ok(secondClaim.ok && secondClaim.items.some(([id, count]) => id === COAL && count === 12), 'The second verified ad queues twice the coal');
 
 serverNow = BASE + 3 * DAY_MS;
 const afterGap = dailyReward();
-ok(afterGap.available && afterGap.streak === 1 && afterGap.amount === 1, 'Пропущенный день сбрасывает streak к одному алмазу');
+ok(afterGap.available && afterGap.streak === 1 && afterGap.items.some(([id, count]) => id === PLANKS && count === 8), 'A missed day resets the reward to one supply bundle');
 await watchAndClaimDailyReward(rewarded);
 for (let offset = 4; offset <= 9; offset += 1) {
   serverNow = BASE + offset * DAY_MS;
   const view = dailyReward();
-  const expected = Math.min(DAILY_MAX, DAILY_BASE + DAILY_STREAK_BONUS * Math.max(0, view.streak - 1));
-  ok(view.amount === expected && view.amount >= 1 && view.amount <= 2, `Награда остаётся в диапазоне 1–2 на дне ${offset}`, String(view.amount));
+  const expectedBundles = Math.min(DAILY_MAX, DAILY_BASE + DAILY_STREAK_BONUS * Math.max(0, view.streak - 1));
+  const planks = view.items.find(([id]) => id === PLANKS)?.[1] ?? 0;
+  ok(planks === 8 * expectedBundles, `Supply quantity remains capped at two bundles on day ${offset}`, String(planks));
   const result = await watchAndClaimDailyReward(rewarded);
-  ok(result.ok, `Rewarded-видео зачисляет бонус на дне ${offset}`);
+  ok(result.ok, `A verified video queues supplies on day ${offset}`);
 }
-ok(dailyState()?.streak === 7, 'Серия продолжает считаться, хотя размер выплаты уже ограничен', JSON.stringify(dailyState()));
+ok(dailyState()?.streak === 7, 'The streak continues beyond the two-bundle payout cap', JSON.stringify(dailyState()));
 
 storage.set('orerush.daily.v1', JSON.stringify({ last: day(40), streak: 3, at: BASE }));
 resetDailyState();
 const future = dailyReward();
-ok(!future.available && future.reason === 'clock', 'Запись из будущего безопасно блокирует выплату', JSON.stringify(future));
+ok(!future.available && future.reason === 'clock', 'A future local claim safely blocks the reward', JSON.stringify(future));
 
-// Drain the reward-triggered save before arranging the fixture; otherwise its older async flush can
-// overwrite the test's local savedAt marker while startProfileSync is in flight.
+// Drain the queued profile write before arranging the stale-cloud fixture.
 await flushProfile(true);
 storage.set('orerush.daily.v1', JSON.stringify({ last: day(5), streak: 2, at: BASE + 5 * DAY_MS }));
 serverNow = BASE + 6 * DAY_MS + 20_000;
@@ -143,41 +152,42 @@ cloudBlob = {
     daily: { last: day(6), streak: 3 },
   },
 };
-// Queue an unrelated local edit with an older daily snapshot. Merging must patch the pending payload too.
 markProfileDirty({ name: 'LOCAL NEWER PROFILE' });
 const staleProfile = await startProfileSync();
-ok(!staleProfile.cloudApplied, 'Устаревшая оболочка профиля не заменяет более новые локальные данные');
-ok(dailyState()?.last === day(6) && dailyState()?.streak === 3, 'Облачный claim сливается даже при более новом локальном savedAt');
-ok(!dailyReward().available && dailyReward().reason === 'claimed', 'Claim с другого устройства нельзя получить повторно');
+ok(!staleProfile.cloudApplied, 'A stale profile shell does not replace newer local fields');
+ok(dailyState()?.last === day(6) && dailyState()?.streak === 3, 'A newer remote daily claim merges despite the older profile timestamp');
+ok(!dailyReward().available && dailyReward().reason === 'claimed', 'A claim from another device cannot be earned again');
 await flushProfile(true);
 const reconciled = calls.filter((call) => call.name === 'player.setData').at(-1)?.arg as Record<string, { daily?: { last?: string }; name?: string }> | undefined;
 ok(
   reconciled?.['orerush.profile']?.daily?.last === day(6)
     && reconciled['orerush.profile'].name === 'LOCAL NEWER PROFILE',
-  'Отправляемый профиль сохраняет cloud-claim вместе с независимым локальным изменением',
+  'The profile flush retains the remote claim and independent newer local edit',
   JSON.stringify(reconciled),
 );
 
 serverNow = BASE + 12 * DAY_MS;
 await watchAndClaimDailyReward(rewarded);
 await flushProfile(true);
-const pushed = calls.filter((call) => call.name === 'player.setData').at(-1)?.arg as Record<string, { daily?: { last?: string } }> | undefined;
-ok(pushed?.['orerush.profile']?.daily?.last === day(12), 'Дата ежедневной награды синхронизируется с профилем');
+const pushed = calls.filter((call) => call.name === 'player.setData').at(-1)?.arg as Record<string, { daily?: { last?: string }; adDrops?: { pending?: Record<string, unknown> } }> | undefined;
+ok(pushed?.['orerush.profile']?.daily?.last === day(12), 'The daily claim date is synchronized to the profile');
+ok(Boolean(pushed?.['orerush.profile']?.adDrops?.pending), 'The queued supply reward is synchronized alongside the claim');
+ok(!('diamonds' in ((pushed?.['orerush.profile'] ?? {}) as object)), 'The cloud profile contains no retired in-game wallet');
 
 serverNow = BASE + 13 * DAY_MS;
 await watchAndClaimDailyReward(rewarded);
 const localAfterClaim = { ...(dailyState() ?? { last: '', streak: 0 }) };
 applyCloudDaily({ last: day(5), streak: 9 });
 resetDailyState();
-ok(dailyState()?.last === localAfterClaim.last && dailyState()?.streak === localAfterClaim.streak, 'Старая облачная запись не откатывает локальную серию');
+ok(dailyState()?.last === localAfterClaim.last && dailyState()?.streak === localAfterClaim.streak, 'An older cloud copy cannot roll back the local streak');
 applyCloudDaily({ last: localAfterClaim.last, streak: 9 });
-ok((dailyState()?.streak ?? 0) === 9, 'При равной дате более длинная серия сохраняется');
+ok((dailyState()?.streak ?? 0) === 9, 'A longer streak wins for the same claim date');
 applyCloudDaily({ last: 'not-a-date', streak: 99 });
-ok((dailyState()?.streak ?? 0) === 9, 'Некорректная облачная дата игнорируется');
+ok((dailyState()?.streak ?? 0) === 9, 'An invalid cloud date is ignored');
 applyCloudDaily({ last: '2026-02-30', streak: 99 });
-ok((dailyState()?.streak ?? 0) === 9, 'Несуществующая календарная дата из облака игнорируется');
+ok((dailyState()?.streak ?? 0) === 9, 'An impossible calendar day is ignored');
 storage.set('orerush.daily.v1', JSON.stringify({ last: '2026-02-30', streak: 99, at: BASE }));
 resetDailyState();
-ok(dailyState() === null && dailyReward().available, 'Повреждённая локальная дата не блокирует бонус навсегда');
+ok(dailyState() === null && dailyReward().available, 'A corrupt local date does not permanently block the daily reward');
 
 export { passed, failures };

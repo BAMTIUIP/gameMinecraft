@@ -1,36 +1,24 @@
 /**
- * Unit test for the shop and the paid flows (src/game/shop.ts + the payments part of yandex.ts).
- *
- * The payment SDK is mocked in-process, so the test can pin down the two things a browser run shows
- * only by luck:
- *  - the order "credit → save → consume" (the docs: a consumed purchase cannot be restored, so the
- *    reward must be in the player's data first);
- *  - exactly-once delivery, including the case where `consumePurchase()` fails and the platform
- *    returns the very same token on the next launch (requirement 1.13.1).
- * Bundled with esbuild and executed by tools/tests/run.mjs (`npm run test:profile`).
+ * Direct Yandex Games shop purchases, receipt durability and the permanent ad-free entitlement.
+ * Catalogue prices/icons must come from the SDK, and consumable purchase tokens must not be
+ * consumed until both the reward receipt and token are durably stored in the cloud profile.
  */
 
 type Call = { name: string; arg: unknown };
-
 const calls: Call[] = [];
 const record = (name: string, arg?: unknown) => calls.push({ name, arg: arg ?? null });
-const count = (name: string) => calls.filter((c) => c.name === name).length;
-const lastCall = (name: string) => [...calls].reverse().find((c) => c.name === name);
-
-/* ------------------------------- DOM stubs ------------------------------- */
+const count = (name: string) => calls.filter((call) => call.name === name).length;
+const lastCall = (name: string) => [...calls].reverse().find((call) => call.name === name);
 
 const storage = new Map<string, string>();
 const localStorageStub = {
-  getItem: (k: string) => (storage.has(k) ? storage.get(k)! : null),
-  setItem: (k: string, v: string) => void storage.set(k, String(v)),
-  removeItem: (k: string) => void storage.delete(k),
+  getItem: (key: string) => (storage.has(key) ? storage.get(key)! : null),
+  setItem: (key: string, value: string) => void storage.set(key, String(value)),
+  removeItem: (key: string) => void storage.delete(key),
   clear: () => storage.clear(),
-  key: (i: number) => [...storage.keys()][i] ?? null,
-  get length() {
-    return storage.size;
-  },
+  key: (index: number) => [...storage.keys()][index] ?? null,
+  get length() { return storage.size; },
 };
-
 const g = globalThis as unknown as Record<string, unknown>;
 g.window = globalThis;
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageStub, configurable: true });
@@ -40,103 +28,59 @@ Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
 });
 
-/* ------------------------------ SDK mock ------------------------------ */
-
 type TestPurchase = { productID: string; purchaseToken: string; developerPayload?: string };
-
 let cloud: Record<string, unknown> = {};
-const stats: Record<string, number> = {};
-
-let unprocessed: TestPurchase[] = []; // what getPurchases() returns
-const recordedPurchases: TestPurchase[] = []; // everything purchase() ever produced
+let unprocessed: TestPurchase[] = [];
+const recordedPurchases: TestPurchase[] = [];
 let purchaseRejects = false;
 let consumeFails = false;
-let getPaymentsFailures = 1; // first preload is transiently unavailable; opening the shop retries
+let getPaymentsFailures = 1;
 let getPaymentsCalls = 0;
 let catalogFails = false;
 let catalogCalls = 0;
 let failSetData = false;
-let holdNextSetData = false;
-let releaseHeldSetData: (() => void) | null = null;
 
+const product = (id: string, price: string) => ({
+  id,
+  title: id,
+  description: id,
+  imageURI: '',
+  price,
+  priceValue: '999',
+  priceCurrencyCode: 'TST',
+  getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
+});
 const CATALOG = [
-  {
-    id: 'diamonds-100',
-    title: 'Горсть алмазов',
-    description: '100 алмазов',
-    imageURI: 'img-100.png',
-    price: '99 ₽',
-    priceValue: '99',
-    priceCurrencyCode: 'RUB',
-    getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
-  },
-  {
-    id: 'diamonds-599',
-    title: 'Мешок алмазов',
-    description: '599 алмазов',
-    imageURI: 'img-599.png',
-    price: '499 ₽',
-    priceValue: '499',
-    priceCurrencyCode: 'RUB',
-    getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
-  },
-  {
-    id: 'disable_ads',
-    title: 'Отключить рекламу',
-    description: 'Постоянная покупка',
-    imageURI: '',
-    price: '299 ₽',
-    priceValue: '299',
-    priceCurrencyCode: 'RUB',
-    getPriceCurrencyImage: (size: string) => `icon-${size}.png`,
-  },
-  {
-    id: 'raw-price-only',
-    title: 'Malformed catalogue row',
-    description: 'A numeric value without the currency code',
-    imageURI: '',
-    price: '',
-    priceValue: '7',
-    priceCurrencyCode: 'RUB',
-  },
-  {
-    id: 'no-currency-image',
-    title: 'Missing currency icon',
-    description: 'A catalogue row without the SDK currency image',
-    imageURI: '',
-    price: '7 TST',
-    priceValue: '7',
-    priceCurrencyCode: 'TST',
-  },
+  product('armor-uncommon', '17 TST'),
+  product('chest-common', '29 TST'),
+  product('netherite-pickaxe', '149 TST'),
+  product('pet-wolf', '199 TST'),
+  product('pet-monkey', '229 TST'),
+  product('disable_ads', '59 TST'),
+  { ...product('raw-price-only', ''), priceValue: '7' },
+  { ...product('no-currency-image', '7 TST'), getPriceCurrencyImage: undefined },
 ];
 
+const stats: Record<string, number> = {};
 const player = {
   isAuthorized: () => true,
-  getUniqueID: () => 'uid-1',
+  getUniqueID: () => 'uid-shop',
   getName: () => 'SHOPPER',
   getPhoto: () => 'photo-url',
   getPayingStatus: () => 'paying',
   getData: async (keys?: string[]) => {
     record('player.getData', keys);
-    return keys ? Object.fromEntries(keys.filter((k) => k in cloud).map((k) => [k, cloud[k]])) : { ...cloud };
+    return keys ? Object.fromEntries(keys.filter((key) => key in cloud).map((key) => [key, cloud[key]])) : { ...cloud };
   },
   setData: async (data: Record<string, unknown>, flush?: boolean) => {
-    record('player.setData', { keys: Object.keys(data), flush: flush ?? false });
+    record('player.setData', { data: structuredClone(data), flush: flush ?? false });
     if (failSetData) throw new Error('network down');
-    if (holdNextSetData) {
-      holdNextSetData = false;
-      await new Promise<void>((resolve) => (releaseHeldSetData = resolve));
-    }
     Object.assign(cloud, data);
   },
   getStats: async () => ({ ...stats }),
-  setStats: async (next: Record<string, number>) => {
-    record('player.setStats', next);
-    Object.assign(stats, next);
-  },
-  incrementStats: async (inc: Record<string, number>) => {
-    record('player.incrementStats', inc);
-    for (const [k, v] of Object.entries(inc)) stats[k] = (stats[k] ?? 0) + v;
+  setStats: async (next: Record<string, number>) => Object.assign(stats, next),
+  incrementStats: async (increments: Record<string, number>) => {
+    for (const [key, value] of Object.entries(increments)) stats[key] = (stats[key] ?? 0) + value;
     return { ...stats };
   },
 };
@@ -150,24 +94,24 @@ const payments = {
   },
   getPurchases: async () => {
     record('payments.getPurchases');
-    return unprocessed.map((p) => ({ ...p }));
+    return unprocessed.map((purchase) => ({ ...purchase }));
   },
   purchase: async (data: { id: string; developerPayload?: string }) => {
     record('payments.purchase', data);
     if (purchaseRejects) throw new Error('PURCHASE_CANCELLED');
-    const purchase: TestPurchase = {
+    const receipt: TestPurchase = {
       productID: data.id,
       purchaseToken: `token-${data.id}-${recordedPurchases.length + 1}`,
       developerPayload: data.developerPayload ?? '',
     };
-    recordedPurchases.push(purchase);
-    unprocessed.push(purchase); // the platform keeps it until the game consumes it
-    return { ...purchase };
+    recordedPurchases.push(receipt);
+    unprocessed.push(receipt);
+    return { ...receipt };
   },
   consumePurchase: async (token: string) => {
     record('payments.consumePurchase', token);
     if (consumeFails) throw new Error('consume failed');
-    unprocessed = unprocessed.filter((p) => p.purchaseToken !== token);
+    unprocessed = unprocessed.filter((purchase) => purchase.purchaseToken !== token);
   },
 };
 
@@ -194,8 +138,6 @@ g.YaGames = {
   },
 };
 
-/* --------------------------------- test ---------------------------------- */
-
 let passed = 0;
 const failures: string[] = [];
 function ok(condition: boolean, label: string, detail = '') {
@@ -203,221 +145,161 @@ function ok(condition: boolean, label: string, detail = '') {
   else failures.push(detail ? `${label} → ${detail}` : label);
 }
 
-// import AFTER the stubs: the modules read window/localStorage at call time, not at import time
 const { initYandex } = await import('../../src/game/yandex');
-const { startProfileSync, getDiamonds, addDiamonds, flushProfile } = await import('../../src/game/profile');
+const { startProfileSync } = await import('../../src/game/profile');
 const { hasAdFreeEntitlement, cacheAdFreeEntitlement } = await import('../../src/game/adFree');
 const {
   AD_FREE_PRODUCT_ID,
-  DIAMOND_PACKS,
-  REVIVE_DIAMOND_PRICE,
+  SHOP_PRODUCT_IDS,
   buyAdFree,
-  buyDiamondPack,
-  buyRevive,
+  buyShopProduct,
   deliverPendingPurchases,
-  diamondsBalance,
   loadShopCatalog,
   paymentsAvailable,
   resetShopCatalog,
 } = await import('../../src/game/shop');
+const { pendingShopProductRewards } = await import('../../src/game/shopRewards');
+const { hasMonkeyPet, hasWolfPet, resetPetsForTests } = await import('../../src/game/pets');
 
 await initYandex();
 await startProfileSync();
-ok(paymentsAvailable(), 'Внутри Яндекса платёжный слой считается доступным');
-ok(
-  DIAMOND_PACKS['diamonds-100'] === 100 &&
-    DIAMOND_PACKS['diamonds-599'] === 599 &&
-    DIAMOND_PACKS['diamonds-1599'] === 1_599 &&
-    DIAMOND_PACKS['diamonds-5999'] === 5_999,
-  'Каждый поддержанный IAP-SKU выдаёт ровно обозначенное количество монет',
-  JSON.stringify(DIAMOND_PACKS),
-);
+ok(paymentsAvailable(), 'Yandex Payments are available inside the platform');
+ok(SHOP_PRODUCT_IDS.includes('armor-uncommon') && SHOP_PRODUCT_IDS.includes('chest-common'), 'Current store SKUs are direct reward products');
+ok(!SHOP_PRODUCT_IDS.some((id) => id.startsWith('diamonds-')), 'No coin-pack SKU is supported');
 
-// --- the catalogue: a transient payments preload failure is retried when the shop is opened -------
 const firstCatalogAttempt = await loadShopCatalog();
-ok(firstCatalogAttempt.size === 0 && getPaymentsCalls === 1, 'Временный сбой getPayments() оставляет каталог недоступным, но не падает');
+ok(firstCatalogAttempt.size === 0 && getPaymentsCalls === 1, 'A temporary payments preload failure leaves an empty catalogue without crashing');
 let catalog = await loadShopCatalog();
-ok(catalogCalls === 1 && getPaymentsCalls === 2, 'При повторном открытии магазина заново запрошены getPayments() и каталог');
-const pack100 = catalog.get('diamonds-100');
-ok(pack100?.label === '99 ₽', 'Цена взята из каталога как есть (п. 1.13.2)', JSON.stringify(pack100));
-ok(pack100?.currencyIcon === 'icon-small.png', 'Иконка портальной валюты взята из getPriceCurrencyImage', String(pack100?.currencyIcon));
-ok(catalog.get('diamonds-599')?.currencyIcon === 'icon-small.png', 'У каждого отображаемого набора есть иконка валюты из SDK');
-ok(catalog.get(AD_FREE_PRODUCT_ID)?.label === '299 ₽' && catalog.get(AD_FREE_PRODUCT_ID)?.currencyIcon === 'icon-small.png', 'Постоянная покупка отключения рекламы использует цену и иконку активного SKU из каталога');
-ok(!catalog.has('raw-price-only'), 'Голая priceValue без форматированной валюты не показывается как цена');
-ok(!catalog.has('no-currency-image'), 'Предложение без иконки валюты из SDK не попадает в каталог магазина');
-ok(catalog.get('diamonds-100')?.fromCatalog === true, 'Товар помечен как полученный из каталога');
+ok(catalogCalls === 1 && getPaymentsCalls === 2, 'Reopening the shop retries getPayments() and the catalogue');
+const chestPrice = catalog.get('chest-common');
+ok(chestPrice?.label === '29 TST', 'The displayed price is exactly the formatted catalogue price', JSON.stringify(chestPrice));
+ok(chestPrice?.currencyIcon === 'icon-small.png' && chestPrice.fromCatalog, 'The platform currency icon and provenance come from the SDK');
+ok(catalog.get(AD_FREE_PRODUCT_ID)?.label === '59 TST', 'The separate ad-free entitlement also uses the catalogue price');
+ok(catalog.get('pet-wolf')?.label === '199 TST' && catalog.get('pet-wolf')?.currencyIcon === 'icon-small.png', 'The wolf price and currency icon come directly from the Yandex catalogue');
+ok(catalog.get('pet-monkey')?.label === '229 TST' && catalog.get('pet-monkey')?.currencyIcon === 'icon-small.png', 'The monkey price and currency icon also come directly from the Yandex catalogue');
+ok(!catalog.has('raw-price-only'), 'A row without the formatted SDK price is omitted');
+ok(!catalog.has('no-currency-image'), 'A row without the SDK currency image is omitted');
 await loadShopCatalog();
-ok(catalogCalls === 1, 'Второй вызов берёт каталог из памяти, а не из сети');
+ok(catalogCalls === 1, 'A successful catalogue response is cached');
 
-// --- a failed catalogue is not cached forever --------------------------------------------------
 resetShopCatalog();
 catalogFails = true;
-let catalogThrew = false;
-let failedCatalog: Map<string, unknown> | null = null;
-try {
-  failedCatalog = await loadShopCatalog();
-} catch {
-  catalogThrew = true;
-}
-ok(!catalogThrew && failedCatalog?.size === 0, 'Недоступный каталог возвращает пустую карту без исключения');
+const failedCatalog = await loadShopCatalog();
+ok(failedCatalog.size === 0, 'A catalogue failure returns an empty result');
 catalogFails = false;
 catalog = await loadShopCatalog();
-ok(catalog.size === 3, 'После сбоя каталог запрашивается снова и наполняется', `${catalog.size} товаров`);
-ok(catalogCalls === 3, 'Пустой каталог не кэшируется навсегда (следующий заход в магазин повторит запрос)', `запросов: ${catalogCalls}`);
+ok(catalog.has('chest-common') && catalogCalls >= 3, 'An empty catalogue is not cached permanently; a later open retries');
 
-// --- an inactive/missing permanent SKU must not open the payment frame --------------------------
-const adFreeRowIndex = CATALOG.findIndex((product) => product.id === AD_FREE_PRODUCT_ID);
-const [adFreeCatalogRow] = adFreeRowIndex >= 0 ? CATALOG.splice(adFreeRowIndex, 1) : [];
-resetShopCatalog();
-catalog = await loadShopCatalog();
-ok(!catalog.has(AD_FREE_PRODUCT_ID), 'Без active disable_ads в getCatalog() предложение не попадает в UI-каталог');
-const purchaseCountWithoutAdFree = count('payments.purchase');
-const unavailableAdFree = await buyAdFree();
-ok(!unavailableAdFree.ok && unavailableAdFree.reason === 'unavailable', 'Покупка отключения рекламы без активного SKU недоступна', JSON.stringify(unavailableAdFree));
-ok(count('payments.purchase') === purchaseCountWithoutAdFree, 'Без активного disable_ads платёжное окно не открывается');
-if (adFreeCatalogRow) CATALOG.push(adFreeCatalogRow);
-resetShopCatalog();
-catalog = await loadShopCatalog();
-
-// --- an unprocessed purchase is delivered at start: credit → save → consume ---------------------
-unprocessed = [{ productID: 'diamonds-100', purchaseToken: 'pending-1', developerPayload: '' }];
-const setDataBefore = count('player.setData');
-const delivered = await deliverPendingPurchases();
-ok(delivered === 100, 'Незакрытая покупка доставлена (возвращает 100 алмазов)', String(delivered));
-ok(diamondsBalance() === 100, 'Алмазы зачислены на баланс', String(diamondsBalance()));
-const saveIdx = calls.findIndex((c, i) => i >= setDataBefore && c.name === 'player.setData');
-const consumeIdx = calls.findIndex((c) => c.name === 'payments.consumePurchase');
-ok(saveIdx >= 0 && saveIdx < consumeIdx, 'Награда сохранена в облако ДО погашения покупки (порядок из документации)');
-ok(String((lastCall('player.setData')?.arg as { flush?: boolean } | undefined)?.flush) === 'true', 'Сохранение перед погашением идёт с flush=true');
-ok(unprocessed.length === 0, 'Токен покупки погашен');
-const cloudProfile = cloud['orerush.profile'] as { deliveredPurchases?: string[]; diamonds?: number } | undefined;
-ok(cloudProfile?.deliveredPurchases?.includes('pending-1') === true, 'Погашенный токен записан в облачный профиль (защита от повторной выдачи)');
-ok(cloudProfile?.diamonds === 100, 'Баланс алмазов уехал в облако вместе с профилем', String(cloudProfile?.diamonds));
-
-// --- the same token comes back after a failed consume: retry the consume, never re-credit -------
-consumeFails = true;
-unprocessed = [{ productID: 'diamonds-100', purchaseToken: 'pending-1', developerPayload: '' }];
-const beforeRetry = diamondsBalance();
-const retryDelivered = await deliverPendingPurchases();
-ok(retryDelivered === 0, 'Повторная доставка того же токена не начисляет алмазы второй раз', String(retryDelivered));
-ok(diamondsBalance() === beforeRetry, 'Баланс после повторной доставки не изменился', String(diamondsBalance()));
-consumeFails = false;
-const finalRetry = await deliverPendingPurchases();
-ok(finalRetry === 0 && unprocessed.length === 0, 'Следующий запуск только погашает токен, не начисляя награду снова');
-
-// --- an unknown product is left alone (it may belong to another system) -------------------------
-unprocessed = [{ productID: 'skins-pack', purchaseToken: 'unknown-1', developerPayload: '' }];
-const unknownDelivered = await deliverPendingPurchases();
-ok(unknownDelivered === 0, 'Неизвестный товар не начисляется');
-ok(unprocessed.length === 1, 'Неизвестный товар остаётся неконсумированным (не теряем чужую покупку)');
-ok(diamondsBalance() === beforeRetry, 'Баланс после неизвестного товара не изменился');
-
-// --- a permanent ad-free purchase is restored but deliberately never consumed ------------------
-unprocessed = [{ productID: AD_FREE_PRODUCT_ID, purchaseToken: 'ad-free-restore-1', developerPayload: '' }];
-cacheAdFreeEntitlement(false);
-const consumesBeforeAdFreeRestore = count('payments.consumePurchase');
-const restoredPermanent = await deliverPendingPurchases();
-ok(restoredPermanent === 0 && hasAdFreeEntitlement(), 'disable_ads восстанавливает постоянное право без начисления монет');
-ok(unprocessed.length === 1, 'Восстановленный disable_ads остаётся в списке покупок платформы');
-ok(count('payments.consumePurchase') === consumesBeforeAdFreeRestore, 'Постоянный disable_ads никогда не отправляется в consumePurchase');
-
-unprocessed = [];
-resetShopCatalog(); // keep the catalogue checks independent of the shop flow below
-
-// --- ad-free checkout is permanent: confirm it locally and leave the platform receipt intact -----
-cacheAdFreeEntitlement(false);
-const adFreePurchaseCallsBefore = count('payments.purchase');
-const adFreeConsumesBefore = count('payments.consumePurchase');
-const adFreeCloudWritesBefore = count('player.setData');
-const adFreeBought = await buyAdFree();
-ok(adFreeBought.ok && hasAdFreeEntitlement(), 'Успешная покупка disable_ads сразу включает постоянное право', JSON.stringify(adFreeBought));
-ok(count('payments.purchase') === adFreePurchaseCallsBefore + 1, 'Покупка disable_ads открывает платформенное окно один раз');
-ok((lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === AD_FREE_PRODUCT_ID, 'В платформу передан SKU disable_ads');
-ok(count('payments.consumePurchase') === adFreeConsumesBefore, 'После покупки отключения рекламы consumePurchase не вызывается');
-ok(count('player.setData') === adFreeCloudWritesBefore, 'Постоянное право опирается на receipt платформы, не зависит от расходуемого cloud-save');
-ok(unprocessed.some((purchase) => purchase.productID === AD_FREE_PRODUCT_ID), 'Постоянная покупка остаётся доступной для восстановления через getPurchases()');
-unprocessed = [];
-
-// --- a normal purchase: the payment frame opens, diamonds arrive, the token is consumed ---------
+// Purchases are always a direct SKU checkout; no game-side wallet or price arithmetic is involved.
 const buyIndex = count('payments.purchase');
-const purchaseResult = await buyDiamondPack('diamonds-599');
-ok(purchaseResult.ok === true && purchaseResult.diamonds === 699, 'Покупка набора начисляет его алмазы', JSON.stringify(purchaseResult));
-ok(count('payments.purchase') === buyIndex + 1, 'Покупка открывает платёжное окно ровно один раз');
+const purchaseResult = await buyShopProduct('chest-common');
+ok(purchaseResult.ok && purchaseResult.productId === 'chest-common' && !purchaseResult.syncPending, 'Direct SKU checkout returns a successful durable purchase', JSON.stringify(purchaseResult));
+ok(count('payments.purchase') === buyIndex + 1, 'A purchase opens the platform payment frame exactly once');
 const purchaseArg = lastCall('payments.purchase')?.arg as { id?: string; developerPayload?: string } | undefined;
-ok(purchaseArg?.id === 'diamonds-599', 'В платёжное окно уходит id товара из Консоли', String(purchaseArg?.id));
-ok(typeof purchaseArg?.developerPayload === 'string' && purchaseArg.developerPayload.length > 0, 'Покупка помечена developerPayload');
-ok(count('payments.consumePurchase') >= 1 && unprocessed.length === 0, 'Оплаченная покупка погашена сразу после сохранения');
+ok(purchaseArg?.id === 'chest-common', 'The clicked Yandex catalogue SKU is passed to purchase()', String(purchaseArg?.id));
+ok(Boolean(purchaseArg?.developerPayload), 'The checkout includes a versioned developer payload');
+const purchaseToken = recordedPurchases.at(-1)!.purchaseToken;
+const savedProfile = cloud['orerush.profile'] as { deliveredPurchases?: string[]; shopRewards?: { pending?: Array<{ productId: string }> } } | undefined;
+ok(savedProfile?.deliveredPurchases?.includes(purchaseToken) === true, 'The purchase token is stored in cloud before consumption');
+ok(savedProfile?.shopRewards?.pending?.some((receipt) => receipt.productId === 'chest-common') === true, 'The matching item reward receipt is stored before consumption');
+const firstConsume = calls.findIndex((call) => call.name === 'payments.consumePurchase');
+const receiptCloudWrite = calls.findIndex((call) => call.name === 'player.setData' && JSON.stringify(call.arg).includes('shopRewards'));
+ok(receiptCloudWrite >= 0 && firstConsume > receiptCloudWrite, 'Cloud reward/token persistence happens before consumePurchase');
+ok(unprocessed.length === 0, 'A saved consumable receipt is consumed');
+ok(pendingShopProductRewards()?.products.includes('chest-common') === true, 'A successful purchase is queued for engine delivery');
 
-// --- a cancelled purchase changes nothing ------------------------------------------------------
+// The wolf is an account entitlement: buy directly through Yandex, persist ownership, never queue a consumable, and keep the receipt unconsumed.
+resetPetsForTests();
+const wolfConsumeBefore = count('payments.consumePurchase');
+const wolfPurchaseBefore = count('payments.purchase');
+const wolfBought = await buyShopProduct('pet-wolf');
+ok(wolfBought.ok && wolfBought.productId === 'pet-wolf' && hasWolfPet(), 'Buying the wolf permanently unlocks the local entitlement');
+ok(count('payments.purchase') === wolfPurchaseBefore + 1 && (lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === 'pet-wolf', 'The wolf is purchased through its own Yandex SKU');
+ok(count('payments.consumePurchase') === wolfConsumeBefore && unprocessed.some((purchase) => purchase.productID === 'pet-wolf'), 'The permanent wolf receipt is not consumed');
+ok(!((pendingShopProductRewards()?.products as readonly string[] | undefined)?.includes('pet-wolf')), 'The permanent wolf never enters the consumable delivery queue');
+
+// The monkey uses the same direct catalogue checkout while retaining an independent permanent entitlement.
+const monkeyConsumeBefore = count('payments.consumePurchase');
+const monkeyPurchaseBefore = count('payments.purchase');
+const monkeyBought = await buyShopProduct('pet-monkey');
+ok(monkeyBought.ok && monkeyBought.productId === 'pet-monkey' && hasMonkeyPet(), 'Buying the monkey permanently unlocks its local entitlement');
+ok(count('payments.purchase') === monkeyPurchaseBefore + 1 && (lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === 'pet-monkey', 'The monkey is purchased through its own Yandex SKU');
+ok(count('payments.consumePurchase') === monkeyConsumeBefore && unprocessed.some((purchase) => purchase.productID === 'pet-monkey'), 'The permanent monkey receipt is kept unconsumed for account restoration');
+ok(!((pendingShopProductRewards()?.products as readonly string[] | undefined)?.includes('pet-monkey')), 'The permanent monkey never enters the consumable delivery queue');
+
+// Cancellation is ordinary and never creates a receipt.
 purchaseRejects = true;
-const balanceBeforeCancel = diamondsBalance();
-const cancelled = await buyDiamondPack('diamonds-100');
-ok(cancelled.ok === false && cancelled.reason === 'cancelled', 'Отмена платёжного окна — обычный исход, а не ошибка', JSON.stringify(cancelled));
-ok(diamondsBalance() === balanceBeforeCancel, 'После отмены баланс не меняется', String(diamondsBalance()));
+const beforeCancelPurchases = recordedPurchases.length;
+const cancelled = await buyShopProduct('armor-uncommon');
+ok(!cancelled.ok && cancelled.reason === 'cancelled', 'Payment cancellation is reported as cancellation', JSON.stringify(cancelled));
+ok(recordedPurchases.length === beforeCancelPurchases, 'A cancelled payment creates no receipt');
 purchaseRejects = false;
 
-// --- an unknown product id never reaches the platform -------------------------------------------
-const purchaseCallsBefore = count('payments.purchase');
-const badProduct = await buyDiamondPack('diamonds-999999');
-ok(badProduct.ok === false && badProduct.reason === 'failed', 'Неизвестный id товара не считается покупкой', JSON.stringify(badProduct));
-ok(count('payments.purchase') === purchaseCallsBefore, 'Платёжное окно для неизвестного товара не открывается');
+// Unknown or retired SKUs are rejected locally, without opening the platform flow.
+const beforeBadSku = count('payments.purchase');
+const badSku = await buyShopProduct('diamonds-100');
+ok(!badSku.ok && badSku.reason === 'unavailable', 'Retired coin-pack IDs are not purchasable');
+const unknownSku = await buyShopProduct('not-in-catalog');
+ok(!unknownSku.ok && unknownSku.reason === 'unavailable', 'Unknown products are rejected');
+ok(count('payments.purchase') === beforeBadSku, 'Rejected product IDs never open the payment frame');
 
-// --- the cloud save fails: the purchase stays unconsumed and is delivered on the next launch -----
+// A failed consume leaves the token with Yandex; restore retries consume but does not queue a duplicate.
+consumeFails = true;
+unprocessed = [{ productID: 'netherite-pickaxe', purchaseToken: 'restore-token-1', developerPayload: '' }];
+const restoreCountBefore = pendingShopProductRewards()?.products.filter((id) => id === 'netherite-pickaxe').length ?? 0;
+const deliveredWithConsumeFailure = await deliverPendingPurchases();
+ok(deliveredWithConsumeFailure === 1, 'An unconsumed supported SKU is restored to the durable reward queue');
+ok(unprocessed.length === 1, 'A failed consume keeps the receipt recoverable in Yandex');
+const restoredQueue = pendingShopProductRewards();
+ok((restoredQueue?.products.filter((id) => id === 'netherite-pickaxe').length ?? 0) === restoreCountBefore + 1, 'The restored receipt queues its direct product reward once');
+consumeFails = false;
+const retryCount = await deliverPendingPurchases();
+ok(retryCount === 0 && unprocessed.length === 0, 'The next restore retries consume without adding a second reward');
+ok((pendingShopProductRewards()?.products.filter((id) => id === 'netherite-pickaxe').length ?? 0) === restoreCountBefore + 1, 'Repeated delivery of the same token never duplicates the reward');
+
+// Unknown/unrelated Yandex purchases remain untouched.
+unprocessed = [{ productID: 'unrelated-sku', purchaseToken: 'unrelated-token', developerPayload: '' }];
+const unknownRestore = await deliverPendingPurchases();
+ok(unknownRestore === 0 && unprocessed.length === 1, 'Unknown purchases are neither granted nor consumed');
+
+// disable_ads remains a separate permanent entitlement and is deliberately not consumed.
+unprocessed = [{ productID: AD_FREE_PRODUCT_ID, purchaseToken: 'ad-free-restore-1', developerPayload: '' }];
+cacheAdFreeEntitlement(false);
+const consumesBeforeRestore = count('payments.consumePurchase');
+await deliverPendingPurchases();
+ok(hasAdFreeEntitlement(), 'The permanent disable_ads entitlement restores from getPurchases()');
+ok(unprocessed.length === 1 && count('payments.consumePurchase') === consumesBeforeRestore, 'The permanent entitlement is never consumed');
+unprocessed = [];
+
+cacheAdFreeEntitlement(false);
+const adFreePurchasesBefore = count('payments.purchase');
+const adFreeConsumesBefore = count('payments.consumePurchase');
+const adFreeBought = await buyAdFree();
+ok(adFreeBought.ok && hasAdFreeEntitlement(), 'A successful disable_ads checkout enables the permanent entitlement');
+ok(count('payments.purchase') === adFreePurchasesBefore + 1, 'disable_ads opens the payment frame once');
+ok((lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === AD_FREE_PRODUCT_ID, 'The permanent entitlement uses its own SKU');
+ok(count('payments.consumePurchase') === adFreeConsumesBefore, 'A newly purchased permanent entitlement is never consumed');
+unprocessed = [];
+
+// If cloud sync fails after the payment, keep the token unconsumed and recover on the next launch.
 failSetData = true;
-const undeclared = await buyDiamondPack('diamonds-100');
-ok(undeclared.ok === false && undeclared.reason === 'failed', 'Неудачное сохранение не выдаёт покупку за успешную', JSON.stringify(undeclared));
+const pendingBuy = await buyShopProduct('armor-uncommon');
+ok(pendingBuy.ok && pendingBuy.syncPending, 'A confirmed payment reports that cloud receipt sync is pending');
 const stuckToken = recordedPurchases.at(-1)!.purchaseToken;
-ok(!recordedPurchases.slice(0, -1).some((p) => p.purchaseToken === stuckToken), 'У неудачной покупки свой токен');
-ok(unprocessed.some((p) => p.purchaseToken === stuckToken), 'Токен остался неконсумированным — покупку восстановит следующий запуск');
+ok(unprocessed.some((purchase) => purchase.purchaseToken === stuckToken), 'A receipt is not consumed while its cloud save fails');
 failSetData = false;
-const recoveryStart = calls.length;
 const recovered = await deliverPendingPurchases();
-const recoveryCalls = calls.slice(recoveryStart);
-const recoverySaveAt = recoveryCalls.findIndex((c) => c.name === 'player.setData');
-const recoveryConsumeAt = recoveryCalls.findIndex((c) => c.name === 'payments.consumePurchase');
-const balanceAfterRecovery = diamondsBalance();
-ok(recovered === 0, 'Восстановление уже начисленной покупки не платит второй раз', String(recovered));
-ok(recoverySaveAt >= 0 && recoveryConsumeAt > recoverySaveAt, 'Повторная выдача сначала сохраняет локальный token и баланс в облако, затем consume');
-ok(unprocessed.length === 0 && diamondsBalance() === balanceAfterRecovery, 'Токен всё равно погашается, баланс не растёт');
-const recoveredProfile = cloud['orerush.profile'] as { deliveredPurchases?: string[]; diamonds?: number } | undefined;
-ok(recoveredProfile?.deliveredPurchases?.includes(stuckToken) === true, 'После восстановления облако подтверждает token до его погашения');
+ok(recovered === 0, 'Recovery does not count an already queued reward as newly delivered');
+ok(!unprocessed.some((purchase) => purchase.purchaseToken === stuckToken), 'Recovery consumes the receipt after the cloud save succeeds');
+ok(pendingShopProductRewards()?.products.includes('armor-uncommon') === true, 'The paid item remains queued after recovery');
+const recoveredProfile = cloud['orerush.profile'] as { deliveredPurchases?: string[] } | undefined;
+ok(recoveredProfile?.deliveredPurchases?.includes(stuckToken) === true, 'The recovered purchase token is confirmed in the cloud profile');
 
-// --- overlapping local-save + receipt-save requests are serialized before consume ----------------
-holdNextSetData = true;
-const concurrentStart = calls.length;
-const consumesBeforeConcurrent = count('payments.consumePurchase');
-const concurrentPurchase = buyDiamondPack('diamonds-100');
-for (let i = 0; i < 40 && releaseHeldSetData === null; i += 1) await Promise.resolve();
-ok(releaseHeldSetData !== null, 'Промежуточное сохранение баланса действительно удержано');
-ok(count('payments.consumePurchase') === consumesBeforeConcurrent, 'Покупка не погашается, пока сохранение профиля не завершено');
-releaseHeldSetData?.();
-const concurrentResult = await concurrentPurchase;
-const concurrentCalls = calls.slice(concurrentStart);
-const concurrentLastSave = concurrentCalls.map((c) => c.name).lastIndexOf('player.setData');
-const concurrentConsume = concurrentCalls.findIndex((c) => c.name === 'payments.consumePurchase');
-const concurrentToken = recordedPurchases.at(-1)!.purchaseToken;
-const concurrentCloud = cloud['orerush.profile'] as { deliveredPurchases?: string[]; diamonds?: number } | undefined;
-ok(concurrentResult.ok && concurrentLastSave >= 0 && concurrentConsume > concurrentLastSave, 'Баланс и token успевают сохраниться до consume при параллельных flushProfile');
-ok(concurrentCloud?.deliveredPurchases?.includes(concurrentToken) === true && concurrentCloud.diamonds === diamondsBalance(), 'Последний cloud snapshot содержит token и точный баланс');
-
-// --- the paid revive spends the balance and refuses to go negative ------------------------------
-// bring the balance down below the revive price by actually spending it
-let guard = 0;
-while (diamondsBalance() >= REVIVE_DIAMOND_PRICE && buyRevive() && guard++ < 100) {
-  /* each call spends one revive worth of diamonds */
-}
-const leftover = diamondsBalance();
-ok(leftover < REVIVE_DIAMOND_PRICE, 'Баланс опущен ниже цены возрождения', String(leftover));
-const statsBefore = { ...stats };
-const poor = buyRevive();
-ok(poor === false && diamondsBalance() === leftover, 'Возрождение не проходит при нехватке алмазов и не уводит баланс в минус', String(diamondsBalance()));
-addDiamonds(REVIVE_DIAMOND_PRICE - leftover);
-ok(diamondsBalance() === REVIVE_DIAMOND_PRICE, 'Баланс доведён ровно до цены возрождения', String(diamondsBalance()));
-const rich = buyRevive();
-ok(rich === true && diamondsBalance() === 0, 'Возрождение за 100 алмазов списывает ровно цену', String(diamondsBalance()));
-await flushProfile(true); // stats are batched: the counters reach the platform on the next flush
-ok((stats.diamondsSpent ?? 0) > (statsBefore.diamondsSpent ?? 0), 'Трата алмазов попадает в статистику diamondsSpent', JSON.stringify(stats));
-ok((stats.diamondsBought ?? 0) >= 799, 'Купленные алмазы попадают в статистику diamondsBought', JSON.stringify(stats));
-ok(getDiamonds() === 0, 'Баланс читается через profile.getDiamonds()');
+// Catalogue absence blocks checkout; hard-coded prices are never substituted.
+resetShopCatalog();
+catalogFails = true;
+const unavailable = await buyShopProduct('chest-common');
+ok(!unavailable.ok && unavailable.reason === 'unavailable', 'Direct purchases require a complete catalogue offer');
+catalogFails = false;
 
 export { passed, failures };

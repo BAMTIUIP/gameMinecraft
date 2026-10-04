@@ -31,7 +31,7 @@ import {
   yaStatsSet,
   type YaProfile,
 } from './yandex';
-import { storageGet, storageSet } from './storage';
+import { storageGet, storageRemove, storageSet } from './storage';
 
 const CLOUD_KEY = 'orerush.profile'; // single key: one getData/setData pair instead of a swarm
 const LOCAL_STAMP_KEY = 'orerush.profile.savedAt';
@@ -47,16 +47,14 @@ export type CloudProfile = {
   mode?: 'survival' | 'explorer';
   lang?: Lang;
   totals?: Partial<Record<StatKey, number>>;
-  /** in-game currency bought in the shop; kept next to the records so it moves between devices */
-  diamonds?: number;
+  /** last daily rewarded bonus claim (UTC day) and its streak */
+  daily?: { last: string; streak: number };
   /**
    * Purchase tokens already credited. The purchase itself is consumed right after the save, but if
    * that call fails the platform hands the same token back on the next launch — the list keeps the
    * player from being paid twice for it (see shop.deliverPendingPurchases).
    */
   deliveredPurchases?: string[];
-  /** last day the daily bonus was claimed (UTC `YYYY-MM-DD`) and the streak behind it */
-  daily?: { last: string; streak: number };
   /** rewarded shop-drop claims, queued voxel supplies, and grants already moved into an inventory */
   adDrops?: {
     claims?: Record<string, unknown>;
@@ -69,13 +67,15 @@ export type CloudProfile = {
     pending?: unknown[];
     delivered?: unknown[];
   };
+  /** permanent companion entitlements and the selected wolf coat */
+  pets?: { owned?: unknown; wolfCoatIndex?: unknown };
   /** validated by game/character when the cloud character-creator part applies it */
   character?: unknown;
 };
 
 /**
- * A feature module can contribute its own fields to the cloud profile: the daily bonus keeps its
- * date here, and the shop keeps the delivered purchase tokens. Registration keeps those modules free
+ * Feature modules contribute their own cloud fields: rewarded drops keep claim dates and the shop
+ * keeps paid reward receipts and delivered purchase tokens. Registration keeps those modules free
  * to import this one for `markProfileDirty`, with no import cycle.
  */
 export type CloudPart = {
@@ -103,11 +103,7 @@ export type StatKey =
   | 'deepest'
   | 'bestScore'
   | 'kills'
-  | 'playSeconds'
-  /** diamonds bought with real money through the Yandex payment frame */
-  | 'diamondsBought'
-  /** diamonds spent on in-game rewards */
-  | 'diamondsSpent';
+  | 'playSeconds';
 
 export type ProfileSnapshot = {
   /** platform profile (Yandex) or null when running outside Yandex Games */
@@ -182,7 +178,6 @@ function collect(): CloudProfile {
     v: 1,
     savedAt: yaServerTime(),
     name: storageGet(NAME_KEY) ?? undefined,
-    diamonds: diamonds,
     deliveredPurchases: deliveredPurchases(),
     scores: localScores().slice(0, 8),
     ...(storageGet('orerush.mode') ? { mode: storageGet('orerush.mode') as 'survival' | 'explorer' } : {}),
@@ -345,6 +340,8 @@ export async function startProfileSync(): Promise<ProfileSnapshot> {
   started = true;
 
   const platform = await yaRefreshProfile();
+  // Remove the retired local wallet after Yandex safeStorage has had a chance to install.
+  storageRemove('orerush.diamonds.v1');
   snapshot = { platform, cloudApplied: false };
 
   if (!yaAvailable()) {
@@ -354,12 +351,14 @@ export async function startProfileSync(): Promise<ProfileSnapshot> {
 
   const remote = await yaCloudGet([CLOUD_KEY]);
   const cloud = remote?.[CLOUD_KEY] as CloudProfile | undefined;
+  const hadLegacyCurrency = Boolean(cloud && Object.prototype.hasOwnProperty.call(cloud, 'diamonds'));
   const stamp = localStamp();
 
   const cloudOurs = cloud && cloud.v === 1;
   if (cloudOurs && Number.isFinite(cloud.savedAt) && cloud.savedAt > stamp) {
     applyCloud(cloud);
     snapshot = { ...snapshot, cloudApplied: true };
+    if (hadLegacyCurrency) markProfileDirty(); // rewrite the old cloud blob without its retired wallet
   } else {
     // Keep newer local profile fields, but still reconcile monotonic claims from a stale/equal cloud copy.
     if (cloudOurs) mergeStaleCloudParts(cloud);
@@ -389,11 +388,6 @@ function applyCloud(cloud: CloudProfile) {
   // Cloud data is untrusted input: only accept a language the game actually ships.
   if (isLang(cloud.lang) && storageGet('orerush.lang') === null) setLang(cloud.lang);
   if (cloud.totals) applyTotals(cloud.totals);
-  if (typeof cloud.diamonds === 'number' && Number.isFinite(cloud.diamonds)) {
-    // never lose currency: the higher of the two balances wins on a merge
-    diamonds = Math.max(diamonds, Math.floor(cloud.diamonds));
-    storageSet(DIAMONDS_KEY, String(diamonds));
-  }
   for (const part of cloudParts) part.apply(cloud);
   if (Array.isArray(cloud.deliveredPurchases) && cloud.deliveredPurchases.length) {
     // tokens are only ever added, so the union is the safe merge
@@ -499,54 +493,12 @@ export function hasDeliveredPurchase(token: string): boolean {
   return !!token && deliveredPurchases().includes(token);
 }
 
-/** Remember that this token's reward is already on the balance (and queue the cloud write). */
+/** Remember that this platform purchase token has been delivered and queue the cloud write. */
 export function markPurchaseDelivered(token: string) {
   if (!token) return;
   const next = [...new Set([...deliveredPurchases(), token])].slice(-DELIVERED_LIMIT);
   storageSet(DELIVERED_KEY, JSON.stringify(next));
   markProfileDirty({ deliveredPurchases: next });
-}
-
-/* ------------------------------ diamonds --------------------------------- */
-
-const DIAMONDS_KEY = 'orerush.diamonds.v1';
-let diamonds = readDiamonds();
-
-function readDiamonds(): number {
-  const raw = storageGet(DIAMONDS_KEY);
-  const value = raw ? Number(raw) : 0;
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
-}
-
-function writeDiamonds(next: number) {
-  diamonds = Math.max(0, Math.floor(next));
-  storageSet(DIAMONDS_KEY, String(diamonds)); // the local mirror first: a refresh must never lose it
-  markProfileDirty({ diamonds });
-  emit();
-  saveProgressNow(); // earned or spent currency is progress — saved right after the action (1.9)
-}
-
-/** Current in-game currency balance (0 outside the shop's reach). */
-export function getDiamonds(): number {
-  return diamonds;
-}
-
-/** Credit diamonds — used when a pack is bought or an unprocessed purchase is delivered. */
-export function addDiamonds(amount: number, reason: 'purchase' | 'grant' = 'grant') {
-  if (!Number.isFinite(amount) || amount <= 0) return diamonds;
-  writeDiamonds(diamonds + Math.floor(amount));
-  if (reason === 'purchase') bumpStats({ diamondsBought: Math.floor(amount) });
-  return diamonds;
-}
-
-/** Try to spend diamonds; returns false (and changes nothing) when the balance is too low. */
-export function spendDiamonds(amount: number): boolean {
-  const cost = Math.max(0, Math.floor(amount));
-  if (cost === 0) return true;
-  if (diamonds < cost) return false;
-  writeDiamonds(diamonds - cost);
-  bumpStats({ diamondsSpent: cost });
-  return true;
 }
 
 /* ----------------------------- lifetime totals ---------------------------- */
@@ -564,8 +516,6 @@ const EMPTY_TOTALS: Totals = {
   bestScore: 0,
   kills: 0,
   playSeconds: 0,
-  diamondsBought: 0,
-  diamondsSpent: 0,
 };
 
 let totals: Totals = loadTotals();

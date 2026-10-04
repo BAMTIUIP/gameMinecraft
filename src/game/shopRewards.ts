@@ -1,17 +1,16 @@
-/** Durable one-shot grants for products bought with netherite coins (legacy balance storage). */
+/** Durable grants for direct Yandex Games purchases, plus compatibility for already queued rewards. */
 
 import { markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
 import { storageGet, storageSet } from './storage';
+import { MONKEY_PET_PRODUCT_ID, WOLF_PET_PRODUCT_ID } from './pets';
 
-export const SHOP_REWARD_PRODUCT_IDS = [
+/** Paid catalogue SKUs; pets are permanent entitlements, the remaining products are consumable rewards. */
+const CONSUMABLE_SHOP_PRODUCT_IDS = [
   'armor-uncommon',
   'armor-rare',
   'armor-epic',
   'netherite-pickaxe',
   'netherite-armor',
-  // Retain receipts queued before the store switched tiers; never drop paid rewards on upgrade.
-  'diamond-pickaxe',
-  'diamond-armor',
   'chest-common',
   'chest-rare',
   'chest-epic',
@@ -19,7 +18,16 @@ export const SHOP_REWARD_PRODUCT_IDS = [
   'booster-ore',
   'booster-score',
 ] as const;
+export const SHOP_PRODUCT_IDS = [...CONSUMABLE_SHOP_PRODUCT_IDS, WOLF_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID] as const;
+export type ShopProductId = (typeof SHOP_PRODUCT_IDS)[number];
+
+/** Include old queued gear receipts so an upgrade never drops a reward already paid for in-game. */
+export const SHOP_REWARD_PRODUCT_IDS = [...CONSUMABLE_SHOP_PRODUCT_IDS, 'diamond-pickaxe', 'diamond-armor'] as const;
 export type ShopRewardProductId = (typeof SHOP_REWARD_PRODUCT_IDS)[number];
+
+export function isShopProductId(id: string): id is ShopProductId {
+  return (SHOP_PRODUCT_IDS as readonly string[]).includes(id);
+}
 
 type Receipt = { id: string; productId: ShopRewardProductId };
 type ShopRewardState = { pending: Receipt[]; delivered: string[] };
@@ -80,7 +88,7 @@ function write(next: ShopRewardState): boolean {
   return true;
 }
 
-/** Save a receipt before the currency is charged so an accepted purchase cannot vanish on refresh. */
+/** Save the reward receipt before the platform purchase token is consumed. */
 export function queueShopReward(productId: string): string | null {
   if (!isShopRewardProduct(productId)) return null;
   const current = state();

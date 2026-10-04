@@ -17,7 +17,7 @@
  * The whole module is a no-op outside Yandex Games: there is no referrer without the platform.
  */
 
-import { DIAMOND_PACKS } from './shop';
+import { SHOP_PRODUCT_IDS } from './shopRewards';
 import { yaReferrer } from './yandex';
 
 export type PromoEntry = {
@@ -54,7 +54,7 @@ export function resetPromoState() {
 }
 
 /** Intents this game understands. Everything else is left to the normal flow. */
-const SHOP_INTENTS = new Set(['open_shop', 'open_starter_pack', 'starter_pack', 'open_diamonds']);
+const SHOP_INTENTS = new Set(['open_shop', 'open_starter_pack', 'starter_pack']);
 
 export function promoAction(): PromoAction | null {
   const entry = promoEntry();
@@ -62,7 +62,11 @@ export function promoAction(): PromoAction | null {
 
   // a discount promo always names the purchase: show it in the shop, highlighted
   if (entry.inappId) {
-    return { kind: 'shop', productId: DIAMOND_PACKS[entry.inappId] !== undefined ? entry.inappId : null, promoId: entry.promoId };
+    return {
+      kind: 'shop',
+      productId: (SHOP_PRODUCT_IDS as readonly string[]).includes(entry.inappId) ? entry.inappId : null,
+      promoId: entry.promoId,
+    };
   }
   if (entry.intent && SHOP_INTENTS.has(entry.intent)) {
     return { kind: 'shop', productId: null, promoId: entry.promoId };

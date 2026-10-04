@@ -4,7 +4,7 @@ import { t } from '../game/i18n';
 
 const SENS = 0.0048;
 
-export default function TouchControls({ engine }: { engine: Engine | null }) {
+export default function TouchControls({ engine, petInteractNear }: { engine: Engine | null; petInteractNear: boolean }) {
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
   const joyId = useRef<number | null>(null);
   const lookId = useRef<number | null>(null);
@@ -157,6 +157,21 @@ export default function TouchControls({ engine }: { engine: Engine | null }) {
             {t('run')}
           </button>
         </div>
+        {petInteractNear && (
+          <button
+            type="button"
+            data-pet-interact
+            aria-label={t('petInteractTouch')}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              engine?.interact();
+            }}
+            className={`${btn(false)} h-12 w-14 text-[9px] bg-gradient-to-b from-[#766043] to-[#49321f] text-[#fff0d5]`}
+            style={{ borderColor: '#c59b66' }}
+          >
+            {t('petInteractTouch')}
+          </button>
+        )}
         <button
           {...hold('place', (v) => engine?.setPlacing(v))}
           className={`${btn(pressed.place)} h-16 w-16 text-xs bg-gradient-to-b from-[#4b6f8a] to-[#26404f] text-white/90`}
