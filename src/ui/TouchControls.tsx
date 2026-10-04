@@ -7,8 +7,10 @@ const SENS = 0.0048;
 export default function TouchControls({ engine, petInteractNear }: { engine: Engine | null; petInteractNear: boolean }) {
   const [knob, setKnob] = useState({ x: 0, y: 0, active: false });
   const joyId = useRef<number | null>(null);
-  const lookId = useRef<number | null>(null);
+  const lookPointers = useRef(new Map<number, { x: number; y: number }>());
+  const lookPrimary = useRef<number | null>(null);
   const lookLast = useRef({ x: 0, y: 0 });
+  const orbitLast = useRef<{ x: number; y: number } | null>(null);
   const [sprint, setSprint] = useState(false);
   const [pressed, setPressed] = useState<Record<string, boolean>>({});
 
@@ -53,26 +55,73 @@ export default function TouchControls({ engine, petInteractNear }: { engine: Eng
   /* ---------- look ---------- */
   const lookDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!engine || lookId.current !== null) return;
-      lookId.current = e.pointerId;
-      lookLast.current = { x: e.clientX, y: e.clientY };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      if (!engine || lookPointers.current.has(e.pointerId)) return;
+      const pointers = lookPointers.current;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      if (pointers.size === 1) {
+        lookPrimary.current = e.pointerId;
+        lookLast.current = { x: e.clientX, y: e.clientY };
+        orbitLast.current = null;
+      } else {
+        const positions = [...pointers.values()];
+        orbitLast.current = {
+          x: positions.reduce((sum, point) => sum + point.x, 0) / positions.length,
+          y: positions.reduce((sum, point) => sum + point.y, 0) / positions.length,
+        };
+      }
     },
     [engine],
   );
   const lookMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!engine || lookId.current !== e.pointerId) return;
-      const dx = e.clientX - lookLast.current.x;
-      const dy = e.clientY - lookLast.current.y;
-      lookLast.current = { x: e.clientX, y: e.clientY };
-      engine.look(dx * SENS, dy * SENS);
+      const pointers = lookPointers.current;
+      if (!engine || !pointers.has(e.pointerId)) return;
+      const next = { x: e.clientX, y: e.clientY };
+      if (pointers.size >= 2) {
+        pointers.set(e.pointerId, next);
+        const positions = [...pointers.values()];
+        const center = {
+          x: positions.reduce((sum, point) => sum + point.x, 0) / positions.length,
+          y: positions.reduce((sum, point) => sum + point.y, 0) / positions.length,
+        };
+        const previous = orbitLast.current ?? center;
+        orbitLast.current = center;
+        const orbiting = engine.orbitThirdPersonCamera((center.x - previous.x) * SENS);
+        // Before third person is enabled, retain the old one-finger look behavior.
+        if (!orbiting && e.pointerId === lookPrimary.current) {
+          const dx = next.x - lookLast.current.x;
+          const dy = next.y - lookLast.current.y;
+          lookLast.current = next;
+          engine.look(dx * SENS, dy * SENS);
+        }
+      } else {
+        if (e.pointerId !== lookPrimary.current) return;
+        const dx = next.x - lookLast.current.x;
+        const dy = next.y - lookLast.current.y;
+        lookLast.current = next;
+        pointers.set(e.pointerId, next);
+        engine.look(dx * SENS, dy * SENS);
+      }
     },
     [engine],
   );
   const lookUp = useCallback((e: React.PointerEvent) => {
-    if (lookId.current !== e.pointerId) return;
-    lookId.current = null;
+    const pointers = lookPointers.current;
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (lookPrimary.current === e.pointerId) lookPrimary.current = null;
+    const remaining = [...pointers.entries()];
+    if (remaining.length === 1) {
+      if (remaining[0][0] === lookPrimary.current) lookLast.current = remaining[0][1];
+      orbitLast.current = null;
+    } else if (remaining.length > 1) {
+      const positions = remaining.map(([, point]) => point);
+      orbitLast.current = {
+        x: positions.reduce((sum, point) => sum + point.x, 0) / positions.length,
+        y: positions.reduce((sum, point) => sum + point.y, 0) / positions.length,
+      };
+    } else orbitLast.current = null;
   }, []);
 
   /* ---------- buttons ---------- */

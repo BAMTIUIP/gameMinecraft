@@ -365,6 +365,7 @@ export type HudState = {
   locked: boolean;
   lockFailed: boolean;
   freeLook: boolean;
+  thirdPerson?: boolean;
   runTime: number;
   /** teammates replayed from asynchronous multiplayer sessions (empty outside co-op) */
   squad: CompanionStatus[];
@@ -827,10 +828,18 @@ function pickaxeStrikeArmAngle(progress: number) {
 }
 
 /** Shared voxel hair builder used by the player model and local survival teammates. */
-function buildCharacterHair(style: CharacterHairstyle, material: THREE.Material): THREE.Group {
+function buildCharacterHair(style: CharacterHairstyle, material: THREE.Material, helmetSafe = false): THREE.Group {
   const hair = new THREE.Group();
-  const box = (w: number, h: number, d: number, x: number, y: number, z: number) =>
-    addCharacterBox(hair, w, h, d, material, x, y, z);
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+    if (!helmetSafe) return addCharacterBox(hair, w, h, d, material, x, y, z);
+    // The helmet's side plates and rear guard reach down to about -0.085 in head space.
+    // Crop every hair lock at -0.105 so only the portions hanging below the shell remain.
+    const bottom = y - h / 2;
+    const clippedTop = Math.min(y + h / 2, -0.105);
+    const visibleHeight = clippedTop - bottom;
+    if (visibleHeight <= 0) return null;
+    return addCharacterBox(hair, w, visibleHeight, d, material, x, bottom + visibleHeight / 2, z);
+  };
   // The scalp cap and narrow side/back panels overlap, so no skin-colored gaps show through the hair.
   box(0.5, 0.16, 0.5, 0, 0.22, 0);
   box(0.1, 0.36, 0.5, -0.2, -0.02, 0);
@@ -852,7 +861,7 @@ function buildCharacterHair(style: CharacterHairstyle, material: THREE.Material)
   } else if (style === 'spiky') {
     for (const [x, y, rz] of [[-0.15, 0.34, -0.16], [0, 0.38, 0], [0.15, 0.34, 0.16]] as const) {
       const spike = box(0.12, 0.2, 0.14, x, y, 0.01);
-      spike.rotation.z = rz;
+      if (spike) spike.rotation.z = rz;
     }
   } else if (style === 'bob') {
     box(0.12, 0.37, 0.43, -0.2, -0.14, -0.015);
@@ -879,7 +888,7 @@ function buildCharacterHair(style: CharacterHairstyle, material: THREE.Material)
     box(0.16, 0.08, 0.16, 0, 0.31, 0.34);
   } else if (style === 'sidePart') {
     const sweep = box(0.29, 0.12, 0.1, -0.08, 0.13, -0.26);
-    sweep.rotation.z = -0.18;
+    if (sweep) sweep.rotation.z = -0.18;
     box(0.11, 0.22, 0.4, -0.2, -0.04, -0.015);
     box(0.12, 0.12, 0.1, 0.1, 0.17, -0.25);
   } else if (style === 'twinTails') {
@@ -1308,6 +1317,9 @@ export class Engine {
   private starMat!: THREE.PointsMaterial;
   private stars!: THREE.Points;
   private thirdPerson = false;
+  /** Camera-only yaw offset; player facing and movement keep using this.yaw. */
+  private thirdPersonOrbitYaw = 0;
+  private thirdPersonOrbitInputAt = 0;
   private thirdPersonCam = new THREE.Vector3();
   private thirdPersonFocus = new THREE.Vector3();
   private thirdPersonCamReady = false;
@@ -1332,6 +1344,7 @@ export class Engine {
   private avatarLegPants: THREE.Mesh[] = [];
   private avatarShoeVariants: Array<Record<CharacterShoeType, THREE.Group>> = [];
   private avatarHairVariants: Partial<Record<CharacterHairstyle, THREE.Group>> = {};
+  private avatarHelmetHairVariants: Partial<Record<CharacterHairstyle, THREE.Group>> = {};
   private avatarFaceContext: CanvasRenderingContext2D | null = null;
   private avatarFaceTexture: THREE.CanvasTexture | null = null;
   private avatarLeftArm: THREE.Object3D | null = null;
@@ -2289,9 +2302,12 @@ if (tpClipActive > 0.5) {
 
     for (const style of CHARACTER_HAIRSTYLES) {
       const variant = buildCharacterHair(style, hair);
-      variant.visible = style === customization.hairstyle;
+      const helmetVariant = buildCharacterHair(style, hair, true);
+      variant.visible = style === customization.hairstyle && !this.equipped.head;
+      helmetVariant.visible = style === customization.hairstyle && !!this.equipped.head;
       this.avatarHairVariants[style] = variant;
-      headGroup.add(variant);
+      this.avatarHelmetHairVariants[style] = helmetVariant;
+      headGroup.add(variant, helmetVariant);
     }
 
     const faceCanvas = document.createElement('canvas');
@@ -2478,6 +2494,9 @@ if (tpClipActive > 0.5) {
   /** Build the equipped pieces as voxel plates attached to the animated body parts. */
   private buildEquippedArmor(item: Item): AvatarArmorAttachment[] {
     const attachments: AvatarArmorAttachment[] = [];
+    const girl = this.characterCustomization.gender === 'girl';
+    // For girls, leggings tint the skirt itself rather than replacing its silhouette with trousers.
+    if (girl && item.slot === 'legs') return attachments;
     const color = new THREE.Color(gearColor(item));
     const palette = {
       main: new THREE.MeshLambertMaterial({ color }),
@@ -2485,7 +2504,6 @@ if (tpClipActive > 0.5) {
       highlight: new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) }),
       trim: new THREE.MeshLambertMaterial({ color: '#30363a' }),
     };
-    const girl = this.characterCustomization.gender === 'girl';
     const makeGroup = (name: string) => {
       const group = new THREE.Group();
       group.name = `avatar-armor-${item.slot}-${name}`;
@@ -2519,8 +2537,10 @@ if (tpClipActive > 0.5) {
         box(helmet, 0.35, 0.045, 0.34, palette.highlight, 0, 0.305, 0.025);
         box(helmet, 0.085, 0.2, 0.37, palette.shade, -0.19, 0.015, 0.025);
         box(helmet, 0.085, 0.2, 0.37, palette.shade, 0.19, 0.015, 0.025);
-        box(helmet, 0.12, 0.055, 0.24, palette.main, 0, -0.055, 0.09);
-        box(helmet, 0.16, 0.035, 0.07, palette.highlight, 0, 0.17, -0.165);
+        // The rear neck guard sits behind the head (+Z); the wider brow/visor
+        // projects over the forehead (-Z), making the helmet's facing unambiguous.
+        box(helmet, 0.28, 0.08, 0.07, palette.main, 0, -0.015, 0.19);
+        box(helmet, 0.26, 0.045, 0.09, palette.highlight, 0, 0.18, -0.175);
         box(helmet, 0.1, 0.045, 0.12, palette.trim, 0, 0.325, 0.015);
         attach(this.avatarHead, helmet);
         break;
@@ -2621,8 +2641,17 @@ if (tpClipActive > 0.5) {
     for (const [style, group] of Object.entries(this.avatarHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
       group.visible = !helmetWorn && style === this.characterCustomization.hairstyle;
     }
+    for (const [style, group] of Object.entries(this.avatarHelmetHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
+      group.visible = helmetWorn && style === this.characterCustomization.hairstyle;
+    }
     if (this.avatarSkirt) {
-      this.avatarSkirt.visible = this.characterCustomization.gender === 'girl' && !this.equipped.legs;
+      const girl = this.characterCustomization.gender === 'girl';
+      this.avatarSkirt.visible = girl;
+      if (girl && this.avatarAppearance) {
+        const skirtColor = this.equipped.legs ? gearColor(this.equipped.legs) : this.characterCustomization.pantsColor;
+        this.avatarAppearance.skirt.color.set(skirtColor);
+        this.avatarAppearance.skirtAccent.color.copy(this.avatarAppearance.skirt.color).multiplyScalar(0.7);
+      }
     }
 
     for (const slot of SLOTS) {
@@ -2681,7 +2710,8 @@ if (tpClipActive > 0.5) {
         box(0.33, 0.055, 0.33, highlight, 0, 0.19, 0.025);
         box(0.08, 0.21, 0.34, shade, -0.17, -0.015, 0.02);
         box(0.08, 0.21, 0.34, shade, 0.17, -0.015, 0.02);
-        box(0.14, 0.04, 0.06, highlight, 0, 0.015, -0.18);
+        box(0.26, 0.045, 0.09, highlight, 0, 0.055, -0.19);
+        box(0.26, 0.08, 0.07, main, 0, 0.005, 0.19);
         box(0.11, 0.045, 0.13, trim, 0, 0.215, 0.015);
         break;
       case 'chest':
@@ -2749,7 +2779,7 @@ if (tpClipActive > 0.5) {
     appearance.shoeAccent.color.set(customization.shoeType === 'sneakers' ? '#f1f2ed' : customization.shoeColor);
 
     const girl = customization.gender === 'girl';
-    if (this.avatarSkirt) this.avatarSkirt.visible = girl && !this.equipped.legs;
+    if (this.avatarSkirt) this.avatarSkirt.visible = girl;
     if (this.avatarTorso) this.avatarTorso.scale.x = girl ? 0.82 : 1.04;
     if (this.avatarTorsoTrim) this.avatarTorsoTrim.scale.x = girl ? 0.82 : 1.04;
     if (this.avatarLeftArm) this.avatarLeftArm.position.x = girl ? -0.37 : -0.43;
@@ -2762,8 +2792,12 @@ if (tpClipActive > 0.5) {
         group.visible = style === customization.shoeType;
       }
     }
+    const helmetWorn = !!this.equipped.head;
     for (const [style, group] of Object.entries(this.avatarHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
-      group.visible = !this.equipped.head && style === customization.hairstyle;
+      group.visible = !helmetWorn && style === customization.hairstyle;
+    }
+    for (const [style, group] of Object.entries(this.avatarHelmetHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
+      group.visible = helmetWorn && style === customization.hairstyle;
     }
     if (this.avatarFaceContext) drawCharacterFace(this.avatarFaceContext, customization.expression, customization.glasses);
     if (this.avatarFaceTexture) this.avatarFaceTexture.needsUpdate = true;
@@ -3468,9 +3502,12 @@ if (tpClipActive > 0.5) {
   // ================= INPUT =================
   private togglePerspective() {
     this.thirdPerson = !this.thirdPerson;
+    this.thirdPersonOrbitYaw = 0;
+    this.thirdPersonOrbitInputAt = 0;
     this.thirdPersonCamReady = false;
     if (!this.thirdPerson) this.restoreThirdPersonOccluders();
     sfx.ui(true);
+    this.syncHud(true);
     // Camera-only action: do not touch phase or Yandex GameplayAPI state.
   }
 
@@ -3567,6 +3604,10 @@ if (tpClipActive > 0.5) {
       this.lockFailed = false;
       this.requestLock();
     }
+    if (this.thirdPerson && e.altKey) {
+      e.preventDefault(); // Alt-drag is reserved for orbiting the camera.
+      return;
+    }
     if (e.button === 0) this.mining = true; // LMB = hit / mine / shoot
     else if (e.button === 2 || e.button === 1) {
       // RMB (and middle) = place, always — no more mode-dependent behaviour
@@ -3599,10 +3640,18 @@ if (tpClipActive > 0.5) {
   private onMouseMove = (e: MouseEvent) => {
     if (this.inventoryOpen) return;
     if (this.locked) {
+      if (this.thirdPerson && e.altKey) {
+        this.orbitThirdPersonCamera(e.movementX * 0.0028);
+        return;
+      }
       this.look(e.movementX * 0.0028, e.movementY * 0.0028);
       return;
     }
     if (this.phase !== 'playing' || this.isCoarse()) return;
+    if (this.thirdPerson && e.altKey && e.buttons !== 0) {
+      this.orbitThirdPersonCamera(e.movementX * 0.0058);
+      return;
+    }
     // lock unavailable → remember the cursor for edge-steering fallback,
     // and while any button is held give precise 1:1 drag aiming
     const r = this.renderer.domElement.getBoundingClientRect();
@@ -3741,6 +3790,30 @@ if (tpClipActive > 0.5) {
     this.yaw -= dx;
     this.pitch -= dy;
     this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch));
+  }
+  /** Rotate the third-person camera around the avatar without turning the avatar itself. */
+  orbitThirdPersonCamera(dx: number): boolean {
+    if (!this.thirdPerson || this.inventoryOpen || this.phase !== 'playing') return false;
+    this.thirdPersonOrbitYaw = THREE.MathUtils.euclideanModulo(
+      this.thirdPersonOrbitYaw - dx + Math.PI,
+      Math.PI * 2,
+    ) - Math.PI;
+    this.thirdPersonOrbitInputAt = performance.now();
+    return true;
+  }
+  private updateThirdPersonOrbitReturn(dt: number) {
+    if (!this.thirdPerson || this.thirdPersonOrbitYaw === 0) return;
+    const keys = this.keys;
+    const orbitModifierHeld = keys['AltLeft'] || keys['AltRight'];
+    const movementInput =
+      keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'] || keys['ArrowUp'] || keys['ArrowDown'] ||
+      (!this.tv && (keys['ArrowLeft'] || keys['ArrowRight'])) || Math.hypot(this.touchMove.x, this.touchMove.y) > 0.08;
+    const moving = movementInput || Math.hypot(this.vel.x, this.vel.z) > 0.12;
+    const orbitGestureActive = this.thirdPersonOrbitInputAt > 0 && performance.now() - this.thirdPersonOrbitInputAt < 160;
+    if (!moving || orbitModifierHeld || orbitGestureActive) return;
+    // Once movement resumes after camera inspection, glide back behind the avatar.
+    this.thirdPersonOrbitYaw = THREE.MathUtils.damp(this.thirdPersonOrbitYaw, 0, 4, dt);
+    if (Math.abs(this.thirdPersonOrbitYaw) < 0.002) this.thirdPersonOrbitYaw = 0;
   }
   setMove(x: number, y: number) {
     this.touchMove.x = this.inventoryOpen ? 0 : x;
@@ -5516,8 +5589,10 @@ if (tpClipActive > 0.5) {
     this.updatePlayerAvatar();
 
     if (this.thirdPerson && this.phase === 'playing') {
+      this.updateThirdPersonOrbitReturn(dt);
       const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
-      const forward = new THREE.Vector3(-Math.sin(this.yaw) * cp, sp, -Math.cos(this.yaw) * cp).normalize();
+      const cameraYaw = this.yaw + this.thirdPersonOrbitYaw;
+      const forward = new THREE.Vector3(-Math.sin(cameraYaw) * cp, sp, -Math.cos(cameraYaw) * cp).normalize();
       const rawFocus = new THREE.Vector3(this.pos.x, thirdPersonTargetY + 0.05, this.pos.z);
       if (!this.thirdPersonCamReady) this.thirdPersonFocus.copy(rawFocus);
       else this.thirdPersonFocus.lerp(rawFocus, 1 - Math.pow(0.0004, dt));
@@ -11041,6 +11116,7 @@ if (tpClipActive > 0.5) {
       locked: this.locked || this.lockPending,
       lockFailed: this.lockFailed,
       freeLook: this.freeLook,
+      thirdPerson: this.thirdPerson,
       runTime: this.runTime,
       squad: this.companionStatus(),
       survival: this.survival,

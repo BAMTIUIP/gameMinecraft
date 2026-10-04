@@ -93,8 +93,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
     setHint(true);
     const t = setTimeout(() => setHint(false), 9000);
     return () => clearTimeout(t);
-  }, [hud.phase]);
+  }, [hud.phase, hud.thirdPerson]);
 
+  const controlsHint = isTouch
+    ? hud.thirdPerson
+      ? `${t('hintTouch')} · ${t('cameraOrbitTouch')}`
+      : t('hintTouch')
+    : hud.thirdPerson
+      ? `${t('hintDesktop')} · ${t('cameraOrbitMouse')}`
+      : t('hintDesktop');
   const endless = hud.sandbox || hud.endless;
   const urgent = hud.timeLeft <= 15 && !endless;
   const night = hud.phaseName === 'night';
@@ -571,7 +578,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         )}
         {hint && (
           <div className="bevel-flat notch anim-rise px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/55 sm:text-xs">
-            {isTouch ? t('hintTouch') : t('hintDesktop')}
+            {controlsHint}
           </div>
         )}
 
