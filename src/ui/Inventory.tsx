@@ -150,7 +150,7 @@ export default function Inventory({
   const filteredGear = (invCat === 'all' || invCat === 'armor' ? hud.bagItems : [])
     .filter((it) => gearTab === 'all' || it.slot === gearTab)
     .sort((a, b) => (a.armor + a.damage) - (b.armor + b.damage));
-  const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds : [];
+  const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds.filter((kind) => kind !== hud.petEquippedKind) : [];
   const totalShownCount = filteredStacks.length + filteredGear.length + filteredPets.length;
   const petDisplayKind = hud.petEquippedKind ?? hud.petSelectedKind;
   const petDisplayOwned = hud.petOwnedKinds.includes(petDisplayKind);
@@ -514,7 +514,7 @@ export default function Inventory({
                   }}
                   className="notch flex min-w-0 flex-col gap-1 p-1"
                 >
-                  {hud.petOwnedKinds.length > 1 && (
+                  {false && (
                     <div className="flex items-center justify-center gap-1 border-b border-white/10 pb-0.5">
                       {hud.petOwnedKinds.map((kind) => (
                         <button
@@ -559,7 +559,7 @@ export default function Inventory({
                         : <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
                       : <span className="text-2xl leading-none text-white/25">🐾</span>}
                     <span className="max-w-full truncate font-display text-[8px] leading-none text-[#e8d5b4]">
-                      {hud.petEquipped ? t('petEquippedLabel') : hud.petTokenAvailable ? t('petReady') : t('petNotOwned')}
+                      {hud.petEquipped ? 'ДОМОЙ' : hud.petTokenAvailable ? 'В ПУТЬ' : t('petNotOwned')}
                     </span>
                   </button>
                   {petDisplayOwned && (
