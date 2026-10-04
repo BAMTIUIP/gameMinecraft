@@ -419,13 +419,12 @@ export default function Inventory({
                 </span>
               </div>
 
-              <div className="mb-2 flex items-center gap-2">
-                <div className="notch relative flex h-12 w-20 items-center justify-center border-2 border-[#f4b942] bg-black/30 text-center">
-                  {hud.arrowLoadout !== null ? <><img src={getBlockIcon(hud.arrowLoadout)} className="pixelated h-9 w-9" /><button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="absolute -right-1 -top-1 z-10 rounded bg-[#7a3a33] px-1 py-0.5 font-display text-[8px] text-white">СНЯТЬ</button></> : <span className="font-display text-[8px] text-white/35">СТРЕЛЫ</span>}
-                </div>
-                <div className="text-[9px] leading-tight text-white/45"><b className="text-torch">СНАРЯЖЕНО</b><br/>Нажмите на стрелы в инвентаре, чтобы экипировать или снять</div>
-              </div>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:grid-cols-7">
+                <div className="notch relative min-w-0 border-2 border-[#f4b942] bg-black/30 p-1 text-center">
+                  <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
+                  {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
+                  {hud.arrowLoadout !== null && <button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="btn-mc notch mt-0.5 w-full px-1 py-0.5 font-display text-[8px] leading-none text-[#f2b3ae]">СНЯТЬ</button>}
+                </div>
                 {SLOTS.map((slot) => {
                   const it = hud.equipped[slot];
                   const rar = it ? RARITY[it.rarity] : null;
