@@ -419,7 +419,7 @@ export default function Inventory({
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
+              <div className="equipment-grid grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
                 <div className="notch relative flex min-h-[92px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
                   <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
                   {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
