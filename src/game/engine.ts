@@ -294,6 +294,8 @@ type ExplorationTaskDefinition = {
   mineBlockIds?: readonly number[];
   craftPickaxeTier?: number;
   craftRecipeKey?: string;
+  craftKind?: Recipe['kind'];
+  craftTier?: number;
 };
 
 type ExplorationTask = ExplorationTaskDefinition & { progress: number };
@@ -310,8 +312,12 @@ export type HudObjective = {
 
 const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
+  { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
+  { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'sword', craftTier: 0 },
   { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
+  { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'sword', craftTier: 1 },
+  { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
   { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
   { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
@@ -11477,7 +11483,8 @@ if (tpClipActive > 0.5) {
     for (const task of this.explorationObjectives) {
       const craftedPickaxe = task.craftPickaxeTier !== undefined && recipe.kind === 'pickaxe' && recipe.tier === task.craftPickaxeTier;
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
-      if (craftedPickaxe || craftedRecipe) task.progress = Math.min(task.target, task.progress + 1);
+      const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
+      if (craftedPickaxe || craftedRecipe || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();
   }
