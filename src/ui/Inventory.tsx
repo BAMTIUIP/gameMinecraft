@@ -317,7 +317,7 @@ export default function Inventory({
                       }}
                     >
                       {isTool ? (
-                        <span className="flex h-[62%] w-[62%] items-center justify-center">{toolIcon(it.id, 24, it.durability).el}</span>
+                        <span className="flex h-[82%] w-[82%] items-center justify-center">{toolIcon(it.id, 34, it.durability).el}</span>
                       ) : (
                         <img src={getBlockIcon(it.id)} alt={label} className="pixelated h-[62%] w-[62%]" draggable={false} />
                       )}

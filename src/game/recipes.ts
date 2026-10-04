@@ -1008,7 +1008,8 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets'
  */
 export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
   if (id >= 300) return 'armor';
-  if (id >= 180 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
+  // Food must win before the numeric tool/arrow range: cooked meat ids are
+  // generated dynamically and can overlap the high item range.
   if (
     isMeatItem(id) ||
     id === APPLE ||
@@ -1026,6 +1027,7 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pe
   ) {
     return 'food';
   }
+  if (id >= 154 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   return 'blocks';
 }
 
