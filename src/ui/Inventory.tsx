@@ -16,13 +16,14 @@ import {
 import { BLOCKS, PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
-import { AFFIXES, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
+import { AFFIXES, gearColor, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
 import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { MonkeyIcon } from './MonkeyIcon';
 import { WolfIcon } from './WolfIcon';
+import { GearIcon } from './GearIcon';
 
 // ---------- helpers ----------
 
@@ -37,15 +38,6 @@ function toolIcon(id: number, size = 24, durability?: number): { el: React.React
 function toolLabel(id: number): string {
   return getToolSpec(id) ? toolLabelForId(id) : toolIcon(id, 0).label;
 }
-
-const SLOT_GLYPH: Record<Slot, string> = {
-  head: '⛑',
-  chest: '⛨',
-  legs: '👖',
-  feet: '👢',
-  hands: '🧤',
-  offhand: '🛡',
-};
 
 // ---------- types ----------
 
@@ -332,6 +324,7 @@ export default function Inventory({
                 {filteredGear.map((it, i) => {
                   const rar = RARITY[it.rarity];
                   const mat = MATERIALS[it.material];
+                  const armorTint = gearColor(it);
                   const inBar = hud.hotbar.some((h) => h !== null && h.id === it.hid);
                   const label = `${t(SLOT_KEY[it.slot])} · ${matName(mat.label)} (${rarName(it.rarity, rar.name)})`;
                   return (
@@ -352,9 +345,7 @@ export default function Inventory({
                         boxShadow: `inset 2px 2px 0 rgba(255,255,255,.1), 0 0 10px ${rar.color}22`,
                       }}
                     >
-                      <span className="text-lg leading-none sm:text-xl" style={{ color: mat.color, textShadow: `0 0 8px ${rar.color}` }}>
-                        {SLOT_GLYPH[it.slot]}
-                      </span>
+                      <GearIcon slot={it.slot} color={armorTint} size={30} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
                       <span className="mt-0.5 max-w-full truncate font-display text-[8px] leading-none" style={{ color: rar.color }}>
                         {t(SLOT_KEY[it.slot])}
                       </span>
@@ -427,9 +418,14 @@ export default function Inventory({
                         }}
                         title={it ? t('unequip') : t('emptySlot')}
                       >
-                        <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
-                        <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? rar!.color : '#3f4c44' }}>
-                          {it ? matName(MATERIALS[it.material].label) : '—'}
+                        <div className="flex min-w-0 items-center gap-1">
+                          {it && <GearIcon slot={it.slot} color={gearColor(it)} size={20} className="shrink-0" />}
+                          <div className="min-w-0">
+                            <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
+                            <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? gearColor(it) : '#3f4c44' }}>
+                              {it ? matName(MATERIALS[it.material].label) : '—'}
+                            </div>
+                          </div>
                         </div>
                         {it && it.affixes.length > 0 && (
                           <div className="mt-0.5 flex gap-0.5">
@@ -639,11 +635,13 @@ export default function Inventory({
                             slot.id === HAND ? (
                               <span className="text-2xl leading-none sm:text-3xl lg:text-4xl">✊</span>
                             ) : gearInSlot ? (
-                              <span
-                                className="flex flex-col items-center justify-center leading-none"
-                                style={{ color: MATERIALS[gearInSlot.material].color }}
-                              >
-                                <span className="text-xl leading-none sm:text-2xl lg:text-3xl">{SLOT_GLYPH[gearInSlot.slot]}</span>
+                              <span className="flex flex-col items-center justify-center leading-none">
+                                <GearIcon
+                                  slot={gearInSlot.slot}
+                                  color={gearColor(gearInSlot)}
+                                  size={34}
+                                  className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]"
+                                />
                                 <span className="font-display text-[7px]" style={{ color: RARITY[gearInSlot.rarity].color }}>
                                   ⛨{gearInSlot.armor}
                                 </span>
@@ -903,15 +901,12 @@ function WorkbenchDismantlePanel({
           >
             {resolvedGear ? (
               <>
-                <span
-                  className="text-3xl leading-none"
-                  style={{
-                    color: MATERIALS[resolvedGear.material].color,
-                    textShadow: `0 0 10px ${RARITY[resolvedGear.rarity].color}`,
-                  }}
-                >
-                  {SLOT_GLYPH[resolvedGear.slot]}
-                </span>
+                <GearIcon
+                  slot={resolvedGear.slot}
+                  color={gearColor(resolvedGear)}
+                  size={44}
+                  className="drop-shadow-[0_0_8px_rgba(255,255,255,.18)]"
+                />
                 <span className="mt-1 font-display text-[10px]" style={{ color: RARITY[resolvedGear.rarity].color }}>
                   ⛨{resolvedGear.armor}
                 </span>
@@ -1085,6 +1080,8 @@ function Recipes({
                   <ToolSprite id={r.toolId} size={36} />
                 ) : r.out ? (
                   <img src={getBlockIcon(r.out[0])} alt="" className="pixelated h-9 w-9 drop-shadow-[0_2px_0_rgba(0,0,0,.6)]" draggable={false} />
+                ) : r.kind === 'gear' && r.slot ? (
+                  <GearIcon slot={r.slot} color={r.accent} size={36} />
                 ) : (
                   <span
                     className="flex h-9 w-9 items-center justify-center"
@@ -1412,6 +1409,7 @@ function AnvilPanel({
       })}
       {allGear.map(({ item, equipped }) => {
         const rar = RARITY[item.rarity];
+        const itemTint = gearColor(item);
         const canNeth = item.material === 'diamond' && netherite >= 1;
         const canRe = iron >= 4;
         return (
@@ -1419,8 +1417,8 @@ function AnvilPanel({
             key={item.uid}
             className="notch flex items-center gap-2.5 px-2.5 py-2"
             style={{
-              background: `linear-gradient(90deg, ${MATERIALS[item.material].color}22, rgba(255,255,255,.02) 60%)`,
-              borderLeft: `4px solid ${MATERIALS[item.material].color}`,
+              background: `linear-gradient(90deg, ${itemTint}22, rgba(255,255,255,.02) 60%)`,
+              borderLeft: `4px solid ${itemTint}`,
             }}
           >
             <div className="min-w-0 flex-1">

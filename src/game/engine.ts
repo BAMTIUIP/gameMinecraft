@@ -177,11 +177,13 @@ import {
   damageReduction,
   EMPTY_STATS,
   ensureGearHid,
+  gearColor,
   isGearHotbarId,
   makeItem,
   MATERIALS,
   RARITY,
   rollLoot,
+  SLOTS,
   SLOT_KEY,
   type AffixId,
   type Item,
@@ -519,6 +521,14 @@ type Drop = {
   petCarried?: boolean;
 };
 
+type AvatarArmorAttachment = { parent: THREE.Object3D; group: THREE.Group };
+type AvatarFadeMaterial = {
+  material: THREE.Material;
+  opacity: number;
+  transparent: boolean;
+  depthWrite: boolean;
+};
+
 type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
 type WolfChestTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number; swimming: boolean };
 const WOLF_PET_PLAYER_GAP = 1.28;
@@ -581,16 +591,20 @@ type WolfPetRig = {
 
 /** free the GPU memory of a generated object (companion rigs are rebuilt, never pooled) */
 function disposeObject(obj: THREE.Object3D) {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
   obj.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.geometry) geometries.add(mesh.geometry);
     const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    const materials = Array.isArray(material) ? material : material ? [material] : [];
-    for (const entry of materials) {
-      const map = (entry as THREE.Material & { map?: THREE.Texture }).map;
-      map?.dispose();
-      entry.dispose();
-    }
+    if (Array.isArray(material)) material.forEach((entry) => materials.add(entry));
+    else if (material) materials.add(material);
+  });
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((material) => {
+    const map = (material as THREE.Material & { map?: THREE.Texture }).map;
+    map?.dispose();
+    material.dispose();
   });
 }
 
@@ -1324,6 +1338,9 @@ export class Engine {
   private avatarRightArm: THREE.Object3D | null = null;
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
+  private avatarArmorModels: Partial<Record<Slot, AvatarArmorAttachment[]>> = {};
+  private avatarArmorFadeMats: Partial<Record<Slot, AvatarFadeMaterial[]>> = {};
+  private avatarOpacity = 1;
   private avatarHeldRoot!: THREE.Group;
   private avatarFireFx!: THREE.Group;
   private avatarHeldTool!: THREE.Group;
@@ -2458,6 +2475,264 @@ if (tpClipActive > 0.5) {
     this.applyCharacterCustomization();
   }
 
+  /** Build the equipped pieces as voxel plates attached to the animated body parts. */
+  private buildEquippedArmor(item: Item): AvatarArmorAttachment[] {
+    const attachments: AvatarArmorAttachment[] = [];
+    const color = new THREE.Color(gearColor(item));
+    const palette = {
+      main: new THREE.MeshLambertMaterial({ color }),
+      shade: new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.58) }),
+      highlight: new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) }),
+      trim: new THREE.MeshLambertMaterial({ color: '#30363a' }),
+    };
+    const girl = this.characterCustomization.gender === 'girl';
+    const makeGroup = (name: string) => {
+      const group = new THREE.Group();
+      group.name = `avatar-armor-${item.slot}-${name}`;
+      return group;
+    };
+    const box = (
+      group: THREE.Object3D,
+      width: number,
+      height: number,
+      depth: number,
+      material: THREE.Material,
+      x: number,
+      y: number,
+      z: number,
+      rotateZ = 0,
+    ) => {
+      const mesh = addCharacterBox(group, width, height, depth, material, x, y, z);
+      if (rotateZ) mesh.rotation.z = rotateZ;
+      return mesh;
+    };
+    const attach = (parent: THREE.Object3D | null, group: THREE.Group) => {
+      if (parent) attachments.push({ parent, group });
+    };
+
+    switch (item.slot) {
+      case 'head': {
+        const helmet = makeGroup('helmet');
+        // Crown and cheek plates frame the head without covering its front plane: the
+        // character creator's face texture (expression and glasses included) stays intact.
+        box(helmet, 0.46, 0.13, 0.45, palette.main, 0, 0.225, 0.015);
+        box(helmet, 0.35, 0.045, 0.34, palette.highlight, 0, 0.305, 0.025);
+        box(helmet, 0.085, 0.2, 0.37, palette.shade, -0.19, 0.015, 0.025);
+        box(helmet, 0.085, 0.2, 0.37, palette.shade, 0.19, 0.015, 0.025);
+        box(helmet, 0.12, 0.055, 0.24, palette.main, 0, -0.055, 0.09);
+        box(helmet, 0.16, 0.035, 0.07, palette.highlight, 0, 0.17, -0.165);
+        box(helmet, 0.1, 0.045, 0.12, palette.trim, 0, 0.325, 0.015);
+        attach(this.avatarHead, helmet);
+        break;
+      }
+      case 'chest': {
+        const chest = makeGroup('chestplate');
+        const width = girl ? 0.52 : 0.61;
+        box(chest, width, 0.67, 0.34, palette.main, 0, 1.03, 0);
+        box(chest, width * 0.7, 0.4, 0.055, palette.highlight, 0, 1.04, -0.2);
+        box(chest, 0.085, 0.43, 0.065, palette.main, 0, 1.03, -0.24);
+        box(chest, width * 0.9, 0.075, 0.36, palette.shade, 0, 0.69, 0);
+        box(chest, 0.2, 0.065, 0.075, palette.trim, 0, 1.38, -0.16);
+        for (const side of [-1, 1]) {
+          box(chest, 0.2, 0.17, 0.34, palette.main, side * (width * 0.48), 1.32, 0);
+          box(chest, 0.055, 0.12, 0.35, palette.highlight, side * (width * 0.48), 1.33, -0.01);
+        }
+        attach(this.playerAvatar, chest);
+        break;
+      }
+      case 'legs': {
+        const waist = makeGroup('waist');
+        box(waist, girl ? 0.43 : 0.5, 0.1, 0.31, palette.shade, 0, 0.7, 0);
+        box(waist, girl ? 0.4 : 0.47, 0.045, 0.33, palette.main, 0, 0.73, 0);
+        box(waist, 0.09, 0.06, 0.035, palette.highlight, 0, 0.72, -0.17);
+        attach(this.playerAvatar, waist);
+
+        const legWidth = girl ? 0.205 : 0.25;
+        for (const leg of [this.avatarLeftLeg, this.avatarRightLeg]) {
+          if (!leg) continue;
+          const greave = makeGroup('greave');
+          box(greave, legWidth, 0.5, 0.255, palette.main, 0, -0.26, 0);
+          box(greave, legWidth * 0.72, 0.15, 0.055, palette.highlight, 0, -0.2, -0.155);
+          box(greave, legWidth * 0.9, 0.055, 0.27, palette.shade, 0, -0.015, 0);
+          box(greave, legWidth * 0.92, 0.04, 0.27, palette.trim, 0, -0.49, 0);
+          attach(leg, greave);
+        }
+        break;
+      }
+      case 'feet': {
+        const bootWidth = girl ? 0.27 : 0.3;
+        for (const leg of [this.avatarLeftLeg, this.avatarRightLeg]) {
+          if (!leg) continue;
+          const boot = makeGroup('armored-boot');
+          box(boot, bootWidth, 0.21, 0.36, palette.main, 0, -0.635, -0.025);
+          box(boot, bootWidth * 0.76, 0.1, 0.065, palette.highlight, 0, -0.62, -0.19);
+          box(boot, bootWidth * 1.04, 0.045, 0.37, palette.trim, 0, -0.735, -0.025);
+          box(boot, bootWidth * 0.92, 0.09, 0.28, palette.shade, 0, -0.49, 0.005);
+          attach(leg, boot);
+        }
+        break;
+      }
+      case 'hands': {
+        for (const arm of [this.avatarLeftArm, this.avatarRightArm]) {
+          if (!arm) continue;
+          const glove = makeGroup('gauntlet');
+          box(glove, 0.225, 0.2, 0.245, palette.main, 0, -0.68, -0.005);
+          box(glove, 0.235, 0.105, 0.26, palette.shade, 0, -0.515, 0);
+          box(glove, 0.17, 0.075, 0.045, palette.highlight, 0, -0.69, -0.15);
+          box(glove, 0.025, 0.11, 0.035, palette.trim, 0, -0.69, -0.177);
+          attach(arm, glove);
+        }
+        break;
+      }
+      case 'offhand': {
+        const shield = makeGroup('shield');
+        const size = girl ? 0.94 : 1;
+        const x = -0.1;
+        const y = -0.48;
+        const z = -0.17;
+        box(shield, 0.32 * size, 0.4 * size, 0.06, palette.trim, x, y, z);
+        box(shield, 0.275 * size, 0.35 * size, 0.075, palette.main, x, y, z - 0.035);
+        box(shield, 0.245 * size, 0.045, 0.025, palette.highlight, x, y + 0.135 * size, z - 0.08);
+        box(shield, 0.04, 0.23 * size, 0.03, palette.shade, x, y, z - 0.082);
+        const crest = box(shield, 0.095 * size, 0.095 * size, 0.035, palette.highlight, x, y, z - 0.1);
+        crest.rotation.z = Math.PI / 4;
+        box(shield, 0.095 * size, 0.07, 0.045, palette.main, x, y - 0.17 * size, z - 0.025, 0.22);
+        attach(this.avatarLeftArm, shield);
+        break;
+      }
+    }
+    return attachments;
+  }
+
+  /** Replace the worn meshes after equipment or character customization changes. */
+  private syncAvatarArmor() {
+    if (!this.avatarHead || !this.avatarLeftArm || !this.avatarRightArm || !this.avatarLeftLeg || !this.avatarRightLeg) return;
+
+    for (const slot of SLOTS) {
+      for (const attachment of this.avatarArmorModels[slot] ?? []) {
+        attachment.parent.remove(attachment.group);
+        disposeObject(attachment.group);
+      }
+      delete this.avatarArmorModels[slot];
+      delete this.avatarArmorFadeMats[slot];
+    }
+
+    const helmetWorn = !!this.equipped.head;
+    for (const [style, group] of Object.entries(this.avatarHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
+      group.visible = !helmetWorn && style === this.characterCustomization.hairstyle;
+    }
+    if (this.avatarSkirt) {
+      this.avatarSkirt.visible = this.characterCustomization.gender === 'girl' && !this.equipped.legs;
+    }
+
+    for (const slot of SLOTS) {
+      const item = this.equipped[slot];
+      if (!item) continue;
+      const attachments = this.buildEquippedArmor(item);
+      if (!attachments.length) continue;
+      const materials = new Set<THREE.Material>();
+      for (const attachment of attachments) {
+        attachment.parent.add(attachment.group);
+        attachment.group.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          if (Array.isArray(mesh.material)) mesh.material.forEach((material) => materials.add(material));
+          else materials.add(mesh.material);
+        });
+      }
+      this.avatarArmorModels[slot] = attachments;
+      this.avatarArmorFadeMats[slot] = [...materials].map((material) => ({
+        material,
+        opacity: material.opacity,
+        transparent: material.transparent,
+        depthWrite: material.depthWrite,
+      }));
+    }
+    this.setPlayerAvatarOpacity(this.avatarOpacity);
+  }
+
+  /** Slot-specific physical model used both for mob loot and armor thrown from the hotbar. */
+  private buildArmorDropModel(item: Item): THREE.Group {
+    const group = new THREE.Group();
+    group.name = `dropped-armor-${item.slot}-${item.material}`;
+    const color = new THREE.Color(gearColor(item));
+    const main = new THREE.MeshLambertMaterial({ color });
+    const shade = new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.58) });
+    const highlight = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) });
+    const trim = new THREE.MeshLambertMaterial({ color: '#30363a' });
+    const box = (
+      width: number,
+      height: number,
+      depth: number,
+      material: THREE.Material,
+      x: number,
+      y: number,
+      z: number,
+      rotateZ = 0,
+    ) => {
+      const mesh = addCharacterBox(group, width, height, depth, material, x, y, z);
+      if (rotateZ) mesh.rotation.z = rotateZ;
+      return mesh;
+    };
+
+    switch (item.slot) {
+      case 'head':
+        box(0.42, 0.14, 0.42, main, 0, 0.1, 0.015);
+        box(0.33, 0.055, 0.33, highlight, 0, 0.19, 0.025);
+        box(0.08, 0.21, 0.34, shade, -0.17, -0.015, 0.02);
+        box(0.08, 0.21, 0.34, shade, 0.17, -0.015, 0.02);
+        box(0.14, 0.04, 0.06, highlight, 0, 0.015, -0.18);
+        box(0.11, 0.045, 0.13, trim, 0, 0.215, 0.015);
+        break;
+      case 'chest':
+        box(0.43, 0.47, 0.23, main, 0, 0, 0);
+        box(0.2, 0.13, 0.26, main, -0.29, 0.15, 0);
+        box(0.2, 0.13, 0.26, main, 0.29, 0.15, 0);
+        box(0.29, 0.29, 0.045, highlight, 0, 0.015, -0.14);
+        box(0.065, 0.3, 0.05, shade, 0, 0.015, -0.18);
+        box(0.43, 0.055, 0.24, shade, 0, -0.22, 0);
+        box(0.16, 0.04, 0.035, trim, 0, 0.25, -0.12);
+        break;
+      case 'legs':
+        box(0.42, 0.075, 0.24, shade, 0, 0.18, 0);
+        box(0.15, 0.37, 0.22, main, -0.115, -0.035, 0);
+        box(0.15, 0.37, 0.22, main, 0.115, -0.035, 0);
+        box(0.11, 0.13, 0.045, highlight, -0.115, -0.03, -0.13);
+        box(0.11, 0.13, 0.045, highlight, 0.115, -0.03, -0.13);
+        box(0.42, 0.04, 0.25, trim, 0, -0.22, 0);
+        break;
+      case 'feet':
+        box(0.18, 0.22, 0.32, main, -0.12, -0.015, -0.025);
+        box(0.18, 0.22, 0.32, main, 0.12, -0.015, -0.025);
+        box(0.15, 0.09, 0.055, highlight, -0.12, 0.005, -0.19);
+        box(0.15, 0.09, 0.055, highlight, 0.12, 0.005, -0.19);
+        box(0.19, 0.04, 0.33, trim, -0.12, -0.14, -0.025);
+        box(0.19, 0.04, 0.33, trim, 0.12, -0.14, -0.025);
+        break;
+      case 'hands':
+        box(0.16, 0.19, 0.19, main, -0.13, 0, 0);
+        box(0.16, 0.19, 0.19, main, 0.13, 0, 0);
+        box(0.18, 0.08, 0.2, shade, -0.13, 0.13, 0);
+        box(0.18, 0.08, 0.2, shade, 0.13, 0.13, 0);
+        box(0.12, 0.06, 0.035, highlight, -0.13, -0.005, -0.115);
+        box(0.12, 0.06, 0.035, highlight, 0.13, -0.005, -0.115);
+        break;
+      case 'offhand': {
+        box(0.36, 0.46, 0.055, trim, 0, 0, 0);
+        box(0.31, 0.41, 0.07, main, 0, 0, -0.035);
+        box(0.26, 0.045, 0.025, highlight, 0, 0.16, -0.08);
+        box(0.045, 0.27, 0.03, shade, 0, 0, -0.08);
+        const crest = box(0.1, 0.1, 0.035, highlight, 0, 0, -0.1);
+        crest.rotation.z = Math.PI / 4;
+        box(0.12, 0.08, 0.045, main, 0, -0.2, -0.025, 0.22);
+        break;
+      }
+    }
+
+    group.rotation.set(0.2, 0, -0.12);
+    return group;
+  }
+
   private applyCharacterCustomization() {
     const appearance = this.avatarAppearance;
     if (!appearance) return;
@@ -2474,7 +2749,7 @@ if (tpClipActive > 0.5) {
     appearance.shoeAccent.color.set(customization.shoeType === 'sneakers' ? '#f1f2ed' : customization.shoeColor);
 
     const girl = customization.gender === 'girl';
-    if (this.avatarSkirt) this.avatarSkirt.visible = girl;
+    if (this.avatarSkirt) this.avatarSkirt.visible = girl && !this.equipped.legs;
     if (this.avatarTorso) this.avatarTorso.scale.x = girl ? 0.82 : 1.04;
     if (this.avatarTorsoTrim) this.avatarTorsoTrim.scale.x = girl ? 0.82 : 1.04;
     if (this.avatarLeftArm) this.avatarLeftArm.position.x = girl ? -0.37 : -0.43;
@@ -2488,10 +2763,11 @@ if (tpClipActive > 0.5) {
       }
     }
     for (const [style, group] of Object.entries(this.avatarHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
-      group.visible = style === customization.hairstyle;
+      group.visible = !this.equipped.head && style === customization.hairstyle;
     }
     if (this.avatarFaceContext) drawCharacterFace(this.avatarFaceContext, customization.expression, customization.glasses);
     if (this.avatarFaceTexture) this.avatarFaceTexture.needsUpdate = true;
+    this.syncAvatarArmor();
   }
 
   /** swap the first-person model to match the selected hotbar slot */
@@ -3844,6 +4120,7 @@ if (tpClipActive > 0.5) {
     this.equipped = data.equipped ?? {};
     this.bagItems = (data.bagItems ?? []).map((it: Item) => ensureGearHid(it));
     this.stats = computeStats(this.equipped);
+    this.syncAvatarArmor();
     this.hiveHoney = new Map(data.hive ?? []);
     this.birdNests = (Array.isArray(data.birdNests) ? data.birdNests : []).slice(0, 6);
     this.vineTips = new Map((Array.isArray(data.vineTips) ? data.vineTips : []).slice(0, 128));
@@ -3954,6 +4231,7 @@ if (tpClipActive > 0.5) {
       d.petCarried = false;
       if (d.fancy) {
         this.scene.remove(d.fancy);
+        disposeObject(d.fancy);
         d.fancy = null;
       }
     });
@@ -3967,6 +4245,7 @@ if (tpClipActive > 0.5) {
     this.selected = 0;
     this.swordTier = -1;
     this.equipped = {};
+    this.syncAvatarArmor();
     this.bagItems = [];
     this.stats = { ...EMPTY_STATS };
     this.kills = 0;
@@ -5004,8 +5283,9 @@ if (tpClipActive > 0.5) {
 
   private setPlayerAvatarOpacity(opacity: number) {
     const o = Math.max(0.05, Math.min(1, opacity));
+    this.avatarOpacity = o;
     const fading = o < 0.985;
-    for (const rec of this.avatarFadeMats) {
+    const apply = (rec: AvatarFadeMaterial) => {
       const m = rec.material;
       m.opacity = rec.opacity * o;
       const targetTransparent = rec.transparent || fading;
@@ -5015,7 +5295,9 @@ if (tpClipActive > 0.5) {
         m.depthWrite = targetDepthWrite;
         m.needsUpdate = true;
       }
-    }
+    };
+    this.avatarFadeMats.forEach(apply);
+    for (const records of Object.values(this.avatarArmorFadeMats)) records?.forEach(apply);
   }
 
   private updatePlayerAvatarOpacity(cameraDist: number) {
@@ -7437,9 +7719,13 @@ if (tpClipActive > 0.5) {
     this.inventory.set(NETHERITE, (this.inventory.get(NETHERITE) ?? 0) - 1);
     const it = found.item;
     it.material = 'netherite';
+    it.visualColor = undefined;
     it.armor = Math.round(it.armor * 1.5);
     it.damage = Math.round(it.damage * 1.5);
-    if (found.equippedSlot) this.stats = computeStats(this.equipped);
+    if (found.equippedSlot) {
+      this.stats = computeStats(this.equipped);
+      this.syncAvatarArmor();
+    }
     sfx.upgrade();
     this.addShake(0.35);
     this.flash = 0.4;
@@ -8416,9 +8702,12 @@ if (tpClipActive > 0.5) {
     // volumetric loot models replace the textured cube where available
     if (d.fancy) {
       this.scene.remove(d.fancy);
+      disposeObject(d.fancy);
       d.fancy = null;
     }
-    const fancy = this.buildFancyDrop(id, d.toolInstance?.durability);
+    const fancy = d.gear
+      ? this.buildArmorDropModel(d.gear)
+      : this.buildFancyDrop(id, d.toolInstance?.durability);
     if (fancy) {
       d.fancy = fancy;
       // Miniature parts extend below their group's origin (especially flower
@@ -8509,6 +8798,7 @@ if (tpClipActive > 0.5) {
           d.petCarried = false;
           if (d.fancy) {
             this.scene.remove(d.fancy);
+            disposeObject(d.fancy);
             d.fancy = null;
           }
           continue;
@@ -8539,6 +8829,7 @@ if (tpClipActive > 0.5) {
     d.toolInstance = null;
     if (d.fancy) {
       this.scene.remove(d.fancy);
+      disposeObject(d.fancy);
       d.fancy = null;
     }
     // a loot bag holds a rolled piece of gear
@@ -9589,6 +9880,7 @@ if (tpClipActive > 0.5) {
     this.bagItems.splice(i, 1);
     if (prev) this.bagItems.push(prev);
     this.stats = computeStats(this.equipped);
+    this.syncAvatarArmor();
     sfx.ui(true);
     this.syncHud(true);
   }
@@ -9599,6 +9891,7 @@ if (tpClipActive > 0.5) {
     delete this.equipped[slot];
     this.bagItems.push(it);
     this.stats = computeStats(this.equipped);
+    this.syncAvatarArmor();
     sfx.ui(false);
     this.syncHud(true);
   }
@@ -9800,6 +10093,7 @@ if (tpClipActive > 0.5) {
           it = this.equipped[s];
           delete this.equipped[s];
           this.stats = computeStats(this.equipped);
+          this.syncAvatarArmor();
           break;
         }
       }
@@ -10034,6 +10328,7 @@ if (tpClipActive > 0.5) {
       this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} ${t('hp')}`, '#93c95d', true);
     } else if (r.kind === 'gear' && r.slot && r.material) {
       const it = makeItem(r.slot, r.material, 1, Math.random, true);
+      it.visualColor = r.accent;
       // Minecraft-flavoured specials
       if (r.key === 'turtle_helmet') it.armor += 3; // scute plating
       if (r.key === 'claw_gloves') it.affixes.push({ id: 'swift', value: 12 });

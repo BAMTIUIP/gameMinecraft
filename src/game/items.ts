@@ -58,6 +58,8 @@ export type Item = {
   hid: number;
   slot: Slot;
   material: Material;
+  /** Optional recipe-specific tint (e.g. a turtle-shell helmet); otherwise the material palette is used. */
+  visualColor?: string;
   rarity: Rarity;
   armor: number;
   /** offhand/weapon damage contribution */
@@ -66,6 +68,14 @@ export type Item = {
   /** true for crafted base gear (no random affixes) */
   crafted: boolean;
 };
+
+/** Shared color source for 3D armor, inventory icons, and the crafting preview. */
+export function gearColor(item: Pick<Item, 'material' | 'visualColor'>): string {
+  const custom = typeof item.visualColor === 'string' && /^#[0-9a-f]{6}$/i.test(item.visualColor)
+    ? item.visualColor.toLowerCase()
+    : null;
+  return custom ?? MATERIALS[item.material]?.color ?? '#d6d9dd';
+}
 
 export const SLOT_KEY: Record<Slot, TKey> = {
   head: 'slot_head',

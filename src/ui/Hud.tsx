@@ -25,10 +25,11 @@ import {
   TOOL_PICK,
   TOOL_TORCH,
 } from '../game/recipes';
-import { isGearHotbarId, MATERIALS, RARITY } from '../game/items';
+import { gearColor, isGearHotbarId, RARITY } from '../game/items';
 import { t } from '../game/i18n';
 import { getToolSpec } from '../game/tools';
 import { ToolSprite } from './ToolSprite';
+import { GearIcon } from './GearIcon';
 
 const RING = 2 * Math.PI * 22;
 
@@ -629,13 +630,15 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
               ) : isGearHotbarId(slot.id) ? (
                 (() => {
                   const gear = hud.bagItems.find((b) => b.hid === slot.id);
-                  const matCol = gear ? MATERIALS[gear.material].color : '#d6d9dd';
+                  const matCol = gear ? gearColor(gear) : '#d6d9dd';
                   const rarCol = gear ? RARITY[gear.rarity].color : '#b6c2b8';
                   return (
                     <span className="flex flex-col items-center justify-center leading-none" style={{ color: matCol }}>
-                      <span className="text-base sm:text-xl" style={{ textShadow: `0 0 8px ${rarCol}` }}>
-                        ⛨
-                      </span>
+                      {gear ? (
+                        <GearIcon slot={gear.slot} color={matCol} size={28} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
+                      ) : (
+                        <span className="text-base sm:text-xl" style={{ textShadow: `0 0 8px ${rarCol}` }}>⛨</span>
+                      )}
                       {gear && (
                         <span className="font-display text-[8px] sm:text-[9px]" style={{ color: rarCol }}>
                           +{gear.armor}
