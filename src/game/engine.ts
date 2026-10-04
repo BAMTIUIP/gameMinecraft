@@ -47,7 +47,7 @@ import {
   T,
   TORCH,
   WATER,
-  ARROW_ITEM,
+  ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
@@ -10415,14 +10415,15 @@ if (tpClipActive > 0.5) {
 
   private tryShoot() {
     if (this.attackCd > 0) return;
-    if ((this.inventory.get(ARROW_ITEM) ?? 0) <= 0) {
+    const arrowId = [STUN_ARROW, FREEZE_ARROW, POISON_ARROW, FIRE_ARROW, NETHERITE_ARROW, GOLD_ARROW, IRON_ARROW, STONE_ARROW, ARROW_ITEM].find((id) => (this.inventory.get(id) ?? 0) > 0) ?? ARROW_ITEM;
+    if ((this.inventory.get(arrowId) ?? 0) <= 0) {
       this.queueTutorialTip('mechanic:bow-ammo', t('tutorialBowTitle'), t('tutorialBowAmmo'), '#c7a879', 'bow');
       this.attackCd = 0.4;
       sfx.ui(false);
       return;
     }
     this.queueTutorialTip('mechanic:bow-fire', t('tutorialBowTitle'), t('tutorialBowFire'), '#c7a879', 'bow');
-    this.inventory.set(ARROW_ITEM, (this.inventory.get(ARROW_ITEM) ?? 0) - 1);
+    this.inventory.set(arrowId, (this.inventory.get(arrowId) ?? 0) - 1);
     const spec = getToolSpec(this.hotbar[this.selected] ?? TOOL_BOW);
     const tier = spec?.kind === 'bow' ? spec.tier : 0;
     // Early bows shoot more slowly and hit lightly; later materials trade resources for reach and power.
@@ -10445,7 +10446,8 @@ if (tpClipActive > 0.5) {
       vz: this.dirV.z * sp,
       life: 2.4,
       mesh,
-      damage: (spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35,
+      damage: ((spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35) * (arrowId === STONE_ARROW ? 1.2 : arrowId === IRON_ARROW ? 1.45 : arrowId === GOLD_ARROW ? 1.7 : arrowId === NETHERITE_ARROW ? 2.2 : 1),
+      arrowId,
       critChance: 0.14,
       critMultiplier: 1.55,
     };
@@ -10486,7 +10488,7 @@ if (tpClipActive > 0.5) {
                 a.x - (a.vx / speed) * 0.35,
                 a.y - (a.vy / speed) * 0.35 + 0.15,
                 a.z - (a.vz / speed) * 0.35,
-                ARROW_ITEM,
+                ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
               );
             }
             dead = true;
@@ -10504,6 +10506,12 @@ if (tpClipActive > 0.5) {
           this.mobSys.showHealthBar(hit);
           hit.vx += a.vx * 0.06;
           hit.vz += a.vz * 0.06;
+          // Elemental arrow payloads: fire and poison deal an immediate secondary tick;
+          // freeze and stun interrupt movement so the shot has a tactical effect.
+          if (a.arrowId === FIRE_ARROW) { hit.hp -= 3; hit.hurtFlash = 0.45; this.burst(a.x, a.y, a.z, [255, 90, 25], 8, 1.4); }
+          if (a.arrowId === POISON_ARROW) { hit.hp -= 2; hit.hurtFlash = 0.5; this.burst(a.x, a.y, a.z, [120, 220, 70], 8, 1.1); }
+          if (a.arrowId === FREEZE_ARROW) { hit.vx *= 0.12; hit.vz *= 0.12; this.burst(a.x, a.y, a.z, [100, 220, 255], 10, 1.2); }
+          if (a.arrowId === STUN_ARROW) { hit.vx = 0; hit.vz = 0; hit.hurtFlash = 0.65; this.burst(a.x, a.y, a.z, [250, 220, 80], 10, 1.2); }
           // the arrow lodges in the target — it drops back out on death
           hit.stuckArrows++;
           if (this.stats.fire > 0) hit.burn = Math.max(hit.burn, 3);
