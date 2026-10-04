@@ -296,6 +296,7 @@ type ExplorationTaskDefinition = {
   craftRecipeKey?: string;
   craftKind?: Recipe['kind'];
   craftTier?: number;
+  openChest?: boolean;
 };
 
 type ExplorationTask = ExplorationTaskDefinition & { progress: number };
@@ -315,6 +316,12 @@ const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'sword', craftTier: 0 },
+  { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKey: 'campfire' },
+  { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftRecipeKey: 'cook_meat' },
+  { id: 'secret-chest', titleKey: 'objectiveFindChest', target: 1, rewardScore: 220, rewardSeconds: 35, openChest: true },
+  { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
+  { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
+  { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
   { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
   { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'sword', craftTier: 1 },
   { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
@@ -7288,6 +7295,7 @@ if (tpClipActive > 0.5) {
 
   /** Open either a generated treasure cache or a reusable player-placed storage chest. */
   private openChestAt(x: number, y: number, z: number, id: number) {
+    this.recordExplorerChest();
     if (this.world.get(x, y, z) !== id || !isTreasureChest(id)) return false;
     const base = baseChestId(id);
     const key = Engine.chestCellKey(x, y, z);
@@ -11475,6 +11483,11 @@ if (tpClipActive > 0.5) {
     for (const task of this.explorationObjectives) {
       if (task.mineBlockIds?.includes(blockId)) task.progress = Math.min(task.target, task.progress + amount);
     }
+    this.advanceExplorerObjectives();
+  }
+
+  private recordExplorerChest() {
+    for (const task of this.explorationObjectives) if (task.openChest) task.progress = Math.min(task.target, task.progress + 1);
     this.advanceExplorerObjectives();
   }
 
