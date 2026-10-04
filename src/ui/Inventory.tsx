@@ -420,7 +420,7 @@ export default function Inventory({
               </div>
 
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
-                <div className="notch relative flex min-h-[92px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
+                <div className="notch relative flex min-h-[72px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
                   <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
                   {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
                   {hud.arrowLoadout !== null && <button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="btn-mc notch mt-0.5 w-full px-1 py-0.5 font-display text-[8px] leading-none text-[#f2b3ae]">СНЯТЬ</button>}
@@ -450,7 +450,7 @@ export default function Inventory({
                         const bag = hud.bagItems.find((b) => b.uid === uid);
                         if (bag && bag.slot === slot) onEquip(uid);
                       }}
-                      className="notch relative min-w-0 min-h-[92px] transition-transform duration-100"
+                      className="notch relative min-w-0 min-h-[72px] transition-transform duration-100"
                     >
                       <button
                         onClick={() => it && onUnequip(slot)}
@@ -481,7 +481,7 @@ export default function Inventory({
                       {it && (
                         <button
                           onClick={() => onUnequip(slot)}
-                          className="btn-mc notch absolute bottom-1 left-1 right-1 z-10 px-1 py-0.5 font-display text-[8px] leading-none"
+                          className="btn-mc notch absolute bottom-1 left-1 right-1 z-10 -translate-y-full px-1 py-0.5 font-display text-[8px] leading-none"
                           style={{ background: 'linear-gradient(180deg,#3d1f1c,#241210)', border: '1px solid #e2564a55', color: '#f2b3ae' }}
                           title={t('unequip')}
                         >
