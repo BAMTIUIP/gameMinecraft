@@ -420,7 +420,7 @@ export default function Inventory({
               </div>
 
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
-                <div className="notch relative min-w-0 border-2 border-[#f4b942] bg-black/30 p-1 text-center">
+                <div className="notch relative flex min-h-[92px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
                   <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
                   {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
                   {hud.arrowLoadout !== null && <button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="btn-mc notch mt-0.5 w-full px-1 py-0.5 font-display text-[8px] leading-none text-[#f2b3ae]">СНЯТЬ</button>}
@@ -450,7 +450,7 @@ export default function Inventory({
                         const bag = hud.bagItems.find((b) => b.uid === uid);
                         if (bag && bag.slot === slot) onEquip(uid);
                       }}
-                      className="notch relative min-w-0 transition-transform duration-100"
+                      className="notch relative min-w-0 min-h-[92px] transition-transform duration-100"
                     >
                       <button
                         onClick={() => it && onUnequip(slot)}
@@ -545,7 +545,7 @@ export default function Inventory({
                       else if (petDisplayOwned) onEquipPet(petDisplayKind);
                     }}
                     title={hud.petEquipped ? t('petUnequipHint') : hud.petTokenAvailable ? t('petEquipHint') : t('petNotOwned')}
-                    className="notch flex min-h-[54px] w-full flex-col items-center justify-center gap-0.5 px-1 py-1 transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
+                    className="notch flex min-h-[72px] w-full flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
                     style={{
                       background: hud.petEquipped ? 'linear-gradient(180deg,#3a3026,#171a17)' : 'rgba(255,255,255,.02)',
                       border: `2px solid ${hud.petEquipped || hud.petTokenAvailable ? '#c59b66' : '#1d2823'}`,
