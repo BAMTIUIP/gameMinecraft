@@ -76,7 +76,7 @@ const { Engine } = await import('../../src/game/engine');
   const selectedHelmetHair = new THREE.Group();
   const otherHelmetHair = new THREE.Group();
   const avatarHead = new THREE.Group();
-  const helmet = { slot: 'head', material: 'iron', rarity: 0, affixes: [] };
+  const helmet = { slot: 'head', material: 'iron', rarity: 1, affixes: [{ id: 'fire', value: 3 }] };
   const leggings = { slot: 'legs', material: 'iron', visualColor: '#4d8c5a', rarity: 0, affixes: [] };
   Object.assign(engine, {
     avatarHead,
@@ -102,14 +102,10 @@ const { Engine } = await import('../../src/game/engine');
     'A helmet switches to only the selected hairstyle’s cropped, below-helmet strands',
   );
   ok(engine.avatarSkirt.visible, 'Leggings keep the girl avatar skirt silhouette visible');
-  const skirtTexture = skirtMaterial.map as THREE.DataTexture | null;
-  const skirtPixels = skirtTexture?.image.data as Uint8Array | undefined;
-  const skirtBase = skirtPixels ? `#${[skirtPixels[0], skirtPixels[1], skirtPixels[2]].map((value) => value.toString(16).padStart(2, '0')).join('')}` : '';
-  const skirtAccentTexture = skirtAccent.map as THREE.DataTexture | null;
-  const accentPixels = skirtAccentTexture?.image.data as Uint8Array | undefined;
-  const skirtAccentBase = accentPixels ? `#${[accentPixels[0], accentPixels[1], accentPixels[2]].map((value) => value.toString(16).padStart(2, '0')).join('')}` : '';
-  ok(skirtBase === '#4d8c5a', 'The skirt fabric texture takes the equipped leggings color');
-  ok(skirtAccentBase !== skirtBase, 'The skirt keeps a separate darker armor-tinted texture on its hem');
+  const skirtBase = `#${skirtMaterial.color.getHexString()}`;
+  const skirtAccentBase = `#${skirtAccent.color.getHexString()}`;
+  ok(skirtBase === '#4d8c5a', 'The skirt fabric material takes the equipped leggings color');
+  ok(skirtAccentBase !== skirtBase && skirtMaterial.map === null && skirtAccent.map === null, 'Unbuffed leggings keep a darker flat hem material without decorative texture marks');
   ok(!engine.avatarArmorModels.legs, 'Girl leggings paint the existing skirt mesh instead of adding floating armor geometry');
 
   const helmetGroup = engine.avatarArmorModels.head[0].group;

@@ -12,14 +12,12 @@ import {
   COBBLE,
   COOKED_MEAT,
   DIAMOND,
-  DIAMOND_BLOCK,
   DOOR_IRON,
   DOOR_WOOD,
   GLASS,
   IRON,
   DIRT,
   GOLD,
-  GOLD_BLOCK,
   GOLD_ORE,
   DIAMOND_ORE,
   EMERALD_ORE,
@@ -28,12 +26,6 @@ import {
   REDSTONE_ORE,
   LAPIS_ORE,
   QUARTZ_ORE,
-  COAL_BLOCK,
-  IRON_BLOCK,
-  REDSTONE_BLOCK,
-  LAPIS_BLOCK,
-  EMERALD_BLOCK,
-  QUARTZ_BLOCK,
   REDSTONE,
   LAPIS,
   EMERALD,
@@ -114,6 +106,7 @@ import {
   isUnderwaterChest,
   baseChestId,
 } from './blocks';
+import { resourceSellPrice } from './economy';
 import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
   HAND,
@@ -10168,63 +10161,8 @@ if (tpClipActive > 0.5) {
 
   // ================= TRADER =================
   offers: TradeOffer[] = [];
-  private static SELL_PRICES: Array<[number, number]> = [
-    [COAL, 40],
-    [IRON, 100],
-    [REDSTONE, 140],
-    [GOLD, 220],
-    [LAPIS, 170],
-    [DIAMOND, 550],
-    [EMERALD, 650],
-    [QUARTZ, 130],
-    [COAL_BLOCK, 160],
-    [IRON_BLOCK, 400],
-    [REDSTONE_BLOCK, 560],
-    [GOLD_BLOCK, 880],
-    [LAPIS_BLOCK, 680],
-    [DIAMOND_BLOCK, 2200],
-    [EMERALD_BLOCK, 2600],
-    [QUARTZ_BLOCK, 520],
-    [LOG, 12],
-    [RAW_MEAT, 18],
-    [COOKED_MEAT, 45],
-    [WEB, 35],
-    [BONE, 30],
-    [FLESH, 15],
-    [GUNPOWDER, 60],
-    [ARROW_ITEM, 4],
-    [FLOWER_RED, 8],
-    [FLOWER_YELLOW, 8],
-    [FLOWER_BLUE, 8],
-    [FLOWER_PINK, 8],
-    [FLOWER_PURPLE, 9],
-    [FLOWER_WHITE, 8],
-    [HONEY, 25],
-    [NETHERITE, 800],
-    [APPLE, 12],
-    [COCONUT, 15],
-    [BANANA, 12],
-    [VOLCANIC_STONE, 7],
-    [BIRCH_LOG, 12],
-    [CACTUS, 8],
-    [CACTUS_PALE, 8],
-    [WOOL, 10],
-    [FEATHER, 6],
-    [TURTLE_SHELL, 45],
-    [CRAB_SHELL, 32],
-    [FISH_SCALE, 8],
-    [CAT_CLAW, 40],
-    [COBBLE, 4],
-    [STONE, 5],
-    [SAND, 3],
-    [DIRT, 2],
-    [LEAVES, 2],
-    [PLANKS, 6],
-  ];
-
   sellPrice(id: number): number {
-    const e = Engine.SELL_PRICES.find(([bid]) => bid === id);
-    return e ? e[1] : Math.max(1, Math.round((BLOCKS[id]?.score ?? 1) * 0.8));
+    return resourceSellPrice(id);
   }
 
   /** sell a tool straight out of the hotbar or inventory */
@@ -10232,9 +10170,11 @@ if (tpClipActive > 0.5) {
     if (id < 200) return;
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) return; // nothing owned — never sell an air slot
+    let durability: number | undefined;
     if (isDurabilityTool(id)) {
       const instance = instanceId !== undefined ? this.toolInstances.get(instanceId) : [...this.toolInstances.values()].find((it) => it.id === id);
       if (!instance || instance.id !== id) return;
+      durability = instance.durability;
       this.removeToolInstance(instance.instanceId);
       this.recalcOwnedToolTiers();
     } else {
@@ -10247,7 +10187,7 @@ if (tpClipActive > 0.5) {
       else this.inventory.delete(id);
       if (this.selected === i) this.selected = 0;
     }
-    const gained = this.awardScore(toolSellPrice(id));
+    const gained = this.awardScore(toolSellPrice(id, durability));
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
     sfx.pickup(5);
     this.syncHotbar(true);
@@ -10407,7 +10347,7 @@ if (tpClipActive > 0.5) {
       const rarity: Rarity = rarityRoll < 0.28 ? 0 : rarityRoll < 0.53 ? 1 : rarityRoll < 0.75 ? 2 : rarityRoll < 0.93 ? 3 : 4;
       const material = rand() < 0.36 ? 'gold' : rand() < 0.7 ? 'iron' : 'diamond';
       const item = makeItem(slots[Math.floor(rand() * slots.length)], material, rarity, rand);
-      this.offers.push({ item, cost: gearTraderCost(rarity), sold: false });
+      this.offers.push({ item, cost: gearTraderCost(rarity, material, item.slot), sold: false });
     }
   }
 
@@ -10462,6 +10402,7 @@ if (tpClipActive > 0.5) {
   private craftedGearFromRecipe(recipe: Recipe): Item | null {
     if (recipe.kind !== 'gear' || !recipe.slot || !recipe.material) return null;
     const item = makeItem(recipe.slot, recipe.material, 0, Math.random, true);
+    item.recipeKey = recipe.key;
     item.visualColor = recipe.accent;
     if (recipe.key === 'turtle_helmet') item.armor += 3;
     if (recipe.key === 'claw_gloves') item.affixes.push({ id: 'swift', value: 12 });
@@ -11306,7 +11247,7 @@ if (tpClipActive > 0.5) {
       stats: this.stats,
       killedBy: this.killedBy,
       offers: this.offers,
-      sellPrices: Object.fromEntries(Engine.SELL_PRICES),
+      sellPrices: Object.fromEntries(BLOCKS.map((block) => [block.id, this.sellPrice(block.id)])),
       invTab: this.invTab,
       tradeNear: this.phase === 'playing' || this.inventoryOpen ? this.traderNear() !== null : false,
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,

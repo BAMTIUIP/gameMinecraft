@@ -9,9 +9,11 @@ import {
   type Item,
   type Material,
 } from '../../src/game/items';
-import { DIAMOND, GOLD, IRON, PLANKS } from '../../src/game/blocks';
+import { PLANKS } from '../../src/game/blocks';
 import { getSalvageForGear, gearTraderCost, RECIPES } from '../../src/game/recipes';
 import { mulberry32 } from '../../src/game/noise';
+import { createArmorSurfaceMaterial } from '../../src/game/armorVisuals';
+import { resourceSellPrice } from '../../src/game/economy';
 
 let passed = 0;
 const failures: string[] = [];
@@ -53,11 +55,28 @@ ok(fireTint === '#c85c2d' && fireTint !== MATERIALS.iron.color, 'The primary fir
 ok(vampTint === '#9d334d' && vampTint !== MATERIALS.iron.color, 'The primary vampiric affix sets a matching crimson armor base');
 ok(AFFIXES.fire.color === '#ff8a2b' && AFFIXES.vamp.color === '#ff5f7a', 'Primary color enamel remains distinct from animated fire and haze ornaments');
 
-const saleValues = RARITY.map((_, rarity) => gearSellPrice({ material: 'iron', rarity: rarity as 0 | 1 | 2 | 3 | 4, affixes: [] }));
+const saleValues = RARITY.map((_, rarity) => gearSellPrice({ material: 'iron', slot: 'chest', rarity: rarity as 0 | 1 | 2 | 3 | 4, affixes: [] }));
 ok(saleValues.every((value, index) => index === 0 || value > saleValues[index - 1]), 'Trader sale value increases at every rarity tier');
-const currencyValue = (cost: Array<[number, number]>) => cost.reduce((total, [id, count]) => total + count * (id === IRON ? 1 : id === GOLD ? 3 : id === DIAMOND ? 10 : 0), 0);
-const buyValues = RARITY.map((_, rarity) => currencyValue(gearTraderCost(rarity as 0 | 1 | 2 | 3 | 4)));
-ok(buyValues.every((value, index) => index === 0 || value > buyValues[index - 1]), 'Trader purchase cost rises monotonically from green to red gear');
+const currencyValue = (cost: Array<[number, number]>) => cost.reduce((total, [id, count]) => total + count * resourceSellPrice(id), 0);
+const buyValues = RARITY.map((_, rarity) => currencyValue(gearTraderCost(rarity as 0 | 1 | 2 | 3 | 4, 'iron', 'chest')));
+ok(buyValues.every((value, index) => index === 0 || value > buyValues[index - 1]), 'Trader purchase cost rises monotonically from green to red gear using the correct material');
+ok(saleValues[0] < currencyValue(gearTraderCost(0, 'iron', 'chest')), 'Selling traded armor returns fewer points than its recipe-based purchase cost');
+const turtleRecipe = RECIPES.find((recipe) => recipe.key === 'turtle_helmet');
+const turtleGear = makeItem('head', 'iron', 0, () => 0, true);
+turtleGear.recipeKey = 'turtle_helmet';
+const turtleInputValue = turtleRecipe?.inputs.reduce((sum, [id, count]) => sum + resourceSellPrice(id) * count, 0) ?? 0;
+ok(turtleRecipe && gearSellPrice(turtleGear) === Math.round(turtleInputValue * 0.85), 'Special crafted gear resale follows its shell-and-scale recipe, not generic iron pricing');
+const turtleSalvage = getSalvageForGear(turtleGear);
+ok(Boolean(turtleRecipe && turtleRecipe.inputs.every(([id]) => turtleSalvage.some(([salvagedId]) => salvagedId === id))), 'Dismantling special crafted gear returns the matching special ingredients');
+
+const plainArmor = createArmorSurfaceMaterial(makeItem('chest', 'diamond', 0, () => 0, true));
+ok(plainArmor.map === null && plainArmor.emissiveMap === null && !plainArmor.userData.armorSurfaceFx, 'Common armor without buffs retains its plain material with no dots, stripes, or glow');
+plainArmor.dispose();
+const buffedArmor = createArmorSurfaceMaterial(makeItem('chest', 'diamond', 1, () => 0));
+ok(buffedArmor.map !== null && buffedArmor.emissiveMap !== null, 'Buffed armor paints its marks into diffuse and emissive surface textures');
+buffedArmor.map?.dispose();
+buffedArmor.emissiveMap?.dispose();
+buffedArmor.dispose();
 
 const woodenShield = RECIPES.find((recipe) => recipe.key === 'shield_wood');
 const leatherShield = RECIPES.find((recipe) => recipe.key === 'shield_leather');

@@ -101,6 +101,7 @@ import {
 } from './tools';
 import { blockName, swordLabel, toolLabelForId, t } from './i18n';
 import type { Item, Material, Rarity, Slot } from './items';
+import { gearRecipeInputs, RARITY_PRICE_MULTIPLIERS, resourceSellPrice } from './economy';
 
 export {
   AXE_TOOLS,
@@ -188,19 +189,40 @@ export function toolRecipeDesc(id: number): string {
   return t('toolRecipeDesc').replace('{durability}', durability).replace('{resource}', repair);
 }
 
-/** rough resale value of a tool at the trader */
-export function toolSellPrice(id: number): number {
+const TOOL_RESALE_RATE = 0.72;
+
+function bowRecipeValue(tier: number): number {
+  if (tier <= 0) return resourceSellPrice(PLANKS) * 3 + resourceSellPrice(LEAVES) * 4;
+  const upgradeMaterial = tier === 1 ? COBBLE : tier === 2 ? IRON : tier === 3 ? GOLD : tier === 4 ? DIAMOND : NETHERITE_INGOT;
+  const materialCount = tier === 1 ? 3 : tier === 5 ? 1 : 2;
+  const plankCount = tier >= 4 ? 1 : 2;
+  return bowRecipeValue(tier - 1)
+    + resourceSellPrice(upgradeMaterial) * materialCount
+    + resourceSellPrice(PLANKS) * plankCount;
+}
+
+/** Recipe-based resale value for a tool, discounted for both resale and remaining durability. */
+export function toolSellPrice(id: number, currentDurability?: number): number {
   const spec = getToolSpec(id);
   if (!spec) return 30; // torch and old non-durable utility items
-  const tables: Record<string, number[]> = {
-    pickaxe: [30, 90, 220, 330, 520, 950],
-    sword: [25, 65, 140, 210, 380, 720],
-    axe: [20, 60, 130, 190, 320, 620],
-    shovel: [15, 35, 80, 120, 210, 420],
-    hoe: [15, 35, 80, 120, 210, 420],
-    bow: [35, 75, 150, 225, 390, 620],
-  };
-  return tables[spec.kind]?.[spec.tier] ?? 30;
+
+  let ingredientValue: number;
+  if (spec.kind === 'bow') {
+    ingredientValue = bowRecipeValue(spec.tier);
+  } else if (spec.tier === 0) {
+    ingredientValue = resourceSellPrice(PLANKS) * (spec.kind === 'shovel' || spec.kind === 'hoe' ? 2 : 3);
+  } else {
+    const materialCount = spec.kind === 'sword' || spec.kind === 'hoe' ? 2 : spec.kind === 'shovel' ? 1 : 3;
+    const handleCount = spec.kind === 'sword' ? 1 : 2;
+    ingredientValue = resourceSellPrice(MATERIAL_ITEMS[spec.tier]) * materialCount
+      + resourceSellPrice(PLANKS) * handleCount;
+  }
+
+  const durabilityRatio = spec.maxDurability > 0
+    ? Math.max(0, Math.min(1, (currentDurability ?? spec.maxDurability) / spec.maxDurability))
+    : 1;
+  const conditionFactor = spec.maxDurability > 0 ? 0.25 + durabilityRatio * 0.75 : 1;
+  return Math.max(1, Math.round(ingredientValue * TOOL_RESALE_RATE * conditionFactor));
 }
 
 function toolInputs(kind: 'pickaxe' | 'sword' | 'axe' | 'shovel' | 'hoe', tier: number): Array<[number, number]> {
@@ -1031,18 +1053,10 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
   }
 }
 
-/**
- * Trader purchase prices rise with rarity. Iron/gold fund early gear, then higher
- * tiers progressively require more diamonds as well as a larger gold payment.
- */
-export function gearTraderCost(rarity: Rarity): Array<[number, number]> {
-  switch (rarity) {
-    case 0: return [[GOLD, 2], [IRON, 2]];
-    case 1: return [[GOLD, 4], [IRON, 4]];
-    case 2: return [[DIAMOND, 1], [GOLD, 3]];
-    case 3: return [[DIAMOND, 2], [GOLD, 5]];
-    case 4: return [[DIAMOND, 3], [GOLD, 8]];
-  }
+/** Trader gear costs its matching recipe materials, scaled by the same rarity tier as resale. */
+export function gearTraderCost(rarity: Rarity, material: Material, slot: Slot): Array<[number, number]> {
+  const rarityMultiplier = RARITY_PRICE_MULTIPLIERS[rarity] ?? 1;
+  return gearRecipeInputs(material, slot).map(([id, count]) => [id, Math.ceil(count * rarityMultiplier)]);
 }
 
 /**
@@ -1056,8 +1070,10 @@ export function getSalvageForGear(it: Item): Array<[number, number]> {
       [DIAMOND, 2],
     ];
   }
-  // Find matching craft recipe for this slot + material
-  const matched = RECIPES.find((r) => r.kind === 'gear' && r.slot === it.slot && r.material === it.material);
+  // Preserve the exact ingredients for special crafted gear (shells, claws, etc.); old saves
+  // without a recipe key still fall back to their matching material/slot recipe.
+  const matched = (it.recipeKey ? RECIPES.find((r) => r.kind === 'gear' && r.key === it.recipeKey) : undefined)
+    ?? RECIPES.find((r) => r.kind === 'gear' && r.slot === it.slot && r.material === it.material);
   if (matched && matched.inputs.length > 0) {
     return matched.inputs.map(([ingId, count]) => [ingId, Math.max(1, Math.floor(count * 0.6))]);
   }

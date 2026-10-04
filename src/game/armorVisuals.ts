@@ -173,6 +173,11 @@ export function setArmorSurfaceTexture(
   item: Item,
   baseColor: THREE.ColorRepresentation = gearColor(item),
 ) {
+  // A plain crafted/common piece keeps the untouched material: no rarity pip, stripe, or glow.
+  if (!(item.affixes?.length ?? 0) && !(item.rarity ?? 0)) {
+    resetArmorSurfaceTexture(material, baseColor);
+    return;
+  }
   disposeSurfaceMaps(material);
   const { map, emissiveMap, hasGlow } = makeSurfaceMaps(item, baseColor);
   material.color.set('#ffffff');

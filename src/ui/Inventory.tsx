@@ -1286,7 +1286,7 @@ function TradePanel({
                     )}
                   </span>
                   <span className="shrink-0 font-display text-[10px] text-torch">
-                    +{toolSellPrice(s.id)} {t('pts')}
+                    +{toolSellPrice(s.id, s.durability)} {t('pts')}
                   </span>
                 </button>
               );
@@ -1327,7 +1327,7 @@ function TradePanel({
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-display text-[10px] text-white/70">×{it.count}</span>
                 <span className="block font-display text-[10px] text-torch">
-                  +{hud.sellPrices[it.id] ? hud.sellPrices[it.id] * it.count : it.count} {t('pts')}
+                  +{(hud.sellPrices[it.id] ?? 1) * it.count} {t('pts')}
                 </span>
               </span>
             </button>

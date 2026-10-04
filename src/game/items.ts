@@ -1,6 +1,7 @@
 import { mulberry32 } from './noise';
 import { matName, rarName, type TKey } from './i18n';
 import { yaServerTime } from './yandex';
+import { gearRecipeInputs, ingredientSellValue, RARITY_PRICE_MULTIPLIERS } from './economy';
 
 export type Slot = 'head' | 'chest' | 'legs' | 'feet' | 'hands' | 'offhand';
 export const SLOTS: Slot[] = ['head', 'chest', 'legs', 'feet', 'hands', 'offhand'];
@@ -66,20 +67,16 @@ export const AFFIX_BASE_COLORS: Partial<Record<AffixId, string>> = {
   reach: '#ce9250',
 };
 
-const RARITY_PRICE_MULTIPLIERS = [1, 1.55, 2.25, 3.2, 4.6] as const;
-const MATERIAL_SELL_VALUES: Record<Material, number> = {
-  wood: 18,
-  leather: 30,
-  iron: 80,
-  gold: 140,
-  diamond: 320,
-  netherite: 900,
-};
+const GEAR_RESALE_RATE = 0.85;
+const GEAR_AFFIX_PREMIUM = 0.025;
 
-/** Higher rarity consistently raises the trader's sale value as well as its visual tier. */
-export function gearSellPrice(item: Pick<Item, 'material' | 'rarity' | 'affixes'>): number {
-  const multiplier = RARITY_PRICE_MULTIPLIERS[item.rarity] ?? 1;
-  return Math.round(MATERIAL_SELL_VALUES[item.material] * multiplier + item.affixes.length * 40);
+/** Resale value follows the piece's recipe, rarity, and actual affixes. */
+export function gearSellPrice(item: Pick<Item, 'material' | 'slot' | 'rarity' | 'affixes' | 'recipeKey'>): number {
+  const ingredientValue = ingredientSellValue(gearRecipeInputs(item.material, item.slot, item.recipeKey));
+  const rarityMultiplier = RARITY_PRICE_MULTIPLIERS[item.rarity] ?? 1;
+  // Buffs add value, but never more than the material value of an equally rare piece.
+  const affixMultiplier = 1 + Math.min(item.affixes.length, 4) * GEAR_AFFIX_PREMIUM;
+  return Math.max(1, Math.round(ingredientValue * GEAR_RESALE_RATE * affixMultiplier * rarityMultiplier));
 }
 
 
@@ -92,6 +89,8 @@ export type Item = {
   hid: number;
   slot: Slot;
   material: Material;
+  /** Recipe identity lets special crafted items keep their actual material value when resold or salvaged. */
+  recipeKey?: string;
   /** Optional recipe-specific tint (e.g. a turtle-shell helmet); otherwise the material palette is used. */
   visualColor?: string;
   rarity: Rarity;
