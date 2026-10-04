@@ -150,9 +150,9 @@ export default function Inventory({
   const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
+    <div className="inventory-screen absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
-      <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-3 sm:p-6">
+      <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-2 sm:p-6">
         {/* ---------- header ---------- */}
         <div
           className="anim-rise bevel notch sticky top-0 z-40 mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3"

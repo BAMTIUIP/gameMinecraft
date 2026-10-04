@@ -59,9 +59,11 @@ import { fbm2, fbm3, mulberry32, noise3, seedNoise } from './noise';
  * Streaming voxel world: chunks generate on demand as the player travels,
  * so the map never ends. Legacy WX/WZ mark the "starter" area only.
  */
-export const WY = 360; // 300+ blocks below the raised terrain surface
+// Keep the playable vertical span compact on mobile: 150 blocks below the raised surface.
+// This reduces voxel generation and texture shimmer without changing the surface gameplay.
+export const WY = 210;
 export const CHUNK = 16;
-export const SEA = 312; // surface and sea are lifted 300 blocks above bedrock
+export const SEA = 162; // surface and sea are lifted 150 blocks above bedrock
 /** Minimum Y stored in the fast menu preview; only the visible surface band is needed there. */
 export const SURFACE_MESH_MIN_Y = Math.max(0, Math.floor((SEA - 24) / 32) * 32);
 export const LAVA_LEVEL = 6;

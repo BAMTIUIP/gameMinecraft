@@ -491,7 +491,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           <div className="mt-1 font-display text-xs tracking-wide text-white/80 text-shadow-hard sm:text-sm">{hud.target.name}</div>
         )}
         <div className="mt-0.5 flex items-center gap-1.5 font-display text-[10px] tracking-widest text-torch/80 text-shadow-hard">
-          <span>{hud.heldName}</span>
+          {hud.heldKind !== 'fist' && <span>{hud.heldName}</span>}
           {hud.heldKind !== 'fist' && !isTouch && (
             <span className="rounded bg-black/50 px-1 py-0.5 text-[8px] text-white/60">[{t('drop_hint')}]</span>
           )}

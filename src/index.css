@@ -424,6 +424,8 @@ input[type='text'] {
 .hud-touch .hud-information--fps { --hud-information-scale: 0.8; }
 .hud-touch .hud-objective-panel,
 .hud-touch .hud-tutorial-panel {
+  /* Tutorial copy is useful on desktop, but blocks the camera and touch controls on phones. */
+  display: none !important;
   max-height: min(24dvh, 9rem);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -871,4 +873,12 @@ input:focus-visible,
   .menu-modes button {
     min-height: 3.4rem;
   }
+}
+
+/* Narrow portrait phones: keep inventory controls inside the 360px viewport. */
+@media (max-width: 420px) and (orientation: portrait) {
+  .pause-screen > .bevel { width: 100%; }
+  .pause-screen .font-display.text-4xl { font-size: 2rem; }
+  [data-developer-kit="1"] { padding-left: .35rem !important; padding-right: .35rem !important; font-size: 8px !important; }
+  .inventory-screen .anim-rise { min-width: 0; }
 }
