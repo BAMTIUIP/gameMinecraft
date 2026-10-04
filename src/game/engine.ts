@@ -832,10 +832,11 @@ function buildCharacterHair(style: CharacterHairstyle, material: THREE.Material,
   const hair = new THREE.Group();
   const box = (w: number, h: number, d: number, x: number, y: number, z: number) => {
     if (!helmetSafe) return addCharacterBox(hair, w, h, d, material, x, y, z);
-    // The helmet's side plates and rear guard reach down to about -0.085 in head space.
-    // Crop every hair lock at -0.105 so only the portions hanging below the shell remain.
+    // Side plates stop at -0.085; a continuous rear shell covers the back down to -0.2.
+    // Keep only hair below the nearest helmet edge so strands cannot show through the shell.
+    const helmetHem = z - d / 2 >= 0.12 ? -0.205 : -0.105;
     const bottom = y - h / 2;
-    const clippedTop = Math.min(y + h / 2, -0.105);
+    const clippedTop = Math.min(y + h / 2, helmetHem);
     const visibleHeight = clippedTop - bottom;
     if (visibleHeight <= 0) return null;
     return addCharacterBox(hair, w, visibleHeight, d, material, x, bottom + visibleHeight / 2, z);
@@ -2537,9 +2538,15 @@ if (tpClipActive > 0.5) {
         box(helmet, 0.35, 0.045, 0.34, palette.highlight, 0, 0.305, 0.025);
         box(helmet, 0.085, 0.2, 0.37, palette.shade, -0.19, 0.015, 0.025);
         box(helmet, 0.085, 0.2, 0.37, palette.shade, 0.19, 0.015, 0.025);
-        // The rear neck guard sits behind the head (+Z); the wider brow/visor
-        // projects over the forehead (-Z), making the helmet's facing unambiguous.
-        box(helmet, 0.28, 0.08, 0.07, palette.main, 0, -0.015, 0.19);
+        // Close the whole rear of the helmet with a single base-color shell, then
+        // layer a contrasting inset, ridge and trim on top. This prevents bare scalp
+        // from showing through between the crown, side plates and old neck guard.
+        box(helmet, 0.47, 0.4, 0.07, palette.main, 0, 0, 0.23);
+        box(helmet, 0.33, 0.24, 0.025, palette.shade, 0, 0.005, 0.285);
+        box(helmet, 0.36, 0.04, 0.03, palette.highlight, 0, 0.16, 0.285);
+        box(helmet, 0.045, 0.19, 0.03, palette.highlight, 0, 0.005, 0.285);
+        box(helmet, 0.36, 0.04, 0.03, palette.trim, 0, -0.16, 0.285);
+        // The brow/visor projects over the forehead (-Z), so the facing stays clear.
         box(helmet, 0.26, 0.045, 0.09, palette.highlight, 0, 0.18, -0.175);
         box(helmet, 0.1, 0.045, 0.12, palette.trim, 0, 0.325, 0.015);
         attach(this.avatarHead, helmet);
@@ -2711,7 +2718,11 @@ if (tpClipActive > 0.5) {
         box(0.08, 0.21, 0.34, shade, -0.17, -0.015, 0.02);
         box(0.08, 0.21, 0.34, shade, 0.17, -0.015, 0.02);
         box(0.26, 0.045, 0.09, highlight, 0, 0.055, -0.19);
-        box(0.26, 0.08, 0.07, main, 0, 0.005, 0.19);
+        box(0.46, 0.36, 0.07, main, 0, 0, 0.23);
+        box(0.32, 0.22, 0.025, shade, 0, 0, 0.285);
+        box(0.35, 0.04, 0.03, highlight, 0, 0.14, 0.285);
+        box(0.045, 0.18, 0.03, highlight, 0, 0, 0.285);
+        box(0.35, 0.035, 0.03, trim, 0, -0.15, 0.285);
         box(0.11, 0.045, 0.13, trim, 0, 0.215, 0.015);
         break;
       case 'chest':

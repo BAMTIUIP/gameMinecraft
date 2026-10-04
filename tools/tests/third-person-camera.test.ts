@@ -108,10 +108,15 @@ const { Engine } = await import('../../src/game/engine');
 
   const helmetGroup = engine.avatarArmorModels.head[0].group;
   const visor = helmetGroup.children.find((mesh: THREE.Object3D) => Math.abs(mesh.position.z + 0.175) < 1e-6);
-  const rearGuard = helmetGroup.children.find((mesh: THREE.Object3D) => Math.abs(mesh.position.z - 0.19) < 1e-6);
-  ok(!!visor && !!rearGuard, 'The helmet has a distinct forward brow and rear neck guard');
+  const rearShell = helmetGroup.children.find((mesh: THREE.Object3D) => Math.abs(mesh.position.z - 0.23) < 1e-6);
+  ok(!!visor && !!rearShell, 'The helmet has a distinct forward brow and rear shell');
   const visorHeight = visor ? (visor.geometry as THREE.BoxGeometry).parameters.height : Infinity;
   ok(!!visor && visor.position.y - visorHeight / 2 > 0.15, 'The front brow stays above the configured face texture');
+  const rearShellSize = rearShell ? (rearShell.geometry as THREE.BoxGeometry).parameters : null;
+  ok(
+    !!rearShellSize && rearShellSize.width >= 0.46 && rearShellSize.height >= 0.4,
+    'A solid main-color shell covers the full rear of the head beneath its accent pieces',
+  );
 
   engine.equipped.head = undefined;
   engine.syncAvatarArmor();
