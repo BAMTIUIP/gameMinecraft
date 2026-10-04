@@ -13,7 +13,7 @@ import {
   getSalvageForGear,
   type InvCategory,
 } from '../game/recipes';
-import { BLOCKS, PICKAXE_TIERS } from '../game/blocks';
+import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
@@ -45,6 +45,7 @@ type Props = {
   hud: HudState;
   onCraft: (key: string) => void;
   onPlaceItem: (id: number, slot?: number, fromSlot?: number, instanceId?: number) => void;
+  onEquipArrow?: (id: number) => void;
   onRemoveSlot: (slot: number) => void;
   onSelectSlot?: (i: number) => void;
   onClose: () => void;
@@ -103,6 +104,7 @@ export default function Inventory({
   hud,
   onCraft,
   onPlaceItem,
+  onEquipArrow,
   onRemoveSlot,
   onSelectSlot,
   onClose,
@@ -126,6 +128,7 @@ export default function Inventory({
   isTouch,
 }: Props) {
   const craftable = new Set(hud.craftable);
+  const arrowIds = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
   const st = hud.stats;
   const isWorkbenchMode = hud.invTab === 'workbench';
 
@@ -308,7 +311,7 @@ export default function Inventory({
                   return (
                     <button
                       key={`item-${it.id}-${it.instanceId ?? 'stack'}`}
-                      onClick={() => onPlaceItem(it.id, undefined, undefined, it.instanceId)}
+                      onClick={() => arrowIds.includes(it.id) ? onEquipArrow?.(it.id) : onPlaceItem(it.id, undefined, undefined, it.instanceId)}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
@@ -412,6 +415,12 @@ export default function Inventory({
                 </span>
               </div>
 
+              <div className="mb-2 flex items-center gap-2">
+                <div className="notch flex h-12 w-20 items-center justify-center border-2 border-[#f4b942] bg-black/30 text-center">
+                  {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated h-9 w-9" /> : <span className="font-display text-[8px] text-white/35">СТРЕЛЫ</span>}
+                </div>
+                <div className="text-[9px] leading-tight text-white/45"><b className="text-torch">СНАРЯЖЕНО</b><br/>Нажмите на стрелы в инвентаре, чтобы экипировать или снять</div>
+              </div>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:grid-cols-7">
                 {SLOTS.map((slot) => {
                   const it = hud.equipped[slot];

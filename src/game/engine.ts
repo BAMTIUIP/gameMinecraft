@@ -381,6 +381,7 @@ export type HudState = {
   health: number;
   hunger: number;
   stamina: number;
+  arrowLoadout: number | null;
   airBubbles: number;
   inWater: boolean;
   breathVisible: boolean;
@@ -1361,6 +1362,12 @@ export class Engine {
   private health = 100;
   private hunger = 100;
   private hungerDamageTimer = 0;
+  private arrowLoadout: number | null = null;
+
+  equipArrow(id: number) {
+    this.arrowLoadout = this.arrowLoadout === id ? null : id;
+    this.syncHud(true);
+  }
   private combo = 0;
   private comboTimer = 0;
   private bestCombo = 0;
@@ -10418,7 +10425,8 @@ if (tpClipActive > 0.5) {
     const arrowTypes = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
     // The active hotbar is the player's arrow pool: when a bow is drawn, use the first
     // loaded arrow stack in that row, rather than silently choosing a random inventory stack.
-    const arrowId = this.hotbar.find((id) => id !== undefined && arrowTypes.includes(id) && (this.inventory.get(id) ?? 0) > 0)
+    const arrowId = (this.arrowLoadout !== null && (this.inventory.get(this.arrowLoadout) ?? 0) > 0 ? this.arrowLoadout : null)
+      ?? this.hotbar.find((id) => id !== undefined && arrowTypes.includes(id) && (this.inventory.get(id) ?? 0) > 0)
       ?? arrowTypes.find((id) => (this.inventory.get(id) ?? 0) > 0)
       ?? ARROW_ITEM;
     if ((this.inventory.get(arrowId) ?? 0) <= 0) {
@@ -11776,6 +11784,7 @@ if (tpClipActive > 0.5) {
       health: Math.max(0, Math.ceil(this.health)),
       hunger: Math.round(this.hunger),
       stamina: this.staminaState.stamina,
+      arrowLoadout: this.arrowLoadout,
       airBubbles: this.breathState.bubbles,
       inWater: this.inWater,
       breathVisible: this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6),
