@@ -161,6 +161,10 @@ export type Mob = {
   burnTick: number;
   /** seconds of slow left */
   slow: number;
+  /** poison damage-over-time and stun duration from special arrows */
+  poison: number;
+  poisonTick: number;
+  stun: number;
   hurtFlash: number;
   walkPhase: number;
   fuse: number;
@@ -1761,6 +1765,9 @@ export class MobSystem {
       burn: 0,
       burnTick: 0,
       slow: 0,
+      poison: 0,
+      poisonTick: 0,
+      stun: 0,
       hurtFlash: 0,
       walkPhase: Math.random() * 6,
       fuse: -1,
@@ -2230,6 +2237,15 @@ export class MobSystem {
         if (m.taskT <= 0 || md7 < 1.2) m.task = 0;
         continue; // skip chase/wander this frame
       }
+      // Water instantly extinguishes fire and poison effects remain on land only for their duration.
+      const submerged = this.world.get(Math.floor(m.x), Math.floor(m.y + 0.45), Math.floor(m.z)) === WATER;
+      if (submerged) m.burn = 0;
+      if (m.poison > 0) {
+        m.poison -= mdt; m.poisonTick -= mdt;
+        if (m.poisonTick <= 0) { m.poisonTick = 1; m.hp -= 2.5; m.hurtFlash = 0.2; }
+        if (m.hp <= 0) { onBurnDeath(m); this.remove(m); continue; }
+      }
+      if (m.stun > 0) m.stun = Math.max(0, m.stun - mdt);
       if (m.burn > 0) {
         m.burn -= mdt;
         m.burnTick -= mdt;
@@ -2274,7 +2290,7 @@ export class MobSystem {
       const dz = targetZ - m.z;
       const dy = targetY - m.y;
       const dist = Math.hypot(dx, dz);
-      const speedMul = m.slow > 0 ? 0.45 : 1;
+      const speedMul = m.stun > 0 ? 0 : m.slow > 0 ? 0.45 : 1;
 
       let mx = 0;
       let mz = 0;

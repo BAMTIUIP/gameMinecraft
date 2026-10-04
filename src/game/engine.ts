@@ -10508,10 +10508,10 @@ if (tpClipActive > 0.5) {
           hit.vz += a.vz * 0.06;
           // Elemental arrow payloads: fire and poison deal an immediate secondary tick;
           // freeze and stun interrupt movement so the shot has a tactical effect.
-          if (a.arrowId === FIRE_ARROW) { hit.hp -= 3; hit.hurtFlash = 0.45; this.burst(a.x, a.y, a.z, [255, 90, 25], 8, 1.4); }
-          if (a.arrowId === POISON_ARROW) { hit.hp -= 2; hit.hurtFlash = 0.5; this.burst(a.x, a.y, a.z, [120, 220, 70], 8, 1.1); }
+          if (a.arrowId === FIRE_ARROW) { hit.burn = 5; hit.burnTick = 0; hit.hp -= 0; hit.hurtFlash = 0.45; this.burst(a.x, a.y, a.z, [255, 90, 25], 8, 1.4); }
+          if (a.arrowId === POISON_ARROW) { hit.poison = 5; hit.poisonTick = 0; hit.hurtFlash = 0.5; this.burst(a.x, a.y, a.z, [120, 220, 70], 8, 1.1); }
           if (a.arrowId === FREEZE_ARROW) { hit.vx *= 0.12; hit.vz *= 0.12; this.burst(a.x, a.y, a.z, [100, 220, 255], 10, 1.2); }
-          if (a.arrowId === STUN_ARROW) { hit.vx = 0; hit.vz = 0; hit.hurtFlash = 0.65; this.burst(a.x, a.y, a.z, [250, 220, 80], 10, 1.2); }
+          if (a.arrowId === STUN_ARROW) { hit.stun = 5; hit.vx = 0; hit.vz = 0; hit.hurtFlash = 0.65; this.burst(a.x, a.y, a.z, [250, 220, 80], 10, 1.2); }
           // the arrow lodges in the target — it drops back out on death
           hit.stuckArrows++;
           if (this.stats.fire > 0) hit.burn = Math.max(hit.burn, 3);
