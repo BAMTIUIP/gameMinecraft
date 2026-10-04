@@ -352,7 +352,7 @@ export default function Inventory({
                         {label}
                       </span>
                       {arrowIds.includes(it.id) && (
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onEquipArrow?.(it.id); }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</button>
+                        <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
                       )}
                     </button>
                   );

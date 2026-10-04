@@ -11023,7 +11023,7 @@ if (tpClipActive > 0.5) {
       this.bagItems.push(ensureGearHid(makeItem(variant.slot, variant.material, variant.rarity, Math.random)));
     }
     for (const key of catalog.gearRecipeKeys) {
-      const recipe = RECIPES.find((entry) => entry.key === key);
+      const recipe = RECIPES.find((entry) => entry && entry.key === key);
       if (!recipe) continue;
       const item = this.craftedGearFromRecipe(recipe);
       if (!item) continue;
