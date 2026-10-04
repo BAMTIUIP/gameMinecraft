@@ -452,7 +452,9 @@ export default function Inventory({
                       }}
                       className="notch relative min-w-0 min-h-[92px] transition-transform duration-100"
                     >
-                      <button
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => it && onUnequip(slot)}
                         className="notch relative flex min-h-[72px] w-full flex-col justify-center px-1 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
                         style={{
@@ -477,12 +479,12 @@ export default function Inventory({
                             ))}
                           </div>
                         )}
-                      </button>
+                      </div>
                       {it && (
                         <button
                           onClick={() => onUnequip(slot)}
                           className="btn-mc notch absolute left-1 right-1 z-10 px-1 py-1 font-display text-[8px] leading-none"
-                          style={{ top: 'calc(100% - 1.85rem)', background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }}
+                          style={{ top: '48px', background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }}
                           title={t('unequip')}
                         >
                           {t('unequip')}
