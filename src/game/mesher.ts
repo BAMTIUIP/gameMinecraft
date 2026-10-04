@@ -3,6 +3,7 @@ import {
   AIR,
   BED,
   BLOCKS,
+  CAMPFIRE,
   LADDER_PALETTE,
   isLadder,
   isSolid,
@@ -16,6 +17,9 @@ import {
   FENCE_WOOD,
   FERN,
   MUSHROOM,
+  WHEAT_CROP_1,
+  WHEAT_CROP_2,
+  WHEAT_CROP_3,
   FLOWER_BLUE,
   FLOWER_PINK,
   FLOWER_PURPLE,
@@ -39,6 +43,7 @@ import {
   isUnderwaterChest,
   COCONUT_LEAVES,
   BANANA_LEAVES,
+  HAY_BALE,
   T,
   TORCH,
   VINE,
@@ -122,8 +127,21 @@ export const FACES: Face[] = [
 ];
 
 const AO_LEVELS = [0.44, 0.64, 0.83, 1.0];
+const TILE_UV_CACHE = new Map<number, readonly number[]>();
+function cachedTileUV(tile: number): readonly number[] {
+  let uv = TILE_UV_CACHE.get(tile);
+  if (!uv) {
+    uv = tileUV(tile);
+    TILE_UV_CACHE.set(tile, uv);
+  }
+  return uv;
+}
 
+export const CAMPFIRE_SMOKE_HEIGHT = 30;
+export const HAY_CAMPFIRE_SMOKE_HEIGHT = 60;
+export type CampfireSpec = { x: number; y: number; z: number; hayBoost: boolean };
 export type ChunkGeometry = {
+  campfires: CampfireSpec[];
   solid: THREE.BufferGeometry | null;
   cutout: THREE.BufferGeometry | null;
   water: THREE.BufferGeometry | null;
@@ -1118,7 +1136,48 @@ function addBed(P: number[], C: number[], I: number[], x: number, y: number, z: 
   addBedHalf(P, C, I, x + extDx, y, z + extDz, -extDx, -extDz, false);
 }
 
-export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkGeometry {
+/** Crossed, charred logs and a stone ring form the static base of the animated campfire. */
+function addCampfire(P: number[], C: number[], I: number[], x: number, y: number, z: number, hayBoost: boolean) {
+  const cx = x + 0.5, cz = z + 0.5;
+  const stones = hayBoost ? [0x8e7953, 0xa28a5a, 0x786747, 0xb09661] : [0x777477, 0x908b86, 0x625f62, 0xa09a91];
+  const ring = [
+    [cx - 0.32, cz - 0.25], [cx + 0.31, cz - 0.27],
+    [cx - 0.30, cz + 0.27], [cx + 0.30, cz + 0.25],
+  ];
+  ring.forEach(([sx, sz], i) => addBox(P, C, I, sx, y + 0.07, sz, 0.29, 0.13, 0.27, ...srgb(stones[i])));
+  addBox(P, C, I, cx, y + 0.16, cz, 0.86, 0.16, 0.16, ...srgb(0x38251d), Math.PI * 0.12);
+  addBox(P, C, I, cx, y + 0.18, cz, 0.86, 0.16, 0.16, ...srgb(0x503126), Math.PI * 0.5);
+  addBox(P, C, I, cx - 0.10, y + 0.245, cz + 0.03, 0.25, 0.055, 0.18, ...srgb(hayBoost ? 0xffa52f : 0xff7a22));
+  addBox(P, C, I, cx + 0.10, y + 0.245, cz - 0.04, 0.20, 0.045, 0.14, ...srgb(0xffd15a));
+}
+
+/** Three slim wheat stems with stage-dependent seed heads; each plant stays inside its voxel. */
+function addWheatCrop(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number) {
+  const stage = id === WHEAT_CROP_1 ? 1 : id === WHEAT_CROP_2 ? 2 : 3;
+  const stem = srgb(stage === 3 ? 0xa9953d : stage === 2 ? 0x8c9b42 : 0x5f9840);
+  const head = srgb(stage === 3 ? 0xe2bd4c : stage === 2 ? 0x91a44a : 0x6fa54c);
+  const stalks: Array<[number, number]> = [[0.29, 0.34], [0.52, 0.53], [0.71, 0.67]];
+  const heights = stage === 1 ? [0.36, 0.42, 0.32] : stage === 2 ? [0.66, 0.75, 0.61] : [0.88, 0.96, 0.82];
+  stalks.forEach(([sx, sz], i) => {
+    const h = heights[i];
+    addBox(P, C, I, x + sx, y + h / 2, z + sz, 0.055, h, 0.055, ...stem, (i - 1) * 0.1);
+    if (stage > 1) {
+      addBox(P, C, I, x + sx + 0.045, y + h - 0.08, z + sz, 0.12, 0.10, 0.10, ...head, (i - 1) * 0.22);
+      if (stage === 3) {
+        addBox(P, C, I, x + sx + 0.08, y + h - 0.16, z + sz + 0.035, 0.055, 0.17, 0.055, ...head, (i - 1) * 0.2);
+      }
+    }
+  });
+}
+
+export function* buildChunkGeometrySteps(
+  world: World,
+  cx: number,
+  cz: number,
+  yieldEvery = 256,
+  minY = 0,
+  maxY = WY,
+): Generator<void, ChunkGeometry, void> {
   const positions: number[] = [];
   const normals: number[] = [];
   const colors: number[] = [];
@@ -1136,8 +1195,9 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
   const wColors: number[] = [];
   const wUvs: number[] = [];
   const wIndices: number[] = [];
-  // hinged lids: separate meshes so a chest can creak open in front of the player
+  // hinged lids and dynamic fire/smoke effects are maintained as individual world objects.
   const chestLids: ChestLidSpec[] = [];
+  const campfires: CampfireSpec[] = [];
   // volumetric decor pass (flowers, egg clutches) — coloured, untextured
   const dPositions: number[] = [];
   const dColors: number[] = [];
@@ -1145,15 +1205,44 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
 
   const x0 = cx * CHUNK;
   const z0 = cz * CHUNK;
-  const solidAt = (x: number, y: number, z: number) => isOpaque(world.get(x, y, z));
+  const sourceChunk = world.getChunk?.(cx, cz);
+  const blockData = sourceChunk?.blocks;
+  const getLocal = (lx: number, y: number, lz: number) => {
+    if (y < 0 || y >= WY) return AIR;
+    if (blockData && lx >= 0 && lx < CHUNK && lz >= 0 && lz < CHUNK)
+      return blockData[(y * CHUNK + lz) * CHUNK + lx];
+    return world.get(x0 + lx, y, z0 + lz);
+  };
+  const solidLocal = (lx: number, y: number, lz: number) => isOpaque(getLocal(lx, y, lz));
+  const AXES_X: readonly [number, number] = [1, 2];
+  const AXES_Y: readonly [number, number] = [0, 2];
+  const AXES_Z: readonly [number, number] = [0, 1];
+  let visited = 0;
 
-  for (let lz = 0; lz < CHUNK; lz++) {
-    for (let lx = 0; lx < CHUNK; lx++) {
-      const x = x0 + lx;
+  // Only mesh a vertical window around the player; the world data remains fully generated below.
+  const scanMinY = Math.max(0, Math.min(WY, Math.floor(minY)));
+  const scanMaxY = Math.max(scanMinY, Math.min(WY, Math.ceil(maxY)));
+  // Iterate the chunk's packed voxel buffer in storage order. This keeps reads cache-friendly
+  // and avoids a World.get/map lookup for every block inside the chunk.
+  for (let y = scanMinY; y < scanMaxY; y++) {
+    for (let lz = 0; lz < CHUNK; lz++) {
       const z = z0 + lz;
-      for (let y = 0; y < WY; y++) {
-        const id = world.get(x, y, z);
+      for (let lx = 0; lx < CHUNK; lx++) {
+        const x = x0 + lx;
+        const localIndex = (y * CHUNK + lz) * CHUNK + lx;
+        const id = blockData ? blockData[localIndex] : world.get(x, y, z);
+        if (yieldEvery > 0 && ++visited % yieldEvery === 0) yield;
         if (id === AIR) continue;
+        if (id === CAMPFIRE) {
+          const hayBoost = getLocal(lx, y - 1, lz) === HAY_BALE;
+          addCampfire(dPositions, dColors, dIndices, x, y, z, hayBoost);
+          campfires.push({ x, y, z, hayBoost });
+          continue;
+        }
+        if (id === WHEAT_CROP_1 || id === WHEAT_CROP_2 || id === WHEAT_CROP_3) {
+          addWheatCrop(dPositions, dColors, dIndices, x, y, z, id);
+          continue;
+        }
         // flowers, grasses & egg clutches render as little 3D models, not textured cubes
         if (
           id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
@@ -1226,7 +1315,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         }
         // A few hanging fruit clusters make the two palm varieties readable
         // from below. The edible drops still come from harvesting the leaves.
-        if ((id === COCONUT_LEAVES || id === BANANA_LEAVES) && world.get(x, y - 1, z) === AIR &&
+        if ((id === COCONUT_LEAVES || id === BANANA_LEAVES) && getLocal(lx, y - 1, lz) === AIR &&
           ((x * 179 + z * 73 + y * 113) >>> 0) % 6 === 0) {
           if (id === COCONUT_LEAVES) {
             addBox(dPositions, dColors, dIndices, x + 0.47, y - 0.12, z + 0.48, 0.23, 0.22, 0.23, ...srgb(0x795332));
@@ -1241,20 +1330,22 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
         const cut = isCutout(id);
         const wat = id === WATER;
         const isDoor = id === DOOR_WOOD || id === DOOR_IRON;
-        const isDoorBottom = isDoor && world.get(x, y + 1, z) === id;
+        const isDoorBottom = isDoor && getLocal(lx, y + 1, lz) === id;
         // Determine doorway orientation so doors render as a 0.20-thick slab with 1 unified door face on front/back
         const doorAlongX =
           isDoor &&
-          (isOpaque(world.get(x - 1, y, z)) ||
-            isOpaque(world.get(x + 1, y, z)) ||
-            (!isOpaque(world.get(x, y, z - 1)) && !isOpaque(world.get(x, y, z + 1))));
+          (isOpaque(getLocal(lx - 1, y, lz)) ||
+            isOpaque(getLocal(lx + 1, y, lz)) ||
+            (!isOpaque(getLocal(lx, y, lz - 1)) && !isOpaque(getLocal(lx, y, lz + 1))));
 
         for (let f = 0; f < 6; f++) {
           const face = FACES[f];
-          const nx = x + face.dir[0];
           const ny = y + face.dir[1];
-          const nz = z + face.dir[2];
-          const neighbor = world.get(nx, ny, nz);
+          const localNx = lx + face.dir[0];
+          const localNz = lz + face.dir[2];
+          // Close the vertical slice with boundary faces; without caps, unseen voxels above/below
+          // the active band would be omitted and caves would appear to have missing ceilings.
+          const neighbor = ny < scanMinY || ny >= scanMaxY ? AIR : getLocal(localNx, ny, localNz);
           if (wat) {
             // water renders only against air/cutouts, never between water cells
             if (neighbor === WATER || isOpaque(neighbor) || isTreasureChest(neighbor)) continue;
@@ -1277,7 +1368,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
               tile = id === DOOR_WOOD ? T.doorWoodBottom : T.doorIronBottom;
             }
           }
-          const [u0, v0, u1, v1] = tileUV(tile);
+          const [u0, v0, u1, v1] = cachedTileUV(tile);
           const P = wat ? wPositions : cut ? cPositions : positions;
           const N = wat ? wNormals : cut ? cNormals : normals;
           const C = wat ? wColors : cut ? cColors : colors;
@@ -1285,28 +1376,44 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
           const I = wat ? wIndices : cut ? cIndices : indices;
           const base = P.length / 3;
 
-          // tangent axes for AO sampling
-          const axes: number[] = [];
-          for (let a = 0; a < 3; a++) if (face.dir[a] === 0) axes.push(a);
-
-          const aoVals: number[] = [];
+          // Tangent axes are static per face. Sample the four side neighbours and four corners once,
+          // then reuse them for all four vertices instead of issuing 12 reads per face.
+          const axes = face.dir[0] !== 0 ? AXES_X : face.dir[1] !== 0 ? AXES_Y : AXES_Z;
+          const needsAO = !glow;
+          let sideA0 = false, sideA1 = false, sideB0 = false, sideB1 = false;
+          let corner00 = false, corner01 = false, corner10 = false, corner11 = false;
+          if (needsAO) {
+            const ax = axes[0], bx = axes[1];
+            const aX = ax === 0 ? 1 : 0, aY = ax === 1 ? 1 : 0, aZ = ax === 2 ? 1 : 0;
+            const bX = bx === 0 ? 1 : 0, bY = bx === 1 ? 1 : 0, bZ = bx === 2 ? 1 : 0;
+            sideA0 = solidLocal(localNx - aX, ny - aY, localNz - aZ);
+            sideA1 = solidLocal(localNx + aX, ny + aY, localNz + aZ);
+            sideB0 = solidLocal(localNx - bX, ny - bY, localNz - bZ);
+            sideB1 = solidLocal(localNx + bX, ny + bY, localNz + bZ);
+            corner00 = solidLocal(localNx - aX - bX, ny - aY - bY, localNz - aZ - bZ);
+            corner01 = solidLocal(localNx - aX + bX, ny - aY + bY, localNz - aZ + bZ);
+            corner10 = solidLocal(localNx + aX - bX, ny + aY - bY, localNz + aZ - bZ);
+            corner11 = solidLocal(localNx + aX + bX, ny + aY + bY, localNz + aZ + bZ);
+          }
+          let ao0 = 0, ao1 = 0, ao2 = 0, ao3 = 0;
           for (let c = 0; c < 4; c++) {
             const corner = face.corners[c];
             const p = corner.pos;
             let ao = 3;
-            if (!glow) {
-              const d1 = p[axes[0]] * 2 - 1;
-              const d2 = p[axes[1]] * 2 - 1;
-              const o1 = [0, 0, 0];
-              o1[axes[0]] = d1;
-              const o2 = [0, 0, 0];
-              o2[axes[1]] = d2;
-              const s1 = solidAt(nx + o1[0], ny + o1[1], nz + o1[2]) ? 1 : 0;
-              const s2 = solidAt(nx + o2[0], ny + o2[1], nz + o2[2]) ? 1 : 0;
-              const cc = solidAt(nx + o1[0] + o2[0], ny + o1[1] + o2[1], nz + o1[2] + o2[2]) ? 1 : 0;
+            if (needsAO) {
+              const aPositive = p[axes[0]] !== 0;
+              const bPositive = p[axes[1]] !== 0;
+              const s1 = (aPositive ? sideA1 : sideA0) ? 1 : 0;
+              const s2 = (bPositive ? sideB1 : sideB0) ? 1 : 0;
+              const cc = (aPositive
+                ? (bPositive ? corner11 : corner10)
+                : (bPositive ? corner01 : corner00)) ? 1 : 0;
               ao = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
             }
-            aoVals.push(ao);
+            if (c === 0) ao0 = ao;
+            else if (c === 1) ao1 = ao;
+            else if (c === 2) ao2 = ao;
+            else ao3 = ao;
 
             let vx = p[0];
             const vy = p[1];
@@ -1327,7 +1434,7 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
             C.push(light, light, light);
           }
 
-          if (aoVals[0] + aoVals[3] > aoVals[1] + aoVals[2]) {
+          if (ao0 + ao3 > ao1 + ao2) {
             I.push(base, base + 1, base + 3, base, base + 3, base + 2);
           } else {
             I.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
@@ -1359,10 +1466,19 @@ export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkG
   }
 
   return {
+    campfires,
     solid: make(positions, normals, colors, uvs, indices),
     cutout: make(cPositions, cNormals, cColors, cUvs, cIndices),
     water: make(wPositions, wNormals, wColors, wUvs, wIndices),
     decor,
     chestLids,
   };
+}
+
+/** Synchronous compatibility wrapper for tests and tools; gameplay uses the sliced builder. */
+export function buildChunkGeometry(world: World, cx: number, cz: number): ChunkGeometry {
+  const job = buildChunkGeometrySteps(world, cx, cz, Number.MAX_SAFE_INTEGER);
+  let result = job.next();
+  while (!result.done) result = job.next();
+  return result.value;
 }

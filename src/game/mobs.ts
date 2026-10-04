@@ -248,12 +248,13 @@ function coatPatch(
   return mesh;
 }
 
-/** Proportions distinguish clownfish, pike, crucian carp, minnows and tiny fry. */
+/** Proportions distinguish clownfish, pike, carp, minnows, salmon and tiny fry. */
 const FISH_VARIANTS = [
   { body: '#ed8231', fin: '#332e38', belly: '#fff4dc', size: 1.05, length: 1, girth: 1.1, dorsal: 1 }, // clownfish
   { body: '#738953', fin: '#405b39', belly: '#b8bf80', size: 1.5, length: 1.8, girth: 0.62, dorsal: 0.7 }, // pike
   { body: '#d5a648', fin: '#997048', belly: '#ebd394', size: 1.35, length: 1.05, girth: 1.5, dorsal: 1.3 }, // crucian carp
   { body: '#8299a8', fin: '#586e7c', belly: '#c4d0ce', size: 0.7, length: 1.15, girth: 0.65, dorsal: 0.65 }, // minnow
+  { body: '#d47764', fin: '#c55e4c', belly: '#f3b2a1', size: 1.3, length: 1.55, girth: 0.92, dorsal: 1.1 }, // salmon
   { body: '#a6c6bc', fin: '#799e9c', belly: '#d4dfd1', size: 0.43, length: 0.75, girth: 0.6, dorsal: 0.6 }, // fry
 ] as const;
 
@@ -1445,7 +1446,7 @@ export class MobSystem {
         const stripe = box(0.31 * v.girth, 0.31 * v.girth, 0.08, v.belly, mats);
         stripe.position.set(0, 0.31, z); group.add(stripe);
       }
-      else if (vi === 1 || vi === 2) {
+      else if (vi === 1 || vi === 2 || vi === 4) {
         const belly = box(0.23 * v.girth, 0.07, 0.4 * v.length, v.belly, mats);
         belly.position.set(0, 0.18 * v.girth + 0.08, 0); group.add(belly);
       }
@@ -2742,9 +2743,9 @@ export class MobSystem {
             const r = 4 + Math.random() * 9;
             let nx = m.x + Math.cos(a) * r;
             let nz = m.z + Math.sin(a) * r;
-            if (m.id === 'fish' && m.variant === 4) {
+            if (m.id === 'fish' && m.variant === 5) {
               // Fry keep their little schools together instead of scattering.
-              const friends = this.mobs.filter((f) => f.alive && f.id === 'fish' && f.variant === 4 && Math.hypot(f.x - m.x, f.z - m.z) < 4);
+              const friends = this.mobs.filter((f) => f.alive && f.id === 'fish' && f.variant === 5 && Math.hypot(f.x - m.x, f.z - m.z) < 4);
               if (friends.length > 1) {
                 nx = friends.reduce((sum, f) => sum + f.x, 0) / friends.length + (Math.random() - 0.5) * 2;
                 nz = friends.reduce((sum, f) => sum + f.z, 0) / friends.length + (Math.random() - 0.5) * 2;

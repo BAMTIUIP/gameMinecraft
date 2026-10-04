@@ -11,6 +11,12 @@ import {
   FEATHER,
   FISH_SCALE,
   HONEY,
+  HAY_BALE,
+  WHEAT,
+  MEAT_FAMILIES,
+  MEAT_SIZES,
+  MEAT_ITEM_IDS,
+  isMeatItem,
   TURTLE_SHELL,
   WOOL,
   FLOWER_BLUE,
@@ -161,7 +167,7 @@ export type Recipe = {
 };
 
 /** bare hand pseudo-item: always occupies hotbar slot 1 */
-export const HAND = 199;
+export const HAND = -1;
 /** hotbar ids above this range are tools, not placeable blocks */
 export const isToolId = (id: number) => id >= 200;
 
@@ -328,6 +334,33 @@ const LADDER_RECIPES: Recipe[] = [
   ladderRecipe('ladder_iron', LADDER_IRON, [[IRON, 4], [PLANKS, 2]], 2, '#c2d1d7', 'A reinforced iron ladder with durable wooden rungs.'),
 ];
 
+const MEAT_COOK_RECIPES: Recipe[] = MEAT_FAMILIES.flatMap((family) =>
+  MEAT_SIZES.map((size) => {
+    const { raw, cooked } = MEAT_ITEM_IDS[family][size];
+    const name = BLOCKS[raw]?.name ?? `${size} ${family} meat`;
+    return {
+      key: `cook_meat_${raw}`,
+      name: `COOK ${name.toUpperCase()}`,
+      desc: 'Roast one portion at a nearby campfire.',
+      inputs: [[raw, 1]],
+      out: [cooked, 1],
+      kind: 'cook' as const,
+      accent: '#c07c42',
+      hotkey: '',
+      group: 'food' as const,
+    };
+  }),
+);
+
+const GEAR_SLOT_LABELS: Record<Slot, string> = {
+  head: 'HELMET', chest: 'CHESTPLATE', legs: 'LEGGINGS', feet: 'BOOTS', hands: 'GAUNTLETS', offhand: 'SHIELD',
+};
+function gearSet(material: Material, label: string, accent: string, inputs: Record<Slot, Array<[number, number]>>): Recipe[] {
+  return (['head', 'chest', 'legs', 'feet', 'hands', 'offhand'] as Slot[]).map((slot) =>
+    gear(`${slot}_${material}`, `${label} ${GEAR_SLOT_LABELS[slot]}`, slot, material, inputs[slot], accent),
+  );
+}
+
 export const RECIPES: Recipe[] = [
   ...TOOL_RECIPES,
   {
@@ -447,6 +480,17 @@ export const RECIPES: Recipe[] = [
     group: 'tools',
   },
   {
+    key: 'hay_bale',
+    name: 'HAY BALE',
+    desc: 'Compress nine wheat into a bale; place it under a campfire to double its smoke column.',
+    inputs: [[WHEAT, 9]],
+    out: [HAY_BALE, 1],
+    kind: 'blocks',
+    accent: '#d8b64b',
+    hotkey: '',
+    group: 'blocks',
+  },
+  {
     key: 'campfire',
     name: 'CAMPFIRE',
     desc: 'Place it, then cook raw meat while standing close',
@@ -471,6 +515,7 @@ export const RECIPES: Recipe[] = [
     hotkey: '',
     group: 'food',
   },
+  ...MEAT_COOK_RECIPES,
   {
     key: 'eat_apple',
     name: 'EAT APPLE',
@@ -781,6 +826,29 @@ export const RECIPES: Recipe[] = [
   gear('head_diamond', 'DIAMOND HELMET', 'head', 'diamond', [[DIAMOND, 4]], '#5fe8dc'),
   gear('hands_diamond', 'DIAMOND GAUNTLETS', 'hands', 'diamond', [[DIAMOND, 3]], '#5fe8dc'),
   gear('shield_diamond', 'DIAMOND SHIELD', 'offhand', 'diamond', [[DIAMOND, 3], [IRON, 2]], '#5fe8dc'),
+  gear('legs_diamond', 'DIAMOND LEGGINGS', 'legs', 'diamond', [[DIAMOND, 5]], '#5fe8dc'),
+  gear('feet_diamond', 'DIAMOND BOOTS', 'feet', 'diamond', [[DIAMOND, 4]], '#5fe8dc'),
+  ...gearSet('gold', 'GOLD', '#f7d34b', {
+    head: [[GOLD, 5]], chest: [[GOLD, 8]], legs: [[GOLD, 7]], feet: [[GOLD, 4]],
+    hands: [[GOLD, 3], [LEAVES, 2]], offhand: [[GOLD, 4], [PLANKS, 3]],
+  }),
+  ...gearSet('emerald', 'EMERALD', '#34d47a', {
+    head: [[EMERALD, 4]], chest: [[EMERALD, 7]], legs: [[EMERALD, 6]], feet: [[EMERALD, 4]],
+    hands: [[EMERALD, 3]], offhand: [[EMERALD, 3], [IRON, 2]],
+  }),
+  ...gearSet('redstone', 'REDSTONE', '#dc514b', {
+    head: [[REDSTONE, 10]], chest: [[REDSTONE, 16]], legs: [[REDSTONE, 14]], feet: [[REDSTONE, 8]],
+    hands: [[REDSTONE, 6]], offhand: [[REDSTONE, 8], [IRON, 2]],
+  }),
+  ...gearSet('lapis', 'LAPIS', '#416de0', {
+    head: [[LAPIS, 4], [IRON, 1]], chest: [[LAPIS, 7], [IRON, 2]], legs: [[LAPIS, 6], [IRON, 2]],
+    feet: [[LAPIS, 3], [IRON, 1]], hands: [[LAPIS, 3], [IRON, 1]], offhand: [[LAPIS, 4], [IRON, 2], [PLANKS, 2]],
+  }),
+  ...gearSet('netherite', 'NETHERITE', '#8a6a58', {
+    head: [[DIAMOND, 4], [NETHERITE, 1]], chest: [[DIAMOND, 5], [NETHERITE, 1]],
+    legs: [[DIAMOND, 5], [NETHERITE, 1]], feet: [[DIAMOND, 4], [NETHERITE, 1]],
+    hands: [[DIAMOND, 3], [NETHERITE, 1]], offhand: [[DIAMOND, 3], [IRON, 2], [NETHERITE, 1]],
+  }),
 
   // ---------------- mineral blocks (Row 3 of reference table) ----------------
   {
@@ -930,8 +998,7 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pe
   if (id >= 300) return 'armor';
   if (id >= 200 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   if (
-    id === RAW_MEAT ||
-    id === COOKED_MEAT ||
+    isMeatItem(id) ||
     id === APPLE ||
     id === COCONUT ||
     id === BANANA ||
@@ -1046,6 +1113,8 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
       return { inputsUsed: 1, outputs: [[PLANKS, 1]] };
     case ARROW_ITEM:
       return { inputsUsed: 1, outputs: [[FEATHER, 1]] };
+    case HAY_BALE:
+      return { inputsUsed: 1, outputs: [[WHEAT, 5]] };
     case PLANKS:
       return { inputsUsed: 2, outputs: [[LOG, 1]] };
     default:

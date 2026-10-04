@@ -119,6 +119,13 @@ export const FLOWER_WHITE = 107;
 export const JACARANDA_LEAVES = 108;
 /** refined netherite alloy used for the final tool tier */
 export const NETHERITE_INGOT = 109;
+/** Wheat is a carried resource; the three crop states are world-only plant blocks. */
+export const WHEAT = 141;
+export const WHEAT_SEEDS = 142;
+export const WHEAT_CROP_1 = 143;
+export const WHEAT_CROP_2 = 144;
+export const WHEAT_CROP_3 = 145;
+export const WHEAT_CROP_IDS = [WHEAT_CROP_1, WHEAT_CROP_2, WHEAT_CROP_3] as const;
 /** tilled soil created by a hoe; it drops dirt when broken */
 export const FARMLAND = 126;
 
@@ -249,7 +256,7 @@ export const isFlower = (id: number) =>
   id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
   id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE ||
   id === DRY_BLOOM || id === DESERT_THISTLE;
-export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM;
+export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM || (id >= WHEAT_CROP_1 && id <= WHEAT_CROP_3);
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 export const isInstaBreak = (id: number) => isPlant(id) || isCactus(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
@@ -262,7 +269,7 @@ export const isResource = (id: number) =>
   (id >= RAW_MEAT && id <= LOOT_BAG) ||
   id === HONEY ||
   (id >= FEATHER && id <= CAT_CLAW) ||
-  id === APPLE || id === COCONUT || id === BANANA;
+  id === APPLE || id === COCONUT || id === BANANA || id === WHEAT || id === WHEAT_SEEDS || (id >= 146 && id <= 199);
 
 /** rough material class — tools are specialised per class */
 export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
@@ -351,7 +358,7 @@ export function blockClass(id: number): BlockClass {
 
 /** Soil, organic plants and wood can be broken by hand; mineral blocks still require tools. */
 export const canBreakByHand = (id: number) =>
-  id === DIRT || id === GRASS || id === SNOW_GRASS || id === FARMLAND || id === SAND ||
+  id === DIRT || id === GRASS || id === SNOW_GRASS || id === FARMLAND || id === SAND || id === WEB ||
   isPlant(id) || isCactus(id) || isTreasureChest(id) || blockClass(id) === 'wood';
 
 export const T = {
@@ -517,6 +524,62 @@ const d = (o: Partial<BlockDef> & { id: number; name: string }): BlockDef => {
   };
 };
 
+export type MeatSize = 'small' | 'medium' | 'large';
+export type MeatFamily = 'chicken' | 'pork' | 'beef' | 'mutton' | 'fish' | 'salmon' | 'rabbit' | 'venison' | 'crab';
+export type MeatItemInfo = { id: number; family: MeatFamily; size: MeatSize; cooked: boolean };
+
+export const MEAT_FAMILIES: readonly MeatFamily[] = [
+  'chicken', 'pork', 'beef', 'mutton', 'fish', 'salmon', 'rabbit', 'venison', 'crab',
+];
+export const MEAT_SIZES: readonly MeatSize[] = ['small', 'medium', 'large'];
+export const MEAT_FAMILY_NAMES: Record<MeatFamily, string> = {
+  chicken: 'Chicken', pork: 'Pork', beef: 'Beef', mutton: 'Mutton', fish: 'Fish',
+  salmon: 'Salmon', rabbit: 'Rabbit', venison: 'Venison', crab: 'Crab',
+};
+const MEAT_SIZE_NAMES: Record<MeatSize, string> = { small: 'Small', medium: 'Medium', large: 'Large' };
+const RAW_MEAT_TINTS: Record<MeatFamily, [number, number, number]> = {
+  chicken: [196, 132, 111], pork: [213, 133, 129], beef: [190, 73, 67], mutton: [173, 94, 83],
+  fish: [91, 157, 190], salmon: [219, 112, 91], rabbit: [180, 126, 91], venison: [156, 92, 60], crab: [210, 83, 56],
+};
+const COOKED_MEAT_TINTS: Record<MeatFamily, [number, number, number]> = {
+  chicken: [186, 132, 83], pork: [169, 105, 66], beef: [143, 77, 48], mutton: [154, 91, 59],
+  fish: [181, 151, 94], salmon: [190, 105, 65], rabbit: [157, 107, 65], venison: [130, 75, 45], crab: [178, 86, 50],
+};
+
+let nextMeatId = 146;
+export const MEAT_ITEM_IDS = {} as Record<MeatFamily, Record<MeatSize, { raw: number; cooked: number }>>;
+export const MEAT_ITEM_BY_ID: Record<number, MeatItemInfo> = {};
+const meatBlockDefs: BlockDef[] = [];
+for (const family of MEAT_FAMILIES) {
+  MEAT_ITEM_IDS[family] = {} as Record<MeatSize, { raw: number; cooked: number }>;
+  for (const size of MEAT_SIZES) {
+    const raw = nextMeatId++;
+    const cooked = nextMeatId++;
+    MEAT_ITEM_IDS[family][size] = { raw, cooked };
+    MEAT_ITEM_BY_ID[raw] = { id: raw, family, size, cooked: false };
+    MEAT_ITEM_BY_ID[cooked] = { id: cooked, family, size, cooked: true };
+    const sizeName = MEAT_SIZE_NAMES[size];
+    const familyName = MEAT_FAMILY_NAMES[family];
+    meatBlockDefs.push(
+      d({ id: raw, name: `${sizeName} Raw ${familyName}`, side: T.meatRaw, hardness: 1, score: 5, solid: false, breakable: false, drop: 0, tint: RAW_MEAT_TINTS[family] }),
+      d({ id: cooked, name: `Cooked ${sizeName} ${familyName}`, side: T.meatCooked, hardness: 1, score: 5, solid: false, breakable: false, drop: 0, tint: COOKED_MEAT_TINTS[family] }),
+    );
+  }
+}
+export const MEAT_ITEM_FIRST = 146;
+export const MEAT_ITEM_LAST = nextMeatId - 1;
+export const isMeatItem = (id: number) => id === RAW_MEAT || id === COOKED_MEAT || (id >= MEAT_ITEM_FIRST && id <= MEAT_ITEM_LAST);
+export const isRawMeatItem = (id: number) => id === RAW_MEAT || (MEAT_ITEM_BY_ID[id] !== undefined && !MEAT_ITEM_BY_ID[id].cooked);
+export const isCookedMeatItem = (id: number) => id === COOKED_MEAT || (MEAT_ITEM_BY_ID[id] !== undefined && MEAT_ITEM_BY_ID[id].cooked);
+export function cookedMeatId(rawId: number): number | null {
+  if (rawId === RAW_MEAT) return COOKED_MEAT;
+  const info = MEAT_ITEM_BY_ID[rawId];
+  return info && !info.cooked ? MEAT_ITEM_IDS[info.family][info.size].cooked : null;
+}
+export function allRawMeatIds(): number[] {
+  return [RAW_MEAT, ...Object.values(MEAT_ITEM_IDS).flatMap((sizes) => Object.values(sizes).map((pair) => pair.raw))];
+}
+
 export const BLOCKS: BlockDef[] = [
   d({ id: AIR, name: 'Air', side: T.stone, solid: false, breakable: false, drop: 0, score: 0 }),
   d({
@@ -654,12 +717,13 @@ export const BLOCKS: BlockDef[] = [
     score: 6,
     tint: [255, 150, 60],
     emissive: 1,
+    solid: false,
   }),
   d({ id: PEDESTAL, name: 'Stone Pedestal', side: T.pedestal, hardness: 0.9, score: 8, tint: [200, 200, 205], emissive: 1 }),
   d({ id: PEDESTAL_GOLD, name: 'Gilded Pedestal', side: T.pedestalGold, hardness: 1.1, score: 16, tint: [250, 214, 92], emissive: 1 }),
   d({ id: RAW_MEAT, name: 'Raw Meat', side: T.meatRaw, hardness: 1, score: 5, solid: false, breakable: false, drop: 0, tint: [220, 90, 80] }),
   d({ id: COOKED_MEAT, name: 'Cooked Meat', side: T.meatCooked, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [190, 120, 60] }),
-  d({ id: WEB, name: 'Spider Web', side: T.web, hardness: 1, score: 12, solid: false, breakable: false, drop: 0, tint: [230, 230, 235] }),
+  d({ id: WEB, name: 'Spider Web', side: T.web, hardness: 0.2, score: 12, solid: false, breakable: true, drop: WEB, tint: [230, 230, 235] }),
   d({ id: BONE, name: 'Bone', side: T.bone, hardness: 1, score: 10, solid: false, breakable: false, drop: 0, tint: [232, 226, 214] }),
   d({ id: FLESH, name: 'Rotten Flesh', side: T.flesh, hardness: 1, score: 6, solid: false, breakable: false, drop: 0, tint: [140, 170, 90] }),
   d({ id: GUNPOWDER, name: 'Gunpowder', side: T.gunpowder, hardness: 1, score: 20, solid: false, breakable: false, drop: 0, tint: [90, 90, 95] }),
@@ -1025,6 +1089,12 @@ export const BLOCKS: BlockDef[] = [
   d({ id: LADDER_IRON, name: 'Iron Ladder', side: T.iron, hardness: 0.8, score: 4, solid: false, tint: [194, 209, 215] }),
   d({ id: CHEST_STORAGE, name: 'Storage Chest', side: T.planks, hardness: 0.7, score: 0, solid: false, breakable: true, drop: CHEST_STORAGE, tint: [145, 91, 51] }),
   d({ id: CHEST_STORAGE_OPEN, name: 'Storage Chest (open)', side: T.planks, hardness: 0.7, score: 0, solid: false, breakable: true, drop: CHEST_STORAGE, tint: [145, 91, 51] }),
+  d({ id: WHEAT, name: 'Wheat', side: T.tallGrass, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [226, 191, 76] }),
+  d({ id: WHEAT_SEEDS, name: 'Wheat Seeds', side: T.tallGrass, hardness: 1, score: 1, solid: false, breakable: false, drop: 0, tint: [164, 146, 64] }),
+  d({ id: WHEAT_CROP_1, name: 'Wheat Crop (young)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [132, 174, 75] }),
+  d({ id: WHEAT_CROP_2, name: 'Wheat Crop (growing)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [178, 172, 64] }),
+  d({ id: WHEAT_CROP_3, name: 'Wheat Crop (ripe)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [226, 191, 76] }),
+  ...meatBlockDefs,
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
@@ -1036,6 +1106,7 @@ export const isCutout = (id: number) =>
   id === FENCE_STONE ||
   id === FENCE_IRON ||
   isLadder(id) ||
+  id === WEB ||
   isLeafId(id);
 
 /** world props the player can interact with E */
@@ -1047,6 +1118,7 @@ export const isOpaque = (id: number) =>
   id !== WATER &&
   id !== TORCH &&
   id !== BED &&
+  id !== CAMPFIRE &&
   !(
     isCutout(id) ||
     isPlant(id) ||

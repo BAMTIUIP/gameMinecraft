@@ -1,4 +1,5 @@
 import { getToolSpec } from './tools';
+import { HAY_BALE, MEAT_ITEM_BY_ID, WHEAT, WHEAT_CROP_1, WHEAT_CROP_2, WHEAT_CROP_3, WHEAT_SEEDS } from './blocks';
 import { storageGet, storageSet } from './storage';
 
 export type Lang = 'en' | 'ru' | 'fr' | 'de';
@@ -289,6 +290,7 @@ const EN = {
   language: 'LANGUAGE',
   musicOn: 'MUSIC ON',
   musicOff: 'MUSIC OFF',
+  musicVolume: 'MUSIC VOLUME',
   sfxOn: 'SFX ON',
   sfxOff: 'SFX OFF',
   freeLookOn: 'FREE-LOOK ON',
@@ -955,6 +957,7 @@ const RU: Dict = {
   language: 'ЯЗЫК',
   musicOn: 'МУЗЫКА ВКЛ',
   musicOff: 'МУЗЫКА ВЫКЛ',
+  musicVolume: 'ГРОМКОСТЬ МУЗЫКИ',
   sfxOn: 'ЗВУК ВКЛ',
   sfxOff: 'ЗВУК ВЫКЛ',
   freeLookOn: 'СВОБ. ОБЗОР ВКЛ',
@@ -1602,6 +1605,7 @@ const FR: Dict = {
   language: 'LANGUE',
   musicOn: 'MUSIQUE ACTIVÉE',
   musicOff: 'MUSIQUE COUPÉE',
+  musicVolume: 'VOLUME DE LA MUSIQUE',
   sfxOn: 'SONS ACTIVÉS',
   sfxOff: 'SONS COUPÉS',
   freeLookOn: 'VUE LIBRE ACTIVÉE',
@@ -2249,6 +2253,7 @@ const DE: Dict = {
   language: 'SPRACHE',
   musicOn: 'MUSIK AN',
   musicOff: 'MUSIK AUS',
+  musicVolume: 'MUSIKLAUTSTÄRKE',
   sfxOn: 'GERÄUSCHE AN',
   sfxOff: 'GERÄUSCHE AUS',
   freeLookOn: 'FREIE SICHT AN',
@@ -3118,7 +3123,40 @@ const RECIPES_DE: Record<string, [string, string]> = {
 /** localized recipe name + description; falls back to the English strings */
 export function recipeText(key: string, fallbackName: string, fallbackDesc: string): [string, string] {
   const m = current === 'ru' ? RECIPES_RU : current === 'fr' ? RECIPES_FR : current === 'de' ? RECIPES_DE : null;
-  return m?.[key] ?? [fallbackName, fallbackDesc];
+  const translated = m?.[key];
+  if (translated) return translated;
+  if (current === 'en') return [fallbackName, fallbackDesc];
+
+  if (key === 'hay_bale') {
+    if (current === 'ru') return ['ТЮК СЕНА', 'Сожмите 9 единиц пшеницы; костёр на сене выпускает дым вдвое выше.'];
+    if (current === 'fr') return ['BOTTE DE FOIN', 'Compressez 9 blés; le feu posé dessus produit deux fois plus de fumée.'];
+    return ['HEUBALLEN', 'Presse 9 Weizen zusammen; ein Lagerfeuer darauf lässt den Rauch doppelt so hoch steigen.'];
+  }
+
+  const cookMatch = /^cook_meat_(\d+)$/.exec(key);
+  if (cookMatch) {
+    const rawName = specialBlockName(Number(cookMatch[1])) ?? fallbackName;
+    if (current === 'ru') return [`ПРИГОТОВИТЬ ${rawName.toLocaleUpperCase('ru-RU')}`, 'Поджарьте одну порцию мяса у костра.'];
+    if (current === 'fr') return [`CUIRE ${rawName.toLocaleUpperCase('fr-FR')}`, 'Faites griller une portion de viande près d’un feu de camp.'];
+    return [`GAREN ${rawName.toLocaleUpperCase('de-DE')}`, 'Eine Portion Fleisch an einem Lagerfeuer braten.'];
+  }
+
+  const gearMatch = /^(head|chest|legs|feet|hands|offhand)_(gold|emerald|redstone|lapis|netherite|diamond)$/.exec(key);
+  if (gearMatch) {
+    const slot = gearMatch[1];
+    const material = matName(gearMatch[2].toUpperCase());
+    const slots: Record<'ru' | 'fr' | 'de', Record<string, string>> = {
+      ru: { head: 'ШЛЕМ', chest: 'НАГРУДНИК', legs: 'ПОНОЖИ', feet: 'БОТИНКИ', hands: 'ПЕРЧАТКИ', offhand: 'ЩИТ' },
+      fr: { head: 'CASQUE', chest: 'PLASTRON', legs: 'JAMBIÈRES', feet: 'BOTTES', hands: 'GANTELETS', offhand: 'BOUCLIER' },
+      de: { head: 'HELM', chest: 'BRUSTPLATTE', legs: 'BEINSCHUTZ', feet: 'STIEFEL', hands: 'HANDSCHUHE', offhand: 'SCHILD' },
+    };
+    const label = slots[current][slot];
+    if (current === 'ru') return [`${label} ИЗ МАТЕРИАЛА: ${material}`, `${label} · прочная броня из ${material.toLowerCase()}`];
+    if (current === 'fr') return [`${label} EN ${material}`, `${label} · armure solide en ${material.toLowerCase()}`];
+    return [`${label} AUS ${material}`, `${label} · robuste Rüstung aus ${material.toLowerCase()}`];
+  }
+
+  return [fallbackName, fallbackDesc];
 }
 
 const BLOCKS_RU: Record<number, string> = {
@@ -3229,14 +3267,49 @@ const BLOCKS_DE: Record<number, string> = {
   139: 'Lagertruhe', 140: 'Lagertruhe (offen)',
 };
 
+const MEAT_ANIMAL_NAMES: Record<'ru' | 'fr' | 'de', Record<string, string>> = {
+  ru: { chicken: 'курицы', pork: 'свинины', beef: 'говядины', mutton: 'баранины', fish: 'рыбы', salmon: 'лосося', rabbit: 'кролика', venison: 'оленя', crab: 'краба' },
+  fr: { chicken: 'poulet', pork: 'porc', beef: 'bœuf', mutton: 'mouton', fish: 'poisson', salmon: 'saumon', rabbit: 'lapin', venison: 'gibier', crab: 'crabe' },
+  de: { chicken: 'Huhn', pork: 'Schwein', beef: 'Rind', mutton: 'Lamm', fish: 'Fisch', salmon: 'Lachs', rabbit: 'Kaninchen', venison: 'Wild', crab: 'Krabbe' },
+};
+
+function specialBlockName(id: number): string | null {
+  if (current === 'en') return null;
+  const meat = MEAT_ITEM_BY_ID[id];
+  if (meat) {
+    const animal = MEAT_ANIMAL_NAMES[current][meat.family];
+    if (current === 'ru') {
+      const size = meat.size === 'small' ? 'маленькое' : meat.size === 'medium' ? 'среднее' : 'большое';
+      return meat.cooked ? `Готовое ${size} мясо ${animal}` : `Сырое ${size} мясо ${animal}`;
+    }
+    if (current === 'fr') {
+      const size = meat.size === 'small' ? 'petite' : meat.size === 'medium' ? 'moyenne' : 'grande';
+      return meat.cooked ? `Viande cuite ${size} de ${animal}` : `Viande crue ${size} de ${animal}`;
+    }
+    const size = meat.size === 'small' ? 'kleines' : meat.size === 'medium' ? 'mittleres' : 'großes';
+    return meat.cooked ? `Gegartes ${size} ${animal}` : `Rohes ${size} ${animal}`;
+  }
+  const localNames: Record<number, Record<'ru' | 'fr' | 'de', string>> = {
+    [WHEAT]: { ru: 'Пшеница', fr: 'Blé', de: 'Weizen' },
+    [WHEAT_SEEDS]: { ru: 'Семена пшеницы', fr: 'Graines de blé', de: 'Weizensamen' },
+    [WHEAT_CROP_1]: { ru: 'Молодые всходы пшеницы', fr: 'Jeunes pousses de blé', de: 'Junge Weizensprossen' },
+    [WHEAT_CROP_2]: { ru: 'Растущая пшеница', fr: 'Blé en croissance', de: 'Wachsender Weizen' },
+    [WHEAT_CROP_3]: { ru: 'Спелая пшеница', fr: 'Blé mûr', de: 'Reifer Weizen' },
+    [HAY_BALE]: { ru: 'Тюк сена', fr: 'Botte de foin', de: 'Heuballen' },
+  };
+  return localNames[id]?.[current] ?? null;
+}
+
 export function blockName(id: number, fallback: string): string {
+  const special = specialBlockName(id);
+  if (special) return special;
   const m = current === 'ru' ? BLOCKS_RU : current === 'fr' ? BLOCKS_FR : current === 'de' ? BLOCKS_DE : null;
   return m?.[id] ?? fallback;
 }
 
-const MAT_RU: Record<string, string> = { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ' };
-const MAT_FR: Record<string, string> = { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE' };
-const MAT_DE: Record<string, string> = { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT' };
+const MAT_RU: Record<string, string> = { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ', REDSTONE: 'РЕДСТОУН', LAPIS: 'ЛАЗУРИТ', EMERALD: 'ИЗУМРУД' };
+const MAT_FR: Record<string, string> = { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE', REDSTONE: 'REDSTONE', LAPIS: 'LAPIS-LAZULI', EMERALD: 'ÉMERAUDE' };
+const MAT_DE: Record<string, string> = { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT', REDSTONE: 'REDSTONE', LAPIS: 'LAPISLAZULI', EMERALD: 'SMARAGD' };
 const RAR_RU = ['НЕОБЫЧНЫЙ', 'РЕДКИЙ', 'ЭПИЧЕСКИЙ', 'ЛЕГЕНДАРНЫЙ', 'МИФИЧЕСКИЙ'];
 const RAR_FR = ['PEU COMMUN', 'RARE', 'ÉPIQUE', 'LÉGENDAIRE', 'MYTHIQUE'];
 const RAR_DE = ['UNGEWÖHNLICH', 'SELTEN', 'EPISCH', 'LEGENDÄR', 'MYTHISCH'];

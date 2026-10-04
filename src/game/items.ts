@@ -43,12 +43,15 @@ export const RARITY = [
   { name: 'MYTHIC', color: '#ff5364', glow: 'rgba(255,83,100,.46)' },
 ] as const;
 
-export type Material = 'wood' | 'leather' | 'iron' | 'gold' | 'diamond' | 'netherite';
+export type Material = 'wood' | 'leather' | 'iron' | 'gold' | 'redstone' | 'lapis' | 'emerald' | 'diamond' | 'netherite';
 export const MATERIALS: Record<Material, { label: string; color: string; armor: number; dmg: number }> = {
   wood: { label: 'WOOD', color: '#8b623d', armor: 2, dmg: 1 },
   leather: { label: 'LEATHER', color: '#a3763f', armor: 2, dmg: 1 },
   iron: { label: 'IRON', color: '#d6d9dd', armor: 5, dmg: 4 },
   gold: { label: 'GOLD', color: '#f7d34b', armor: 4, dmg: 6 },
+  redstone: { label: 'REDSTONE', color: '#dc514b', armor: 6, dmg: 6 },
+  lapis: { label: 'LAPIS', color: '#416de0', armor: 7, dmg: 7 },
+  emerald: { label: 'EMERALD', color: '#34d47a', armor: 10, dmg: 9 },
   diamond: { label: 'DIAMOND', color: '#5fe8dc', armor: 9, dmg: 9 },
   netherite: { label: 'NETHERITE', color: '#8a6a58', armor: 14, dmg: 14 },
 };

@@ -305,7 +305,10 @@ const LEAD = [
   392.0, 0, 466.16, 523.25, 0, 622.25, 0, 523.25, 466.16, 0, 392.0, 0, 349.23, 0, 392.0, 0,
 ];
 
-const STEP = 0.32; // seconds per 8th note
+let musicMood: 'calm' | 'tense' = 'calm';
+export function setMusicMood(mood: 'calm' | 'tense') {
+  musicMood = mood;
+}
 
 function voice(freq: number, t: number, dur: number, type: OscillatorType, vol: number, dest: GainNode, detune = 0) {
   if (!ctx) return;
@@ -324,40 +327,44 @@ function voice(freq: number, t: number, dur: number, type: OscillatorType, vol: 
 
 function scheduleMusic() {
   if (!ctx || !musicGain) return;
-  const horizon = ctx.currentTime + 0.7;
+  const tense = musicMood === 'tense';
+  const stepDuration = tense ? 0.23 : 0.48;
+  const horizon = ctx.currentTime + 0.85;
   while (musicNext < horizon) {
     const t = Math.max(musicNext, ctx.currentTime + 0.02);
     const bar = musicStep % 8;
     const lead = LEAD[musicStep % LEAD.length];
 
-    // bass pulse on every step
-    voice(BASS[bar], t, STEP * 1.6, 'triangle', 0.15, musicGain);
-    // airy pad on the downbeats
+    // Calm exploration leaves generous space between warm bass notes; night survival adds a lower pulse.
+    if (!tense || bar % 2 === 0) {
+      voice(BASS[bar] * (tense ? 0.84 : 1), t, stepDuration * (tense ? 1.35 : 2.7), 'triangle', tense ? 0.13 : 0.075, musicGain);
+    }
+    // Airy, slow pads are always present; nighttime chords are darker and shorter.
     if (bar % 2 === 0) {
-      PAD[bar].forEach((f, i) => voice(f, t, STEP * 2.6, 'sine', 0.045, musicGain!, i === 1 ? 7 : -5));
+      PAD[bar].forEach((f, i) => voice(f * (tense ? 0.82 : 1), t, stepDuration * (tense ? 1.8 : 3.1), 'sine', tense ? 0.03 : 0.052, musicGain!, i === 1 ? 7 : -5));
     }
-    // sparse bell lead
-    if (lead) {
-      voice(lead, t, STEP * 1.3, 'triangle', 0.052, musicGain);
-      voice(lead * 2, t, STEP * 0.7, 'sine', 0.02, musicGain);
+    // Sparse bell lead by day, a more insistent repeating figure after dark.
+    if (lead && (!tense || musicStep % 2 === 0)) {
+      voice(lead * (tense ? 0.82 : 1), t, stepDuration * (tense ? 0.78 : 1.25), 'triangle', tense ? 0.048 : 0.04, musicGain);
+      if (!tense) voice(lead * 2, t, stepDuration * 0.62, 'sine', 0.016, musicGain);
     }
-    // soft tick for pulse
+    // Light ticks in calm mode; muffled low thumps mark the survival-night beat.
     if (musicStep % 4 === 2 && noiseBuf) {
       const src = ctx.createBufferSource();
       src.buffer = noiseBuf;
       const f = ctx.createBiquadFilter();
       f.type = 'bandpass';
-      f.frequency.value = 5200;
-      f.Q.value = 2.5;
+      f.frequency.value = tense ? 920 : 5200;
+      f.Q.value = tense ? 1.3 : 2.5;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0.03, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+      g.gain.setValueAtTime(tense ? 0.05 : 0.018, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + (tense ? 0.12 : 0.07));
       src.connect(f).connect(g).connect(musicGain);
       src.start(t);
-      src.stop(t + 0.1);
+      src.stop(t + (tense ? 0.15 : 0.1));
     }
 
-    musicNext = t + STEP;
+    musicNext = t + stepDuration;
     musicStep++;
   }
 }
@@ -376,7 +383,7 @@ export function startMusic() {
   }
   musicGain.gain.cancelScheduledValues(ctx.currentTime);
   musicGain.gain.setValueAtTime(0.0001, ctx.currentTime);
-  musicGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 1.4);
+  musicGain.gain.linearRampToValueAtTime(musicVolume, ctx.currentTime + 1.4);
   musicNext = ctx.currentTime + 0.08;
   scheduleMusic();
   if (musicTimer === null) musicTimer = window.setInterval(scheduleMusic, 220);
@@ -400,12 +407,24 @@ export function isMusicPlaying() {
 }
 
 let musicEnabled = true;
+let musicVolume = 0.45;
 export function setMusicEnabled(v: boolean) {
   musicEnabled = v;
   if (!v) stopMusic(0.35);
+  else if (musicWanted) startMusic();
 }
 export function isMusicEnabled() {
   return musicEnabled;
+}
+export function setMusicVolume(volume: number) {
+  musicVolume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 0.45));
+  if (ctx && musicGain && musicOn) {
+    musicGain.gain.cancelScheduledValues(ctx.currentTime);
+    musicGain.gain.setTargetAtTime(musicVolume, ctx.currentTime, 0.06);
+  }
+}
+export function getMusicVolume() {
+  return musicVolume;
 }
 /** starts the loop only when the player hasn't switched music off */
 export function requestMusic() {
@@ -657,6 +676,53 @@ export const sfx = {
   },
   start() {
     [330, 494, 659].forEach((f, i) => tone(f, 0.18, 'square', 0.1, f * 1.5, i * 0.06));
+  },
+  /** Gentle, distant bird phrases and breeze for the open-world daytime sound bed. */
+  ambientBird() {
+    const bus = voiceBus(0.2, (Math.random() - 0.5) * 0.5, false);
+    if (!bus) return;
+    const base = 2200 + Math.random() * 1100;
+    toneTo(bus.dest, bus.t0, { freq: base, slideTo: base * (1.18 + Math.random() * 0.28), dur: 0.12, type: 'sine', vol: 0.11 });
+    toneTo(bus.dest, bus.t0 + 0.16, { freq: base * 1.22, slideTo: base * (0.86 + Math.random() * 0.2), dur: 0.16, type: 'sine', vol: 0.09 });
+    if (Math.random() < 0.42) toneTo(bus.dest, bus.t0 + 0.38, { freq: base * 0.92, slideTo: base * 1.1, dur: 0.11, type: 'sine', vol: 0.07 });
+  },
+  /** A light cricket chorus, heard as sparse repeating chirps rather than a loud loop. */
+  crickets() {
+    const bus = voiceBus(0.24, (Math.random() - 0.5) * 0.35, false);
+    if (!bus) return;
+    const base = 4100 + Math.random() * 500;
+    for (let i = 0; i < 9; i++) {
+      const at = bus.t0 + i * (0.115 + Math.random() * 0.025);
+      toneTo(bus.dest, at, { freq: base + (i % 3) * 95, slideTo: base + 180 + (i % 2) * 75, dur: 0.055, type: 'sine', vol: 0.07 });
+    }
+  },
+  /** Two soft hollow owl calls. */
+  owl() {
+    const bus = voiceBus(0.26, (Math.random() - 0.5) * 0.55, false);
+    if (!bus) return;
+    for (const [delay, start, end] of [[0, 465, 338], [0.64, 390, 280]] as const) {
+      toneTo(bus.dest, bus.t0 + delay, { freq: start, slideTo: end, dur: 0.52, type: 'sine', vol: 0.13, attack: 0.08,
+        vibrato: { rate: 4.2, depth: 4 } });
+      toneTo(bus.dest, bus.t0 + delay, { freq: start * 2.01, slideTo: end * 1.98, dur: 0.35, type: 'triangle', vol: 0.025, attack: 0.08 });
+    }
+  },
+  /** Distant layered wolf howl; the slow pitch bend reads as a call across the valley. */
+  wolfHowl() {
+    const bus = voiceBus(0.23, (Math.random() - 0.5) * 0.7, false);
+    if (!bus) return;
+    const base = 285 + Math.random() * 45;
+    toneTo(bus.dest, bus.t0, { freq: base, slideTo: base * 1.58, dur: 1.5, type: 'sawtooth', vol: 0.045, attack: 0.25,
+      filter: { type: 'lowpass', freq: 900, q: 1.3, sweepTo: 1250 }, vibrato: { rate: 4.5, depth: 7 } });
+    toneTo(bus.dest, bus.t0 + 0.24, { freq: base * 0.5, slideTo: base * 0.9, dur: 1.7, type: 'sine', vol: 0.11, attack: 0.35,
+      vibrato: { rate: 4.1, depth: 5 } });
+    noiseTo(bus.dest, bus.t0 + 0.12, { dur: 0.7, vol: 0.025, freq: 780, q: 0.7, type: 'lowpass', sweepTo: 1200, attack: 0.18 });
+  },
+  /** Tiny ember crackle when raw food is cooked at a live campfire. */
+  fireCrackle() {
+    if (!ctx || !master || muted) return;
+    const t0 = now();
+    noiseTo(master, t0, { dur: 0.16, vol: 0.075, freq: 2200 + Math.random() * 900, q: 1.2, type: 'highpass', sweepTo: 900 });
+    toneTo(master, t0 + 0.015, { freq: 470 + Math.random() * 180, slideTo: 230, dur: 0.12, type: 'triangle', vol: 0.045 });
   },
   /**
    * Old timber lid: a slow stick-slip groan with a low wooden knock.

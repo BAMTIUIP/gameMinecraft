@@ -11,6 +11,11 @@ import {
   COAL,
   COBBLE,
   COOKED_MEAT,
+  WHEAT,
+  WHEAT_SEEDS,
+  WHEAT_CROP_1,
+  WHEAT_CROP_2,
+  WHEAT_CROP_3,
   DIAMOND,
   DOOR_IRON,
   DOOR_WOOD,
@@ -107,7 +112,8 @@ import {
   baseChestId,
 } from './blocks';
 import { resourceSellPrice } from './economy';
-import { CHUNK, ORIGIN_X, ORIGIN_Z, WY, World, chunkKey, keyToChunk, type Biome } from './world';
+import { cookedMeatForRaw, foodHeal, meatDropForAnimal } from './food';
+import { CHUNK, ORIGIN_X, ORIGIN_Z, SEA, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
   HAND,
   RECIPES,
@@ -199,14 +205,19 @@ const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
 ) as Record<AffixId, Parameters<typeof t>[0]>;
 const RARITY_COLORS = RARITY.map((r) => r.color);
+const CAMPFIRE_SMOKE_PUFFS = 12;
 
 import {
-  buildChunkGeometry,
+  buildChunkGeometrySteps,
+  type ChunkGeometry,
   chestLidGeometry,
   CHEST_LID_HINGE_Y,
   CHEST_LID_HINGE_Z,
   CHEST_LID_OPEN_ANGLE,
   type ChestLidSpec,
+  type CampfireSpec,
+  CAMPFIRE_SMOKE_HEIGHT,
+  HAY_CAMPFIRE_SMOKE_HEIGHT,
 } from './mesher';
 import { crackTileUV, getAtlasTexture, getCloudTexture, getCrackTexture, getSkyTexture, tileUV } from './textures';
 import { mulberry32, seedNoise } from './noise';
@@ -217,6 +228,7 @@ import {
   sfx,
   stopMusic,
   suspendAudio,
+  setMusicMood,
   type CreatureVoice,
   type VoiceState,
 } from './audio';
@@ -1180,6 +1192,26 @@ export class Engine {
   private waterMeshes = new Map<number, THREE.Mesh>();
   private decorMat!: THREE.MeshBasicMaterial;
   private decorMeshes = new Map<number, THREE.Mesh>();
+  private geometryBandByKey = new Map<number, number>();
+  private meshBandKey = 0;
+  private menuWorldStreaming = false;
+  private menuWorldStarterSeeded = false;
+  private campfireVisuals = new Map<number, {
+    group: THREE.Group;
+    outerFlames: THREE.InstancedMesh;
+    innerFlames: THREE.InstancedMesh;
+    smoke: THREE.InstancedMesh;
+    fires: Array<{ x: number; y: number; z: number; phase: number; smokeHeight: number; smokeIndex: number }>;
+  }>();
+  private campfireDummy = new THREE.Object3D();
+  private campfireOuterGeometry = new THREE.ConeGeometry(0.19, 0.74, 6);
+  private campfireInnerGeometry = new THREE.ConeGeometry(0.12, 0.48, 6);
+  private campfireSmokeGeometry = new THREE.SphereGeometry(0.13, 5, 4);
+  private campfireOuterMaterial = new THREE.MeshBasicMaterial({ color: 0xff641b, transparent: true, opacity: 0.92, depthWrite: false, toneMapped: false });
+  private campfireInnerMaterial = new THREE.MeshBasicMaterial({ color: 0xffc64b, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false });
+  private campfireSmokeMaterial = new THREE.MeshBasicMaterial({ color: 0x99938d, transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false });
+  private campfireVisualClock = 0;
+  private campfireDamageCooldown = new WeakMap<Mob, number>();
   /** hinged chest lids, kept per chunk next to the meshes they belong to */
   private chestLids = new Map<number, Array<{ cell: string; group: THREE.Group }>>();
   private chestLidByCell = new Map<string, THREE.Group>();
@@ -1188,17 +1220,39 @@ export class Engine {
   private chestInventories = new Map<string, Map<number, number>>();
   private chestBonusGear = new Map<string, Item[]>();
   private activeChest: { x: number; y: number; z: number } | null = null;
-  /** horizontal draw distance in blocks (auto-tuned by the fps watchdog) */
-  private renderDist = 132;
-  private maxRenderDist = 132;
+  /** Horizontal draw distance in blocks (auto-tuned by the frame-time watchdog). */
+  private renderDist = 88;
+  private minRenderDist = 48;
+  private maxRenderDist = 112;
 
   private setRenderDist(d: number) {
-    this.renderDist = Math.max(64, Math.min(this.maxRenderDist, d));
+    this.renderDist = Math.max(this.minRenderDist, Math.min(this.maxRenderDist, d));
     const fog = this.scene.fog as THREE.Fog | null;
     if (fog) {
       fog.far = this.renderDist * 0.94;
       fog.near = fog.far * 0.38;
     }
+  }
+
+  private isPlayerUnderground() {
+    return this.pos.y + EYE < SEA - 20;
+  }
+
+  private worldRenderDistance() {
+    // Keep the broad surface panorama, but tunnel views need far fewer horizontal chunks.
+    return this.isPlayerUnderground() ? Math.min(this.renderDist, CHUNK * 3) : this.renderDist;
+  }
+
+  private meshBandForPlayer() {
+    if (!this.isPlayerUnderground()) {
+      // Surface-only band: retain terrain, trees and the top of shallow cuts; deeper rock is meshed
+      // only after the player descends, rather than paying for it across every visible surface chunk.
+      const minY = Math.max(0, Math.floor((SEA - 24) / 32) * 32);
+      return { key: WY * 2 + minY, minY, maxY: WY };
+    }
+    // Underground, mesh a moving window around the player. The upper cap stays beyond the fog wall.
+    const minY = Math.max(0, Math.floor((this.pos.y + EYE - 64) / 32) * 32);
+    return { key: minY, minY, maxY: Math.min(WY, minY + 128) };
   }
 
   private fx!: HTMLDivElement;
@@ -1305,6 +1359,10 @@ export class Engine {
   private spawnTimer = 0;
   private animalTimer = 0;
   private ambientTimer = 0;
+  private dayBirdAudioTimer = 3.5;
+  private cricketAudioTimer = 1.8;
+  private owlAudioTimer = 14;
+  private wolfHowlAudioTimer = 24;
   private kills = 0;
   private killedBy: string | null = null;
   private wasNight = false;
@@ -1519,7 +1577,9 @@ export class Engine {
   private fpsFrames = 0;
   private fps = 60;
   private slowFrames = 0;
+  private fastFrames = 0;
   private basePixelRatio = 1;
+  private minPixelRatio = 0.7;
   private disposed = false;
   private lastHudKey = '';
   private menuAngle = 0;
@@ -1543,10 +1603,15 @@ export class Engine {
   mount() {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    this.basePixelRatio = Math.min(window.devicePixelRatio || 1, this.isCoarse() ? 1.5 : 2);
-    // phones start with a tighter horizon; the watchdog opens it back up
-    this.maxRenderDist = this.isCoarse() ? 104 : 132;
-    this.renderDist = this.isCoarse() ? 88 : 132;
+    const coarseDevice = this.isCoarse();
+    // Rendering at DPR 2 costs roughly four times as many pixels as DPR 1; favour frame time on phones.
+    // Start near native resolution instead of a costly 1.5x supersample; quality rises only after
+    // the frame-time watchdog confirms sustained headroom.
+    this.basePixelRatio = Math.min(window.devicePixelRatio || 1, coarseDevice ? 0.95 : 1.25);
+    this.minPixelRatio = coarseDevice ? 0.5 : 0.58;
+    this.minRenderDist = coarseDevice ? 40 : 48;
+    this.maxRenderDist = coarseDevice ? 72 : 104;
+    this.renderDist = coarseDevice ? 56 : 80;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
     this.renderer.setPixelRatio(this.basePixelRatio);
@@ -3214,8 +3279,14 @@ if (tpClipActive > 0.5) {
     this.wasNight = this.isNightClock();
   }
 
-  private queueWorldGen(seed: number) {
+  private queueWorldGen(seed: number, dynamicMenu = false) {
     this.loadTasks = [];
+    this.menuWorldStreaming = false;
+    this.menuWorldStarterSeeded = false;
+    this.dirtyChunks.clear();
+    this.dirtyMeshJob = null;
+    this.activeStreamJob = null;
+    this.activeStreamKey = null;
     this.loadProgress = 0;
     this.weatherKind = 'clear';
     this.weatherTargetKind = 'clear';
@@ -3233,28 +3304,51 @@ if (tpClipActive > 0.5) {
     this.setMenuClockForMode();
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
-    const R = 4; // starter area: 9×9 chunk terrain, 7×7 decorated+meshed
-    for (let cz = c0z - R; cz <= c0z + R; cz++)
-      for (let cx = c0x - R; cx <= c0x + R; cx++) {
-        this.loadTasks.push(() => {
-          this.world.genTerrain(cx, cz);
-          return true;
-        });
+    if (dynamicMenu) {
+      // Keep the menu interactive: the new seed appears immediately and its 7×7 surface is rebuilt
+      // incrementally behind the menu instead of replacing it with a loading screen.
+      const x = ORIGIN_X + 0.5;
+      const z = ORIGIN_Z + 0.5;
+      this.pos.set(x, this.world.heightAt(ORIGIN_X, ORIGIN_Z) + 1.02, z);
+      this.spawnX = x;
+      this.spawnY = this.pos.y;
+      this.spawnZ = z;
+      this.yaw = this.world.spawnYawFor(x, z);
+      this.pitch = -0.14;
+      this.meshBandKey = this.meshBandForPlayer().key;
+      this.loadTotal = 0;
+      this.loadProgress = 1;
+      this.phase = 'menu';
+      this.menuWorldStreaming = true;
+      this.lastLoadPct = -1;
+      requestMusic();
+      this.syncHud(true);
+      return;
+    }
+    const R = 2; // Start with 5×5 chunks, then expand to 49 surface chunks behind the menu
+    const offsets: Array<[number, number]> = [];
+    for (let r = 0; r <= R; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) === r) offsets.push([dx, dz]);
+        }
       }
-    for (let cz = c0z - R + 1; cz <= c0z + R - 1; cz++)
-      for (let cx = c0x - R + 1; cx <= c0x + R - 1; cx++) {
-        this.loadTasks.push(() => {
-          this.world.decorate(cx, cz);
-          return true;
-        });
-      }
-    for (let cz = c0z - R + 1; cz <= c0z + R - 1; cz++)
-      for (let cx = c0x - R + 1; cx <= c0x + R - 1; cx++) {
-        this.loadTasks.push(() => {
-          this.buildChunk(cx, cz);
-          return true;
-        });
-      }
+    }
+    // Prioritize the spawn and work outward so the useful scene appears before distant chunks.
+    for (const [dx, dz] of offsets) {
+      const cx = c0x + dx;
+      const cz = c0z + dz;
+      this.loadTasks.push(() => this.world.advanceTerrain(cx, cz, 1));
+    }
+    for (const [dx, dz] of offsets) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) >= R) continue;
+      const cx = c0x + dx;
+      const cz = c0z + dz;
+      this.loadTasks.push(() => {
+        this.world.decorate(cx, cz);
+        return true;
+      });
+    }
     this.loadTasks.push(() => {
       const [x, y, z] = this.world.findSpawn();
       this.pos.set(x, y, z);
@@ -3262,33 +3356,76 @@ if (tpClipActive > 0.5) {
       this.pitch = -0.14;
       this.visualClimateReady = false;
       this.setMenuClockForMode();
+      this.meshBandKey = this.meshBandForPlayer().key;
       this.seedStarterWildlife(x, z, this.yaw);
+      this.menuWorldStarterSeeded = true;
       return true;
     });
+    for (const [dx, dz] of offsets) {
+      const cx = c0x + dx;
+      const cz = c0z + dz;
+      this.loadTasks.push(this.createChunkMeshTask(cx, cz));
+    }
     this.loadTotal = this.loadTasks.length;
+    this.menuWorldStreaming = true;
     this.phase = 'loading';
   }
 
   // ================= CHUNK STREAMING =================
-  /** make sure a chunk is fully generated (terrain + neighbours + decoration) */
-  private ensureDecorated(cx: number, cz: number) {
-    for (let dz = -1; dz <= 1; dz++)
-      for (let dx = -1; dx <= 1; dx++) this.world.genTerrain(cx + dx, cz + dz);
+  /** Generate neighbours and mesh one chunk incrementally to avoid >16 ms frame spikes. */
+  private *streamChunkBuildSteps(cx: number, cz: number, band: ReturnType<Engine['meshBandForPlayer']>): Generator<void, void, void> {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        while (!this.world.advanceTerrain(cx + dx, cz + dz, 1)) yield;
+      }
+    }
     const wasDecorated = this.world.isDecorated(cx, cz);
     this.world.decorate(cx, cz);
     // Decoration can spill structures, trees and lamps into neighbouring chunks.
-    // If those neighbours were already meshed, rebuild them lazily to avoid
-    // persistent see-through holes around large desert/jungle structures.
     if (!wasDecorated) {
       for (let dz = -1; dz <= 1; dz++) {
         for (let dx = -1; dx <= 1; dx++) {
           if (dx === 0 && dz === 0) continue;
           const key = chunkKey(cx + dx, cz + dz);
-          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key)) {
+          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key))
             this.dirtyChunks.add(key);
-          }
         }
       }
+    }
+    const geometry = yield* buildChunkGeometrySteps(this.world, cx, cz, 256, band.minY, band.maxY);
+    this.installChunkGeometry(cx, cz, geometry, band.key);
+  }
+
+  private refreshMeshBand() {
+    const band = this.meshBandForPlayer();
+    if (band.key === this.meshBandKey) return;
+    this.meshBandKey = band.key;
+
+    const pcx = Math.floor(this.pos.x / CHUNK);
+    const pcz = Math.floor(this.pos.z / CHUNK);
+    const radius = this.isPlayerUnderground() ? 2 : 3;
+    const near = (key: number) => {
+      const [cx, cz] = keyToChunk(key);
+      return Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) <= radius;
+    };
+    const keys = new Set<number>([...this.geometryBandByKey.keys()].filter(near));
+    for (const key of this.dirtyChunks) if (near(key)) keys.add(key);
+    if (this.dirtyMeshJob && near(this.dirtyMeshJob.key)) keys.add(this.dirtyMeshJob.key);
+    this.dirtyChunks.clear();
+    this.dirtyMeshJob = null;
+    this.activeStreamJob = null;
+    this.activeStreamKey = null;
+    // Keep the old band visible while only nearby chunks are rebuilt. Far surface chunks retain
+    // their cached mesh and are converted lazily if they become visible again.
+    this.meshedEmpty.clear();
+    const nearestFirst = [...keys].sort((a, b) => {
+      const [ax, az] = keyToChunk(a), [bx, bz] = keyToChunk(b);
+      return (ax - pcx) ** 2 + (az - pcz) ** 2 - ((bx - pcx) ** 2 + (bz - pcz) ** 2);
+    });
+    for (const key of nearestFirst) {
+      const [cx, cz] = keyToChunk(key);
+      if (this.world.hasTerrain(cx, cz)) this.dirtyChunks.add(key);
+      else this.geometryBandByKey.delete(key);
     }
   }
 
@@ -3297,35 +3434,62 @@ if (tpClipActive > 0.5) {
    * budget generating + meshing the nearest missing chunks, and drop meshes
    * that fell far behind. The map never ends.
    */
-  private streamChunks(px: number, pz: number) {
+  private streamChunks(px: number, pz: number, maxChunkRadius = this.isPlayerUnderground() ? 2 : 3, forceRadius = false) {
+    this.refreshMeshBand();
     const t0 = performance.now();
-    // adaptive budget: generous when we're fast, frugal when frames slip;
-    // pending dirty-rebuilds always take priority over new terrain
-    const budgetMs = this.dirtyChunks.size > 0 ? 2.5 : this.fps < 50 ? 4 : 7;
     const pcx = Math.floor(px / CHUNK);
     const pcz = Math.floor(pz / CHUNK);
-    const radius = Math.ceil(this.renderDist / CHUNK) + 1;
+    const renderDistance = this.worldRenderDistance();
+    const radius = Math.min(Math.ceil(renderDistance / CHUNK), maxChunkRadius);
+    const farSq = renderDistance * renderDistance;
 
-    // spiral out from the player so close terrain always wins
-    outer: for (let r = 0; r <= radius; r++) {
-      for (let dz = -r; dz <= r; dz++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
-          const cx = pcx + dx;
-          const cz = pcz + dz;
-          const key = chunkKey(cx, cz);
-          if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key)) continue;
-          if (this.meshedEmpty.has(key)) continue;
-          this.ensureDecorated(cx, cz);
-          this.buildChunk(cx, cz);
-          if (performance.now() - t0 > budgetMs) break outer; // frame budget
+    // Surface: at most 7×7 (49) chunks. Underground: a tighter 5×5 window. During a menu seed
+    // change, finish the complete surface square even if adaptive quality temporarily shortened fog.
+    if (!this.activeStreamJob) {
+      outer: for (let r = 0; r <= radius; r++) {
+        for (let dz = -r; dz <= r; dz++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+            const cx = pcx + dx;
+            const cz = pcz + dz;
+            const centerX = cx * CHUNK + CHUNK / 2;
+            const centerZ = cz * CHUNK + CHUNK / 2;
+            if (!forceRadius && (centerX - px) ** 2 + (centerZ - pz) ** 2 >= farSq) continue;
+            const key = chunkKey(cx, cz);
+            if (this.geometryBandByKey.has(key) && this.geometryBandByKey.get(key) !== this.meshBandKey) {
+              this.dirtyChunks.add(key);
+              continue;
+            }
+            if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key) || this.meshedEmpty.has(key) || this.dirtyChunks.has(key) || this.dirtyMeshJob?.key === key) continue;
+            this.activeStreamKey = key;
+            this.activeStreamJob = this.streamChunkBuildSteps(cx, cz, this.meshBandForPlayer());
+            break outer;
+          }
+        }
+      }
+    }
+    if (this.activeStreamJob) {
+      const budgetMs = this.phase === 'menu' ? 4 : this.fps < 54 ? 1.5 : 2.8;
+      while (this.activeStreamJob && performance.now() - t0 < budgetMs) {
+        const result = this.activeStreamJob.next();
+        if (result.done) {
+          this.activeStreamJob = null;
+          this.activeStreamKey = null;
+          break;
         }
       }
     }
 
     // unload meshes far beyond the horizon (world data stays cached)
     if ((this.frameNo & 31) === 0) {
-      const drop = (this.renderDist / CHUNK + 4) ** 2;
+      const drop = (renderDistance / CHUNK + 2) ** 2;
+      if (this.activeStreamKey !== null) {
+        const [scx, scz] = keyToChunk(this.activeStreamKey);
+        if ((scx - pcx) ** 2 + (scz - pcz) ** 2 > drop) {
+          this.activeStreamJob = null;
+          this.activeStreamKey = null;
+        }
+      }
       for (const [key, mesh] of this.chunkMeshes) {
         const [cx, cz] = keyToChunk(key);
         const dx = cx - pcx;
@@ -3365,13 +3529,30 @@ if (tpClipActive > 0.5) {
           mesh.geometry.dispose();
           this.decorMeshes.delete(key);
           this.clearChestLids(key);
+          this.clearCampfireVisuals(key);
         }
+      }
+      for (const key of [...this.campfireVisuals.keys()]) {
+        const [cx, cz] = keyToChunk(key);
+        const dx = cx - pcx;
+        const dz = cz - pcz;
+        if (dx * dx + dz * dz > drop) this.clearCampfireVisuals(key);
       }
       for (const key of this.meshedEmpty) {
         const [cx, cz] = keyToChunk(key);
         const dx = cx - pcx;
         const dz = cz - pcz;
         if (dx * dx + dz * dz > drop) this.meshedEmpty.delete(key);
+      }
+      for (const key of [...this.geometryBandByKey.keys()]) {
+        const [cx, cz] = keyToChunk(key);
+        const dx = cx - pcx;
+        const dz = cz - pcz;
+        if (dx * dx + dz * dz > drop) {
+          this.geometryBandByKey.delete(key);
+          this.clearChestLids(key);
+          this.clearCampfireVisuals(key);
+        }
       }
     }
   }
@@ -3386,6 +3567,9 @@ if (tpClipActive > 0.5) {
    * of chunks without ever spiking a frame.
    */
   private dirtyChunks = new Set<number>();
+  private dirtyMeshJob: { key: number; cx: number; cz: number; bandKey: number; steps: Generator<void, ChunkGeometry, void> } | null = null;
+  private activeStreamJob: Generator<void, void, void> | null = null;
+  private activeStreamKey: number | null = null;
 
   private markDirtyAt(x: number, z: number) {
     const cx = Math.floor(x / CHUNK);
@@ -3401,13 +3585,25 @@ if (tpClipActive > 0.5) {
   }
 
   private flushDirtyChunks() {
-    if (!this.dirtyChunks.size) return;
-    const t0 = performance.now();
-    for (const key of this.dirtyChunks) {
-      this.dirtyChunks.delete(key);
-      const [cx, cz] = keyToChunk(key);
-      this.buildChunk(cx, cz);
-      if (performance.now() - t0 > 4) break; // ~4ms budget per frame
+    const started = performance.now();
+    const budgetMs = this.fps < 54 ? 1 : 2;
+    while (performance.now() - started < budgetMs) {
+      if (!this.dirtyMeshJob) {
+        const next = this.dirtyChunks.values().next();
+        if (next.done) return;
+        const key = next.value;
+        this.dirtyChunks.delete(key);
+        const [cx, cz] = keyToChunk(key);
+        if (!this.world.hasTerrain(cx, cz)) continue;
+        const band = this.meshBandForPlayer();
+        this.dirtyMeshJob = { key, cx, cz, bandKey: band.key, steps: buildChunkGeometrySteps(this.world, cx, cz, 256, band.minY, band.maxY) };
+      }
+      const result = this.dirtyMeshJob.steps.next();
+      if (result.done) {
+        const { cx, cz, bandKey } = this.dirtyMeshJob;
+        this.installChunkGeometry(cx, cz, result.value, bandKey);
+        this.dirtyMeshJob = null;
+      }
     }
   }
 
@@ -3430,6 +3626,107 @@ if (tpClipActive > 0.5) {
     for (const key of [...this.chestLids.keys()]) this.clearChestLids(key);
     this.chestLidByCell.clear();
     this.chestLidAnims.length = 0;
+  }
+
+  private clearCampfireVisuals(key: number) {
+    const visuals = this.campfireVisuals.get(key);
+    if (!visuals) return;
+    this.scene.remove(visuals.group);
+    visuals.group.clear();
+    this.campfireVisuals.delete(key);
+  }
+
+  private clearAllCampfireVisuals() {
+    for (const key of [...this.campfireVisuals.keys()]) this.clearCampfireVisuals(key);
+  }
+
+  /** Instancing keeps each chunk's animated flames and 30/60-block smoke to three draw calls. */
+  private spawnCampfireVisuals(key: number, specs: CampfireSpec[]) {
+    this.clearCampfireVisuals(key);
+    if (!specs.length) return;
+    const group = new THREE.Group();
+    group.frustumCulled = false;
+    const outerFlames = new THREE.InstancedMesh(this.campfireOuterGeometry, this.campfireOuterMaterial, specs.length * 2);
+    const innerFlames = new THREE.InstancedMesh(this.campfireInnerGeometry, this.campfireInnerMaterial, specs.length);
+    const smoke = new THREE.InstancedMesh(this.campfireSmokeGeometry, this.campfireSmokeMaterial, specs.length * CAMPFIRE_SMOKE_PUFFS);
+    for (const mesh of [outerFlames, innerFlames, smoke]) {
+      mesh.frustumCulled = false;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      group.add(mesh);
+    }
+    outerFlames.renderOrder = 5;
+    innerFlames.renderOrder = 5;
+    smoke.renderOrder = 3;
+    const fires = specs.map((spec, index) => ({
+      x: spec.x,
+      y: spec.y,
+      z: spec.z,
+      phase: (spec.x * 1.71 + spec.z * 2.37) % (Math.PI * 2),
+      smokeHeight: spec.hayBoost ? HAY_CAMPFIRE_SMOKE_HEIGHT : CAMPFIRE_SMOKE_HEIGHT,
+      smokeIndex: index * CAMPFIRE_SMOKE_PUFFS,
+    }));
+    this.scene.add(group);
+    this.campfireVisuals.set(key, { group, outerFlames, innerFlames, smoke, fires });
+    this.updateCampfireVisuals(0);
+  }
+
+  private updateCampfireVisuals(dt: number) {
+    this.campfireVisualClock += dt;
+    const dummy = this.campfireDummy;
+    for (const visual of this.campfireVisuals.values()) {
+      if (!visual.group.visible) continue;
+      for (let index = 0; index < visual.fires.length; index++) {
+        const fire = visual.fires[index];
+        const phase = fire.phase;
+        const outerBase = index * 2;
+        for (let flame = 0; flame < 2; flame++) {
+          const flamePhase = phase + (flame === 0 ? 0 : 2.3);
+          const size = flame === 0 ? 1 : 0.82;
+          const pulse = 0.82 + Math.sin(this.campfireVisualClock * 13 + flamePhase) * 0.13 + Math.sin(this.campfireVisualClock * 21 + flamePhase * 1.7) * 0.055;
+          dummy.position.set(
+            fire.x + 0.5 + (flame === 0 ? -0.08 : 0.08) + Math.sin(this.campfireVisualClock * 6 + flamePhase) * 0.018,
+            fire.y + 0.16 + (flame === 0 ? 0.57 : 0.53) + Math.sin(this.campfireVisualClock * 12 + flamePhase) * 0.035,
+            fire.z + 0.5 + (flame === 0 ? 0.015 : -0.035) + Math.cos(this.campfireVisualClock * 7 + flamePhase) * 0.012,
+          );
+          dummy.rotation.set(0, this.campfireVisualClock * 0.35 + flamePhase, Math.sin(this.campfireVisualClock * 8 + flamePhase) * 0.08);
+          dummy.scale.set(size * pulse, size * (0.88 + pulse * 0.22), size * pulse);
+          dummy.updateMatrix();
+          visual.outerFlames.setMatrixAt(outerBase + flame, dummy.matrix);
+        }
+
+        const innerPhase = phase + 1.2;
+        const innerPulse = 0.82 + Math.sin(this.campfireVisualClock * 13 + innerPhase) * 0.13 + Math.sin(this.campfireVisualClock * 21 + innerPhase * 1.7) * 0.055;
+        dummy.position.set(
+          fire.x + 0.5 + 0.005 + Math.sin(this.campfireVisualClock * 6 + innerPhase) * 0.018,
+          fire.y + 0.16 + 0.48 + Math.sin(this.campfireVisualClock * 12 + innerPhase) * 0.035,
+          fire.z + 0.5 + 0.015 + Math.cos(this.campfireVisualClock * 7 + innerPhase) * 0.012,
+        );
+        dummy.rotation.set(0, this.campfireVisualClock * 0.35 + innerPhase, Math.sin(this.campfireVisualClock * 8 + innerPhase) * 0.08);
+        dummy.scale.set(innerPulse, 0.88 + innerPulse * 0.22, innerPulse);
+        dummy.updateMatrix();
+        visual.innerFlames.setMatrixAt(index, dummy.matrix);
+
+        for (let puffIndex = 0; puffIndex < CAMPFIRE_SMOKE_PUFFS; puffIndex++) {
+          const offset = puffIndex / CAMPFIRE_SMOKE_PUFFS;
+          const progress = (this.campfireVisualClock * 0.072 + offset) % 1;
+          const drift = 0.08 + progress * 0.48;
+          const theta = this.campfireVisualClock * 0.85 + offset * Math.PI * 2 + phase;
+          dummy.position.set(
+            fire.x + 0.5 + Math.cos(theta) * drift,
+            fire.y + 0.16 + 0.35 + progress * (fire.smokeHeight - 0.35),
+            fire.z + 0.5 + Math.sin(theta) * drift,
+          );
+          dummy.rotation.set(0, theta, 0);
+          const puffSize = 0.46 + progress * 1.55;
+          dummy.scale.setScalar(puffSize);
+          dummy.updateMatrix();
+          visual.smoke.setMatrixAt(fire.smokeIndex + puffIndex, dummy.matrix);
+        }
+      }
+      visual.outerFlames.instanceMatrix.needsUpdate = true;
+      visual.innerFlames.instanceMatrix.needsUpdate = true;
+      visual.smoke.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** build the swinging lid meshes for a freshly meshed chunk */
@@ -3483,33 +3780,32 @@ if (tpClipActive > 0.5) {
     }
   }
 
-  private buildChunk(cx: number, cz: number) {
+  private createChunkMeshTask(cx: number, cz: number): () => boolean {
+    let job: { bandKey: number; steps: Generator<void, ChunkGeometry, void> } | null = null;
+    return () => {
+      if (!job) {
+        const band = this.meshBandForPlayer();
+        job = { bandKey: band.key, steps: buildChunkGeometrySteps(this.world, cx, cz, 256, band.minY, band.maxY) };
+      }
+      const started = performance.now();
+      let result = job.steps.next();
+      while (!result.done && performance.now() - started < 2.2) result = job.steps.next();
+      if (!result.done) return false;
+      this.installChunkGeometry(cx, cz, result.value, job.bandKey);
+      return true;
+    };
+  }
+
+  private installChunkGeometry(cx: number, cz: number, geo: ChunkGeometry, bandKey = this.meshBandKey) {
     const key = chunkKey(cx, cz);
-    const old = this.chunkMeshes.get(key);
-    if (old) {
+    this.clearCampfireVisuals(key);
+    for (const meshes of [this.chunkMeshes, this.cutoutMeshes, this.waterMeshes, this.decorMeshes]) {
+      const old = meshes.get(key);
+      if (!old) continue;
       this.scene.remove(old);
       old.geometry.dispose();
-      this.chunkMeshes.delete(key);
+      meshes.delete(key);
     }
-    const oldCut = this.cutoutMeshes.get(key);
-    if (oldCut) {
-      this.scene.remove(oldCut);
-      oldCut.geometry.dispose();
-      this.cutoutMeshes.delete(key);
-    }
-    const oldWater = this.waterMeshes.get(key);
-    if (oldWater) {
-      this.scene.remove(oldWater);
-      oldWater.geometry.dispose();
-      this.waterMeshes.delete(key);
-    }
-    const oldDecor = this.decorMeshes.get(key);
-    if (oldDecor) {
-      this.scene.remove(oldDecor);
-      oldDecor.geometry.dispose();
-      this.decorMeshes.delete(key);
-    }
-    const geo = buildChunkGeometry(this.world, cx, cz);
     if (geo.solid) {
       const mesh = new THREE.Mesh(geo.solid, this.material);
       mesh.matrixAutoUpdate = false;
@@ -3540,15 +3836,23 @@ if (tpClipActive > 0.5) {
       this.decorMeshes.set(key, mesh);
     }
     this.spawnChestLids(key, geo.chestLids);
-    if (!geo.solid && !geo.cutout && !geo.water && !geo.decor && !geo.chestLids.length) this.meshedEmpty.add(key);
+    this.spawnCampfireVisuals(key, geo.campfires);
+    this.geometryBandByKey.set(key, bandKey);
+    if (!geo.solid && !geo.cutout && !geo.water && !geo.decor && !geo.chestLids.length && !geo.campfires.length) this.meshedEmpty.add(key);
     else this.meshedEmpty.delete(key);
   }
 
   private updateChunkVisibility() {
+    const renderDistance = this.worldRenderDistance();
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (fog) {
+      fog.far = renderDistance * 0.94;
+      fog.near = fog.far * 0.38;
+    }
     // distance culling is stable frame-to-frame — refresh it at 20Hz
     if ((this.frameNo % 3) !== 0) return;
     const cam = this.camera.position;
-    const far = this.renderDist * this.renderDist;
+    const far = renderDistance * renderDistance;
     for (const [key, m] of this.chunkMeshes) {
       const [cx, cz] = keyToChunk(key);
       const dx = cx * CHUNK + CHUNK / 2 - cam.x;
@@ -3580,18 +3884,17 @@ if (tpClipActive > 0.5) {
       const near = dx * dx + dz * dz < far;
       for (const entry of list) entry.group.visible = near;
     }
+    for (const [key, visuals] of this.campfireVisuals) {
+      const [cx, cz] = keyToChunk(key);
+      const dx = cx * CHUNK + CHUNK / 2 - cam.x;
+      const dz = cz * CHUNK + CHUNK / 2 - cam.z;
+      visuals.group.visible = dx * dx + dz * dz < far;
+    }
   }
 
   private rebuildAt(x: number, z: number) {
-    const cx = Math.floor(x / CHUNK);
-    const cz = Math.floor(z / CHUNK);
-    const lx = x - cx * CHUNK;
-    const lz = z - cz * CHUNK;
-    this.buildChunk(cx, cz);
-    if (lx === 0) this.buildChunk(cx - 1, cz);
-    if (lx === CHUNK - 1) this.buildChunk(cx + 1, cz);
-    if (lz === 0) this.buildChunk(cx, cz - 1);
-    if (lz === CHUNK - 1) this.buildChunk(cx, cz + 1);
+    // Defer edits to the frame-budgeted mesher rather than rebuilding a full 300-block column inline.
+    this.markDirtyAt(x, z);
   }
 
   // ================= INPUT =================
@@ -4104,10 +4407,12 @@ if (tpClipActive > 0.5) {
     try {
       const chunks: Array<[number, number, number[], number[]]> = [];
       for (const [key, ch] of this.world.chunks) {
+        // Streaming may be partway through a chunk; never persist its incomplete terrain buffer.
+        if (ch.state < 1) continue;
         chunks.push([key, ch.state, Engine.rleEnc(ch.blocks), Engine.rleEnc(ch.height)]);
       }
       const data = {
-        v: 3,
+        v: 4,
         savedAt: yaServerTime(),
         seed: this.world.seed,
         clock: this.clock,
@@ -4163,7 +4468,7 @@ if (tpClipActive > 0.5) {
     } catch {
       return false;
     }
-    if (!data || (data.v !== 1 && data.v !== 2 && data.v !== 3)) return false;
+    if (!data || (data.v !== 1 && data.v !== 2 && data.v !== 3 && data.v !== 4)) return false;
 
     // fresh run scaffolding first (clears mobs/doors/trees/fluids/meshes)
     this.startRun(undefined, true);
@@ -4261,7 +4566,11 @@ if (tpClipActive > 0.5) {
     // Normalize the quick bar; JSON round-trips empty holes as null. Older saves
     // have only a type ID, so bind each visible tool to one distinct instance.
     const rawBar: unknown[] = Array.isArray(data.hotbar) ? (data.hotbar as unknown[]) : [HAND];
-    this.hotbar = rawBar.slice(0, 10).map((x) => (typeof x === 'number' ? x : undefined));
+    this.hotbar = rawBar.slice(0, 10).map((x) => {
+      if (typeof x !== 'number') return undefined;
+      // In v1–v3, id 199 was HAND; v4 reclaims it for large cooked crab.
+      return data.v < 4 && x === 199 ? HAND : x;
+    });
     const rawInstanceBar: unknown[] = Array.isArray(data.hotbarInstanceIds) ? data.hotbarInstanceIds : [];
     this.hotbarInstanceIds = Array.from({ length: this.hotbar.length }, () => undefined);
     const usedInstances = new Set<number>();
@@ -4319,12 +4628,21 @@ if (tpClipActive > 0.5) {
     wipe(this.waterMeshes);
     wipe(this.decorMeshes);
     this.clearAllChestLids();
+    this.clearAllCampfireVisuals();
     this.meshedEmpty.clear();
+    this.geometryBandByKey.clear();
     this.dirtyChunks.clear();
+    this.dirtyMeshJob = null;
+    this.activeStreamJob = null;
+    this.activeStreamKey = null;
   }
 
   // ================= PHASE CONTROL =================
-  startRun(seconds?: number, sandbox = false) {
+  startRun(seconds?: number, sandbox = false): boolean {
+    // If the player starts before a regenerated menu world has reached its spawn chunk, finish just
+    // that one terrain chunk synchronously; the surrounding surface and all deep meshes keep streaming.
+    if (this.menuWorldStreaming && !this.menuWorldStarterSeeded)
+      this.world.genTerrain(Math.floor(ORIGIN_X / CHUNK), Math.floor(ORIGIN_Z / CHUNK));
     if (this.activeChest) this.closeActiveChest();
     const survivalRun = this.survival;
     this.clearWolfPetRig();
@@ -4342,7 +4660,7 @@ if (tpClipActive > 0.5) {
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
     initAudio();
-    stopMusic(0.4);
+    requestMusic();
     if (survivalRun) this.runTime = 0;
     else this.runTime = seconds && seconds > 0 ? seconds : EXPLORATION_RUN_TIME;
     this.score = 0;
@@ -4473,6 +4791,7 @@ if (tpClipActive > 0.5) {
     this.updateClock(0);
     this.wasNight = this.isNightClock();
     this.seedStarterWildlife(x, z, this.yaw);
+    this.menuWorldStarterSeeded = true;
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
@@ -4482,6 +4801,7 @@ if (tpClipActive > 0.5) {
     this.requestLock();
     this.syncHotbar(true);
     this.syncHud(true);
+    return true;
   }
 
   /** Apply persisted shop supplies after a fresh run or sandbox world has loaded. */
@@ -4641,29 +4961,8 @@ if (tpClipActive > 0.5) {
     this.mobSys?.clear();
     this.clearFallingTrees();
     this.clearDoors();
-    for (const [, m] of this.chunkMeshes) {
-      this.scene.remove(m);
-      m.geometry.dispose();
-    }
-    this.chunkMeshes.clear();
-    for (const [, m] of this.cutoutMeshes) {
-      this.scene.remove(m);
-      m.geometry.dispose();
-    }
-    this.cutoutMeshes.clear();
-    for (const [, m] of this.waterMeshes) {
-      this.scene.remove(m);
-      m.geometry.dispose();
-    }
-    this.waterMeshes.clear();
-    for (const [, m] of this.decorMeshes) {
-      this.scene.remove(m);
-      m.geometry.dispose();
-    }
-    this.decorMeshes.clear();
-    this.clearAllChestLids();
-    this.meshedEmpty.clear();
-    this.queueWorldGen(nextSeed);
+    this.clearAllMeshes();
+    this.queueWorldGen(nextSeed, true);
   }
 
   pause(bySystem = false) {
@@ -4819,36 +5118,46 @@ if (tpClipActive > 0.5) {
   private loop = (t: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
-    let dt = (t - this.last) / 1000;
+    const elapsed = Math.max(0, (t - this.last) / 1000);
     this.last = t;
+    let dt = elapsed;
     if (dt > 0.1) dt = 0.1;
     if (dt <= 0) dt = 1 / 60;
     this.time += dt;
     this.frameNo++;
 
-    // fps + adaptive resolution
-    this.fpsAcc += dt;
+    // Track real frame gaps for quality decisions; keep simulation dt capped after stalls.
+    this.fpsAcc += Math.min(elapsed, 0.5);
     this.fpsFrames++;
     if (this.fpsAcc >= 0.5) {
       this.fps = Math.round(this.fpsFrames / this.fpsAcc);
       this.fpsAcc = 0;
       this.fpsFrames = 0;
-      const cap = Math.min(window.devicePixelRatio || 1, 2);
-      if (this.fps < 42) {
+      if (this.fps < 56) {
         this.slowFrames++;
-        if (this.slowFrames > 2) {
-          // pull the horizon in first — cheaper than losing sharpness
-          if (this.renderDist > 72) this.setRenderDist(this.renderDist - 16);
-          else if (this.renderer.getPixelRatio() > 0.85)
-            this.renderer.setPixelRatio(Math.max(0.85, this.renderer.getPixelRatio() - 0.25));
+        this.fastFrames = 0;
+        if (this.slowFrames >= 2) {
+          // Reduce GPU fill cost first, then the visible horizon. Never wait for catastrophic FPS.
+          const pixelRatio = this.renderer.getPixelRatio();
+          if (pixelRatio > this.minPixelRatio + 0.01)
+            this.renderer.setPixelRatio(Math.max(this.minPixelRatio, pixelRatio - Math.max(0.14, pixelRatio * 0.18)));
+          else if (this.renderDist > this.minRenderDist + 1)
+            this.setRenderDist(this.renderDist - 8);
           this.slowFrames = 0;
         }
-      } else if (this.fps > 57) {
-        if (this.renderer.getPixelRatio() < this.basePixelRatio)
-          this.renderer.setPixelRatio(Math.min(cap, this.renderer.getPixelRatio() + 0.25));
-        else if (this.renderDist < this.maxRenderDist) this.setRenderDist(this.renderDist + 8);
+      } else if (this.fps >= 59) {
+        this.fastFrames++;
         this.slowFrames = 0;
-      } else this.slowFrames = 0;
+        if (this.fastFrames >= 4) {
+          if (this.renderer.getPixelRatio() < this.basePixelRatio - 0.01)
+            this.renderer.setPixelRatio(Math.min(this.basePixelRatio, this.renderer.getPixelRatio() + 0.08));
+          else if (this.renderDist < this.maxRenderDist) this.setRenderDist(this.renderDist + 4);
+          this.fastFrames = 0;
+        }
+      } else {
+        this.slowFrames = 0;
+        this.fastFrames = 0;
+      }
     }
 
     if (this.phase === 'loading') this.stepLoading();
@@ -4870,12 +5179,11 @@ if (tpClipActive > 0.5) {
   };
 
   private stepLoading() {
-    // spend a fixed slice of the frame so the progress bar stays smooth
+    // Time-slice CPU-heavy terrain and mesh work so loading never freezes the animation loop.
     const t0 = performance.now();
-    let n = 0;
-    while (this.loadTasks.length && n < 8 && performance.now() - t0 < 14) {
-      this.loadTasks.shift()!();
-      n++;
+    while (this.loadTasks.length && performance.now() - t0 < 7) {
+      const done = this.loadTasks[0]();
+      if (done) this.loadTasks.shift();
     }
     this.loadProgress = this.loadTotal ? 1 - this.loadTasks.length / this.loadTotal : 0;
     if (!this.loadTasks.length) {
@@ -4909,7 +5217,38 @@ if (tpClipActive > 0.5) {
     this.camera.fov += (66 - this.camera.fov) * Math.min(1, dt * 3);
     this.camera.updateProjectionMatrix();
     this.updateAmbient(dt);
+    if (this.menuWorldStreaming) {
+      this.streamChunks(ORIGIN_X + 0.5, ORIGIN_Z + 0.5, 3, true);
+      this.flushDirtyChunks();
+      this.finishMenuWorldStreamingIfReady();
+    }
     this.syncHud(false);
+  }
+
+  private finishMenuWorldStreamingIfReady() {
+    if (!this.menuWorldStreaming) return;
+    const centerX = Math.floor(ORIGIN_X / CHUNK);
+    const centerZ = Math.floor(ORIGIN_Z / CHUNK);
+    if (!this.menuWorldStarterSeeded) {
+      let coreReady = true;
+      for (let dz = -1; dz <= 1 && coreReady; dz++)
+        for (let dx = -1; dx <= 1; dx++)
+          if (!this.world.hasTerrain(centerX + dx, centerZ + dz)) { coreReady = false; break; }
+      if (coreReady) {
+        const [x, , z] = this.world.findSpawn();
+        this.spawnX = x;
+        this.spawnZ = z;
+        this.spawnY = this.world.getHeight(Math.floor(x), Math.floor(z)) + 1.02;
+        this.yaw = this.world.spawnYawFor(x, z);
+        this.seedStarterWildlife(x, z, this.yaw);
+        this.menuWorldStarterSeeded = true;
+      }
+    }
+    if (!this.menuWorldStarterSeeded) return;
+    for (let dz = -3; dz <= 3; dz++)
+      for (let dx = -3; dx <= 3; dx++)
+        if (this.geometryBandByKey.get(chunkKey(centerX + dx, centerZ + dz)) !== this.meshBandKey) return;
+    this.menuWorldStreaming = false;
   }
 
   private updateIdle(dt: number) {
@@ -4979,6 +5318,7 @@ if (tpClipActive > 0.5) {
     }
     if (this.attackCd > 0) this.attackCd -= dt;
     this.streamChunks(this.pos.x, this.pos.z);
+    if (this.menuWorldStreaming) this.finishMenuWorldStreamingIfReady();
     this.updateMobs(dt);
     this.updateGuards(dt);
     this.updateNature(dt);
@@ -4988,6 +5328,7 @@ if (tpClipActive > 0.5) {
     this.updateChestLids(dt);
     this.updateBlockGravity();
     this.growVines(dt);
+    this.growWheatCrops(dt);
     this.updateFluids();
     this.flushDirtyChunks();
     this.updateMining(dt);
@@ -5891,10 +6232,46 @@ if (tpClipActive > 0.5) {
     }
   }
 
+  private updateAmbientSoundscape(dt: number, biomeHere: Biome) {
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
+    const night = this.isNightClock();
+    if (!night) {
+      this.cricketAudioTimer = Math.min(this.cricketAudioTimer, 2.5);
+      this.owlAudioTimer = Math.min(this.owlAudioTimer, 8);
+      this.wolfHowlAudioTimer = Math.min(this.wolfHowlAudioTimer, 12);
+      this.dayBirdAudioTimer -= dt;
+      if (this.dayBirdAudioTimer <= 0) {
+        this.dayBirdAudioTimer = 10 + Math.random() * 17;
+        if (!this.inWater && biomeHere !== 'desert' && Math.random() < 0.8) sfx.ambientBird();
+        else if (Math.random() < 0.35) sfx.creature('rustle', { volume: 0.4, pan: (Math.random() - 0.5) * 0.3 });
+      }
+      return;
+    }
+
+    this.dayBirdAudioTimer = Math.min(this.dayBirdAudioTimer, 4);
+    this.cricketAudioTimer -= dt;
+    if (this.cricketAudioTimer <= 0) {
+      this.cricketAudioTimer = 4.2 + Math.random() * 5.5;
+      sfx.crickets();
+    }
+    this.owlAudioTimer -= dt;
+    if (this.owlAudioTimer <= 0) {
+      this.owlAudioTimer = 18 + Math.random() * 19;
+      if (biomeHere !== 'desert' && Math.random() < 0.75) sfx.owl();
+    }
+    this.wolfHowlAudioTimer -= dt;
+    if (this.wolfHowlAudioTimer <= 0) {
+      this.wolfHowlAudioTimer = this.survival ? 30 + Math.random() * 25 : 42 + Math.random() * 28;
+      if (Math.random() < (this.survival ? 0.8 : 0.45)) sfx.wolfHowl();
+    }
+  }
+
   private updateAmbient(dt: number) {
     const biomeHere = this.world.biomeAt(Math.floor(this.pos.x), Math.floor(this.pos.z));
     this.updateWeather(dt, biomeHere);
     this.updatePlacedTorchLights(dt);
+    this.updateCampfireVisuals(dt);
+    this.updateAmbientSoundscape(dt, biomeHere);
     // Grey smoke rises only from active volcanic craters within sight.
     this.volcanoSmokeTimer -= dt;
     if (this.volcanoSmokeTimer <= 0) {
@@ -6266,6 +6643,7 @@ if (tpClipActive > 0.5) {
 
   private breakBlock(x: number, y: number, z: number, id: number) {
     const def = BLOCKS[id];
+    if (id === WHEAT_CROP_1 || id === WHEAT_CROP_2 || id === WHEAT_CROP_3) this.wheatCropGrowth.delete(Engine.packCell(x, y, z));
     if (isTreasureChest(id)) this.spillChestContents(x, y, z, id);
     this.world.set(x, y, z, AIR);
     if (id === BED) {
@@ -6318,8 +6696,11 @@ if (tpClipActive > 0.5) {
     this.enqueueSupportCheck(x, y, z);
     this.enqueueFluid(x, y, z);
 
-    // hives only yield honey that bees actually deposited
-    if (id === BIRD_NEST || id === CHICKEN_NEST) {
+    // Mature wheat yields grain and replanting seeds; immature stalks return only a seed.
+    if (id === WHEAT_CROP_1 || id === WHEAT_CROP_2 || id === WHEAT_CROP_3) {
+      if (id === WHEAT_CROP_3) this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, WHEAT, null, { count: 1 + Math.floor(Math.random() * 3) });
+      this.spawnDrop(x + 0.5, y + 0.5, z + 0.5, WHEAT_SEEDS, null, { count: id === WHEAT_CROP_3 ? 1 + Math.floor(Math.random() * 3) : 1 });
+    } else if (id === BIRD_NEST || id === CHICKEN_NEST) {
       this.birdNests = this.birdNests.filter((n) => n.x !== x || n.y !== y || n.z !== z);
     }
     if (id === HIVE) {
@@ -6495,16 +6876,8 @@ if (tpClipActive > 0.5) {
     }
     // anything the canopy grab missed loses support and crumbles on its own
     for (const [[px, py, pz]] of all) this.enqueueSupportCheck(px, py, pz);
-    // the felled tree's own chunk rebuilds instantly (visual pop matters);
-    // spill-over neighbours go through the deferred queue
-    let first = true;
-    for (const ck of chunks) {
-      const [ccx, ccz] = keyToChunk(ck);
-      if (first) {
-        this.buildChunk(ccx, ccz);
-        first = false;
-      } else this.dirtyChunks.add(ck);
-    }
+    // Rebuild all affected chunks through the incremental mesh queue; a canopy may span many cells.
+    for (const ck of chunks) this.dirtyChunks.add(ck);
 
     // 4. rebuild the tree as one mesh group hinged at the stump
     const pivot = new THREE.Vector3(x + 0.5, y + 1, z + 0.5);
@@ -7841,7 +8214,8 @@ if (tpClipActive > 0.5) {
             // snap! the crab becomes lunch
             this.mobSys.remove(c);
             this.burst(c.x, c.y + 0.3, c.z, [216, 90, 58], 12, 2.4);
-            this.spawnDrop(c.x, c.y + 0.4, c.z, RAW_MEAT);
+            const crabMeat = meatDropForAnimal(c.id, c.variant, Math.abs(c.group.scale.x));
+            if (crabMeat) this.spawnDrop(c.x, c.y + 0.4, c.z, crabMeat.rawId);
           } else if (d < 8) {
             tu.tx = c.x;
             tu.tz = c.z;
@@ -8004,7 +8378,7 @@ if (tpClipActive > 0.5) {
       const fy = Math.max(2, water[1] - 1);
       const px = Math.floor(fx), pz = Math.floor(fz);
       const inWater = this.world.get(px, fy, pz) === WATER;
-      const vi = frySchool ? 4 : Math.floor(Math.random() * 4);
+      const vi = frySchool ? 5 : Math.floor(Math.random() * 5);
       this.mobSys.spawn('fish', inWater ? fx : water[0], fy, inWater ? fz : water[2], vi);
     }
     if (this.world.get(Math.floor(water[0]), water[1] - 2, Math.floor(water[2])) === WATER && Math.random() < 0.32) {
@@ -8057,6 +8431,27 @@ if (tpClipActive > 0.5) {
   }
 
   private vineTips = new Map<number, { x: number; y: number; z: number; t: number }>();
+  private wheatCropGrowth = new Map<number, { x: number; y: number; z: number; stage: number; timer: number }>();
+
+  private growWheatCrops(dt: number) {
+    for (const [key, crop] of this.wheatCropGrowth) {
+      const expectedId = crop.stage === 1 ? WHEAT_CROP_1 : crop.stage === 2 ? WHEAT_CROP_2 : WHEAT_CROP_3;
+      if (this.world.get(crop.x, crop.y, crop.z) !== expectedId) {
+        this.wheatCropGrowth.delete(key);
+        continue;
+      }
+      crop.timer -= dt;
+      if (crop.timer > 0) continue;
+      if (crop.stage >= 3) {
+        this.wheatCropGrowth.delete(key);
+        continue;
+      }
+      crop.stage += 1;
+      crop.timer = crop.stage === 3 ? 32 : 24;
+      this.world.set(crop.x, crop.y, crop.z, crop.stage === 2 ? WHEAT_CROP_2 : WHEAT_CROP_3);
+      this.markDirtyAt(crop.x, crop.z);
+    }
+  }
 
   private growVines(dt: number) {
     for (const [key, tip] of this.vineTips) {
@@ -8182,18 +8577,35 @@ if (tpClipActive > 0.5) {
       }
       return;
     }
-    // Right-clicking while holding Food in hand eats it
-    const foodHeal =
-      id === COOKED_MEAT ? 30 : id === COCONUT ? 22 : id === APPLE ? 20 : id === BANANA ? 16 : id === HONEY ? 15 : 0;
-    if (foodHeal > 0) {
+    // Raw meat can be roasted directly from the selected slot by right-clicking its campfire.
+    const cookedId = cookedMeatForRaw(id);
+    if (cookedId !== null) {
+      const target = this.target;
+      const count = this.inventory.get(id) ?? 0;
+      if (target?.id === CAMPFIRE && count > 0) {
+        this.inventory.set(id, count - 1);
+        this.inventory.set(cookedId, (this.inventory.get(cookedId) ?? 0) + 1);
+        this.placeCooldown = 0.38;
+        this.startSwing(0.45);
+        sfx.place();
+        this.burst(target.x + 0.5, target.y + 0.55, target.z + 0.5, [255, 152, 52], 8, 1.1);
+        this.popup(target.x + 0.5, target.y + 1.2, target.z + 0.5, `${blockName(cookedId, BLOCKS[cookedId]?.name ?? 'Cooked meat')}!`, '#ffc15e', true);
+        this.syncHotbar(true);
+        this.syncHud(true);
+      }
+      return;
+    }
+    // Right-clicking while holding prepared food consumes one portion.
+    const healAmount = foodHeal(id);
+    if (healAmount > 0) {
       const count = this.inventory.get(id) ?? 0;
       if (count > 0) {
         this.inventory.set(id, count - 1);
-        this.health = Math.min(100, this.health + foodHeal);
+        this.health = Math.min(100, this.health + healAmount);
         this.placeCooldown = 0.32;
         this.startSwing(0.45);
         sfx.pickup(4);
-        this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${foodHeal} ${t('hp')}`, '#93c95d', true);
+        this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${healAmount} ${t('hp')}`, '#93c95d', true);
         this.syncHotbar(true);
         this.syncHud(true);
       }
@@ -8205,6 +8617,21 @@ if (tpClipActive > 0.5) {
     }
     const t2 = this.target;
     if (!t2) return;
+    if (id === WHEAT_SEEDS) {
+      const cropY = t2.y + 1;
+      const count = this.inventory.get(WHEAT_SEEDS) ?? 0;
+      if (t2.id !== FARMLAND || count <= 0 || this.world.get(t2.x, cropY, t2.z) !== AIR) return;
+      this.world.set(t2.x, cropY, t2.z, WHEAT_CROP_1);
+      this.wheatCropGrowth.set(Engine.packCell(t2.x, cropY, t2.z), { x: t2.x, y: cropY, z: t2.z, stage: 1, timer: 24 });
+      this.inventory.set(WHEAT_SEEDS, count - 1);
+      this.rebuildAt(t2.x, t2.z);
+      this.placeCooldown = 0.2;
+      sfx.place();
+      this.burst(t2.x + 0.5, cropY + 0.3, t2.z + 0.5, [127, 174, 62], 5, 0.8);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return;
+    }
     if (id >= TOOL_PICK || isResource(id)) return; // tools/resources don't place as blocks
     if ((this.inventory.get(id) ?? 0) <= 0) {
       if (this.placeCooldown <= 0) {
@@ -9280,6 +9707,7 @@ if (tpClipActive > 0.5) {
     };
 
     const phase = this.clockPhase();
+    setMusicMood(this.survival && phase === 'night' ? 'tense' : 'calm');
     const prog = this.clockPhaseProgress();
     const sunAngle = this.clock * Math.PI * 2 - Math.PI / 2;
     const sunHeight = Math.sin(sunAngle);
@@ -9458,6 +9886,44 @@ if (tpClipActive > 0.5) {
     }
     // smaller wildlife sings more softly
     if (best) this.playMobVoice(best, 'idle', best.id === 'bird' || best.id === 'bee' ? 0.75 : 1);
+  }
+
+  private updateCampfireDamage(dt: number) {
+    for (const mob of this.mobSys.mobs) {
+      if (!mob.alive || mob.hidden) continue;
+      const half = Math.max(0.18, mob.collisionHalf * Math.abs(mob.group.scale.x));
+      const height = Math.max(0.35, mob.collisionHeight * Math.abs(mob.group.scale.y));
+      const minX = Math.floor(mob.x - half), maxX = Math.floor(mob.x + half);
+      const minZ = Math.floor(mob.z - half), maxZ = Math.floor(mob.z + half);
+      const minY = Math.floor(mob.y - 0.2), maxY = Math.floor(mob.y + Math.min(height, 1.25));
+      let touchingFire = false;
+      for (let y = minY; y <= maxY && !touchingFire; y++) {
+        for (let z = minZ; z <= maxZ && !touchingFire; z++) {
+          for (let x = minX; x <= maxX; x++) {
+            if (this.world.get(x, y, z) !== CAMPFIRE) continue;
+            if (mob.x + half <= x || mob.x - half >= x + 1 || mob.z + half <= z || mob.z - half >= z + 1) continue;
+            if (mob.y + height <= y + 0.12 || mob.y >= y + 1.15) continue;
+            touchingFire = true;
+            break;
+          }
+        }
+      }
+      if (!touchingFire) {
+        this.campfireDamageCooldown.delete(mob);
+        continue;
+      }
+      const cooldown = (this.campfireDamageCooldown.get(mob) ?? 0) - dt;
+      if (cooldown > 0) {
+        this.campfireDamageCooldown.set(mob, cooldown);
+        continue;
+      }
+      this.campfireDamageCooldown.set(mob, 0.72);
+      mob.hp -= 1;
+      mob.hurtFlash = 0.16;
+      this.mobSys.showHealthBar(mob);
+      this.burst(mob.x, mob.y + 0.18, mob.z, [255, 139, 38], 2, 0.65, 0.18);
+      if (mob.hp <= 0) this.mobDied(mob, true);
+    }
   }
 
   private updateMobs(dt: number) {
@@ -9657,6 +10123,7 @@ if (tpClipActive > 0.5) {
       },
     );
 
+    this.updateCampfireDamage(dt);
     this.updateCreatureVoices(dt);
   }
 
@@ -9976,21 +10443,13 @@ if (tpClipActive > 0.5) {
     }
     this.kills++;
     const def = m.def;
-    // animals & birds drop meat — cooked straight away if they burned
+    // Species and rendered carcass size determine both the meat label and the cooked healing value.
     if (!def.hostile && def.id !== 'jellyfish' && def.id !== 'frog') {
-      const meat = burned ? COOKED_MEAT : RAW_MEAT;
-      const small =
-        def.id === 'chicken' ||
-        def.id === 'rabbit' ||
-        def.id === 'fish' ||
-        def.id === 'bird' ||
-        def.id === 'calf' ||
-        def.id === 'fawn' ||
-        def.id === 'camel_calf' ||
-        def.id === 'lizard' ||
-        def.id === 'monkey';
-      const n = small ? 1 : 2;
-      for (let i = 0; i < n; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, meat);
+      const meat = meatDropForAnimal(def.id, m.variant, Math.abs(m.group.scale.x));
+      if (meat) {
+        const itemId = burned ? meat.cookedId : meat.rawId;
+        for (let i = 0; i < meat.count; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, itemId);
+      }
       // species loot (Minecraft-style, percentage rolls)
       const dropAt = (id: number, chance: number, count = 1) => {
         if (Math.random() < chance) for (let i = 0; i < count; i++) this.spawnDrop(m.x, m.y + 0.5, m.z, id);
