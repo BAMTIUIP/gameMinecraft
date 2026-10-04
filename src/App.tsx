@@ -95,6 +95,7 @@ const INITIAL_HUD: HudState = {
   score: 0,
   timeLeft: EXPLORATION_RUN_TIME,
   health: 100,
+  hunger: 100,
   stamina: 100,
   airBubbles: 6,
   inWater: false,

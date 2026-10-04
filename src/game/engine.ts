@@ -367,6 +367,7 @@ export type HudState = {
   score: number;
   timeLeft: number;
   health: number;
+  hunger: number;
   stamina: number;
   airBubbles: number;
   inWater: boolean;
@@ -1346,6 +1347,8 @@ export class Engine {
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
   private health = 100;
+  private hunger = 100;
+  private hungerDamageTimer = 0;
   private combo = 0;
   private comboTimer = 0;
   private bestCombo = 0;
@@ -5853,6 +5856,12 @@ if (tpClipActive > 0.5) {
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
     const sprinting = sprint && planar > 0.5;
     this.staminaState = stepStamina(this.staminaState, sprinting, dt);
+    // Hunger drains slowly while exploring; at zero it causes periodic starvation damage.
+    this.hunger = Math.max(0, this.hunger - dt * (sprinting ? 0.11 : 0.055));
+    if (this.hunger <= 0) {
+      this.hungerDamageTimer -= dt;
+      if (this.hungerDamageTimer <= 0) { this.hungerDamageTimer = 4; this.damage(2, 'mob'); }
+    } else this.hungerDamageTimer = 0;
     this.fovTarget = sprinting ? 82 : 72;
   }
 
@@ -8689,6 +8698,7 @@ if (tpClipActive > 0.5) {
       if (count > 0) {
         this.inventory.set(id, count - 1);
         this.health = Math.min(100, this.health + healAmount);
+        this.hunger = Math.min(100, this.hunger + Math.max(18, healAmount * 2));
         this.placeCooldown = 0.32;
         this.startSwing(0.45);
         sfx.pickup(4);
@@ -11680,6 +11690,7 @@ if (tpClipActive > 0.5) {
       this.score,
       Math.ceil(this.timeLeft),
       Math.ceil(this.health),
+      Math.round(this.hunger),
       Math.round(this.staminaState.stamina),
       this.breathState.bubbles,
       this.inWater ? 1 : 0,
@@ -11736,6 +11747,7 @@ if (tpClipActive > 0.5) {
       score: this.score,
       timeLeft: this.timeLeft,
       health: Math.max(0, Math.ceil(this.health)),
+      hunger: Math.round(this.hunger),
       stamina: this.staminaState.stamina,
       airBubbles: this.breathState.bubbles,
       inWater: this.inWater,
