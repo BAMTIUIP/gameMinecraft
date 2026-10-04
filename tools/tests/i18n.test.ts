@@ -205,14 +205,14 @@ for (const lang of LANGS_CHECKED) {
   // materials and rarities have their own maps; a handful of words are international
   // (FR «NETHERITE», DE «GOLD»), so the expected wording is spelled out per language
   const materialExpect: Record<string, Record<string, string>> = {
-    ru: { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ' },
-    fr: { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE' },
-    de: { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT' },
+    ru: { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ', REDSTONE: 'РЕДСТОУН', LAPIS: 'ЛАЗУРИТ', EMERALD: 'ИЗУМРУД' },
+    fr: { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE', REDSTONE: 'REDSTONE', LAPIS: 'LAPIS-LAZULI', EMERALD: 'ÉMERAUDE' },
+    de: { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT', REDSTONE: 'REDSTONE', LAPIS: 'LAPISLAZULI', EMERALD: 'SMARAGD' },
   };
   const rarityExpect: Record<string, string[]> = {
-    ru: ['ОБЫЧНЫЙ', 'ПРОЧНЫЙ', 'РЕДКИЙ', 'МИФИЧЕСКИЙ'],
-    fr: ['COMMUN', 'SOLIDE', 'RARE', 'MYTHIQUE'],
-    de: ['GEWÖHNLICH', 'ROBUST', 'SELTEN', 'MYTHISCH'],
+    ru: ['НЕОБЫЧНЫЙ', 'РЕДКИЙ', 'ЭПИЧЕСКИЙ', 'ЛЕГЕНДАРНЫЙ', 'МИФИЧЕСКИЙ'],
+    fr: ['PEU COMMUN', 'RARE', 'ÉPIQUE', 'LÉGENDAIRE', 'MYTHIQUE'],
+    de: ['UNGEWÖHNLICH', 'SELTEN', 'EPISCH', 'LEGENDÄR', 'MYTHISCH'],
   };
   const badMaterials = Object.values(MATERIALS).filter((m) => matName(m.label) !== materialExpect[lang][m.label]);
   ok(badMaterials.length === 0, `Названия материалов переведены (${lang})`, badMaterials.map((m) => `${m.label}=${matName(m.label)}`).join(', '));

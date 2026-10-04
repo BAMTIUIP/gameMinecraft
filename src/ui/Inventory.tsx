@@ -16,13 +16,14 @@ import {
 import { BLOCKS, PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
-import { AFFIXES, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
+import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
 import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { MonkeyIcon } from './MonkeyIcon';
 import { WolfIcon } from './WolfIcon';
+import { GearIcon } from './GearIcon';
 
 // ---------- helpers ----------
 
@@ -37,15 +38,6 @@ function toolIcon(id: number, size = 24, durability?: number): { el: React.React
 function toolLabel(id: number): string {
   return getToolSpec(id) ? toolLabelForId(id) : toolIcon(id, 0).label;
 }
-
-const SLOT_GLYPH: Record<Slot, string> = {
-  head: '⛑',
-  chest: '⛨',
-  legs: '👖',
-  feet: '👢',
-  hands: '🧤',
-  offhand: '🛡',
-};
 
 // ---------- types ----------
 
@@ -71,6 +63,8 @@ type Props = {
   onSellGear: (uid: string) => void;
   onSalvageGear: (uid: string) => void;
   onSalvageItem: (id: number, instanceId?: number) => void;
+  developerKitEnabled?: boolean;
+  onDeveloperGrantAll?: () => boolean;
   isTouch?: boolean;
 };
 
@@ -88,6 +82,7 @@ const INV_CATEGORY_TABS: Array<{ id: InvCategory; key: string }> = [
   { id: 'food', key: 'inv_tab_food' },
   { id: 'armor', key: 'inv_tab_armor' },
   { id: 'blocks', key: 'inv_tab_blocks' },
+  { id: 'pets', key: 'inv_tab_pets' },
 ];
 
 type WorkbenchTarget = { kind: 'item'; id: number; instanceId?: number } | { kind: 'gear'; uid: string } | null;
@@ -126,6 +121,8 @@ export default function Inventory({
   onSellGear,
   onSalvageGear,
   onSalvageItem,
+  developerKitEnabled = false,
+  onDeveloperGrantAll,
   isTouch,
 }: Props) {
   const craftable = new Set(hud.craftable);
@@ -142,21 +139,25 @@ export default function Inventory({
 
   // Filter general inventory stacks + armor items according to selected general inventory tab
   const filteredStacks =
-    invCat === 'armor'
+    invCat === 'armor' || invCat === 'pets'
       ? []
       : hud.inventory.filter((it) => invCat === 'all' || getItemInvCategory(it.id) === invCat);
   const filteredGear = invCat === 'all' || invCat === 'armor' ? hud.bagItems : [];
-  const totalShownCount = filteredStacks.length + filteredGear.length + (hud.petTokenAvailable ? hud.petOwnedKinds.length : 0);
+  const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds : [];
+  const totalShownCount = filteredStacks.length + filteredGear.length + filteredPets.length;
   const petDisplayKind = hud.petEquippedKind ?? hud.petSelectedKind;
   const petDisplayOwned = hud.petOwnedKinds.includes(petDisplayKind);
   const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-pit-950/85 backdrop-blur-[3px]">
+    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
       <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-3 sm:p-6">
         {/* ---------- header ---------- */}
-        <div className="anim-rise bevel notch mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div
+          className="anim-rise bevel notch sticky top-0 z-40 mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+          style={{ top: 'max(0px, env(safe-area-inset-top))' }}
+        >
           <div className="flex items-end gap-3">
             <BagIcon size={30} className="mb-1 text-torch" />
             <div>
@@ -176,8 +177,20 @@ export default function Inventory({
               </span>
               <span className="font-display text-[10px] text-white/40">{PICKAXE_TIERS[hud.tier]?.speed.toFixed(1)}x</span>
             </div>
+            {developerKitEnabled && (
+              <button
+                type="button"
+                data-developer-kit="1"
+                onClick={() => onDeveloperGrantAll?.()}
+                title={t('devKitDescription')}
+                className="notch border border-[#ff536466] bg-[#351a20] px-2.5 py-2 font-display text-[10px] tracking-wider text-[#ff7180] transition hover:bg-[#52212a] hover:text-white"
+              >
+                {t('devKitButton')}
+              </button>
+            )}
             <button
               onClick={onClose}
+              title={t('closeHint')}
               className="bevel-flat notch flex h-10 w-10 items-center justify-center text-white/60 transition hover:text-blood active:scale-95"
               aria-label={t('closeHint')}
             >
@@ -206,7 +219,7 @@ export default function Inventory({
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="font-display text-sm tracking-widest text-torch">{t('haul')}</span>
               <span className="font-display text-[11px] text-white/35">
-                {hud.inventory.length + hud.bagItems.length + (hud.petTokenAvailable ? hud.petOwnedKinds.length : 0)} {t('stacks')}
+                {hud.inventory.length + hud.bagItems.length + hud.petInventoryKinds.length} {t('stacks')}
               </span>
             </div>
 
@@ -242,7 +255,7 @@ export default function Inventory({
               </div>
             ) : (
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
-                {hud.petTokenAvailable && hud.petOwnedKinds.map((kind) => {
+                {filteredPets.map((kind) => {
                   const coatIndex = hud.petCoatIndices[kind];
                   const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
                   const resourceKey = kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource';
@@ -332,6 +345,7 @@ export default function Inventory({
                 {filteredGear.map((it, i) => {
                   const rar = RARITY[it.rarity];
                   const mat = MATERIALS[it.material];
+                  const armorTint = gearColor(it);
                   const inBar = hud.hotbar.some((h) => h !== null && h.id === it.hid);
                   const label = `${t(SLOT_KEY[it.slot])} · ${matName(mat.label)} (${rarName(it.rarity, rar.name)})`;
                   return (
@@ -352,9 +366,7 @@ export default function Inventory({
                         boxShadow: `inset 2px 2px 0 rgba(255,255,255,.1), 0 0 10px ${rar.color}22`,
                       }}
                     >
-                      <span className="text-lg leading-none sm:text-xl" style={{ color: mat.color, textShadow: `0 0 8px ${rar.color}` }}>
-                        {SLOT_GLYPH[it.slot]}
-                      </span>
+                      <GearIcon slot={it.slot} color={armorTint} size={30} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
                       <span className="mt-0.5 max-w-full truncate font-display text-[8px] leading-none" style={{ color: rar.color }}>
                         {t(SLOT_KEY[it.slot])}
                       </span>
@@ -427,9 +439,14 @@ export default function Inventory({
                         }}
                         title={it ? t('unequip') : t('emptySlot')}
                       >
-                        <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
-                        <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? rar!.color : '#3f4c44' }}>
-                          {it ? matName(MATERIALS[it.material].label) : '—'}
+                        <div className="flex min-w-0 items-center gap-1">
+                          {it && <GearIcon slot={it.slot} color={gearColor(it)} size={20} className="shrink-0" />}
+                          <div className="min-w-0">
+                            <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
+                            <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? gearColor(it) : '#3f4c44' }}>
+                              {it ? matName(MATERIALS[it.material].label) : '—'}
+                            </div>
+                          </div>
                         </div>
                         {it && it.affixes.length > 0 && (
                           <div className="mt-0.5 flex gap-0.5">
@@ -460,14 +477,14 @@ export default function Inventory({
                   data-pet-equipped={hud.petEquipped ? 'true' : 'false'}
                   data-pet-coat-index={petDisplayCoatIndex}
                   onDragOver={(e) => {
-                    if (!hud.petTokenAvailable) return;
+                    if (hud.petInventoryKinds.length === 0) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                   }}
                   onDrop={(e) => {
                     const data = e.dataTransfer.getData('text/plain');
                     const kind = data.startsWith('pet:') ? data.slice(4) : '';
-                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petTokenAvailable || !hud.petOwnedKinds.includes(kind)) return;
+                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petInventoryKinds.includes(kind)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     onEquipPet(kind);
@@ -481,7 +498,6 @@ export default function Inventory({
                           key={`pet-select-${kind}`}
                           type="button"
                           data-pet-select={kind}
-                          disabled={hud.petEquipped}
                           aria-label={t(kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource')}
                           onClick={() => onSelectPetKind(kind)}
                           className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
@@ -639,11 +655,13 @@ export default function Inventory({
                             slot.id === HAND ? (
                               <span className="text-2xl leading-none sm:text-3xl lg:text-4xl">✊</span>
                             ) : gearInSlot ? (
-                              <span
-                                className="flex flex-col items-center justify-center leading-none"
-                                style={{ color: MATERIALS[gearInSlot.material].color }}
-                              >
-                                <span className="text-xl leading-none sm:text-2xl lg:text-3xl">{SLOT_GLYPH[gearInSlot.slot]}</span>
+                              <span className="flex flex-col items-center justify-center leading-none">
+                                <GearIcon
+                                  slot={gearInSlot.slot}
+                                  color={gearColor(gearInSlot)}
+                                  size={34}
+                                  className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]"
+                                />
                                 <span className="font-display text-[7px]" style={{ color: RARITY[gearInSlot.rarity].color }}>
                                   ⛨{gearInSlot.armor}
                                 </span>
@@ -903,15 +921,12 @@ function WorkbenchDismantlePanel({
           >
             {resolvedGear ? (
               <>
-                <span
-                  className="text-3xl leading-none"
-                  style={{
-                    color: MATERIALS[resolvedGear.material].color,
-                    textShadow: `0 0 10px ${RARITY[resolvedGear.rarity].color}`,
-                  }}
-                >
-                  {SLOT_GLYPH[resolvedGear.slot]}
-                </span>
+                <GearIcon
+                  slot={resolvedGear.slot}
+                  color={gearColor(resolvedGear)}
+                  size={44}
+                  className="drop-shadow-[0_0_8px_rgba(255,255,255,.18)]"
+                />
                 <span className="mt-1 font-display text-[10px]" style={{ color: RARITY[resolvedGear.rarity].color }}>
                   ⛨{resolvedGear.armor}
                 </span>
@@ -1085,6 +1100,8 @@ function Recipes({
                   <ToolSprite id={r.toolId} size={36} />
                 ) : r.out ? (
                   <img src={getBlockIcon(r.out[0])} alt="" className="pixelated h-9 w-9 drop-shadow-[0_2px_0_rgba(0,0,0,.6)]" draggable={false} />
+                ) : r.kind === 'gear' && r.slot ? (
+                  <GearIcon slot={r.slot} color={r.accent} size={36} />
                 ) : (
                   <span
                     className="flex h-9 w-9 items-center justify-center"
@@ -1274,7 +1291,7 @@ function TradePanel({
                     )}
                   </span>
                   <span className="shrink-0 font-display text-[10px] text-torch">
-                    +{toolSellPrice(s.id)} {t('pts')}
+                    +{toolSellPrice(s.id, s.durability)} {t('pts')}
                   </span>
                 </button>
               );
@@ -1292,7 +1309,7 @@ function TradePanel({
                 <span className="truncate font-display text-[11px]" style={{ color: RARITY[it.rarity].color }}>
                   {t(SLOT_KEY[it.slot])} · {matName(MATERIALS[it.material].label)}
                 </span>
-                <span className="shrink-0 font-display text-[10px] text-torch">{t('sell')}</span>
+                <span className="shrink-0 font-display text-[10px] text-torch">+{gearSellPrice(it)} {t('pts')}</span>
               </button>
             ))}
           </div>
@@ -1315,7 +1332,7 @@ function TradePanel({
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-display text-[10px] text-white/70">×{it.count}</span>
                 <span className="block font-display text-[10px] text-torch">
-                  +{hud.sellPrices[it.id] ? hud.sellPrices[it.id] * it.count : it.count} {t('pts')}
+                  +{(hud.sellPrices[it.id] ?? 1) * it.count} {t('pts')}
                 </span>
               </span>
             </button>
@@ -1412,6 +1429,7 @@ function AnvilPanel({
       })}
       {allGear.map(({ item, equipped }) => {
         const rar = RARITY[item.rarity];
+        const itemTint = gearColor(item);
         const canNeth = item.material === 'diamond' && netherite >= 1;
         const canRe = iron >= 4;
         return (
@@ -1419,8 +1437,8 @@ function AnvilPanel({
             key={item.uid}
             className="notch flex items-center gap-2.5 px-2.5 py-2"
             style={{
-              background: `linear-gradient(90deg, ${MATERIALS[item.material].color}22, rgba(255,255,255,.02) 60%)`,
-              borderLeft: `4px solid ${MATERIALS[item.material].color}`,
+              background: `linear-gradient(90deg, ${itemTint}22, rgba(255,255,255,.02) 60%)`,
+              borderLeft: `4px solid ${itemTint}`,
             }}
           >
             <div className="min-w-0 flex-1">

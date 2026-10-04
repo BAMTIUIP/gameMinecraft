@@ -5,6 +5,11 @@ import type { TKey } from './i18n';
 
 export type PetKind = 'wolf' | 'monkey';
 
+/** The equipped companion is represented in the world/slot, not as a duplicate inventory token. */
+export function getPetInventoryKinds(ownedKinds: readonly PetKind[], equippedKind: PetKind | null = null): PetKind[] {
+  return [...new Set(ownedKinds)].filter((kind) => kind !== equippedKind);
+}
+
 /** Permanent Yandex Console SKUs for the account-restored companions. */
 export const WOLF_PET_PRODUCT_ID = 'pet-wolf' as const;
 export const MONKEY_PET_PRODUCT_ID = 'pet-monkey' as const;

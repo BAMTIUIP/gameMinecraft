@@ -27,6 +27,7 @@ const {
   applyCloudPetState,
   getMonkeyCoatIndex,
   getWolfCoatIndex,
+  getPetInventoryKinds,
   hasMonkeyPet,
   hasWolfPet,
   normalizeMonkeyCoatIndex,
@@ -46,6 +47,9 @@ ok(!hasWolfPet(), 'A new profile does not own a wolf');
 ok(!hasMonkeyPet(), 'A new profile does not own a monkey');
 ok(unlockWolfPet() && hasWolfPet(), 'Unlocking the pet creates permanent ownership');
 ok(unlockMonkeyPet() && hasMonkeyPet(), 'The monkey has its own permanent entitlement');
+ok(getPetInventoryKinds(['wolf', 'monkey'], 'wolf').join(',') === 'monkey', 'Equipping the wolf leaves only the monkey token in the inventory list');
+ok(getPetInventoryKinds(['wolf', 'monkey'], 'monkey').join(',') === 'wolf', 'Equipping the monkey returns the inactive wolf token to inventory');
+ok(getPetInventoryKinds(['wolf', 'wolf', 'monkey']).join(',') === 'wolf,monkey', 'Species tokens are unique even if a saved ownership list contains duplicates');
 ok(JSON.parse(storage.get('orerush.pets.v1') ?? '{}').wolfOwned === true
   && JSON.parse(storage.get('orerush.pets.v1') ?? '{}').monkeyOwned === true, 'Both permanent entitlements are stored locally');
 

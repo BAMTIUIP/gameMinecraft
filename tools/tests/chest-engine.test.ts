@@ -152,7 +152,7 @@ function makeEngine(world = makeWorld()) {
   const savedOk = engine.saveWorld(true);
   ok(savedOk, 'A sandbox world with chest block-entities can be saved');
   const saved = JSON.parse(storage.get('orerush.myworld.v1') ?? 'null');
-  ok(saved?.v === 3, 'Chest contents use the v3 save format');
+  ok(saved?.v === 4, 'Chest contents and the reclaimed meat-item id use the v4 save format');
   ok(saved.chests.some((entry: any[]) => entry[0] === '4,6,4' && entry[1][0][0] === IRON && entry[1][0][1] === 7), 'Saved data includes the chest stack amount');
   ok(saved.chests.some((entry: any[]) => entry[0] === '8,6,4' && entry[1].length === 0), 'Saved data preserves an initialized empty chest');
 }

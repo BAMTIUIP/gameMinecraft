@@ -21,12 +21,12 @@ for (let seed = 1; seed <= trials; seed++) {
   const weak = rollLoot(1, seed);
   if (weak) {
     weakDrops++;
-    if (weak.rarity !== 1 || (weak.material !== 'leather' && weak.material !== 'iron')) weakInvalid++;
+    if (weak.rarity !== 0 || (weak.material !== 'leather' && weak.material !== 'iron')) weakInvalid++;
   }
   const strong = rollLoot(6, seed);
   if (strong) {
     if (strong.rarity >= 2) strongRare++;
-    if (strong.rarity === 3) strongMythic++;
+    if (strong.rarity === 4) strongMythic++;
     if (strong.material === 'netherite') strongNetherite++;
   }
 }

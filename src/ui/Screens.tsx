@@ -543,7 +543,7 @@ export function StartScreen({
   cloudSavedAt: number;
   /** remote-config flag shop.enabled: the shop button disappears when the flag turns it off */
   shopEnabled: boolean;
-  /** visible only in Vite development mode and never on a TV */
+  /** visible only in DEV or an explicit temporary test preview, and never on a TV */
   developerShopEnabled: boolean;
   /** prices from the Yandex Console catalogue, keyed by product id */
   shopPrices: ShopCatalog;
@@ -1787,8 +1787,12 @@ export function PauseScreen({
   onBag,
   music,
   onMusic,
+  musicVolume,
+  onMusicVolume,
   muted,
   onMute,
+  fullscreen,
+  onFullscreen,
   onSaveWorld,
 }: {
   hud: HudState;
@@ -1798,8 +1802,12 @@ export function PauseScreen({
   onBag: () => void;
   music: boolean;
   onMusic: () => void;
+  musicVolume: number;
+  onMusicVolume: (volume: number) => void;
   muted: boolean;
   onMute: () => void;
+  fullscreen: boolean;
+  onFullscreen: () => void;
   onSaveWorld: () => void;
 }) {
   return (
@@ -1835,9 +1843,35 @@ export function PauseScreen({
               💾 {t('saveWorldBtn')}
             </button>
           )}
-          <div className="flex justify-center gap-2">
+          <div className="sunken notch space-y-2 bg-black/20 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2 text-[10px] font-display tracking-[0.18em] text-white/60">
+              <label htmlFor="pause-music-volume">{t('musicVolume')}</label>
+              <span className="tabular-nums text-torch">{Math.round(musicVolume * 100)}%</span>
+            </div>
+            <input
+              id="pause-music-volume"
+              aria-label={t('musicVolume')}
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={musicVolume}
+              onChange={(event) => onMusicVolume(Number(event.currentTarget.value))}
+              className="h-2 w-full cursor-pointer accent-[#f4b942]"
+            />
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
             <Toggle on={music} onClick={onMusic} icon={<MusicIcon off={!music} size={13} />} label={music ? t('musicOn') : t('musicOff')} />
             <Toggle on={!muted} onClick={onMute} icon={<SoundIcon muted={muted} size={13} />} label={muted ? t('sfxOff') : t('sfxOn')} />
+            {fullscreenAvailable() && (
+              <button
+                type="button"
+                onClick={onFullscreen}
+                className="btn-mc notch bg-gradient-to-b from-[#4b5a6d] to-[#2f3d4d] px-3 py-2.5 font-display text-[10px] tracking-wide text-white/90"
+              >
+                ⛶ {fullscreen ? t('fullscreenOn') : t('fullscreenOff')}
+              </button>
+            )}
           </div>
           <div className="flex gap-2.5">
             <button onClick={onRestart} className="btn-mc notch flex-1 bg-gradient-to-b from-pit-500 to-pit-700 py-3 text-base text-white/85">

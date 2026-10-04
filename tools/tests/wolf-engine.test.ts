@@ -93,6 +93,7 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   engine.petCoatIndices = { wolf: 0, monkey: 0 };
   engine.petSelectedKind = 'monkey';
   ok(engine.setPetEquipped('monkey', true), 'An owned monkey token equips into the shared pet slot');
+  ok(engine.petInventoryKinds().join(',') === 'wolf' && engine.petTokenAvailable, 'Equipping one species hides only its own token while preserving the other species token');
   ok(engine.wolfPetRig?.kind === 'monkey' && engine.wolfPetRig.group.userData.companion === 'monkey-pet', 'The regular monkey model is used for the companion rig');
   const voiceCalls: string[] = [];
   const originalCreature = sfx.creature;
@@ -117,6 +118,10 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   ok(voiceCalls.length === 4 && voiceCalls.every((voice) => voice === 'monkey'), 'Every monkey petting response uses only the monkey voice');
   ok(popups.length === 4, 'Each monkey response displays matching feedback');
   ok(engine.setPetEquipped('monkey', false) && engine.petTokenAvailable, 'Unequipping the monkey returns the shared pet token');
+  ok(engine.petInventoryKinds().join(',') === 'wolf,monkey', 'Unequipping restores both owned species tokens');
+  ok(engine.setPetEquipped('wolf', true), 'A second pet token can replace the active species');
+  ok(engine.wolfPetRig?.kind === 'wolf' && engine.wolfPetLayer.children.length === 1 && engine.petInventoryKinds().join(',') === 'monkey', 'Replacing a pet removes its world rig and returns its token to the inventory');
+  ok(engine.setPetEquipped('monkey', true) && engine.wolfPetRig?.kind === 'monkey' && engine.wolfPetLayer.children.length === 1, 'The returned pet token can immediately replace the active companion again');
 }
 
 // Ferns, tall grass and flowers do not count as support: the companion stands on the real block below them.

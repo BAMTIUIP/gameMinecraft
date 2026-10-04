@@ -11,7 +11,7 @@ import {
   tickCoop,
   type CoopSink,
 } from './game/multiplayer';
-import { initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMuted, stopMusic } from './game/audio';
+import { getMusicVolume, initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMusicVolume, setMuted, stopMusic } from './game/audio';
 import Hud from './ui/Hud';
 import TouchControls from './ui/TouchControls';
 import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Screens';
@@ -63,9 +63,11 @@ import { getCharacterCustomization, saveCharacterCustomization, type CharacterCu
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
 const REVIVE_SECONDS = 60;
 const MAX_REVIVES_PER_RUN = 2;
-/** Ordinary shop is enabled; the free developer catalogue is restricted to local DEV builds. */
+/** Temporary QA controls are deliberately visible on the test server; rendering still excludes TV devices. */
 const SHOP_SCREENS_ENABLED = true;
-setDeveloperShopEnabled(import.meta.env.DEV && !tvMode());
+const DEVELOPER_TOOLS_ENABLED = true;
+const DEVELOPER_FPS_ENABLED = import.meta.env.DEV || new URLSearchParams(window.location.search).get('devtools') === '1';
+setDeveloperShopEnabled(DEVELOPER_TOOLS_ENABLED && !tvMode());
 
 /** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
 function coopSink(engine: Engine): CoopSink {
@@ -114,6 +116,8 @@ const INITIAL_HUD: HudState = {
   locked: false,
   lockFailed: false,
   freeLook: true,
+  crouching: false,
+  crawling: false,
   runTime: EXPLORATION_RUN_TIME,
   inventoryOpen: false,
   chest: null,
@@ -136,6 +140,7 @@ const INITIAL_HUD: HudState = {
   bagItems: [],
   petOwned: false,
   petOwnedKinds: [],
+  petInventoryKinds: [],
   petTokenAvailable: false,
   petEquipped: false,
   petEquippedKind: null,
@@ -173,6 +178,12 @@ export default function App() {
   const [isRecord, setIsRecord] = useState(false);
   const [muted, setMutedUi] = useState(false);
   const [music, setMusicUi] = useState(true);
+  const [musicVolume, setMusicVolumeUi] = useState(() => {
+    const saved = storageGet('orerush.musicVolume');
+    const parsed = saved === null ? getMusicVolume() : Number(saved);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : getMusicVolume();
+  });
+  useEffect(() => setMusicVolume(musicVolume), [musicVolume]);
   const [freeLook, setFreeLookUi] = useState(true);
   const [isTouch, setIsTouch] = useState(false);
   const [hasSave, setHasSave] = useState(false);
@@ -223,6 +234,9 @@ export default function App() {
   const [exitPrompt, setExitPrompt] = useState(false);
   /** browser fullscreen (sdk-params): the settings dialog shows the right label for the current state */
   const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    if (hud.phase === 'paused') setFullscreen(fullscreenOn());
+  }, [hud.phase]);
   /** clipboard feedback on the results screen */
   const [copyNote, setCopyNote] = useState<string | null>(null);
   /** the player is on a TV: requirement 1.6.3 — purchases are not allowed there */
@@ -456,8 +470,15 @@ export default function App() {
     const next = !isMusicEnabled();
     setMusicEnabled(next);
     setMusicUi(next);
-    if (next && engineRef.current?.phase === 'menu') requestMusic();
-    else if (!next) stopMusic(0.35);
+    if (next) requestMusic();
+    else stopMusic(0.35);
+  }, []);
+
+  const changeMusicVolume = useCallback((value: number) => {
+    const next = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.45));
+    setMusicVolumeUi(next);
+    setMusicVolume(next);
+    storageSet('orerush.musicVolume', String(next));
   }, []);
 
   const pickLang = useCallback((l: Lang) => {
@@ -619,9 +640,9 @@ export default function App() {
   }, []);
 
   const play = useCallback(() => {
-    setRevivesUsed(0);
     const engine = engineRef.current;
-    engine?.startRun(survival ? undefined : exploreSeconds);
+    if (!engine?.startRun(survival ? undefined : exploreSeconds)) return;
+    setRevivesUsed(0);
     deliverPendingShopDropItems(engine);
     void beginCoop();
   }, [survival, exploreSeconds, beginCoop]);
@@ -640,7 +661,7 @@ export default function App() {
     setAdBusy(false);
     setRevivesUsed(0);
     // restarting a sandbox stays a sandbox; survival itself is endless too
-    engine.startRun(survival ? undefined : exploreSeconds, engine.sandbox);
+    if (!engine.startRun(survival ? undefined : exploreSeconds, engine.sandbox)) return;
     deliverPendingShopDropItems(engine);
     void beginCoop();
   }, [survival, exploreSeconds, beginCoop]);
@@ -666,7 +687,7 @@ export default function App() {
   }, [adBusy]);
   const createWorld = useCallback(() => {
     const engine = engineRef.current;
-    engine?.startRun(undefined, true);
+    if (!engine?.startRun(undefined, true)) return;
     deliverPendingShopDropItems(engine);
     setHasSave(Engine.hasSavedWorld());
     void beginCoop();
@@ -695,6 +716,7 @@ export default function App() {
   const craft = useCallback((key: string) => engineRef.current?.craft(key), []);
   const openInventory = useCallback(() => engineRef.current?.openInventory(), []);
   const closeInventory = useCallback(() => engineRef.current?.closeInventory(), []);
+  const grantDeveloperCatalog = useCallback(() => engineRef.current?.grantDeveloperCatalog() ?? false, []);
   const transferChestItem = useCallback(
     (id: number, amount: number, toChest: boolean) => engineRef.current?.transferChestItem(id, amount, toChest) ?? false,
     [],
@@ -717,7 +739,7 @@ export default function App() {
 
   useEffect(() => {
     isTvRef.current = isTv;
-    setDeveloperShopEnabled(import.meta.env.DEV && !isTv && !tvMode());
+    setDeveloperShopEnabled(DEVELOPER_TOOLS_ENABLED && !isTv && !tvMode());
     refreshPetOwnership();
   }, [isTv, refreshPetOwnership]);
   useEffect(() => {
@@ -891,7 +913,7 @@ export default function App() {
 
   /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
-    if (!import.meta.env.DEV || isTvRef.current || tvMode()) return false;
+    if (!DEVELOPER_TOOLS_ENABLED || isTvRef.current || tvMode()) return false;
     const granted = grantDeveloperShopProduct(productId);
     if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) refreshPetOwnership();
     return granted;
@@ -921,11 +943,19 @@ export default function App() {
           onBag={openInventory}
           onCaptureMouse={captureMouse}
           isTouch={isTouch}
-          showFps={import.meta.env.DEV && flags['ui.showFps'] !== 'false'}
+          showFps={DEVELOPER_FPS_ENABLED}
         />
       )}
 
-      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} petInteractNear={hud.petInteractNear} />}
+      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && (
+        <TouchControls
+          engine={engine}
+          petInteractNear={hud.petInteractNear}
+          thirdPerson={!!hud.thirdPerson}
+          crouching={hud.crouching}
+          crawling={hud.crawling}
+        />
+      )}
 
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (
@@ -952,7 +982,7 @@ export default function App() {
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
           shopEnabled={SHOP_SCREENS_ENABLED && flags['shop.enabled'] !== 'false' && !isTv && !tvMode()}
-          developerShopEnabled={import.meta.env.DEV && !isTv && !tvMode()}
+          developerShopEnabled={DEVELOPER_TOOLS_ENABLED && !isTv && !tvMode()}
           shopPrices={shopPrices}
           wolfPetOwned={wolfPetOwned}
           monkeyPetOwned={monkeyPetOwned}
@@ -1016,6 +1046,8 @@ export default function App() {
           onRemoveSlot={removeSlot}
           onSalvageGear={salvageGear}
           onSalvageItem={salvageItem}
+          developerKitEnabled={DEVELOPER_TOOLS_ENABLED && !isTv && !tvMode()}
+          onDeveloperGrantAll={grantDeveloperCatalog}
           isTouch={isTouch}
         />
       )}
@@ -1028,8 +1060,12 @@ export default function App() {
           onBag={openInventory}
           music={music}
           onMusic={toggleMusic}
+          musicVolume={musicVolume}
+          onMusicVolume={changeMusicVolume}
           muted={muted}
           onMute={toggleMute}
+          fullscreen={fullscreen}
+          onFullscreen={toggleFull}
           onSaveWorld={saveWorld}
         />
       )}

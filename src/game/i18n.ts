@@ -1,4 +1,5 @@
 import { getToolSpec } from './tools';
+import { HAY_BALE, MEAT_ITEM_BY_ID, WHEAT, WHEAT_CROP_1, WHEAT_CROP_2, WHEAT_CROP_3, WHEAT_SEEDS } from './blocks';
 import { storageGet, storageSet } from './storage';
 
 export type Lang = 'en' | 'ru' | 'fr' | 'de';
@@ -196,6 +197,12 @@ const EN = {
   petReactionSpin: "Your wolf spins with joy!",
   petMonkeyResource: "Monkey companion",
   petMonkeyCoatPrevious: "Previous monkey coat",
+  inv_tab_pets: 'PETS',
+  devKitButton: 'DEV KIT',
+  devKitTitle: 'DEVELOPER ITEM CATALOG',
+  devKitDescription: 'Temporary test tool: obtain every gathered, crafted and dropped item, including tools, weapons and armor.',
+  devKitGranted: 'The full developer catalog was added to your inventory.',
+
   petMonkeyCoatNext: "Next monkey coat",
   petMonkeyReactionFlop: "The monkey flops onto its back, flails, and squeals!",
   petMonkeyReactionHops: "The monkey bounces around, calling out happily!",
@@ -221,7 +228,7 @@ const EN = {
   shopArmorRareTitle: "Rare armor pack",
   shopArmorRareDesc: "Four gold armor pieces with stronger stats and rare perks.",
   shopArmorEpicTitle: "Epic armor pack",
-  shopArmorEpicDesc: "Four netherite armor pieces with mythic rarity and powerful perks.",
+  shopArmorEpicDesc: "Four netherite armor pieces with epic rarity and powerful perks.",
   shopNetheritePickaxeTitle: "Netherite pickaxe",
   shopNetheritePickaxeDesc: "An unbreakable netherite pickaxe, delivered to your next run and hotbar.",
   shopNetheriteArmorTitle: "Netherite armor",
@@ -237,7 +244,7 @@ const EN = {
   shopChestRareTitle: "Rare ore chest",
   shopChestRareDesc: "A cache of supplies and ingots, plus one rare iron chest piece.",
   shopChestEpicTitle: "Epic treasure chest",
-  shopChestEpicDesc: "A large resource cache with diamonds and one mythic netherite chest piece.",
+  shopChestEpicDesc: "A large resource cache with diamonds and one epic netherite chest piece.",
   shopBoosterStartTitle: "Quick-start boost",
   shopBoosterStartDesc: "Your next run starts with a stone pickaxe, food, torches, coal, and planks.",
   shopBoosterOreTitle: "Ore seeker",
@@ -283,6 +290,7 @@ const EN = {
   language: 'LANGUAGE',
   musicOn: 'MUSIC ON',
   musicOff: 'MUSIC OFF',
+  musicVolume: 'MUSIC VOLUME',
   sfxOn: 'SFX ON',
   sfxOff: 'SFX OFF',
   freeLookOn: 'FREE-LOOK ON',
@@ -644,6 +652,8 @@ const EN = {
   fMmbPlace: 'F / MMB TO PLACE',
   hintDesktop: 'LMB MINE · RMB PLACE · CTRL CROUCH · C CRAWL · TAB BAG',
   hintTouch: 'DRAG TO LOOK · HOLD MINE TO DIG · BAG TO CRAFT',
+  cameraOrbitMouse: 'ALT + MOVE MOUSE: ORBIT CAMERA',
+  cameraOrbitTouch: 'TWO-FINGER DRAG: ORBIT CAMERA',
   // banners & popups
   saveFailed: 'SAVE FAILED',
   saveFailedSub: 'world too large for browser storage',
@@ -656,6 +666,15 @@ const EN = {
   run: 'RUN',
   place: 'PLACE',
   mine: 'MINE',
+  touchSwitchToFirst: 'SWITCH TO FIRST PERSON',
+  touchSwitchToThird: 'SWITCH TO THIRD PERSON',
+  touchViewShort: 'VIEW',
+  touchCrouch: 'CROUCH',
+  touchCrouchShort: 'CROUCH',
+  touchStand: 'STAND UP',
+  touchStandShort: 'STAND',
+  touchLieDown: 'LIE DOWN',
+  touchLieShort: 'PRONE',
   // session lengths
   sesSprint: 'SPRINT',
   sesFull: 'FULL SHIFT',
@@ -855,6 +874,11 @@ const RU: Dict = {
   petReactionSpin: "Волк кружится от радости!",
   petMonkeyResource: "Обезьянка-компаньон",
   petMonkeyCoatPrevious: "Предыдущий окрас обезьянки",
+  inv_tab_pets: 'ПИТОМЦЫ',
+  devKitButton: 'НАБОР РАЗРАБОТЧИКА',
+  devKitTitle: 'КАТАЛОГ ПРЕДМЕТОВ',
+  devKitDescription: 'Временный инструмент тестирования: выдать все добываемые, создаваемые и выпадающие предметы, включая инструменты, оружие и броню.',
+  devKitGranted: 'Полный набор предметов добавлен в инвентарь.',
   petMonkeyCoatNext: "Следующий окрас обезьянки",
   petMonkeyReactionFlop: "Обезьянка падает на спину, беспорядочно дрыгает лапами и визжит!",
   petMonkeyReactionHops: "Обезьянка несколько раз подпрыгивает и радостно кричит!",
@@ -880,7 +904,7 @@ const RU: Dict = {
   shopArmorRareTitle: "Редкий набор доспехов",
   shopArmorRareDesc: "Четыре усиленные железные детали редкости «Редкий» с мощными свойствами.",
   shopArmorEpicTitle: "Эпический набор доспехов",
-  shopArmorEpicDesc: "Четыре незеритовые детали доспехов мифической редкости с сильными свойствами.",
+  shopArmorEpicDesc: "Четыре незеритовые детали доспехов эпической редкости с сильными свойствами.",
   shopNetheritePickaxeTitle: "Незеритовая кирка",
   shopNetheritePickaxeDesc: "Неразрушимая незеритовая кирка появится в следующем забеге и на панели быстрого доступа.",
   shopNetheriteArmorTitle: "Незеритовые доспехи",
@@ -896,7 +920,7 @@ const RU: Dict = {
   shopChestRareTitle: "Редкий сундук с рудами",
   shopChestRareDesc: "Набор припасов и слитков, а также одна редкая железная нагрудная броня.",
   shopChestEpicTitle: "Эпический сундук с сокровищами",
-  shopChestEpicDesc: "Большой запас ресурсов, алмазы и один мифический незеритовый нагрудник.",
+  shopChestEpicDesc: "Большой запас ресурсов, алмазы и один незеритовый нагрудник эпической редкости.",
   shopBoosterStartTitle: "Усилитель быстрого старта",
   shopBoosterStartDesc: "В следующем забеге вы получите каменную кирку, еду, факелы, уголь и доски.",
   shopBoosterOreTitle: "Искатель руды",
@@ -942,6 +966,7 @@ const RU: Dict = {
   language: 'ЯЗЫК',
   musicOn: 'МУЗЫКА ВКЛ',
   musicOff: 'МУЗЫКА ВЫКЛ',
+  musicVolume: 'ГРОМКОСТЬ МУЗЫКИ',
   sfxOn: 'ЗВУК ВКЛ',
   sfxOff: 'ЗВУК ВЫКЛ',
   freeLookOn: 'СВОБ. ОБЗОР ВКЛ',
@@ -1290,6 +1315,8 @@ const RU: Dict = {
   fMmbPlace: 'F / СКМ — ПОСТАВИТЬ',
   hintDesktop: 'ЛКМ КОПАТЬ · ПКМ СТАВИТЬ · CTRL ПРИСЕСТЬ · C ПОЛЗТИ · TAB ИНВЕНТАРЬ',
   hintTouch: 'ТАЩИ — ОБЗОР · УДЕРЖИВАЙ — КОПАТЬ · ИНВЕНТАРЬ — КРАФТ',
+  cameraOrbitMouse: 'ALT + ДВИГАТЬ МЫШЬЮ: ОБЛЁТ КАМЕРЫ',
+  cameraOrbitTouch: 'ДВА ПАЛЬЦА: ОБЛЁТ КАМЕРЫ',
   saveFailed: 'НЕ УДАЛОСЬ СОХРАНИТЬ',
   saveFailedSub: 'мир слишком большой для хранилища браузера',
   diamond: 'АЛМАЗ!',
@@ -1300,6 +1327,15 @@ const RU: Dict = {
   run: 'БЕГ',
   place: 'СТАВИТЬ',
   mine: 'КОПАТЬ',
+  touchSwitchToFirst: 'ВИД ОТ ПЕРВОГО ЛИЦА',
+  touchSwitchToThird: 'ВИД ОТ ТРЕТЬЕГО ЛИЦА',
+  touchViewShort: 'ВИД',
+  touchCrouch: 'ПРИСЕСТЬ',
+  touchCrouchShort: 'ПРИСЕСТЬ',
+  touchStand: 'ВСТАТЬ',
+  touchStandShort: 'ВСТАТЬ',
+  touchLieDown: 'ЛЕЧЬ',
+  touchLieShort: 'ЛЕЧЬ',
   sesSprint: 'СПРИНТ',
   sesFull: 'ПОЛНАЯ СМЕНА',
   sesMarathon: 'МАРАФОН',
@@ -1495,6 +1531,11 @@ const FR: Dict = {
   petReactionSpin: "Votre loup tourne de joie !",
   petMonkeyResource: "Singe compagnon",
   petMonkeyCoatPrevious: "Pelage précédent du singe",
+  inv_tab_pets: 'COMPAGNONS',
+  devKitButton: 'OUTILS DE TEST',
+  devKitTitle: 'CATALOGUE DU DÉVELOPPEUR',
+  devKitDescription: 'Outil de test temporaire : obtenir tous les objets récoltables, fabriqués et récupérés, y compris outils, armes et armures.',
+  devKitGranted: 'Le catalogue complet a été ajouté à votre inventaire.',
   petMonkeyCoatNext: "Pelage suivant du singe",
   petMonkeyReactionFlop: "Le singe tombe sur le dos, pédale dans le vide et pousse un cri !",
   petMonkeyReactionHops: "Le singe saute plusieurs fois en poussant des cris joyeux !",
@@ -1520,7 +1561,7 @@ const FR: Dict = {
   shopArmorRareTitle: "Pack d’armure rare",
   shopArmorRareDesc: "Quatre pièces en fer renforcées, de rareté rare et aux effets puissants.",
   shopArmorEpicTitle: "Pack d’armure épique",
-  shopArmorEpicDesc: "Quatre pièces d’armure mythiques en netherite avec des effets puissants.",
+  shopArmorEpicDesc: "Quatre pièces d’armure en netherite de rareté épique avec des effets puissants.",
   shopNetheritePickaxeTitle: "Pioche en netherite",
   shopNetheritePickaxeDesc: "Une pioche en netherite incassable, livrée dans votre prochaine partie et votre barre rapide.",
   shopNetheriteArmorTitle: "Armure en netherite",
@@ -1536,7 +1577,7 @@ const FR: Dict = {
   shopChestRareTitle: "Coffre de minerais rare",
   shopChestRareDesc: "Fournitures et lingots, plus une pièce de torse rare en fer.",
   shopChestEpicTitle: "Coffre au trésor épique",
-  shopChestEpicDesc: "Grand stock de ressources, diamants et une pièce de torse mythique en netherite.",
+  shopChestEpicDesc: "Grand stock de ressources, diamants et une pièce de torse en netherite de rareté épique.",
   shopBoosterStartTitle: "Bonus de départ rapide",
   shopBoosterStartDesc: "Votre prochaine partie commence avec une pioche en pierre, nourriture, torches, charbon et planches.",
   shopBoosterOreTitle: "Chercheur de minerais",
@@ -1582,6 +1623,7 @@ const FR: Dict = {
   language: 'LANGUE',
   musicOn: 'MUSIQUE ACTIVÉE',
   musicOff: 'MUSIQUE COUPÉE',
+  musicVolume: 'VOLUME DE LA MUSIQUE',
   sfxOn: 'SONS ACTIVÉS',
   sfxOff: 'SONS COUPÉS',
   freeLookOn: 'VUE LIBRE ACTIVÉE',
@@ -1930,6 +1972,8 @@ const FR: Dict = {
   fMmbPlace: 'F / CCM POUR POSER',
   hintDesktop: 'CAG MINER · CDD POSER · CTRL SE GAUCHIR · C RAMPER · TAB SAC',
   hintTouch: 'GLISSEZ POUR REGARDER · MAINTENIR POUR CREUSER · SAC POUR FABRIQUER',
+  cameraOrbitMouse: 'ALT + DÉPLACER LA SOURIS : ORBITER LA CAMÉRA',
+  cameraOrbitTouch: 'GLISSER À DEUX DOIGTS : ORBITER LA CAMÉRA',
   saveFailed: 'SAUVEGARDE ÉCHOUÉE',
   saveFailedSub: 'monde trop grand pour le stockage du navigateur',
   diamond: 'DIAMANT !',
@@ -1940,6 +1984,15 @@ const FR: Dict = {
   run: 'COURIR',
   place: 'POSER',
   mine: 'MINER',
+  touchSwitchToFirst: 'PASSER À LA PREMIÈRE PERSONNE',
+  touchSwitchToThird: 'PASSER À LA TROISIÈME PERSONNE',
+  touchViewShort: 'VUE',
+  touchCrouch: 'S’ACCROUPIR',
+  touchCrouchShort: 'ACCROUPI',
+  touchStand: 'SE LEVER',
+  touchStandShort: 'DEBOUT',
+  touchLieDown: 'S’ALLONGER',
+  touchLieShort: 'COUCHÉ',
   sesSprint: 'SPRINT',
   sesFull: 'POSTE COMPLET',
   sesMarathon: 'MARATHON',
@@ -2135,6 +2188,11 @@ const DE: Dict = {
   petReactionSpin: "Dein Wolf dreht sich vor Freude!",
   petMonkeyResource: "Affenbegleiter",
   petMonkeyCoatPrevious: "Vorherige Affenfellfarbe",
+  inv_tab_pets: 'BEGLEITER',
+  devKitButton: 'TESTWERKZEUG',
+  devKitTitle: 'ENTWICKLERKATALOG',
+  devKitDescription: 'Temporäres Testwerkzeug: alle sammelbaren, herstellbaren und fallengelassenen Gegenstände samt Werkzeugen, Waffen und Rüstung erhalten.',
+  devKitGranted: 'Der vollständige Katalog wurde deinem Inventar hinzugefügt.',
   petMonkeyCoatNext: "Nächste Affenfellfarbe",
   petMonkeyReactionFlop: "Der Affe fällt auf den Rücken, strampelt wild und quiekt!",
   petMonkeyReactionHops: "Der Affe hüpft mehrmals und ruft fröhlich!",
@@ -2160,7 +2218,7 @@ const DE: Dict = {
   shopArmorRareTitle: "Seltenes Rüstungspaket",
   shopArmorRareDesc: "Vier verstärkte seltene Eisenteile mit starken Vorteilen.",
   shopArmorEpicTitle: "Episches Rüstungspaket",
-  shopArmorEpicDesc: "Vier mythische Netherit-Rüstungsteile mit starken Vorteilen.",
+  shopArmorEpicDesc: "Vier Netherit-Rüstungsteile von epischer Seltenheit mit starken Vorteilen.",
   shopNetheritePickaxeTitle: "Netheritspitzhacke",
   shopNetheritePickaxeDesc: "Eine unzerbrechliche Netheritspitzhacke für deinen nächsten Lauf und die Schnellleiste.",
   shopNetheriteArmorTitle: "Netheritrüstung",
@@ -2176,7 +2234,7 @@ const DE: Dict = {
   shopChestRareTitle: "Seltene Erztruhe",
   shopChestRareDesc: "Vorräte und Barren plus ein seltenes eisernes Bruststück.",
   shopChestEpicTitle: "Epische Schatztruhe",
-  shopChestEpicDesc: "Großer Ressourcenvorrat mit Diamanten und einem mythischen Netherit-Bruststück.",
+  shopChestEpicDesc: "Großer Ressourcenvorrat mit Diamanten und einem Netherit-Bruststück von epischer Seltenheit.",
   shopBoosterStartTitle: "Schnellstart-Bonus",
   shopBoosterStartDesc: "Deine nächste Partie startet mit Steinspitzhacke, Essen, Fackeln, Kohle und Brettern.",
   shopBoosterOreTitle: "Erzsucher",
@@ -2222,6 +2280,7 @@ const DE: Dict = {
   language: 'SPRACHE',
   musicOn: 'MUSIK AN',
   musicOff: 'MUSIK AUS',
+  musicVolume: 'MUSIKLAUTSTÄRKE',
   sfxOn: 'GERÄUSCHE AN',
   sfxOff: 'GERÄUSCHE AUS',
   freeLookOn: 'FREIE SICHT AN',
@@ -2570,6 +2629,8 @@ const DE: Dict = {
   fMmbPlace: 'F / MMT ZUM SETZEN',
   hintDesktop: 'LMT ABBAUEN · RMT SETZEN · CTRL DUCKEN · C KRIECHEN · TAB RUCKSACK',
   hintTouch: 'ZIEHEN = UMSCHAUEN · HALTEN = GRABEN · RUCKSACK = BASTELN',
+  cameraOrbitMouse: 'ALT + MAUS BEWEGEN: KAMERA UMKREISEN',
+  cameraOrbitTouch: 'MIT ZWEI FINGERN ZIEHEN: KAMERA UMKREISEN',
   saveFailed: 'SPEICHERUNG FEHLGESCHLAGEN',
   saveFailedSub: 'Welt zu groß für den Browser-Speicher',
   diamond: 'DIAMANT!',
@@ -2580,6 +2641,15 @@ const DE: Dict = {
   run: 'LAUFEN',
   place: 'SETZEN',
   mine: 'ABBAU',
+  touchSwitchToFirst: 'ZUR EGO-PERSPEKTIVE WECHSELN',
+  touchSwitchToThird: 'ZUR DRITTEN PERSON WECHSELN',
+  touchViewShort: 'SICHT',
+  touchCrouch: 'DUCKEN',
+  touchCrouchShort: 'DUCKEN',
+  touchStand: 'AUFSTEHEN',
+  touchStandShort: 'STEHEN',
+  touchLieDown: 'HINLEGEN',
+  touchLieShort: 'LIEGEN',
   sesSprint: 'SPRINT',
   sesFull: 'VOLLE SCHICHT',
   sesMarathon: 'MARATHON',
@@ -2837,6 +2907,8 @@ const RECIPES_RU: Record<string, [string, string]> = {
   hands_iron: ['ЖЕЛЕЗНЫЕ ПЕРЧАТКИ', 'КИСТИ · железные пластины'],
   head_iron: ['ЖЕЛЕЗНЫЙ ШЛЕМ', 'ГОЛОВА · железные пластины'],
   chest_iron: ['ЖЕЛЕЗНАЯ КИРАСА', 'ТОРС · железные пластины'],
+  shield_wood: ['ДЕРЕВЯННЫЙ ЩИТ', 'ВТОРАЯ РУКА · прочный щит из дубовых досок'],
+  shield_leather: ['КОЖАНЫЙ ЩИТ', 'ВТОРАЯ РУКА · лёгкий щит, обтянутый крепкой кожей'],
   shield_iron: ['ЖЕЛЕЗНЫЙ ЩИТ', 'ЩИТ · железные пластины'],
   chest_diamond: ['АЛМАЗНАЯ КИРАСА', 'ТОРС · алмазные пластины'],
   head_diamond: ['АЛМАЗНЫЙ ШЛЕМ', 'ГОЛОВА · алмазные пластины'],
@@ -2949,6 +3021,8 @@ const RECIPES_FR: Record<string, [string, string]> = {
   hands_iron: ['GANTELETS EN FER', 'MAINS · plaques de fer'],
   head_iron: ['CASQUE EN FER', 'TÊTE · plaques de fer'],
   chest_iron: ['PLASTRON EN FER', 'TORSE · plaques de fer'],
+  shield_wood: ['BOUCLIER EN BOIS', 'MAIN SECONDAIRE · bouclier solide en planches de chêne'],
+  shield_leather: ['BOUCLIER EN CUIR', 'MAIN SECONDAIRE · bouclier léger renforcé de cuir'],
   shield_iron: ['BOUCLIER EN FER', 'BOUCLIER · plaques de fer'],
   chest_diamond: ['PLASTRON EN DIAMANT', 'TORSE · plaques de diamant'],
   head_diamond: ['CASQUE EN DIAMANT', 'TÊTE · plaques de diamant'],
@@ -3063,6 +3137,8 @@ const RECIPES_DE: Record<string, [string, string]> = {
   hands_iron: ['EISENHANDSCHUHE', 'HÄNDE · Eisenplatten'],
   head_iron: ['EISENHELM', 'KOPF · Eisenplatten'],
   chest_iron: ['EISENBRUNNHART', 'BRUST · Eisenplatten'],
+  shield_wood: ['HOLZSCHILD', 'ZWEITHAND · robuster Schild aus Eichenbrettern'],
+  shield_leather: ['LEDERSCHILD', 'ZWEITHAND · leichter Schild mit strapazierfähigem Lederbezug'],
   shield_iron: ['EISENSCHILD', 'SCHILD · Eisenplatten'],
   chest_diamond: ['DIAMANTBRUNNHART', 'BRUST · Diamantplatten'],
   head_diamond: ['DIAMANTHELM', 'KOPF · Diamantplatten'],
@@ -3083,7 +3159,40 @@ const RECIPES_DE: Record<string, [string, string]> = {
 /** localized recipe name + description; falls back to the English strings */
 export function recipeText(key: string, fallbackName: string, fallbackDesc: string): [string, string] {
   const m = current === 'ru' ? RECIPES_RU : current === 'fr' ? RECIPES_FR : current === 'de' ? RECIPES_DE : null;
-  return m?.[key] ?? [fallbackName, fallbackDesc];
+  const translated = m?.[key];
+  if (translated) return translated;
+  if (current === 'en') return [fallbackName, fallbackDesc];
+
+  if (key === 'hay_bale') {
+    if (current === 'ru') return ['ТЮК СЕНА', 'Сожмите 9 единиц пшеницы; костёр на сене выпускает дым вдвое выше.'];
+    if (current === 'fr') return ['BOTTE DE FOIN', 'Compressez 9 blés; le feu posé dessus produit deux fois plus de fumée.'];
+    return ['HEUBALLEN', 'Presse 9 Weizen zusammen; ein Lagerfeuer darauf lässt den Rauch doppelt so hoch steigen.'];
+  }
+
+  const cookMatch = /^cook_meat_(\d+)$/.exec(key);
+  if (cookMatch) {
+    const rawName = specialBlockName(Number(cookMatch[1])) ?? fallbackName;
+    if (current === 'ru') return [`ПРИГОТОВИТЬ ${rawName.toLocaleUpperCase('ru-RU')}`, 'Поджарьте одну порцию мяса у костра.'];
+    if (current === 'fr') return [`CUIRE ${rawName.toLocaleUpperCase('fr-FR')}`, 'Faites griller une portion de viande près d’un feu de camp.'];
+    return [`GAREN ${rawName.toLocaleUpperCase('de-DE')}`, 'Eine Portion Fleisch an einem Lagerfeuer braten.'];
+  }
+
+  const gearMatch = /^(head|chest|legs|feet|hands|offhand)_(gold|emerald|redstone|lapis|netherite|diamond)$/.exec(key);
+  if (gearMatch) {
+    const slot = gearMatch[1];
+    const material = matName(gearMatch[2].toUpperCase());
+    const slots: Record<'ru' | 'fr' | 'de', Record<string, string>> = {
+      ru: { head: 'ШЛЕМ', chest: 'НАГРУДНИК', legs: 'ПОНОЖИ', feet: 'БОТИНКИ', hands: 'ПЕРЧАТКИ', offhand: 'ЩИТ' },
+      fr: { head: 'CASQUE', chest: 'PLASTRON', legs: 'JAMBIÈRES', feet: 'BOTTES', hands: 'GANTELETS', offhand: 'BOUCLIER' },
+      de: { head: 'HELM', chest: 'BRUSTPLATTE', legs: 'BEINSCHUTZ', feet: 'STIEFEL', hands: 'HANDSCHUHE', offhand: 'SCHILD' },
+    };
+    const label = slots[current][slot];
+    if (current === 'ru') return [`${label} ИЗ МАТЕРИАЛА: ${material}`, `${label} · прочная броня из ${material.toLowerCase()}`];
+    if (current === 'fr') return [`${label} EN ${material}`, `${label} · armure solide en ${material.toLowerCase()}`];
+    return [`${label} AUS ${material}`, `${label} · robuste Rüstung aus ${material.toLowerCase()}`];
+  }
+
+  return [fallbackName, fallbackDesc];
 }
 
 const BLOCKS_RU: Record<number, string> = {
@@ -3194,17 +3303,52 @@ const BLOCKS_DE: Record<number, string> = {
   139: 'Lagertruhe', 140: 'Lagertruhe (offen)',
 };
 
+const MEAT_ANIMAL_NAMES: Record<'ru' | 'fr' | 'de', Record<string, string>> = {
+  ru: { chicken: 'курицы', pork: 'свинины', beef: 'говядины', mutton: 'баранины', fish: 'рыбы', salmon: 'лосося', rabbit: 'кролика', venison: 'оленя', crab: 'краба' },
+  fr: { chicken: 'poulet', pork: 'porc', beef: 'bœuf', mutton: 'mouton', fish: 'poisson', salmon: 'saumon', rabbit: 'lapin', venison: 'gibier', crab: 'crabe' },
+  de: { chicken: 'Huhn', pork: 'Schwein', beef: 'Rind', mutton: 'Lamm', fish: 'Fisch', salmon: 'Lachs', rabbit: 'Kaninchen', venison: 'Wild', crab: 'Krabbe' },
+};
+
+function specialBlockName(id: number): string | null {
+  if (current === 'en') return null;
+  const meat = MEAT_ITEM_BY_ID[id];
+  if (meat) {
+    const animal = MEAT_ANIMAL_NAMES[current][meat.family];
+    if (current === 'ru') {
+      const size = meat.size === 'small' ? 'маленькое' : meat.size === 'medium' ? 'среднее' : 'большое';
+      return meat.cooked ? `Готовое ${size} мясо ${animal}` : `Сырое ${size} мясо ${animal}`;
+    }
+    if (current === 'fr') {
+      const size = meat.size === 'small' ? 'petite' : meat.size === 'medium' ? 'moyenne' : 'grande';
+      return meat.cooked ? `Viande cuite ${size} de ${animal}` : `Viande crue ${size} de ${animal}`;
+    }
+    const size = meat.size === 'small' ? 'kleines' : meat.size === 'medium' ? 'mittleres' : 'großes';
+    return meat.cooked ? `Gegartes ${size} ${animal}` : `Rohes ${size} ${animal}`;
+  }
+  const localNames: Record<number, Record<'ru' | 'fr' | 'de', string>> = {
+    [WHEAT]: { ru: 'Пшеница', fr: 'Blé', de: 'Weizen' },
+    [WHEAT_SEEDS]: { ru: 'Семена пшеницы', fr: 'Graines de blé', de: 'Weizensamen' },
+    [WHEAT_CROP_1]: { ru: 'Молодые всходы пшеницы', fr: 'Jeunes pousses de blé', de: 'Junge Weizensprossen' },
+    [WHEAT_CROP_2]: { ru: 'Растущая пшеница', fr: 'Blé en croissance', de: 'Wachsender Weizen' },
+    [WHEAT_CROP_3]: { ru: 'Спелая пшеница', fr: 'Blé mûr', de: 'Reifer Weizen' },
+    [HAY_BALE]: { ru: 'Тюк сена', fr: 'Botte de foin', de: 'Heuballen' },
+  };
+  return localNames[id]?.[current] ?? null;
+}
+
 export function blockName(id: number, fallback: string): string {
+  const special = specialBlockName(id);
+  if (special) return special;
   const m = current === 'ru' ? BLOCKS_RU : current === 'fr' ? BLOCKS_FR : current === 'de' ? BLOCKS_DE : null;
   return m?.[id] ?? fallback;
 }
 
-const MAT_RU: Record<string, string> = { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ' };
-const MAT_FR: Record<string, string> = { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE' };
-const MAT_DE: Record<string, string> = { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT' };
-const RAR_RU = ['ОБЫЧНЫЙ', 'ПРОЧНЫЙ', 'РЕДКИЙ', 'МИФИЧЕСКИЙ'];
-const RAR_FR = ['COMMUN', 'SOLIDE', 'RARE', 'MYTHIQUE'];
-const RAR_DE = ['GEWÖHNLICH', 'ROBUST', 'SELTEN', 'MYTHISCH'];
+const MAT_RU: Record<string, string> = { LEATHER: 'КОЖА', IRON: 'ЖЕЛЕЗО', GOLD: 'ЗОЛОТО', DIAMOND: 'АЛМАЗ', WOOD: 'ДЕРЕВО', STONE: 'КАМЕНЬ', NETHERITE: 'НЕЗЕРИТ', REDSTONE: 'РЕДСТОУН', LAPIS: 'ЛАЗУРИТ', EMERALD: 'ИЗУМРУД' };
+const MAT_FR: Record<string, string> = { LEATHER: 'CUIR', IRON: 'FER', GOLD: 'OR', DIAMOND: 'DIAMANT', WOOD: 'BOIS', STONE: 'PIERRE', NETHERITE: 'NETHERITE', REDSTONE: 'REDSTONE', LAPIS: 'LAPIS-LAZULI', EMERALD: 'ÉMERAUDE' };
+const MAT_DE: Record<string, string> = { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT', REDSTONE: 'REDSTONE', LAPIS: 'LAPISLAZULI', EMERALD: 'SMARAGD' };
+const RAR_RU = ['НЕОБЫЧНЫЙ', 'РЕДКИЙ', 'ЭПИЧЕСКИЙ', 'ЛЕГЕНДАРНЫЙ', 'МИФИЧЕСКИЙ'];
+const RAR_FR = ['PEU COMMUN', 'RARE', 'ÉPIQUE', 'LÉGENDAIRE', 'MYTHIQUE'];
+const RAR_DE = ['UNGEWÖHNLICH', 'SELTEN', 'EPISCH', 'LEGENDÄR', 'MYTHISCH'];
 
 export function matName(label: string): string {
   const m = current === 'ru' ? MAT_RU : current === 'fr' ? MAT_FR : current === 'de' ? MAT_DE : null;
