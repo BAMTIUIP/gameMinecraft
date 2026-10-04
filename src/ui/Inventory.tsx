@@ -18,6 +18,7 @@ import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
 import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
+import { meatItemLabel } from '../game/food';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
@@ -306,7 +307,7 @@ export default function Inventory({
                   const spec = getToolSpec(it.id);
                   const isTool = isToolId(it.id);
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
-                  const label = isTool ? toolLabel(it.id) : blockName(it.id, BLOCKS[it.id]?.name ?? '');
+                  const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
                   return (
                     <button
