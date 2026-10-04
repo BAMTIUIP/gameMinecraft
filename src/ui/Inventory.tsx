@@ -133,6 +133,7 @@ export default function Inventory({
     hud.invTab === 'trade' && hud.tradeNear ? 'trade' : hud.invTab === 'anvil' && hud.anvilNear ? 'anvil' : 'tools',
   );
   const [invCat, setInvCat] = useState<InvCategory>('all');
+  const [gearTab, setGearTab] = useState<'all' | Slot>('all');
   const [wbTarget, setWbTarget] = useState<WorkbenchTarget>(null);
 
   const shownRecipes = RECIPES.filter((r) => r.group === tab);
@@ -142,7 +143,9 @@ export default function Inventory({
     invCat === 'armor' || invCat === 'pets'
       ? []
       : hud.inventory.filter((it) => invCat === 'all' || getItemInvCategory(it.id) === invCat);
-  const filteredGear = invCat === 'all' || invCat === 'armor' ? hud.bagItems : [];
+  const filteredGear = (invCat === 'all' || invCat === 'armor' ? hud.bagItems : [])
+    .filter((it) => gearTab === 'all' || it.slot === gearTab)
+    .sort((a, b) => (a.armor + a.damage) - (b.armor + b.damage));
   const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds : [];
   const totalShownCount = filteredStacks.length + filteredGear.length + filteredPets.length;
   const petDisplayKind = hud.petEquippedKind ?? hud.petSelectedKind;
@@ -246,6 +249,13 @@ export default function Inventory({
                 );
               })}
             </div>
+            {invCat === 'armor' && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {([['all','ВСЕ'], ['head','ШЛЕМ'], ['chest','НАГРУДНИК'], ['legs','ПОНOЖИ'], ['feet','БОТИНКИ'], ['hands','ПЕРЧАТКИ'], ['offhand','ЩИТ']] as const).map(([id,label]) => (
+                  <button key={id} type="button" onClick={() => setGearTab(id)} className={`notch px-2 py-1 font-display text-[9px] ${gearTab === id ? 'text-pit-950 bg-torch' : 'text-white/55 bg-black/25'}`}>{label}</button>
+                ))}
+              </div>
+            )}
 
             {totalShownCount === 0 ? (
               <div className="sunken notch flex min-h-[110px] items-center justify-center px-4 py-8 text-center text-[11px] leading-relaxed tracking-wide text-white/35">
@@ -304,7 +314,7 @@ export default function Inventory({
                         e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${label}${condition ? ` · ${condition}` : ''} — ${t('dragHint')}`}
+                      title={`${label}${condition ? ` · ${condition}` : ''}${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc ? ` · ${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc}` : ''} — ${t('dragHint')}`}
                       className="anim-pop notch group relative flex aspect-square items-center justify-center transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         animationDelay: `${i * 18}ms`,
