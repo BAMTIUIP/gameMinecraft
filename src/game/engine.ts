@@ -10951,7 +10951,7 @@ if (tpClipActive > 0.5) {
 
   private craftSignature() {
     let s = '';
-    for (const r of RECIPES) s += this.canCraft(r) ? '1' : '0';
+    for (const r of RECIPES) s += r ? (this.canCraft(r) ? '1' : '0') : 'x';
     return s;
   }
 
@@ -10974,6 +10974,7 @@ if (tpClipActive > 0.5) {
   }
 
   canCraft(r: Recipe) {
+    if (!r || !Array.isArray(r.inputs)) return false;
     // Any tool or item can be crafted at any time if you have the ingredients —
     // no prerequisite tier, no previous-recipe unlock, no duplicate limit.
     if (r.kind === 'cook' && !this.campfireNear()) return false;
