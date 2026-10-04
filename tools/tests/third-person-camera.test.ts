@@ -102,12 +102,15 @@ const { Engine } = await import('../../src/game/engine');
     'A helmet switches to only the selected hairstyle’s cropped, below-helmet strands',
   );
   ok(engine.avatarSkirt.visible, 'Leggings keep the girl avatar skirt silhouette visible');
-  ok(skirtMaterial.color.getHexString() === '4d8c5a', 'The skirt takes the equipped leggings color');
-  ok(skirtAccent.color.getHexString() !== skirtMaterial.color.getHexString(), 'The skirt keeps its darker accent after recoloring');
-  ok(
-    engine.avatarArmorModels.legs?.[0]?.parent === engine.avatarSkirt && engine.avatarArmorModels.legs[0].group.name === 'girl-skirt-armor-details',
-    'Girl leggings keep the skirt silhouette and attach their armor trim directly to the skirt',
-  );
+  const skirtTexture = skirtMaterial.map as THREE.DataTexture | null;
+  const skirtPixels = skirtTexture?.image.data as Uint8Array | undefined;
+  const skirtBase = skirtPixels ? `#${[skirtPixels[0], skirtPixels[1], skirtPixels[2]].map((value) => value.toString(16).padStart(2, '0')).join('')}` : '';
+  const skirtAccentTexture = skirtAccent.map as THREE.DataTexture | null;
+  const accentPixels = skirtAccentTexture?.image.data as Uint8Array | undefined;
+  const skirtAccentBase = accentPixels ? `#${[accentPixels[0], accentPixels[1], accentPixels[2]].map((value) => value.toString(16).padStart(2, '0')).join('')}` : '';
+  ok(skirtBase === '#4d8c5a', 'The skirt fabric texture takes the equipped leggings color');
+  ok(skirtAccentBase !== skirtBase, 'The skirt keeps a separate darker armor-tinted texture on its hem');
+  ok(!engine.avatarArmorModels.legs, 'Girl leggings paint the existing skirt mesh instead of adding floating armor geometry');
 
   const helmetGroup = engine.avatarArmorModels.head[0].group;
   const visor = helmetGroup.children.find((mesh: THREE.Object3D) => Math.abs(mesh.position.z + 0.175) < 1e-6);
@@ -120,6 +123,16 @@ const { Engine } = await import('../../src/game/engine');
     !!rearShellSize && rearShellSize.width >= 0.46 && rearShellSize.height >= 0.4,
     'A solid main-color shell covers the full rear of the head beneath its accent pieces',
   );
+  let helmetHasPaintedTexture = false;
+  let helmetHasFloatingFx = false;
+  helmetGroup.traverse((object: THREE.Object3D) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    if ((material as THREE.MeshLambertMaterial).map instanceof THREE.DataTexture) helmetHasPaintedTexture = true;
+    if (object.userData.armorFx) helmetHasFloatingFx = true;
+  });
+  ok(helmetHasPaintedTexture && !helmetHasFloatingFx, 'Helmet rarity/buff marks are part of its armor texture, never separate pieces over the face');
 
   engine.equipped.head = undefined;
   engine.syncAvatarArmor();

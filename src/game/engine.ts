@@ -200,6 +200,7 @@ import { yaServerTime } from './yandex';
 import { deviceKind } from './params';
 import { isDeveloperShopEnabled } from './devShop';
 import { getDeveloperCatalog } from './devCatalog';
+import { animateArmorVisuals, createArmorSurfaceMaterial, resetArmorSurfaceTexture, setArmorSurfaceTexture } from './armorVisuals';
 
 const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
@@ -608,11 +609,14 @@ function disposeObject(obj: THREE.Object3D) {
     else if (material) materials.add(material);
   });
   geometries.forEach((geometry) => geometry.dispose());
+  const textures = new Set<THREE.Texture>();
   materials.forEach((material) => {
-    const map = (material as THREE.Material & { map?: THREE.Texture }).map;
-    map?.dispose();
+    const textured = material as THREE.Material & { map?: THREE.Texture | null; emissiveMap?: THREE.Texture | null };
+    if (textured.map) textures.add(textured.map);
+    if (textured.emissiveMap) textures.add(textured.emissiveMap);
     material.dispose();
   });
+  textures.forEach((texture) => texture.dispose());
 }
 
 function idHue(id: string) {
@@ -638,142 +642,6 @@ type ArmorBoxBuilder = (
   z: number,
   rotateZ?: number,
 ) => THREE.Mesh;
-
-function markArmorFx(mesh: THREE.Mesh, kind: string, phase: number) {
-  const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-  mesh.userData.armorFx = {
-    kind,
-    phase,
-    x: mesh.position.x,
-    y: mesh.position.y,
-    z: mesh.position.z,
-    scaleX: mesh.scale.x,
-    scaleY: mesh.scale.y,
-    scaleZ: mesh.scale.z,
-    rotationX: mesh.rotation.x,
-    rotationY: mesh.rotation.y,
-    rotationZ: mesh.rotation.z,
-    opacity: material.opacity,
-  };
-}
-
-/** Rarity gems and affix ornaments are shared by the worn, dropped and held armor models. */
-function addArmorVisualDetails(item: Item, group: THREE.Group, box: ArmorBoxBuilder) {
-  const layout: Record<Slot, { y: number; z: number; halfWidth: number; fireHeight: number; haze: [number, number, number] }> = {
-    head: { y: 0.045, z: -0.195, halfWidth: 0.14, fireHeight: 0.19, haze: [0.27, 0.24, 0.24] },
-    chest: { y: 0.02, z: -0.17, halfWidth: 0.13, fireHeight: 0.34, haze: [0.35, 0.39, 0.28] },
-    legs: { y: -0.03, z: -0.135, halfWidth: 0.11, fireHeight: 0.3, haze: [0.31, 0.34, 0.25] },
-    feet: { y: 0.04, z: -0.2, halfWidth: 0.12, fireHeight: 0.095, haze: [0.25, 0.2, 0.24] },
-    hands: { y: 0.02, z: -0.125, halfWidth: 0.13, fireHeight: 0.14, haze: [0.29, 0.24, 0.23] },
-    offhand: { y: 0.01, z: -0.105, halfWidth: 0.12, fireHeight: 0.31, haze: [0.3, 0.36, 0.16] },
-  };
-  const detail = layout[item.slot];
-  const rarity = RARITY[item.rarity] ?? RARITY[0];
-  const gemMaterial = new THREE.MeshBasicMaterial({ color: rarity.color, toneMapped: false });
-  const gemCount = item.rarity + 1;
-  const gemSize = 0.034 + item.rarity * 0.004;
-  const gemStep = gemCount <= 1 ? 0 : Math.min(0.062, (detail.halfWidth * 2 - gemSize) / (gemCount - 1));
-  for (let index = 0; index < gemCount; index++) {
-    const x = (index - (gemCount - 1) / 2) * gemStep;
-    const gem = box(gemSize, gemSize, 0.022, gemMaterial, x, detail.y, detail.z - 0.018);
-    gem.rotation.z = Math.PI / 4;
-    markArmorFx(gem, 'rarity-gem', index * 0.72);
-  }
-
-  const affixIds = new Set(item.affixes.map((affix) => affix.id));
-  if (affixIds.has('fire')) {
-    const fireMaterial = new THREE.MeshBasicMaterial({ color: AFFIXES.fire.color, transparent: true, opacity: 0.78, toneMapped: false });
-    for (const [index, side] of [-1, 1].entries()) {
-      const stripe = box(item.slot === 'offhand' ? 0.026 : 0.032, detail.fireHeight, 0.025, fireMaterial,
-        side * detail.halfWidth * 0.68, detail.y, detail.z - 0.012);
-      markArmorFx(stripe, 'fire-stripe', index * 1.4);
-    }
-  }
-
-  if (affixIds.has('vamp')) {
-    const hazeMaterial = new THREE.MeshBasicMaterial({
-      color: AFFIXES.vamp.color,
-      transparent: true,
-      opacity: 0.13,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-    const haze = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), hazeMaterial);
-    haze.name = 'armor-vampiric-haze';
-    haze.position.set(0, detail.y, item.slot === 'offhand' ? -0.02 : 0);
-    haze.scale.set(...detail.haze);
-    haze.renderOrder = 4;
-    group.add(haze);
-    markArmorFx(haze, 'vamp-haze', 0.8);
-  }
-
-  if (affixIds.has('magnet')) {
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(item.slot === 'offhand' ? 0.24 : 0.27, 0.012, 4, 10),
-      new THREE.MeshBasicMaterial({ color: AFFIXES.magnet.color, transparent: true, opacity: 0.58, depthWrite: false, toneMapped: false }),
-    );
-    ring.name = 'armor-magnetic-orbit';
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = detail.y;
-    group.add(ring);
-    markArmorFx(ring, 'magnet-ring', 1.8);
-  }
-
-  if (affixIds.has('thorns') || affixIds.has('frost')) {
-    const affix = affixIds.has('thorns') ? AFFIXES.thorns : AFFIXES.frost;
-    const spikeMaterial = new THREE.MeshBasicMaterial({ color: affix.color, toneMapped: false });
-    for (const [index, side] of [-1, 1].entries()) {
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.13, 4), spikeMaterial);
-      spike.position.set(side * (detail.halfWidth + 0.018), detail.y + 0.04, 0);
-      spike.rotation.z = side * -0.52;
-      group.add(spike);
-      markArmorFx(spike, affixIds.has('thorns') ? 'thorn-spike' : 'frost-crystal', index * 1.1);
-    }
-  }
-
-  for (const [index, affix] of item.affixes.slice(1).entries()) {
-    const side = index % 2 === 0 ? -1 : 1;
-    const y = detail.y + (index % 2 === 0 ? 0.075 : -0.075);
-    const ornament = box(0.046, 0.046, 0.026,
-      new THREE.MeshBasicMaterial({ color: AFFIXES[affix.id].color, toneMapped: false }),
-      side * detail.halfWidth * 0.78, y, detail.z - 0.026);
-    ornament.rotation.z = Math.PI / 4;
-    markArmorFx(ornament, 'affix-ornament', index * 1.25);
-  }
-}
-
-function animateArmorVisuals(group: THREE.Object3D, time: number) {
-  group.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    const fx = mesh.userData.armorFx as {
-      kind: string; phase: number; x: number; y: number; z: number;
-      scaleX: number; scaleY: number; scaleZ: number;
-      rotationX: number; rotationY: number; rotationZ: number; opacity: number;
-    } | undefined;
-    if (!fx || !mesh.isMesh) return;
-    const pulse = Math.sin(time * (fx.kind === 'vamp-haze' ? 2.7 : 6.4) + fx.phase);
-    const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-    if (fx.kind === 'fire-stripe') {
-      material.opacity = fx.opacity * (0.62 + (pulse + 1) * 0.19);
-      mesh.scale.set(fx.scaleX * (0.88 + (pulse + 1) * 0.06), fx.scaleY * (0.94 + (pulse + 1) * 0.035), fx.scaleZ);
-      mesh.position.x = fx.x + Math.sin(time * 3.4 + fx.phase) * 0.008;
-    } else if (fx.kind === 'vamp-haze') {
-      material.opacity = fx.opacity * (0.78 + (pulse + 1) * 0.11);
-      const bloom = 1 + (pulse + 1) * 0.025;
-      mesh.scale.set(fx.scaleX * bloom, fx.scaleY * bloom, fx.scaleZ * bloom);
-    } else if (fx.kind === 'magnet-ring') {
-      material.opacity = fx.opacity * (0.72 + (pulse + 1) * 0.12);
-      mesh.rotation.set(fx.rotationX, fx.rotationY + time * 0.9, fx.rotationZ + Math.sin(time * 1.4 + fx.phase) * 0.12);
-    } else {
-      const ornamentPulse = 0.9 + (pulse + 1) * 0.05;
-      mesh.scale.set(fx.scaleX * ornamentPulse, fx.scaleY * ornamentPulse, fx.scaleZ * ornamentPulse);
-      mesh.rotation.z = fx.rotationZ + Math.sin(time * 2.6 + fx.phase) * 0.07;
-      if (fx.kind === 'affix-ornament' || fx.kind === 'rarity-gem') mesh.position.y = fx.y + Math.sin(time * 2.4 + fx.phase) * 0.006;
-      if (fx.kind === 'thorn-spike' || fx.kind === 'frost-crystal') mesh.rotation.x = fx.rotationX + Math.sin(time * 2.2 + fx.phase) * 0.09;
-    }
-  });
-}
 
 /** Small voxel wolf assembled from reusable cuboids; forward is local -Z, like the mob models. */
 function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
@@ -2657,7 +2525,7 @@ if (tpClipActive > 0.5) {
     if (girl && item.slot === 'legs') return attachments;
     const color = new THREE.Color(gearColor(item));
     const palette = {
-      main: new THREE.MeshLambertMaterial({ color }),
+      main: createArmorSurfaceMaterial(item, color),
       shade: new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.58) }),
       highlight: new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) }),
       trim: new THREE.MeshLambertMaterial({ color: '#30363a' }),
@@ -2785,30 +2653,7 @@ if (tpClipActive > 0.5) {
         break;
       }
     }
-    for (const attachment of attachments) {
-      const detailBox: ArmorBoxBuilder = (width, height, depth, material, x, y, z, rotateZ = 0) => {
-        const mesh = box(attachment.group, width, height, depth, material, x, y, z);
-        if (rotateZ) mesh.rotation.z = rotateZ;
-        return mesh;
-      };
-      addArmorVisualDetails(item, attachment.group, detailBox);
-    }
     return attachments;
-  }
-
-  private buildGirlSkirtArmor(item: Item): AvatarArmorAttachment[] {
-    if (!this.avatarSkirt) return [];
-    const details = new THREE.Group();
-    details.name = 'girl-skirt-armor-details';
-    // Fit effects and trim to the existing flared skirt; never replace it with trouser meshes.
-    details.position.y = 0.43;
-    const detailBox: ArmorBoxBuilder = (width, height, depth, material, x, y, z, rotateZ = 0) => {
-      const mesh = addCharacterBox(details, width, height, depth, material, x, y, z);
-      if (rotateZ) mesh.rotation.z = rotateZ;
-      return mesh;
-    };
-    addArmorVisualDetails(item, details, detailBox);
-    return [{ parent: this.avatarSkirt, group: details }];
   }
 
   /** Replace the worn meshes after equipment or character customization changes. */
@@ -2831,22 +2676,25 @@ if (tpClipActive > 0.5) {
     for (const [style, group] of Object.entries(this.avatarHelmetHairVariants) as Array<[CharacterHairstyle, THREE.Group]>) {
       group.visible = helmetWorn && style === this.characterCustomization.hairstyle;
     }
-    if (this.avatarSkirt) {
-      const girl = this.characterCustomization.gender === 'girl';
-      this.avatarSkirt.visible = girl;
-      if (girl && this.avatarAppearance) {
-        const skirtColor = this.equipped.legs ? gearColor(this.equipped.legs) : this.characterCustomization.pantsColor;
-        this.avatarAppearance.skirt.color.set(skirtColor);
-        this.avatarAppearance.skirtAccent.color.copy(this.avatarAppearance.skirt.color).multiplyScalar(0.7);
+    const girl = this.characterCustomization.gender === 'girl';
+    if (this.avatarSkirt) this.avatarSkirt.visible = girl;
+    if (this.avatarAppearance) {
+      const skirtArmor = girl ? this.equipped.legs : undefined;
+      if (skirtArmor) {
+        const armorColor = new THREE.Color(gearColor(skirtArmor));
+        setArmorSurfaceTexture(this.avatarAppearance.skirt, skirtArmor, armorColor);
+        setArmorSurfaceTexture(this.avatarAppearance.skirtAccent, skirtArmor, armorColor.clone().multiplyScalar(0.7));
+      } else {
+        const pantsColor = this.characterCustomization.pantsColor;
+        resetArmorSurfaceTexture(this.avatarAppearance.skirt, pantsColor);
+        resetArmorSurfaceTexture(this.avatarAppearance.skirtAccent, new THREE.Color(pantsColor).multiplyScalar(0.7));
       }
     }
 
     for (const slot of SLOTS) {
       const item = this.equipped[slot];
       if (!item) continue;
-      const attachments = this.characterCustomization.gender === 'girl' && slot === 'legs'
-        ? this.buildGirlSkirtArmor(item)
-        : this.buildEquippedArmor(item);
+      const attachments = this.buildEquippedArmor(item);
       if (!attachments.length) continue;
       const materials = new Set<THREE.Material>();
       for (const attachment of attachments) {
@@ -2874,7 +2722,7 @@ if (tpClipActive > 0.5) {
     const group = new THREE.Group();
     group.name = `dropped-armor-${item.slot}-${item.material}`;
     const color = new THREE.Color(gearColor(item));
-    const main = new THREE.MeshLambertMaterial({ color });
+    const main = createArmorSurfaceMaterial(item, color);
     const shade = new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.58) });
     const highlight = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) });
     const trim = new THREE.MeshLambertMaterial({ color: '#30363a' });
@@ -2952,7 +2800,6 @@ if (tpClipActive > 0.5) {
       }
     }
 
-    addArmorVisualDetails(item, group, box);
     group.rotation.set(0.2, 0, -0.12);
     return group;
   }
@@ -2961,7 +2808,7 @@ if (tpClipActive > 0.5) {
     const group = new THREE.Group();
     group.name = 'first-person-equipped-gauntlet';
     const color = new THREE.Color(gearColor(item));
-    const main = new THREE.MeshLambertMaterial({ color });
+    const main = createArmorSurfaceMaterial(item, color);
     const shade = new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.58) });
     const highlight = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) });
     const trim = new THREE.MeshLambertMaterial({ color: '#30363a' });
@@ -2981,7 +2828,6 @@ if (tpClipActive > 0.5) {
     box(0.095, 0.14, 0.14, main, -0.145, 0.1, -0.015, -0.42);
     box(0.035, 0.25, 0.05, highlight, 0.11, -0.19, -0.035);
     box(0.22, 0.035, 0.035, trim, 0, -0.105, -0.08);
-    addArmorVisualDetails(item, group, box);
     return group;
   }
 
@@ -5663,6 +5509,9 @@ if (tpClipActive > 0.5) {
     if (!visible) return;
     for (const attachments of Object.values(this.avatarArmorModels)) {
       for (const attachment of attachments ?? []) animateArmorVisuals(attachment.group, this.time);
+    }
+    if (this.avatarSkirt && this.characterCustomization.gender === 'girl' && this.equipped.legs) {
+      animateArmorVisuals(this.avatarSkirt, this.time);
     }
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -8587,7 +8436,14 @@ if (tpClipActive > 0.5) {
     });
     group.clear();
     geometries.forEach((geometry) => geometry.dispose());
-    materials.forEach((material) => material.dispose());
+    const textures = new Set<THREE.Texture>();
+    materials.forEach((material) => {
+      const textured = material as THREE.Material & { map?: THREE.Texture | null; emissiveMap?: THREE.Texture | null };
+      if (textured.map) textures.add(textured.map);
+      if (textured.emissiveMap) textures.add(textured.emissiveMap);
+      material.dispose();
+    });
+    textures.forEach((texture) => texture.dispose());
   }
 
   private buildFancyDrop(id: number, durability?: number): THREE.Group | null {
@@ -9143,7 +8999,7 @@ if (tpClipActive > 0.5) {
       if (d.fancy) {
         // fancy models bob & spin upright (no X tumble — they read better level)
         d.fancy.position.set(d.x, d.y + Math.sin(d.age * 3) * 0.06, d.z);
-        animateArmorVisuals(d.fancy, this.time);
+        if (d.gear) animateArmorVisuals(d.fancy, this.time);
         d.fancy.rotation.y += dt * 2;
         d.fancy.scale.setScalar(s * 2.6);
       } else {

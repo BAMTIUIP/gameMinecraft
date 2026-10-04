@@ -1,4 +1,4 @@
-/** The dropped, held and first-person worn armor paths share the slot-specific enchanted model. */
+/** Held, dropped and worn armor share painted buff/rarity textures instead of detached effect meshes. */
 const storage = new Map<string, string>();
 const localStorageStub = {
   getItem: (key: string) => storage.get(key) ?? null,
@@ -77,35 +77,59 @@ Object.assign(engine, {
 engine.syncViewModel();
 const heldModel = engine.toolGear.children[0] as THREE.Group | undefined;
 const firstPersonGauntlet = engine.firstPersonGlove.children[0] as THREE.Group | undefined;
-ok(heldModel?.name === `dropped-armor-${heldItem.slot}-${heldItem.material}`, 'The first-person held item uses the same slot/material armor builder as ground loot');
-ok(engine.toolGear.visible && gearColor(heldItem) === '#c85c2d', 'Held armor displays the affix-driven enamel used by its inventory icon');
+ok(heldModel?.name === `dropped-armor-${heldItem.slot}-${heldItem.material}`, 'First-person held armor uses the same slot/material model builder as ground loot');
+ok(engine.toolGear.visible && gearColor(heldItem) === '#c85c2d', 'Held armor keeps the same primary-affix enamel as its inventory icon');
 ok(Boolean(firstPersonGauntlet && engine.firstPersonGlove.visible), 'Equipped gloves remain visible in the first-person view model');
 
-const fxKinds: string[] = [];
-const animatedOpacity = new Map<string, Array<{ current: number; base: number }>>();
+function surfaceMaterial(root: THREE.Object3D | undefined): THREE.MeshLambertMaterial | null {
+  if (!root) return null;
+  let found: THREE.MeshLambertMaterial | null = null;
+  root.traverse((object: THREE.Object3D) => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh || found) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const match = materials.find((material) => material.userData.armorSurfaceFx);
+    if (match) found = match as THREE.MeshLambertMaterial;
+  });
+  return found;
+}
+
+function pixel(texture: THREE.Texture | null, x: number, y: number): string | null {
+  const data = (texture as THREE.DataTexture | null)?.image?.data as Uint8Array | undefined;
+  if (!data) return null;
+  const index = (y * 64 + x) * 4;
+  return `#${[data[index], data[index + 1], data[index + 2]].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const armorSurface = surfaceMaterial(heldModel);
+const surfaceFx = armorSurface?.userData.armorSurfaceFx as { baseIntensity: number; hasFire: boolean; hasVamp: boolean } | undefined;
+ok(armorSurface?.map instanceof THREE.DataTexture && armorSurface.emissiveMap instanceof THREE.DataTexture, 'Armor panels use painted diffuse and emissive surface textures');
+ok(Boolean(surfaceFx?.hasFire && surfaceFx.hasVamp), 'Buff animation is attached to the armor-surface material');
+ok(pixel(armorSurface?.map ?? null, 0, 0) === gearColor(heldItem), 'The armor texture base pixels match the item color exactly');
+ok(pixel(armorSurface?.map ?? null, 14, 20) === '#ff8a2b' && pixel(armorSurface?.emissiveMap ?? null, 14, 20) === '#ff8a2b', 'Fire stripes are colored and emissive pixels in the armor texture');
+ok(pixel(armorSurface?.map ?? null, 14, 8) === '#ff5364', 'Rarity points are painted into the helmet panel texture, not placed over the face');
+ok(Math.abs((armorSurface?.emissiveIntensity ?? 0) - (surfaceFx?.baseIntensity ?? 0)) > 0.005, 'The painted fire and vampiric pixels pulse through surface emissive intensity');
+
+const strayFxMeshes: string[] = [];
 heldModel?.traverse((object: THREE.Object3D) => {
-  const fx = object.userData.armorFx as { kind?: string; opacity?: number } | undefined;
-  if (!fx?.kind) return;
-  fxKinds.push(fx.kind);
-  const mesh = object as THREE.Mesh;
-  const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-  if (fx.kind === 'fire-stripe' || fx.kind === 'vamp-haze') {
-    const values = animatedOpacity.get(fx.kind) ?? [];
-    values.push({ current: material.opacity, base: fx.opacity ?? 0 });
-    animatedOpacity.set(fx.kind, values);
+  if (object.userData.armorFx || object.name === 'armor-vampiric-haze' || object.name === 'armor-magnetic-orbit') {
+    strayFxMeshes.push(object.name || 'unnamed armor effect');
   }
 });
-ok(fxKinds.filter((kind) => kind === 'rarity-gem').length === 5, 'Red mythic armor receives five rarity ornaments');
-ok(fxKinds.includes('fire-stripe') && fxKinds.includes('vamp-haze') && fxKinds.includes('magnet-ring') && fxKinds.includes('frost-crystal'), 'Affixes add animated fire stripes, vampiric haze and separate elemental ornaments');
-ok(['fire-stripe', 'vamp-haze'].every((kind) => (animatedOpacity.get(kind) ?? []).some(({ current, base }) => Math.abs(current - base) > 0.001)), 'Held armor animates its pulsing fire bands and translucent vampiric haze');
-const gloveFxKinds: string[] = [];
-firstPersonGauntlet?.traverse((object: THREE.Object3D) => {
-  const kind = (object.userData.armorFx as { kind?: string } | undefined)?.kind;
-  if (kind) gloveFxKinds.push(kind);
-});
-ok(gloveFxKinds.includes('fire-stripe') && gloveFxKinds.includes('vamp-haze'), 'The first-person glove shares the equipped item’s animated buff effects');
+ok(strayFxMeshes.length === 0, 'Buff and rarity visuals no longer create floating meshes around the armor or face');
+
+const gloveSurface = surfaceMaterial(firstPersonGauntlet);
+const gloveFx = gloveSurface?.userData.armorSurfaceFx as { hasFire?: boolean; hasVamp?: boolean } | undefined;
+ok(Boolean(gloveSurface?.map instanceof THREE.DataTexture && gloveFx?.hasFire && gloveFx.hasVamp), 'First-person gloves use the equipped item’s animated painted buff texture');
 
 const dropModel = engine.buildArmorDropModel(heldItem) as THREE.Group;
+const hashTexture = (texture: THREE.Texture | null | undefined) => {
+  const data = (texture as THREE.DataTexture | null | undefined)?.image?.data as Uint8Array | undefined;
+  if (!data) return '';
+  let hash = 2166136261;
+  for (const value of data) hash = Math.imul(hash ^ value, 16777619);
+  return (hash >>> 0).toString(16);
+};
 const modelSignature = (root: THREE.Object3D) => {
   const result: string[] = [];
   root.traverse((object: THREE.Object3D) => {
@@ -113,20 +137,20 @@ const modelSignature = (root: THREE.Object3D) => {
     if (!mesh.isMesh) return;
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     const geometry = mesh.geometry as THREE.BoxGeometry;
-    const parameters = (geometry as THREE.BoxGeometry).parameters;
-    const fx = (mesh.userData.armorFx as { kind?: string } | undefined)?.kind ?? '';
+    const parameters = geometry.parameters;
     result.push([
       geometry.type,
       parameters.width,
       parameters.height,
       parameters.depth,
       material.color?.getHexString?.() ?? '',
-      fx,
-      fx ? '' : `${mesh.position.x},${mesh.position.y},${mesh.position.z}`,
+      hashTexture((material as THREE.MeshLambertMaterial).map),
+      hashTexture((material as THREE.MeshLambertMaterial).emissiveMap),
+      `${mesh.position.x},${mesh.position.y},${mesh.position.z}`,
     ].join(':'));
   });
   return result.join('|');
 };
-ok(!!heldModel && modelSignature(heldModel) === modelSignature(dropModel), 'Held armor meshes, slot silhouette, color and affix effects match the dropped model exactly');
+ok(!!heldModel && modelSignature(heldModel) === modelSignature(dropModel), 'Held armor matches the dropped model in silhouette, color and painted affix textures');
 
 export { passed, failures };
