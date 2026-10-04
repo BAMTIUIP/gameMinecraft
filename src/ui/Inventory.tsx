@@ -479,17 +479,8 @@ export default function Inventory({
                             ))}
                           </div>
                         )}
+                        {it && <button onClick={(e) => { e.stopPropagation(); onUnequip(slot); }} className="btn-mc notch mt-auto w-full px-1 py-0.5 font-display text-[8px] leading-none" style={{ background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }} title={t('unequip')}>{t('unequip')}</button>}
                       </div>
-                      {it && (
-                        <button
-                          onClick={() => onUnequip(slot)}
-                          className="btn-mc notch absolute left-1 right-1 z-10 px-1 py-1 font-display text-[8px] leading-none"
-                          style={{ top: '48px', background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }}
-                          title={t('unequip')}
-                        >
-                          {t('unequip')}
-                        </button>
-                      )}
                     </div>
                   );
                 })}
