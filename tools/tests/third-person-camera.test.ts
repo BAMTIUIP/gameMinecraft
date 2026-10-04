@@ -76,8 +76,8 @@ const { Engine } = await import('../../src/game/engine');
   const selectedHelmetHair = new THREE.Group();
   const otherHelmetHair = new THREE.Group();
   const avatarHead = new THREE.Group();
-  const helmet = { slot: 'head', material: 'iron' };
-  const leggings = { slot: 'legs', material: 'iron', visualColor: '#4d8c5a' };
+  const helmet = { slot: 'head', material: 'iron', rarity: 0, affixes: [] };
+  const leggings = { slot: 'legs', material: 'iron', visualColor: '#4d8c5a', rarity: 0, affixes: [] };
   Object.assign(engine, {
     avatarHead,
     avatarLeftArm: new THREE.Group(),
@@ -104,7 +104,10 @@ const { Engine } = await import('../../src/game/engine');
   ok(engine.avatarSkirt.visible, 'Leggings keep the girl avatar skirt silhouette visible');
   ok(skirtMaterial.color.getHexString() === '4d8c5a', 'The skirt takes the equipped leggings color');
   ok(skirtAccent.color.getHexString() !== skirtMaterial.color.getHexString(), 'The skirt keeps its darker accent after recoloring');
-  ok(!engine.avatarArmorModels.legs, 'Girl leggings do not overlay trouser-shaped armor on the skirt');
+  ok(
+    engine.avatarArmorModels.legs?.[0]?.parent === engine.avatarSkirt && engine.avatarArmorModels.legs[0].group.name === 'girl-skirt-armor-details',
+    'Girl leggings keep the skirt silhouette and attach their armor trim directly to the skirt',
+  );
 
   const helmetGroup = engine.avatarArmorModels.head[0].group;
   const visor = helmetGroup.children.find((mesh: THREE.Object3D) => Math.abs(mesh.position.z + 0.175) < 1e-6);

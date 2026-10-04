@@ -210,9 +210,9 @@ for (const lang of LANGS_CHECKED) {
     de: { LEATHER: 'LEDER', IRON: 'EISEN', GOLD: 'GOLD', DIAMOND: 'DIAMANT', WOOD: 'HOLZ', STONE: 'STEIN', NETHERITE: 'NETHERIT' },
   };
   const rarityExpect: Record<string, string[]> = {
-    ru: ['ОБЫЧНЫЙ', 'ПРОЧНЫЙ', 'РЕДКИЙ', 'МИФИЧЕСКИЙ'],
-    fr: ['COMMUN', 'SOLIDE', 'RARE', 'MYTHIQUE'],
-    de: ['GEWÖHNLICH', 'ROBUST', 'SELTEN', 'MYTHISCH'],
+    ru: ['НЕОБЫЧНЫЙ', 'РЕДКИЙ', 'ЭПИЧЕСКИЙ', 'ЛЕГЕНДАРНЫЙ', 'МИФИЧЕСКИЙ'],
+    fr: ['PEU COMMUN', 'RARE', 'ÉPIQUE', 'LÉGENDAIRE', 'MYTHIQUE'],
+    de: ['UNGEWÖHNLICH', 'SELTEN', 'EPISCH', 'LEGENDÄR', 'MYTHISCH'],
   };
   const badMaterials = Object.values(MATERIALS).filter((m) => matName(m.label) !== materialExpect[lang][m.label]);
   ok(badMaterials.length === 0, `Названия материалов переведены (${lang})`, badMaterials.map((m) => `${m.label}=${matName(m.label)}`).join(', '));

@@ -135,6 +135,7 @@ import {
   toolSellPrice,
   getSalvageForItemId,
   getSalvageForGear,
+  gearTraderCost,
   type Recipe,
 } from './recipes';
 import {
@@ -157,6 +158,7 @@ import {
   refreshPetStateFromStorage,
   setMonkeyCoatIndex,
   setWolfCoatIndex,
+  getPetInventoryKinds,
   type MonkeyCoat,
   type PetKind,
   type WolfCoat,
@@ -178,6 +180,7 @@ import {
   EMPTY_STATS,
   ensureGearHid,
   gearColor,
+  gearSellPrice,
   isGearHotbarId,
   makeItem,
   MATERIALS,
@@ -195,6 +198,8 @@ import {
 import { blockName, matName, pickaxeLabel, recipeText, toolLabelForId, t, type TKey } from './i18n';
 import { yaServerTime } from './yandex';
 import { deviceKind } from './params';
+import { isDeveloperShopEnabled } from './devShop';
+import { getDeveloperCatalog } from './devCatalog';
 
 const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
@@ -400,6 +405,7 @@ export type HudState = {
   /** Permanent Yandex entitlements and the one shared, per-run companion equipment slot. */
   petOwned: boolean;
   petOwnedKinds: PetKind[];
+  petInventoryKinds: PetKind[];
   petTokenAvailable: boolean;
   petEquipped: boolean;
   petEquippedKind: PetKind | null;
@@ -620,6 +626,153 @@ function addCharacterBox(parent: THREE.Object3D, w: number, h: number, d: number
   mesh.position.set(x, y, z);
   parent.add(mesh);
   return mesh;
+}
+
+type ArmorBoxBuilder = (
+  width: number,
+  height: number,
+  depth: number,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  rotateZ?: number,
+) => THREE.Mesh;
+
+function markArmorFx(mesh: THREE.Mesh, kind: string, phase: number) {
+  const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  mesh.userData.armorFx = {
+    kind,
+    phase,
+    x: mesh.position.x,
+    y: mesh.position.y,
+    z: mesh.position.z,
+    scaleX: mesh.scale.x,
+    scaleY: mesh.scale.y,
+    scaleZ: mesh.scale.z,
+    rotationX: mesh.rotation.x,
+    rotationY: mesh.rotation.y,
+    rotationZ: mesh.rotation.z,
+    opacity: material.opacity,
+  };
+}
+
+/** Rarity gems and affix ornaments are shared by the worn, dropped and held armor models. */
+function addArmorVisualDetails(item: Item, group: THREE.Group, box: ArmorBoxBuilder) {
+  const layout: Record<Slot, { y: number; z: number; halfWidth: number; fireHeight: number; haze: [number, number, number] }> = {
+    head: { y: 0.045, z: -0.195, halfWidth: 0.14, fireHeight: 0.19, haze: [0.27, 0.24, 0.24] },
+    chest: { y: 0.02, z: -0.17, halfWidth: 0.13, fireHeight: 0.34, haze: [0.35, 0.39, 0.28] },
+    legs: { y: -0.03, z: -0.135, halfWidth: 0.11, fireHeight: 0.3, haze: [0.31, 0.34, 0.25] },
+    feet: { y: 0.04, z: -0.2, halfWidth: 0.12, fireHeight: 0.095, haze: [0.25, 0.2, 0.24] },
+    hands: { y: 0.02, z: -0.125, halfWidth: 0.13, fireHeight: 0.14, haze: [0.29, 0.24, 0.23] },
+    offhand: { y: 0.01, z: -0.105, halfWidth: 0.12, fireHeight: 0.31, haze: [0.3, 0.36, 0.16] },
+  };
+  const detail = layout[item.slot];
+  const rarity = RARITY[item.rarity] ?? RARITY[0];
+  const gemMaterial = new THREE.MeshBasicMaterial({ color: rarity.color, toneMapped: false });
+  const gemCount = item.rarity + 1;
+  const gemSize = 0.034 + item.rarity * 0.004;
+  const gemStep = gemCount <= 1 ? 0 : Math.min(0.062, (detail.halfWidth * 2 - gemSize) / (gemCount - 1));
+  for (let index = 0; index < gemCount; index++) {
+    const x = (index - (gemCount - 1) / 2) * gemStep;
+    const gem = box(gemSize, gemSize, 0.022, gemMaterial, x, detail.y, detail.z - 0.018);
+    gem.rotation.z = Math.PI / 4;
+    markArmorFx(gem, 'rarity-gem', index * 0.72);
+  }
+
+  const affixIds = new Set(item.affixes.map((affix) => affix.id));
+  if (affixIds.has('fire')) {
+    const fireMaterial = new THREE.MeshBasicMaterial({ color: AFFIXES.fire.color, transparent: true, opacity: 0.78, toneMapped: false });
+    for (const [index, side] of [-1, 1].entries()) {
+      const stripe = box(item.slot === 'offhand' ? 0.026 : 0.032, detail.fireHeight, 0.025, fireMaterial,
+        side * detail.halfWidth * 0.68, detail.y, detail.z - 0.012);
+      markArmorFx(stripe, 'fire-stripe', index * 1.4);
+    }
+  }
+
+  if (affixIds.has('vamp')) {
+    const hazeMaterial = new THREE.MeshBasicMaterial({
+      color: AFFIXES.vamp.color,
+      transparent: true,
+      opacity: 0.13,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const haze = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), hazeMaterial);
+    haze.name = 'armor-vampiric-haze';
+    haze.position.set(0, detail.y, item.slot === 'offhand' ? -0.02 : 0);
+    haze.scale.set(...detail.haze);
+    haze.renderOrder = 4;
+    group.add(haze);
+    markArmorFx(haze, 'vamp-haze', 0.8);
+  }
+
+  if (affixIds.has('magnet')) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(item.slot === 'offhand' ? 0.24 : 0.27, 0.012, 4, 10),
+      new THREE.MeshBasicMaterial({ color: AFFIXES.magnet.color, transparent: true, opacity: 0.58, depthWrite: false, toneMapped: false }),
+    );
+    ring.name = 'armor-magnetic-orbit';
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = detail.y;
+    group.add(ring);
+    markArmorFx(ring, 'magnet-ring', 1.8);
+  }
+
+  if (affixIds.has('thorns') || affixIds.has('frost')) {
+    const affix = affixIds.has('thorns') ? AFFIXES.thorns : AFFIXES.frost;
+    const spikeMaterial = new THREE.MeshBasicMaterial({ color: affix.color, toneMapped: false });
+    for (const [index, side] of [-1, 1].entries()) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.13, 4), spikeMaterial);
+      spike.position.set(side * (detail.halfWidth + 0.018), detail.y + 0.04, 0);
+      spike.rotation.z = side * -0.52;
+      group.add(spike);
+      markArmorFx(spike, affixIds.has('thorns') ? 'thorn-spike' : 'frost-crystal', index * 1.1);
+    }
+  }
+
+  for (const [index, affix] of item.affixes.slice(1).entries()) {
+    const side = index % 2 === 0 ? -1 : 1;
+    const y = detail.y + (index % 2 === 0 ? 0.075 : -0.075);
+    const ornament = box(0.046, 0.046, 0.026,
+      new THREE.MeshBasicMaterial({ color: AFFIXES[affix.id].color, toneMapped: false }),
+      side * detail.halfWidth * 0.78, y, detail.z - 0.026);
+    ornament.rotation.z = Math.PI / 4;
+    markArmorFx(ornament, 'affix-ornament', index * 1.25);
+  }
+}
+
+function animateArmorVisuals(group: THREE.Object3D, time: number) {
+  group.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    const fx = mesh.userData.armorFx as {
+      kind: string; phase: number; x: number; y: number; z: number;
+      scaleX: number; scaleY: number; scaleZ: number;
+      rotationX: number; rotationY: number; rotationZ: number; opacity: number;
+    } | undefined;
+    if (!fx || !mesh.isMesh) return;
+    const pulse = Math.sin(time * (fx.kind === 'vamp-haze' ? 2.7 : 6.4) + fx.phase);
+    const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    if (fx.kind === 'fire-stripe') {
+      material.opacity = fx.opacity * (0.62 + (pulse + 1) * 0.19);
+      mesh.scale.set(fx.scaleX * (0.88 + (pulse + 1) * 0.06), fx.scaleY * (0.94 + (pulse + 1) * 0.035), fx.scaleZ);
+      mesh.position.x = fx.x + Math.sin(time * 3.4 + fx.phase) * 0.008;
+    } else if (fx.kind === 'vamp-haze') {
+      material.opacity = fx.opacity * (0.78 + (pulse + 1) * 0.11);
+      const bloom = 1 + (pulse + 1) * 0.025;
+      mesh.scale.set(fx.scaleX * bloom, fx.scaleY * bloom, fx.scaleZ * bloom);
+    } else if (fx.kind === 'magnet-ring') {
+      material.opacity = fx.opacity * (0.72 + (pulse + 1) * 0.12);
+      mesh.rotation.set(fx.rotationX, fx.rotationY + time * 0.9, fx.rotationZ + Math.sin(time * 1.4 + fx.phase) * 0.12);
+    } else {
+      const ornamentPulse = 0.9 + (pulse + 1) * 0.05;
+      mesh.scale.set(fx.scaleX * ornamentPulse, fx.scaleY * ornamentPulse, fx.scaleZ * ornamentPulse);
+      mesh.rotation.z = fx.rotationZ + Math.sin(time * 2.6 + fx.phase) * 0.07;
+      if (fx.kind === 'affix-ornament' || fx.kind === 'rarity-gem') mesh.position.y = fx.y + Math.sin(time * 2.4 + fx.phase) * 0.006;
+      if (fx.kind === 'thorn-spike' || fx.kind === 'frost-crystal') mesh.rotation.x = fx.rotationX + Math.sin(time * 2.2 + fx.phase) * 0.09;
+    }
+  });
 }
 
 /** Small voxel wolf assembled from reusable cuboids; forward is local -Z, like the mob models. */
@@ -1223,7 +1376,9 @@ export class Engine {
   private toolHoe!: THREE.Group;
   private toolBow!: THREE.Group;
   private toolGear!: THREE.Group;
-  private gearPlateMat!: THREE.MeshLambertMaterial;
+  private toolGearKey = '';
+  private firstPersonGlove!: THREE.Group;
+  private firstPersonGloveKey = '';
   private torchFlame!: THREE.Mesh;
   private torchFlameMat!: THREE.MeshBasicMaterial;
   private torchLight!: THREE.PointLight;
@@ -1370,6 +1525,8 @@ export class Engine {
   private avatarHeldBow!: THREE.Group;
   private avatarHeldTorch!: THREE.Group;
   private avatarHeldBlock!: THREE.Mesh;
+  private avatarHeldGear!: THREE.Group;
+  private avatarHeldGearKey = '';
   private avatarHeldPickMats: THREE.MeshLambertMaterial[] = [];
   private avatarHeldSwordMat!: THREE.MeshLambertMaterial;
   private avatarHeldAxeHeadMat!: THREE.MeshLambertMaterial;
@@ -2206,22 +2363,21 @@ if (tpClipActive > 0.5) {
     this.toolLantern.visible = false;
     this.pickGroup.add(this.toolLantern);
 
-    // ---- 3D held Armor / Gear plate ----
+    // ---- 3D held Armor / Gear model ----
+    // The selected item is rebuilt from the same slot-specific builder as ground drops.
     this.toolGear = new THREE.Group();
-    this.gearPlateMat = new THREE.MeshLambertMaterial({ color: 0xd6d9dd });
-    const gearTrimMat = new THREE.MeshLambertMaterial({ color: 0x3b4046 });
-    const gBody = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.38, 0.12), this.gearPlateMat);
-    const gShoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.14), this.gearPlateMat);
-    gShoulderL.position.set(-0.2, 0.12, 0);
-    const gShoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.14), this.gearPlateMat);
-    gShoulderR.position.set(0.2, 0.12, 0);
-    const gTrim = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.13), gearTrimMat);
-    gTrim.position.set(0, -0.16, 0);
-    this.toolGear.add(gBody, gShoulderL, gShoulderR, gTrim);
     this.toolGear.rotation.set(0.2, 0.5, 0.05);
     this.toolGear.position.set(0.02, 0.02, 0);
+    this.toolGear.scale.setScalar(1.55);
     this.toolGear.visible = false;
     this.pickGroup.add(this.toolGear);
+
+    // Worn hand armor stays visible in first-person even while another tool is held.
+    this.firstPersonGlove = new THREE.Group();
+    this.firstPersonGlove.position.set(0.05, -0.1, 0.05);
+    this.firstPersonGlove.rotation.set(0.15, 0.35, 0.25);
+    this.firstPersonGlove.visible = false;
+    this.pickGroup.add(this.firstPersonGlove);
 
     // ---- 3D held Material / Resource Item (Lapis, Emerald, Diamond, Ingots, Drops, etc.) ----
     this.toolItem = new THREE.Group();
@@ -2430,6 +2586,7 @@ if (tpClipActive > 0.5) {
     this.avatarHeldBlock.rotation.set(0.25, 0.55, 0.1);
     this.avatarHeldBlock.visible = false;
     heldRoot.add(this.avatarHeldBlock);
+    this.avatarHeldGear = makeHeldGroup();
     this.avatarFireFx = buildEnchantedFlames(true);
     heldRoot.add(this.avatarFireFx);
 
@@ -2628,7 +2785,30 @@ if (tpClipActive > 0.5) {
         break;
       }
     }
+    for (const attachment of attachments) {
+      const detailBox: ArmorBoxBuilder = (width, height, depth, material, x, y, z, rotateZ = 0) => {
+        const mesh = box(attachment.group, width, height, depth, material, x, y, z);
+        if (rotateZ) mesh.rotation.z = rotateZ;
+        return mesh;
+      };
+      addArmorVisualDetails(item, attachment.group, detailBox);
+    }
     return attachments;
+  }
+
+  private buildGirlSkirtArmor(item: Item): AvatarArmorAttachment[] {
+    if (!this.avatarSkirt) return [];
+    const details = new THREE.Group();
+    details.name = 'girl-skirt-armor-details';
+    // Fit effects and trim to the existing flared skirt; never replace it with trouser meshes.
+    details.position.y = 0.43;
+    const detailBox: ArmorBoxBuilder = (width, height, depth, material, x, y, z, rotateZ = 0) => {
+      const mesh = addCharacterBox(details, width, height, depth, material, x, y, z);
+      if (rotateZ) mesh.rotation.z = rotateZ;
+      return mesh;
+    };
+    addArmorVisualDetails(item, details, detailBox);
+    return [{ parent: this.avatarSkirt, group: details }];
   }
 
   /** Replace the worn meshes after equipment or character customization changes. */
@@ -2664,7 +2844,9 @@ if (tpClipActive > 0.5) {
     for (const slot of SLOTS) {
       const item = this.equipped[slot];
       if (!item) continue;
-      const attachments = this.buildEquippedArmor(item);
+      const attachments = this.characterCustomization.gender === 'girl' && slot === 'legs'
+        ? this.buildGirlSkirtArmor(item)
+        : this.buildEquippedArmor(item);
       if (!attachments.length) continue;
       const materials = new Set<THREE.Material>();
       for (const attachment of attachments) {
@@ -2770,7 +2952,36 @@ if (tpClipActive > 0.5) {
       }
     }
 
+    addArmorVisualDetails(item, group, box);
     group.rotation.set(0.2, 0, -0.12);
+    return group;
+  }
+
+  private buildFirstPersonGlove(item: Item): THREE.Group {
+    const group = new THREE.Group();
+    group.name = 'first-person-equipped-gauntlet';
+    const color = new THREE.Color(gearColor(item));
+    const main = new THREE.MeshLambertMaterial({ color });
+    const shade = new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.58) });
+    const highlight = new THREE.MeshLambertMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.34) });
+    const trim = new THREE.MeshLambertMaterial({ color: '#30363a' });
+    const box: ArmorBoxBuilder = (width, height, depth, material, x, y, z, rotateZ = 0) => {
+      const mesh = addCharacterBox(group, width, height, depth, material, x, y, z);
+      if (rotateZ) mesh.rotation.z = rotateZ;
+      return mesh;
+    };
+
+    box(0.24, 0.36, 0.22, shade, 0, -0.22, 0.08);
+    box(0.29, 0.12, 0.28, trim, 0, -0.045, 0.08);
+    box(0.27, 0.24, 0.29, main, 0, 0.12, -0.03);
+    box(0.21, 0.09, 0.06, highlight, 0, 0.17, -0.19);
+    for (const x of [-0.09, -0.03, 0.03, 0.09]) {
+      box(0.035, 0.105, 0.045, shade, x, 0.045, -0.18);
+    }
+    box(0.095, 0.14, 0.14, main, -0.145, 0.1, -0.015, -0.42);
+    box(0.035, 0.25, 0.05, highlight, 0.11, -0.19, -0.035);
+    box(0.22, 0.035, 0.035, trim, 0, -0.105, -0.08);
+    addArmorVisualDetails(item, group, box);
     return group;
   }
 
@@ -2887,12 +3098,31 @@ if (tpClipActive > 0.5) {
     this.toolShovel.visible = kind === 'shovel' && !holdingCraftedTool;
     this.toolHoe.visible = kind === 'hoe' && !holdingCraftedTool;
     this.toolBow.visible = kind === 'bow' && !holdingCraftedTool;
-    this.toolGear.visible = kind === 'gear';
-    if (kind === 'gear' && heldId !== undefined) {
-      const g = this.bagItems.find((b) => b.hid === heldId);
-      if (g && this.gearPlateMat) {
-        this.gearPlateMat.color.set(MATERIALS[g.material]?.color ?? '#d6d9dd');
+    const heldGear = kind === 'gear' && heldId !== undefined
+      ? this.bagItems.find((item) => item.hid === heldId)
+      : undefined;
+    this.toolGear.visible = !!heldGear;
+    if (heldGear) {
+      const signature = `${heldGear.uid}:${gearColor(heldGear)}:${heldGear.rarity}:${heldGear.affixes.map((affix) => `${affix.id}-${affix.value}`).join(',')}`;
+      if (signature !== this.toolGearKey) {
+        this.clearToolModel(this.toolGear);
+        this.toolGear.add(this.buildArmorDropModel(heldGear));
+        this.toolGearKey = signature;
       }
+      animateArmorVisuals(this.toolGear, this.time);
+    }
+
+    const wornGlove = this.equipped.hands;
+    const showFirstPersonGlove = !!wornGlove && !this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
+    this.firstPersonGlove.visible = showFirstPersonGlove;
+    if (wornGlove) {
+      const signature = `${wornGlove.uid}:${gearColor(wornGlove)}:${wornGlove.rarity}:${wornGlove.affixes.map((affix) => `${affix.id}-${affix.value}`).join(',')}`;
+      if (signature !== this.firstPersonGloveKey) {
+        this.clearToolModel(this.firstPersonGlove);
+        this.firstPersonGlove.add(this.buildFirstPersonGlove(wornGlove));
+        this.firstPersonGloveKey = signature;
+      }
+      if (showFirstPersonGlove) animateArmorVisuals(this.firstPersonGlove, this.time);
     }
     if (kind === 'torch' || holdingLanternBlock) {
       // flame flicker + world light following the player
@@ -2992,6 +3222,7 @@ if (tpClipActive > 0.5) {
     for (const g of all) if (g) g.visible = false;
     if (this.avatarHeldTool) this.avatarHeldTool.visible = false;
     if (this.avatarHeldBlock) this.avatarHeldBlock.visible = false;
+    if (this.avatarHeldGear) this.avatarHeldGear.visible = false;
     const kind = this.heldKind();
     const heldId = this.hotbar[this.selected];
     const craftedSpec = heldId === undefined ? null : getToolSpec(heldId);
@@ -3072,7 +3303,21 @@ if (tpClipActive > 0.5) {
     } else if (kind === 'torch' || heldId === TORCH) {
       this.positionAvatarHeldItemAtGrip(this.avatarHeldTorch, 0, 0, 0);
       this.avatarHeldTorch.visible = true;
-    } else if ((kind === 'block' || kind === 'gear') && heldId !== undefined) {
+    } else if (kind === 'gear' && heldId !== undefined) {
+      const item = this.bagItems.find((gear) => gear.hid === heldId);
+      if (!item) return;
+      const signature = `${item.uid}:${gearColor(item)}:${item.rarity}:${item.affixes.map((affix) => `${affix.id}-${affix.value}`).join(',')}`;
+      if (signature !== this.avatarHeldGearKey) {
+        this.clearToolModel(this.avatarHeldGear);
+        this.avatarHeldGear.add(this.buildArmorDropModel(item));
+        this.avatarHeldGearKey = signature;
+      }
+      this.avatarHeldGear.scale.setScalar(0.78);
+      this.avatarHeldGear.rotation.set(0.22, -0.12, 0.28);
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldGear, 0, 0, 0);
+      this.avatarHeldGear.visible = true;
+      animateArmorVisuals(this.avatarHeldGear, this.time);
+    } else if (kind === 'block' && heldId !== undefined) {
       this.positionAvatarHeldItemAtGrip(this.avatarHeldBlock, 0, 0, 0);
       this.avatarHeldBlock.visible = true;
       const tint = BLOCKS[heldId]?.tint ?? [210, 210, 210];
@@ -4461,13 +4706,13 @@ if (tpClipActive > 0.5) {
     for (const product of products) {
       switch (product) {
         case 'armor-uncommon':
-          grantArmorSet('iron', 1);
+          grantArmorSet('iron', 0);
           break;
         case 'armor-rare':
-          grantArmorSet('iron', 2);
+          grantArmorSet('gold', 1);
           break;
         case 'armor-epic':
-          grantArmorSet('netherite', 3);
+          grantArmorSet('netherite', 2);
           break;
         case 'netherite-pickaxe':
           if (this.addToolInstance(PICK_TOOLS[5])) received += 1;
@@ -4487,12 +4732,12 @@ if (tpClipActive > 0.5) {
           break;
         case 'chest-rare':
           grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2]]);
-          this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 2, Math.random)));
+          this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 1, Math.random)));
           received += 1;
           break;
         case 'chest-epic':
           grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2]]);
-          this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 3, Math.random)));
+          this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 2, Math.random)));
           received += 1;
           break;
         case 'booster-start':
@@ -5416,6 +5661,9 @@ if (tpClipActive > 0.5) {
       animateEnchantedFlames(this.avatarFireFx, this.time);
     }
     if (!visible) return;
+    for (const attachments of Object.values(this.avatarArmorModels)) {
+      for (const attachment of attachments ?? []) animateArmorVisuals(attachment.group, this.time);
+    }
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
     const mix = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -6699,7 +6947,8 @@ if (tpClipActive > 0.5) {
       const materialRoll = rand();
       const material: Material = materialRoll < 0.3 ? 'iron' : materialRoll < 0.52 ? 'gold' : materialRoll < 0.94 ? 'diamond' : 'netherite';
       const slot: Slot = (['head', 'chest', 'legs', 'feet', 'hands', 'offhand'] as Slot[])[Math.floor(rand() * 6)];
-      const rarity: Rarity = rand() < 0.24 ? 3 : 2;
+      const rarityRoll = rand();
+      const rarity: Rarity = rarityRoll < 0.035 ? 4 : rarityRoll < 0.27 ? 3 : 2;
       this.chestBonusGear ??= new Map();
       this.chestBonusGear.set(key, [makeItem(slot, material, rarity, rand)]);
     }
@@ -8894,6 +9143,7 @@ if (tpClipActive > 0.5) {
       if (d.fancy) {
         // fancy models bob & spin upright (no X tumble — they read better level)
         d.fancy.position.set(d.x, d.y + Math.sin(d.age * 3) * 0.06, d.z);
+        animateArmorVisuals(d.fancy, this.time);
         d.fancy.rotation.y += dt * 2;
         d.fancy.scale.setScalar(s * 2.6);
       } else {
@@ -10154,8 +10404,7 @@ if (tpClipActive > 0.5) {
     if (i < 0) return;
     const it = this.bagItems[i];
     this.bagItems.splice(i, 1);
-    const matMul = { leather: 30, iron: 80, gold: 140, diamond: 320, netherite: 900 }[it.material];
-    const gained = this.awardScore(Math.round(matMul * (1 + it.rarity * 0.6) + it.affixes.length * 40));
+    const gained = this.awardScore(gearSellPrice(it));
     this.popup(this.pos.x, this.pos.y + 1.5, this.pos.z, `+${gained}`, '#f7d34b');
     sfx.pickup(6);
     this.syncHud(true);
@@ -10298,20 +10547,11 @@ if (tpClipActive > 0.5) {
     const slots: Slot[] = ['hands', 'chest', 'offhand', 'head', 'legs', 'feet'];
     this.offers = [];
     for (let i = 0; i < 3; i++) {
-      const rarity = (rand() < 0.55 ? 2 : 3) as 2 | 3;
-      const material = rand() < 0.4 ? 'gold' : rand() < 0.75 ? 'iron' : 'diamond';
+      const rarityRoll = rand();
+      const rarity: Rarity = rarityRoll < 0.28 ? 0 : rarityRoll < 0.53 ? 1 : rarityRoll < 0.75 ? 2 : rarityRoll < 0.93 ? 3 : 4;
+      const material = rand() < 0.36 ? 'gold' : rand() < 0.7 ? 'iron' : 'diamond';
       const item = makeItem(slots[Math.floor(rand() * slots.length)], material, rarity, rand);
-      const cost: Array<[number, number]> =
-        rarity === 3
-          ? [
-              [DIAMOND, 2 + Math.floor(rand() * 2)],
-              [GOLD, 2],
-            ]
-          : [
-              [GOLD, 2 + Math.floor(rand() * 3)],
-              [IRON, 3],
-            ];
-      this.offers.push({ item, cost, sold: false });
+      this.offers.push({ item, cost: gearTraderCost(rarity), sold: false });
     }
   }
 
@@ -10361,6 +10601,55 @@ if (tpClipActive > 0.5) {
     // no prerequisite tier, no previous-recipe unlock, no duplicate limit.
     if (r.kind === 'cook' && !this.campfireNear()) return false;
     return r.inputs.every(([id, n]) => (this.inventory.get(id) ?? 0) >= n);
+  }
+
+  private craftedGearFromRecipe(recipe: Recipe): Item | null {
+    if (recipe.kind !== 'gear' || !recipe.slot || !recipe.material) return null;
+    const item = makeItem(recipe.slot, recipe.material, 0, Math.random, true);
+    item.visualColor = recipe.accent;
+    if (recipe.key === 'turtle_helmet') item.armor += 3;
+    if (recipe.key === 'claw_gloves') item.affixes.push({ id: 'swift', value: 12 });
+    if (recipe.key === 'crab_shield') item.armor += 2;
+    return ensureGearHid(item);
+  }
+
+  /** Grant the full gatherable/crafted/dropped catalogue in local developer builds only. */
+  grantDeveloperCatalog(): boolean {
+    if (!isDeveloperShopEnabled() || this.phase !== 'playing') {
+      sfx.ui(false);
+      return false;
+    }
+    const catalog = getDeveloperCatalog();
+    for (const id of catalog.itemIds) {
+      this.inventory.set(id, 64);
+      this.addToHotbar(id);
+    }
+    this.inventory.set(TOOL_TORCH, 64);
+    this.addToHotbar(TOOL_TORCH);
+
+    for (const id of catalog.toolIds) {
+      if (id === TOOL_TORCH || [...this.toolInstances.values()].some((tool) => tool.id === id)) continue;
+      this.addToolInstance(id);
+    }
+    for (const variant of catalog.gearVariants) {
+      if (this.bagItems.some((item) => !item.crafted && item.slot === variant.slot && item.material === variant.material && item.rarity === variant.rarity)) continue;
+      this.bagItems.push(ensureGearHid(makeItem(variant.slot, variant.material, variant.rarity, Math.random)));
+    }
+    for (const key of catalog.gearRecipeKeys) {
+      const recipe = RECIPES.find((entry) => entry.key === key);
+      if (!recipe) continue;
+      const item = this.craftedGearFromRecipe(recipe);
+      if (!item) continue;
+      if (this.bagItems.some((owned) => owned.crafted && owned.slot === item.slot && owned.material === item.material && owned.visualColor === item.visualColor)) continue;
+      this.bagItems.push(item);
+    }
+
+    this.recalcOwnedToolTiers();
+    this.syncHotbar(true);
+    this.pushBanner(t('devKitTitle'), t('devKitGranted'), '#ff5364');
+    this.syncHud(true);
+    sfx.upgrade();
+    return true;
   }
 
   craft(key: string): boolean {
@@ -10413,12 +10702,8 @@ if (tpClipActive > 0.5) {
       sfx.pickup(4);
       this.popup(this.pos.x, this.pos.y + 1.4, this.pos.z, `+${r.heal} ${t('hp')}`, '#93c95d', true);
     } else if (r.kind === 'gear' && r.slot && r.material) {
-      const it = makeItem(r.slot, r.material, 1, Math.random, true);
-      it.visualColor = r.accent;
-      // Minecraft-flavoured specials
-      if (r.key === 'turtle_helmet') it.armor += 3; // scute plating
-      if (r.key === 'claw_gloves') it.affixes.push({ id: 'swift', value: 12 });
-      if (r.key === 'crab_shield') it.armor += 2;
+      const it = this.craftedGearFromRecipe(r);
+      if (!it) return false;
       this.bagItems.push(it);
       sfx.upgrade();
       this.pushBanner(rName, `+${it.armor} ${t('armorTotal')}`, r.accent);
@@ -10477,25 +10762,35 @@ if (tpClipActive > 0.5) {
   private ensurePetRuntimeState(kind: PetKind) {
     if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
     if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
+    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey'))];
     if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0 };
     if (this.petEquippedKind === undefined) this.petEquippedKind = null;
     if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+    this.petOwned = this.petOwnedKinds.length > 0;
+    this.petTokenAvailable = getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null).length > 0;
+  }
+
+  private petInventoryKinds(): PetKind[] {
+    return getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null);
   }
 
   /** Equip one owned per-run companion token in the shared slot; only one pet follows at a time. */
   setPetEquipped(kind: PetKind, equipped: boolean): boolean {
     this.ensurePetRuntimeState(kind);
     if (equipped) {
-      if (this.petEquipped) return this.petEquippedKind === kind;
-      if (this.phase !== 'playing' || !this.petOwnedKinds.includes(kind) || !this.petTokenAvailable) {
+      if (this.petEquipped && this.petEquippedKind === kind) return true;
+      if (this.phase !== 'playing' || !this.petInventoryKinds().includes(kind)) {
         sfx.ui(false);
         return false;
       }
+      // Replacing an occupied slot removes the old rig; the old species' token is
+      // automatically visible again because inventory tokens are derived per species.
+      if (this.petEquipped) this.clearWolfPetRig();
       this.petSelectedKind = kind;
       this.petCoatIndex = this.petCoatIndices[kind];
       this.petEquipped = true;
       this.petEquippedKind = kind;
-      this.petTokenAvailable = false;
+      this.petTokenAvailable = this.petInventoryKinds().length > 0;
       this.createWolfPetRig(kind);
       sfx.ui(true);
     } else {
@@ -10504,7 +10799,7 @@ if (tpClipActive > 0.5) {
       this.petEquippedKind = null;
       this.petSelectedKind = kind;
       this.petCoatIndex = this.petCoatIndices[kind];
-      this.petTokenAvailable = this.petOwned;
+      this.petTokenAvailable = this.petInventoryKinds().length > 0;
       this.clearWolfPetRig();
       sfx.ui(false);
     }
@@ -10521,10 +10816,11 @@ if (tpClipActive > 0.5) {
     return this.setPetEquipped('monkey', equipped);
   }
 
-  /** Select which owned companion will use the shared equipment slot next. */
+  /** Select a pet token; while the slot is occupied this also replaces the active species. */
   selectPetKind(kind: PetKind): boolean {
     this.ensurePetRuntimeState(kind);
-    if (this.petEquipped || !this.petOwnedKinds.includes(kind)) return false;
+    if (!this.petOwnedKinds.includes(kind)) return false;
+    if (this.petEquipped) return this.setPetEquipped(kind, true);
     if (this.petSelectedKind === kind) return true;
     this.petSelectedKind = kind;
     this.petCoatIndex = this.petCoatIndices[kind];
@@ -11053,6 +11349,7 @@ if (tpClipActive > 0.5) {
       chestSignature,
       this.petOwned ? 1 : 0,
       this.petOwnedKinds.join(','),
+      this.petInventoryKinds().join(','),
       this.petTokenAvailable ? 1 : 0,
       this.petEquipped ? 1 : 0,
       this.petEquippedKind ?? '-',
@@ -11142,6 +11439,7 @@ if (tpClipActive > 0.5) {
       bagItems: this.bagItems.slice(),
       petOwned: this.petOwned,
       petOwnedKinds: [...this.petOwnedKinds],
+      petInventoryKinds: this.petInventoryKinds(),
       petTokenAvailable: this.petTokenAvailable,
       petEquipped: this.petEquipped,
       petEquippedKind: this.petEquippedKind,

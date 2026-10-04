@@ -75,7 +75,7 @@ ok(!queued || !completePendingShopRewards(queued.keys), 'The same receipt cannot
 
 const epicArmorEngine = createEngineShell();
 const epicArmorGranted = epicArmorEngine.grantShopProductRewards(['armor-epic']);
-ok(epicArmorGranted && epicArmorEngine.bagItems.length === 4 && epicArmorEngine.bagItems.every((item: any) => item.material === 'netherite' && item.rarity === 3), 'The epic armor SKU grants four mythic netherite pieces');
+ok(epicArmorGranted && epicArmorEngine.bagItems.length === 4 && epicArmorEngine.bagItems.every((item: any) => item.material === 'netherite' && item.rarity === 2), 'The epic armor SKU grants four epic netherite pieces');
 const epicChestEngine = createEngineShell();
 const epicChestGranted = epicChestEngine.grantShopProductRewards(['chest-epic']);
 ok(epicChestGranted && epicChestEngine.bagItems.length === 1 && epicChestEngine.bagItems[0].material === 'netherite', 'The epic chest SKU grants its mythic netherite chest piece');

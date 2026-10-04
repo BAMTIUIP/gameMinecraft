@@ -16,7 +16,7 @@ import {
 import { BLOCKS, PICKAXE_TIERS } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
-import { AFFIXES, gearColor, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
+import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
 import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
@@ -63,6 +63,8 @@ type Props = {
   onSellGear: (uid: string) => void;
   onSalvageGear: (uid: string) => void;
   onSalvageItem: (id: number, instanceId?: number) => void;
+  developerKitEnabled?: boolean;
+  onDeveloperGrantAll?: () => boolean;
   isTouch?: boolean;
 };
 
@@ -80,6 +82,7 @@ const INV_CATEGORY_TABS: Array<{ id: InvCategory; key: string }> = [
   { id: 'food', key: 'inv_tab_food' },
   { id: 'armor', key: 'inv_tab_armor' },
   { id: 'blocks', key: 'inv_tab_blocks' },
+  { id: 'pets', key: 'inv_tab_pets' },
 ];
 
 type WorkbenchTarget = { kind: 'item'; id: number; instanceId?: number } | { kind: 'gear'; uid: string } | null;
@@ -118,6 +121,8 @@ export default function Inventory({
   onSellGear,
   onSalvageGear,
   onSalvageItem,
+  developerKitEnabled = false,
+  onDeveloperGrantAll,
   isTouch,
 }: Props) {
   const craftable = new Set(hud.craftable);
@@ -134,11 +139,12 @@ export default function Inventory({
 
   // Filter general inventory stacks + armor items according to selected general inventory tab
   const filteredStacks =
-    invCat === 'armor'
+    invCat === 'armor' || invCat === 'pets'
       ? []
       : hud.inventory.filter((it) => invCat === 'all' || getItemInvCategory(it.id) === invCat);
   const filteredGear = invCat === 'all' || invCat === 'armor' ? hud.bagItems : [];
-  const totalShownCount = filteredStacks.length + filteredGear.length + (hud.petTokenAvailable ? hud.petOwnedKinds.length : 0);
+  const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds : [];
+  const totalShownCount = filteredStacks.length + filteredGear.length + filteredPets.length;
   const petDisplayKind = hud.petEquippedKind ?? hud.petSelectedKind;
   const petDisplayOwned = hud.petOwnedKinds.includes(petDisplayKind);
   const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
@@ -168,6 +174,16 @@ export default function Inventory({
               </span>
               <span className="font-display text-[10px] text-white/40">{PICKAXE_TIERS[hud.tier]?.speed.toFixed(1)}x</span>
             </div>
+            {developerKitEnabled && (
+              <button
+                type="button"
+                onClick={() => onDeveloperGrantAll?.()}
+                title={t('devKitDescription')}
+                className="notch border border-[#ff536466] bg-[#351a20] px-2.5 py-2 font-display text-[10px] tracking-wider text-[#ff7180] transition hover:bg-[#52212a] hover:text-white"
+              >
+                {t('devKitButton')}
+              </button>
+            )}
             <button
               onClick={onClose}
               className="bevel-flat notch flex h-10 w-10 items-center justify-center text-white/60 transition hover:text-blood active:scale-95"
@@ -198,7 +214,7 @@ export default function Inventory({
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="font-display text-sm tracking-widest text-torch">{t('haul')}</span>
               <span className="font-display text-[11px] text-white/35">
-                {hud.inventory.length + hud.bagItems.length + (hud.petTokenAvailable ? hud.petOwnedKinds.length : 0)} {t('stacks')}
+                {hud.inventory.length + hud.bagItems.length + hud.petInventoryKinds.length} {t('stacks')}
               </span>
             </div>
 
@@ -234,7 +250,7 @@ export default function Inventory({
               </div>
             ) : (
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
-                {hud.petTokenAvailable && hud.petOwnedKinds.map((kind) => {
+                {filteredPets.map((kind) => {
                   const coatIndex = hud.petCoatIndices[kind];
                   const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
                   const resourceKey = kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource';
@@ -456,14 +472,14 @@ export default function Inventory({
                   data-pet-equipped={hud.petEquipped ? 'true' : 'false'}
                   data-pet-coat-index={petDisplayCoatIndex}
                   onDragOver={(e) => {
-                    if (!hud.petTokenAvailable) return;
+                    if (hud.petInventoryKinds.length === 0) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                   }}
                   onDrop={(e) => {
                     const data = e.dataTransfer.getData('text/plain');
                     const kind = data.startsWith('pet:') ? data.slice(4) : '';
-                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petTokenAvailable || !hud.petOwnedKinds.includes(kind)) return;
+                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petInventoryKinds.includes(kind)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     onEquipPet(kind);
@@ -477,7 +493,6 @@ export default function Inventory({
                           key={`pet-select-${kind}`}
                           type="button"
                           data-pet-select={kind}
-                          disabled={hud.petEquipped}
                           aria-label={t(kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource')}
                           onClick={() => onSelectPetKind(kind)}
                           className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
@@ -1289,7 +1304,7 @@ function TradePanel({
                 <span className="truncate font-display text-[11px]" style={{ color: RARITY[it.rarity].color }}>
                   {t(SLOT_KEY[it.slot])} · {matName(MATERIALS[it.material].label)}
                 </span>
-                <span className="shrink-0 font-display text-[10px] text-torch">{t('sell')}</span>
+                <span className="shrink-0 font-display text-[10px] text-torch">+{gearSellPrice(it)} {t('pts')}</span>
               </button>
             ))}
           </div>

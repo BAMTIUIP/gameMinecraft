@@ -32,22 +32,56 @@ export const AFFIXES: Record<AffixId, Affix> = {
   reach: { id: 'reach', nameKey: 'aff_reach', descKey: 'aff_reachD', color: '#f0b45a', min: 0.35, max: 0.9, unit: 'm' },
 };
 
-export type Rarity = 0 | 1 | 2 | 3;
+export type Rarity = 0 | 1 | 2 | 3 | 4;
+/** Five visual/economic tiers: green, blue, purple, orange and red. */
 export const RARITY = [
-  { name: 'COMMON', color: '#b6c2b8', glow: 'rgba(182,194,184,.25)' },
-  { name: 'STURDY', color: '#93c95d', glow: 'rgba(147,201,93,.3)' },
-  { name: 'RARE', color: '#5ea8ff', glow: 'rgba(94,168,255,.35)' },
-  { name: 'MYTHIC', color: '#d98cff', glow: 'rgba(217,140,255,.4)' },
+  { name: 'UNCOMMON', color: '#93c95d', glow: 'rgba(147,201,93,.3)' },
+  { name: 'RARE', color: '#5ea8ff', glow: 'rgba(94,168,255,.34)' },
+  { name: 'EPIC', color: '#c58cff', glow: 'rgba(197,140,255,.38)' },
+  { name: 'LEGENDARY', color: '#ff9b42', glow: 'rgba(255,155,66,.42)' },
+  { name: 'MYTHIC', color: '#ff5364', glow: 'rgba(255,83,100,.46)' },
 ] as const;
 
-export type Material = 'leather' | 'iron' | 'gold' | 'diamond' | 'netherite';
+export type Material = 'wood' | 'leather' | 'iron' | 'gold' | 'diamond' | 'netherite';
 export const MATERIALS: Record<Material, { label: string; color: string; armor: number; dmg: number }> = {
+  wood: { label: 'WOOD', color: '#8b623d', armor: 2, dmg: 1 },
   leather: { label: 'LEATHER', color: '#a3763f', armor: 2, dmg: 1 },
   iron: { label: 'IRON', color: '#d6d9dd', armor: 5, dmg: 4 },
   gold: { label: 'GOLD', color: '#f7d34b', armor: 4, dmg: 6 },
   diamond: { label: 'DIAMOND', color: '#5fe8dc', armor: 9, dmg: 9 },
   netherite: { label: 'NETHERITE', color: '#8a6a58', armor: 14, dmg: 14 },
 };
+
+/** A leading affix sets the primary enamel; later affixes are rendered as separate ornaments. */
+export const AFFIX_BASE_COLORS: Partial<Record<AffixId, string>> = {
+  fire: '#c85c2d',
+  frost: '#65b8dc',
+  thorns: '#8562a8',
+  vamp: '#9d334d',
+  swift: '#76a746',
+  tough: '#858b91',
+  greed: '#c99a32',
+  miner: '#35aaa2',
+  magnet: '#688cc9',
+  reach: '#ce9250',
+};
+
+const RARITY_PRICE_MULTIPLIERS = [1, 1.55, 2.25, 3.2, 4.6] as const;
+const MATERIAL_SELL_VALUES: Record<Material, number> = {
+  wood: 18,
+  leather: 30,
+  iron: 80,
+  gold: 140,
+  diamond: 320,
+  netherite: 900,
+};
+
+/** Higher rarity consistently raises the trader's sale value as well as its visual tier. */
+export function gearSellPrice(item: Pick<Item, 'material' | 'rarity' | 'affixes'>): number {
+  const multiplier = RARITY_PRICE_MULTIPLIERS[item.rarity] ?? 1;
+  return Math.round(MATERIAL_SELL_VALUES[item.material] * multiplier + item.affixes.length * 40);
+}
+
 
 export const GEAR_ID_BASE = 300;
 export const isGearHotbarId = (id: number) => id >= GEAR_ID_BASE;
@@ -70,11 +104,17 @@ export type Item = {
 };
 
 /** Shared color source for 3D armor, inventory icons, and the crafting preview. */
-export function gearColor(item: Pick<Item, 'material' | 'visualColor'>): string {
+export function gearColor(
+  item: Pick<Item, 'material' | 'visualColor'> & Partial<Pick<Item, 'affixes' | 'crafted'>>,
+): string {
   const custom = typeof item.visualColor === 'string' && /^#[0-9a-f]{6}$/i.test(item.visualColor)
     ? item.visualColor.toLowerCase()
     : null;
-  return custom ?? MATERIALS[item.material]?.color ?? '#d6d9dd';
+  const primaryAffix = item.crafted ? null : item.affixes?.[0]?.id;
+  return custom
+    ?? (primaryAffix ? AFFIX_BASE_COLORS[primaryAffix] : null)
+    ?? MATERIALS[item.material]?.color
+    ?? '#d6d9dd';
 }
 
 export const SLOT_KEY: Record<Slot, TKey> = {
@@ -118,7 +158,7 @@ export function makeItem(slot: Slot, material: Material, rarity: Rarity, rand: (
 
   const affixes: Array<{ id: AffixId; value: number }> = [];
   if (!crafted) {
-    const count = rarity === 0 ? (rand() < 0.4 ? 1 : 0) : rarity === 1 ? 1 : rarity === 2 ? 2 : 3;
+    const count = rarity === 0 ? (rand() < 0.4 ? 1 : 0) : rarity === 1 ? 1 : rarity === 2 ? 2 : rarity === 3 ? 3 : 4;
     const basePool = (Object.keys(AFFIXES) as AffixId[]).filter((id) => id !== 'reach');
     // Extra interaction reach is a rare armour perk, like magnetism: it only rolls on rare/mythic gear.
     const pool = rarity >= 2 ? ([...basePool, 'reach'] as AffixId[]) : basePool;
@@ -166,12 +206,12 @@ function rollGearRarity(level: number, rand: () => number): Rarity {
   const tier = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
   const roll = rand();
   // Green is the entry drop. Better rarities are locked behind stronger monsters / later nights.
-  if (tier <= 1) return 1;
-  if (tier === 2) return roll < 0.92 ? 1 : 2;
-  if (tier === 3) return roll < 0.85 ? 1 : roll < 0.99 ? 2 : 3;
-  if (tier === 4) return roll < 0.78 ? 1 : roll < 0.97 ? 2 : 3;
-  if (tier === 5) return roll < 0.68 ? 1 : roll < 0.93 ? 2 : 3;
-  return roll < 0.58 ? 1 : roll < 0.88 ? 2 : 3;
+  if (tier <= 1) return 0;
+  if (tier === 2) return roll < 0.92 ? 0 : 1;
+  if (tier === 3) return roll < 0.72 ? 0 : roll < 0.94 ? 1 : roll < 0.995 ? 2 : 3;
+  if (tier === 4) return roll < 0.64 ? 0 : roll < 0.86 ? 1 : roll < 0.97 ? 2 : 3;
+  if (tier === 5) return roll < 0.56 ? 0 : roll < 0.8 ? 1 : roll < 0.94 ? 2 : roll < 0.997 ? 3 : 4;
+  return roll < 0.48 ? 0 : roll < 0.72 ? 1 : roll < 0.9 ? 2 : roll < 0.982 ? 3 : 4;
 }
 
 /** Loot table used when a monster dies; higher-tier gear only comes from stronger monsters. */

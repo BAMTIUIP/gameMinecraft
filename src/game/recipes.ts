@@ -100,7 +100,7 @@ import {
   toolIdFor,
 } from './tools';
 import { blockName, swordLabel, toolLabelForId, t } from './i18n';
-import type { Item, Material, Slot } from './items';
+import type { Item, Material, Rarity, Slot } from './items';
 
 export {
   AXE_TOOLS,
@@ -752,6 +752,8 @@ export const RECIPES: Recipe[] = [
   gear('hands_iron', 'IRON GAUNTLETS', 'hands', 'iron', [[IRON, 3], [LEAVES, 2]], '#d6d9dd'),
   gear('head_iron', 'IRON HELMET', 'head', 'iron', [[IRON, 4]], '#d6d9dd'),
   gear('chest_iron', 'IRON CHESTPLATE', 'chest', 'iron', [[IRON, 6]], '#d6d9dd'),
+  gear('shield_wood', 'WOODEN SHIELD', 'offhand', 'wood', [[PLANKS, 6]], '#8b623d'),
+  gear('shield_leather', 'LEATHER SHIELD', 'offhand', 'leather', [[LEAVES, 5], [PLANKS, 2]], '#a3763f'),
   gear('shield_iron', 'IRON SHIELD', 'offhand', 'iron', [[IRON, 3], [PLANKS, 3]], '#d6d9dd'),
   gear('chest_diamond', 'DIAMOND CHESTPLATE', 'chest', 'diamond', [[DIAMOND, 5]], '#5fe8dc'),
   gear('head_diamond', 'DIAMOND HELMET', 'head', 'diamond', [[DIAMOND, 4]], '#5fe8dc'),
@@ -893,7 +895,7 @@ function gear(
   };
 }
 
-export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks';
+export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets';
 
 /**
  * Categorize any owned inventory item id into one of the general inventory tabs:
@@ -902,7 +904,7 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks';
  * - 'armor': gear items (id >= 300)
  * - 'blocks': building blocks & raw materials
  */
-export function getItemInvCategory(id: number): Exclude<InvCategory, 'all'> {
+export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
   if (id >= 300) return 'armor';
   if (id >= 200 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   if (
@@ -1026,6 +1028,20 @@ export function getSalvageForItemId(id: number): { inputsUsed: number; outputs: 
       return { inputsUsed: 2, outputs: [[LOG, 1]] };
     default:
       return null;
+  }
+}
+
+/**
+ * Trader purchase prices rise with rarity. Iron/gold fund early gear, then higher
+ * tiers progressively require more diamonds as well as a larger gold payment.
+ */
+export function gearTraderCost(rarity: Rarity): Array<[number, number]> {
+  switch (rarity) {
+    case 0: return [[GOLD, 2], [IRON, 2]];
+    case 1: return [[GOLD, 4], [IRON, 4]];
+    case 2: return [[DIAMOND, 1], [GOLD, 3]];
+    case 3: return [[DIAMOND, 2], [GOLD, 5]];
+    case 4: return [[DIAMOND, 3], [GOLD, 8]];
   }
 }
 

@@ -136,6 +136,7 @@ const INITIAL_HUD: HudState = {
   bagItems: [],
   petOwned: false,
   petOwnedKinds: [],
+  petInventoryKinds: [],
   petTokenAvailable: false,
   petEquipped: false,
   petEquippedKind: null,
@@ -695,6 +696,7 @@ export default function App() {
   const craft = useCallback((key: string) => engineRef.current?.craft(key), []);
   const openInventory = useCallback(() => engineRef.current?.openInventory(), []);
   const closeInventory = useCallback(() => engineRef.current?.closeInventory(), []);
+  const grantDeveloperCatalog = useCallback(() => engineRef.current?.grantDeveloperCatalog() ?? false, []);
   const transferChestItem = useCallback(
     (id: number, amount: number, toChest: boolean) => engineRef.current?.transferChestItem(id, amount, toChest) ?? false,
     [],
@@ -1016,6 +1018,8 @@ export default function App() {
           onRemoveSlot={removeSlot}
           onSalvageGear={salvageGear}
           onSalvageItem={salvageItem}
+          developerKitEnabled={import.meta.env.DEV && !isTv && !tvMode()}
+          onDeveloperGrantAll={grantDeveloperCatalog}
           isTouch={isTouch}
         />
       )}
