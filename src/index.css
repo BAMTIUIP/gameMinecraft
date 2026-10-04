@@ -390,6 +390,7 @@ input[type='text'] {
   touch-action: none;
 }
 .touch-right > div { gap: clamp(0.35rem, 1vmin, 0.7rem) !important; }
+.touch-posture-controls { bottom: calc(100% + 0.5rem); }
 
 /*
  * On a phone, the touch clusters keep their normal hit targets. Only the information HUD scales down;

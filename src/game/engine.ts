@@ -377,6 +377,8 @@ export type HudState = {
   lockFailed: boolean;
   freeLook: boolean;
   thirdPerson?: boolean;
+  crouching: boolean;
+  crawling: boolean;
   runTime: number;
   /** teammates replayed from asynchronous multiplayer sessions (empty outside co-op) */
   squad: CompanionStatus[];
@@ -1545,6 +1547,8 @@ export class Engine {
   private touchMine = false;
   private touchPlace = false;
   private touchSprint = false;
+  private touchCrouch = false;
+  private touchCrawl = false;
   private mining = false;
   private placing = false;
   private placeCooldown = 0;
@@ -3938,6 +3942,39 @@ if (tpClipActive > 0.5) {
     // Camera-only action: do not touch phase or Yandex GameplayAPI state.
   }
 
+  /** Touch-screen equivalent of V; keep the keyboard path and camera behavior shared. */
+  toggleTouchPerspective() {
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
+    this.togglePerspective();
+  }
+
+  /** Touch posture buttons are toggles so movement can continue without holding another finger down. */
+  toggleTouchCrouch() {
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
+    this.touchCrouch = !(this.crouching || this.touchCrouch);
+    if (this.touchCrouch) {
+      this.touchCrawl = false;
+      this.keys['KeyC'] = false;
+    }
+    sfx.ui(true);
+    this.syncHud(true);
+  }
+
+  /** Crawl keeps the same collision check as the C-key path and refuses to enter a blocked space. */
+  toggleTouchCrawl() {
+    if (this.phase !== 'playing' || this.inventoryOpen) return;
+    const shouldCrawl = !(this.crawling || this.touchCrawl);
+    if (shouldCrawl && this.collides(this.pos.x, this.pos.y, this.pos.z, true, this.yaw)) {
+      sfx.ui(false);
+      return;
+    }
+    this.touchCrawl = shouldCrawl;
+    this.keys['KeyC'] = false;
+    if (shouldCrawl) this.touchCrouch = false;
+    sfx.ui(true);
+    this.syncHud(true);
+  }
+
   private onKeyDown = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
     const c = e.code;
@@ -4782,6 +4819,8 @@ if (tpClipActive > 0.5) {
     this.crouchLerp = 0;
     this.crawling = false;
     this.crawlLerp = 0;
+    this.touchCrouch = false;
+    this.touchCrawl = false;
     this.crawlYaw = this.yaw;
     this.swimLerp = 0;
     this.spawnTimer = 3;
@@ -5548,8 +5587,8 @@ if (tpClipActive > 0.5) {
     }
     fx += this.touchMove.x;
     fz += -this.touchMove.y;
-    // C = crawl (prone, fits 1-block gaps); CTRL = crouch; SHIFT = sprint
-    const wantCrawl = !!k['KeyC'];
+    // C = crawl (prone, fits 1-block gaps); CTRL = crouch; touch buttons toggle those same states.
+    const wantCrawl = !!k['KeyC'] || this.touchCrawl;
     if (wantCrawl && !this.crawling) {
       // Lie down in the direction the player is facing; do not pick a sideways
       // fallback, because that makes the avatar appear to clip through walls.
@@ -5580,7 +5619,7 @@ if (tpClipActive > 0.5) {
     } else {
       this.crawlYaw = this.yaw;
     }
-    this.crouching = !this.crawling && !!(k['ControlLeft'] || k['ControlRight']);
+    this.crouching = !this.crawling && !!(k['ControlLeft'] || k['ControlRight'] || this.touchCrouch);
     const sprintIntent =
       !this.crouching && !this.crawling && (k['ShiftLeft'] || k['ShiftRight'] || this.touchSprint) && fz > 0.1;
     const len = Math.hypot(fx, fz);
@@ -11161,6 +11200,8 @@ if (tpClipActive > 0.5) {
     this.touchJump = false;
     this.touchPlace = false;
     this.touchSprint = false;
+    this.touchCrouch = false;
+    this.touchCrawl = false;
     this.hoverActive = false;
     this.vel.x = 0;
     this.vel.z = 0;
@@ -11635,6 +11676,9 @@ if (tpClipActive > 0.5) {
       this.fps,
       this.locked || this.lockPending ? 1 : 0,
       this.lockFailed ? 1 : 0,
+      this.thirdPerson ? 1 : 0,
+      this.crouching ? 1 : 0,
+      this.crawling ? 1 : 0,
       this.inventoryOpen ? 1 : 0,
       chestSignature,
       this.petOwned ? 1 : 0,
@@ -11715,6 +11759,8 @@ if (tpClipActive > 0.5) {
       lockFailed: this.lockFailed,
       freeLook: this.freeLook,
       thirdPerson: this.thirdPerson,
+      crouching: this.crouching,
+      crawling: this.crawling,
       runTime: this.runTime,
       squad: this.companionStatus(),
       survival: this.survival,

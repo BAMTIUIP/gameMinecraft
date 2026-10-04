@@ -150,11 +150,14 @@ export default function Inventory({
   const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-pit-950/85 backdrop-blur-[3px]">
+    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
       <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-3 sm:p-6">
         {/* ---------- header ---------- */}
-        <div className="anim-rise bevel notch mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div
+          className="anim-rise bevel notch sticky top-0 z-40 mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+          style={{ top: 'max(0px, env(safe-area-inset-top))' }}
+        >
           <div className="flex items-end gap-3">
             <BagIcon size={30} className="mb-1 text-torch" />
             <div>
@@ -187,6 +190,7 @@ export default function Inventory({
             )}
             <button
               onClick={onClose}
+              title={t('closeHint')}
               className="bevel-flat notch flex h-10 w-10 items-center justify-center text-white/60 transition hover:text-blood active:scale-95"
               aria-label={t('closeHint')}
             >

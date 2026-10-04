@@ -88,10 +88,13 @@ export default function ChestInventory({ hud, onTransfer, onTakeAll, onClose }: 
   });
 
   return (
-    <div className="absolute inset-0 z-40 overflow-y-auto bg-pit-950/90 p-3 backdrop-blur-[4px] sm:p-6">
+    <div className="absolute inset-0 z-40 overflow-y-auto overscroll-contain bg-pit-950/90 p-3 backdrop-blur-[4px] sm:p-6">
       <div className="pointer-events-none absolute inset-0 grain opacity-25" />
       <div className="relative mx-auto flex min-h-full w-full max-w-6xl flex-col">
-        <header className="anim-rise bevel notch mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:mb-4">
+        <header
+          className="anim-rise bevel notch sticky top-0 z-40 mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:mb-4"
+          style={{ top: 'max(0px, env(safe-area-inset-top))' }}
+        >
           <div className="flex items-center gap-3">
             <img src={getBlockIcon(chest?.id ?? CHEST_STORAGE)} alt="" className="pixelated h-10 w-10" draggable={false} />
             <div>
@@ -106,6 +109,7 @@ export default function ChestInventory({ hud, onTransfer, onTakeAll, onClose }: 
           <button
             type="button"
             onClick={onClose}
+            title={t('closeHint')}
             className="bevel-flat notch flex h-10 w-10 items-center justify-center text-white/60 transition hover:text-blood active:scale-95"
             aria-label={t('closeHint')}
           >

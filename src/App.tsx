@@ -116,6 +116,8 @@ const INITIAL_HUD: HudState = {
   locked: false,
   lockFailed: false,
   freeLook: true,
+  crouching: false,
+  crawling: false,
   runTime: EXPLORATION_RUN_TIME,
   inventoryOpen: false,
   chest: null,
@@ -945,7 +947,15 @@ export default function App() {
         />
       )}
 
-      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} petInteractNear={hud.petInteractNear} />}
+      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && (
+        <TouchControls
+          engine={engine}
+          petInteractNear={hud.petInteractNear}
+          thirdPerson={!!hud.thirdPerson}
+          crouching={hud.crouching}
+          crawling={hud.crawling}
+        />
+      )}
 
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (

@@ -38,6 +38,51 @@ const { Engine } = await import('../../src/game/engine');
   ok(Math.abs(engine.thirdPersonOrbitYaw + Math.PI / 2) < 1e-9, 'First-person camera controls remain unaffected by the orbit-only input');
 }
 
+// Touch buttons toggle the same camera and posture states as the keyboard without bypassing collision checks.
+{
+  const engine = Object.create(Engine.prototype) as any;
+  Object.assign(engine, {
+    phase: 'playing',
+    inventoryOpen: false,
+    thirdPerson: false,
+    thirdPersonOrbitYaw: 0,
+    thirdPersonOrbitInputAt: 0,
+    thirdPersonCamReady: false,
+    touchCrouch: false,
+    touchCrawl: false,
+    crouching: false,
+    crawling: false,
+    keys: {},
+    pos: new THREE.Vector3(0, 4, 0),
+    yaw: 0,
+    collides: () => false,
+    restoreThirdPersonOccluders() {},
+    syncHud() {},
+  });
+  engine.toggleTouchPerspective();
+  ok(engine.thirdPerson, 'A touch action switches from first to third person');
+  engine.toggleTouchPerspective();
+  ok(!engine.thirdPerson, 'The same touch action returns to first person');
+
+  engine.toggleTouchCrouch();
+  ok(engine.touchCrouch, 'The touch crouch toggle lowers the player without a held key');
+  engine.toggleTouchCrouch();
+  ok(!engine.touchCrouch, 'Tapping the crouch toggle again returns toward standing');
+  engine.toggleTouchCrawl();
+  ok(engine.touchCrawl && !engine.touchCrouch, 'The prone toggle enables crawl and clears crouch');
+  engine.toggleTouchCrawl();
+  ok(!engine.touchCrawl, 'Tapping prone again returns toward standing');
+
+  engine.collides = () => true;
+  engine.toggleTouchCrawl();
+  ok(!engine.touchCrawl, 'Prone mode is refused when the elongated player box would collide');
+  engine.inventoryOpen = true;
+  engine.collides = () => false;
+  engine.toggleTouchCrouch();
+  engine.toggleTouchPerspective();
+  ok(!engine.touchCrouch && !engine.thirdPerson, 'Touch camera/posture actions are ignored while inventory is open');
+}
+
 // The orbit is held during camera inspection, then eases to the back view on movement input.
 {
   const engine = Object.create(Engine.prototype) as any;
