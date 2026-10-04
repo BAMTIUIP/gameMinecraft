@@ -481,8 +481,8 @@ export default function Inventory({
                       {it && (
                         <button
                           onClick={() => onUnequip(slot)}
-                          className="btn-mc notch absolute bottom-1 left-1 right-1 z-10 px-1 py-0.5 font-display text-[8px] leading-none"
-                          style={{ background: 'linear-gradient(180deg,#3d1f1c,#241210)', border: '1px solid #e2564a55', color: '#f2b3ae' }}
+                          className="btn-mc notch absolute left-1 right-1 z-10 px-1 py-1 font-display text-[8px] leading-none"
+                          style={{ top: 'calc(100% - 1.85rem)', background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }}
                           title={t('unequip')}
                         >
                           {t('unequip')}
