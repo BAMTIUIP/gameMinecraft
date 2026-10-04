@@ -47,6 +47,7 @@ import {
   GOLD,
   GOLD_BLOCK,
   IRON,
+  ICE,
   LEAVES,
   LOG,
   PLANKS,
@@ -1007,7 +1008,7 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets'
  */
 export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
   if (id >= 300) return 'armor';
-  if (id >= 200 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
+  if (id >= 180 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   if (
     isMeatItem(id) ||
     id === APPLE ||

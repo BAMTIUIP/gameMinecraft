@@ -10415,7 +10415,12 @@ if (tpClipActive > 0.5) {
 
   private tryShoot() {
     if (this.attackCd > 0) return;
-    const arrowId = [STUN_ARROW, FREEZE_ARROW, POISON_ARROW, FIRE_ARROW, NETHERITE_ARROW, GOLD_ARROW, IRON_ARROW, STONE_ARROW, ARROW_ITEM].find((id) => (this.inventory.get(id) ?? 0) > 0) ?? ARROW_ITEM;
+    const arrowTypes = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
+    // The active hotbar is the player's arrow pool: when a bow is drawn, use the first
+    // loaded arrow stack in that row, rather than silently choosing a random inventory stack.
+    const arrowId = this.hotbar.find((id) => id !== undefined && arrowTypes.includes(id) && (this.inventory.get(id) ?? 0) > 0)
+      ?? arrowTypes.find((id) => (this.inventory.get(id) ?? 0) > 0)
+      ?? ARROW_ITEM;
     if ((this.inventory.get(arrowId) ?? 0) <= 0) {
       this.queueTutorialTip('mechanic:bow-ammo', t('tutorialBowTitle'), t('tutorialBowAmmo'), '#c7a879', 'bow');
       this.attackCd = 0.4;
