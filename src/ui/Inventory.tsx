@@ -419,7 +419,7 @@ export default function Inventory({
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:grid-cols-7">
+              <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
                 <div className="notch relative min-w-0 border-2 border-[#f4b942] bg-black/30 p-1 text-center">
                   <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
                   {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
@@ -450,11 +450,11 @@ export default function Inventory({
                         const bag = hud.bagItems.find((b) => b.uid === uid);
                         if (bag && bag.slot === slot) onEquip(uid);
                       }}
-                      className="notch relative transition-transform duration-100"
+                      className="notch relative min-w-0 transition-transform duration-100"
                     >
                       <button
                         onClick={() => it && onUnequip(slot)}
-                        className="notch relative w-full px-1.5 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
+                        className="notch relative flex min-h-[72px] w-full flex-col justify-center px-1 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
                         style={{
                           background: it ? `linear-gradient(180deg, ${rar!.color}22, rgba(10,14,12,.9))` : 'rgba(255,255,255,.02)',
                           border: `2px solid ${it ? rar!.color : '#1d2823'}`,
@@ -481,7 +481,7 @@ export default function Inventory({
                       {it && (
                         <button
                           onClick={() => onUnequip(slot)}
-                          className="btn-mc notch absolute -right-1 -top-1 z-10 px-1 py-0.5 font-display text-[8px] leading-none"
+                          className="btn-mc notch absolute bottom-1 left-1 right-1 z-10 px-1 py-0.5 font-display text-[8px] leading-none"
                           style={{ background: 'linear-gradient(180deg,#3d1f1c,#241210)', border: '1px solid #e2564a55', color: '#f2b3ae' }}
                           title={t('unequip')}
                         >
