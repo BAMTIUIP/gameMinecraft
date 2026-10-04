@@ -62,6 +62,8 @@ import { fbm2, fbm3, mulberry32, noise3, seedNoise } from './noise';
 export const WY = 360; // 300+ blocks below the raised terrain surface
 export const CHUNK = 16;
 export const SEA = 312; // surface and sea are lifted 300 blocks above bedrock
+/** Minimum Y stored in the fast menu preview; only the visible surface band is needed there. */
+export const SURFACE_MESH_MIN_Y = Math.max(0, Math.floor((SEA - 24) / 32) * 32);
 export const LAVA_LEVEL = 6;
 // legacy constants — the pre-generated spawn region (8×8 chunks)
 export const WX = 128;
@@ -89,8 +91,12 @@ export function keyToChunk(key: number): [number, number] {
 export type Chunk = {
   blocks: Uint8Array; // CHUNK * WY * CHUNK, index (y*CHUNK+lz)*CHUNK+lx
   height: Int16Array; // CHUNK * CHUNK ground height
-  /** 0 = empty, 1 = terrain, 2 = decorated */
+  /** 0 = empty/preview, 1 = full terrain, 2 = decorated */
   state: number;
+  /** True once the visible surface band is ready; lower voxel layers may still be empty. */
+  surfaceReady?: boolean;
+  /** Surface-only foliage was added for the menu preview; full decoration still runs after terrain. */
+  surfaceDecorated?: boolean;
 };
 
 const cidx = (lx: number, y: number, lz: number) => (y * CHUNK + lz) * CHUNK + lx;
@@ -102,6 +108,7 @@ export class World {
   chunks = new Map<number, Chunk>();
   seed: number;
   private terrainJobs = new Map<number, Generator<void, void, void>>();
+  private surfaceJobs = new Map<number, Generator<void, void, void>>();
   private volcanoes = new Map<string, { x: number; z: number; radius: number; active: boolean } | null>();
   /** castles & towers register here so the engine can post guards + traps */
   structureSites: Array<{ x: number; y: number; z: number; kind: 'tower' | 'cottage' | 'ruin' }> = [];
@@ -114,6 +121,7 @@ export class World {
     this.seed = seed;
     this.chunks.clear();
     this.terrainJobs.clear();
+    this.surfaceJobs.clear();
     this.volcanoes.clear();
     this.structureSites.length = 0;
     seedNoise(seed);
@@ -152,6 +160,11 @@ export class World {
     return this.chunks.get(chunkKey(cx, cz));
   }
 
+  hasSurface(cx: number, cz: number) {
+    const chunk = this.getChunk(cx, cz);
+    return !!chunk && (chunk.state >= 1 || chunk.surfaceReady === true);
+  }
+
   hasTerrain(cx: number, cz: number) {
     return (this.getChunk(cx, cz)?.state ?? 0) >= 1;
   }
@@ -169,21 +182,21 @@ export class World {
   get(x: number, y: number, z: number): number {
     if (y < 0 || y >= WY) return AIR;
     const c = this.chunks.get(chunkKey(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
-    if (!c || c.state < 1) return AIR;
+    if (!c || (c.state < 1 && !c.surfaceReady) || (c.state < 1 && y < SURFACE_MESH_MIN_Y)) return AIR;
     return c.blocks[cidx(((x % CHUNK) + CHUNK) % CHUNK, y, ((z % CHUNK) + CHUNK) % CHUNK)];
   }
 
-  /** silently ignored when the chunk isn't generated yet */
+  /** silently ignored when the chunk or requested underground layer isn't generated yet */
   set(x: number, y: number, z: number, id: number) {
     if (y < 0 || y >= WY) return;
     const c = this.chunks.get(chunkKey(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
-    if (!c) return;
+    if (!c || (c.state < 1 && (!c.surfaceReady || y < SURFACE_MESH_MIN_Y))) return;
     c.blocks[cidx(((x % CHUNK) + CHUNK) % CHUNK, y, ((z % CHUNK) + CHUNK) % CHUNK)] = id;
   }
 
   getHeight(x: number, z: number): number {
     const c = this.chunks.get(chunkKey(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
-    if (!c || c.state < 1) return this.heightAt(x, z);
+    if (!c || (c.state < 1 && !c.surfaceReady)) return this.heightAt(x, z);
     return c.height[(((z % CHUNK) + CHUNK) % CHUNK) * CHUNK + (((x % CHUNK) + CHUNK) % CHUNK)];
   }
 
@@ -315,6 +328,91 @@ export class World {
     return Math.max(4, Math.min(WY - 10, Math.round(h)));
   }
 
+  /** Build a fast, shallow chunk for the animated menu camera without generating caves or deep ores. */
+  genSurface(cx: number, cz: number) {
+    while (!this.advanceSurface(cx, cz, Number.MAX_SAFE_INTEGER)) {}
+  }
+
+  /** Advance a preview chunk by a bounded number of columns; full terrain remains a separate stage. */
+  advanceSurface(cx: number, cz: number, columnBudget = 1): boolean {
+    const key = chunkKey(cx, cz);
+    if (this.hasSurface(cx, cz)) return true;
+    let job = this.surfaceJobs.get(key);
+    if (!job) {
+      job = this.generateSurfaceSteps(cx, cz);
+      this.surfaceJobs.set(key, job);
+    }
+    const budget = Math.max(1, Math.floor(columnBudget));
+    for (let i = 0; i < budget; i++) {
+      const next = job.next();
+      if (next.done) {
+        this.surfaceJobs.delete(key);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private *generateSurfaceSteps(cx: number, cz: number): Generator<void, void, void> {
+    const key = chunkKey(cx, cz);
+    if (this.hasSurface(cx, cz)) return;
+    const chunk: Chunk = {
+      blocks: new Uint8Array(CHUNK * WY * CHUNK),
+      height: new Int16Array(CHUNK * CHUNK),
+      state: 0,
+      surfaceReady: false,
+    };
+    // Expose this buffer only after all columns in the surface band have finished.
+    this.chunks.set(key, chunk);
+    const minY = SURFACE_MESH_MIN_Y;
+
+    for (let lz = 0; lz < CHUNK; lz++) {
+      for (let lx = 0; lx < CHUNK; lx++) {
+        const x = cx * CHUNK + lx;
+        const z = cz * CHUNK + lz;
+        const h = this.heightAt(x, z);
+        chunk.height[lz * CHUNK + lx] = h;
+        const biome = this.biomeAt(x, z, h);
+        const winter = biome === 'winter';
+
+        for (let y = minY; y <= h; y++) {
+          let id: number;
+          if (y === h) {
+            if (biome === 'volcanic') id = VOLCANIC_STONE;
+            else if (h <= SEA + 1 || biome === 'desert') id = SAND;
+            else if (biome === 'canyon') id = h % 6 < 3 ? STONE : SAND;
+            else if (h > SEA + 18) id = winter ? SNOW_GRASS : STONE;
+            else id = winter ? SNOW_GRASS : GRASS;
+          } else if (biome === 'volcanic' && y > h - 6) id = VOLCANIC_STONE;
+          else if (biome === 'canyon' && y > SEA + 2) id = Math.floor(y / 3) % 2 ? STONE : SAND;
+          else if (biome === 'desert' && y > h - 3) id = SAND;
+          else if (biome === 'desert' && y > h - 7) id = SANDSTONE;
+          else if (y > h - 4) id = h <= SEA + 1 ? SAND : h > SEA + 18 ? STONE : DIRT;
+          else id = STONE;
+          chunk.blocks[cidx(lx, y, lz)] = id;
+        }
+
+        if (h <= SEA) {
+          for (let y = Math.max(minY, h + 1); y <= SEA; y++)
+            chunk.blocks[cidx(lx, y, lz)] = WATER;
+          if (winter && SEA >= minY && chunk.blocks[cidx(lx, SEA, lz)] === WATER)
+            chunk.blocks[cidx(lx, SEA, lz)] = ICE;
+        }
+
+        const volcano = biome === 'volcanic' ? this.volcanoAt(x, z) : null;
+        if (volcano?.active && h > SEA + 3 && h + 1 < WY - 1 &&
+            (volcano.distance < 3 || ((x - volcano.x + z - volcano.z) * 0.707 > 2 &&
+              ((x - volcano.x + z - volcano.z) * 0.707) < volcano.radius * 0.7 &&
+              Math.abs((x - volcano.x - (z - volcano.z)) * 0.707) < 1.4)) &&
+            [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([ox, oz]) => this.heightAt(x + ox, z + oz) > SEA + 2)) {
+          chunk.blocks[cidx(lx, h + 1, lz)] = LAVA;
+        }
+        yield;
+      }
+    }
+    chunk.surfaceReady = true;
+  }
+
   /** stage 1: raw terrain, ores, caves, lava — synchronous helper for generation tools/tests. */
   genTerrain(cx: number, cz: number) {
     this.advanceTerrain(cx, cz, Number.MAX_SAFE_INTEGER);
@@ -324,6 +422,7 @@ export class World {
   advanceTerrain(cx: number, cz: number, columnBudget = 1): boolean {
     const key = chunkKey(cx, cz);
     if ((this.chunks.get(key)?.state ?? 0) >= 1) return true;
+    this.surfaceJobs.delete(key);
     let job = this.terrainJobs.get(key);
     if (!job) {
       job = this.generateTerrainSteps(cx, cz);
@@ -348,7 +447,7 @@ export class World {
       height: new Int16Array(CHUNK * CHUNK),
       state: 0,
     };
-    this.chunks.set(key, chunk);
+    // Keep any fast menu-surface chunk live until its full-depth replacement is complete.
     const rand = mulberry32(this.seed ^ (cx * 73856093) ^ (cz * 19349663));
 
     for (let lz = 0; lz < CHUNK; lz++) {
@@ -531,16 +630,25 @@ export class World {
       if ((index & 4095) === 4095) yield;
     }
     chunk.state = 1;
+    chunk.surfaceReady = true;
+    this.chunks.set(key, chunk);
+    this.surfaceJobs.delete(key);
   }
 
   /**
    * stage 2: trees, surface ore, occasional structures.
    * Caller guarantees the 8 neighbours have terrain, so writes can spill over.
    */
-  decorate(cx: number, cz: number) {
+  decorate(cx: number, cz: number, surfaceOnly = false) {
     const chunk = this.getChunk(cx, cz);
-    if (!chunk || chunk.state < 1 || chunk.state >= 2) return;
-    chunk.state = 2;
+    if (!chunk) return;
+    if (surfaceOnly) {
+      if (!chunk.surfaceReady || chunk.surfaceDecorated) return;
+      chunk.surfaceDecorated = true;
+    } else {
+      if (chunk.state < 1 || chunk.state >= 2) return;
+      chunk.state = 2;
+    }
     const rand = mulberry32(this.seed * 31 + 7 + chunkKey(cx, cz) * 2654435761);
 
     // ---- seasonal tree forms: oaks, maples, cherry, birch, apple, spruce, palms ----
@@ -768,7 +876,7 @@ export class World {
     }
 
     // ---- rare spider nests in natural caverns ----
-    if (rand() < 0.045) {
+    if (!surfaceOnly && rand() < 0.045) {
       for (let attempt = 0; attempt < 22; attempt++) {
         const x = cx * CHUNK + 3 + Math.floor(rand() * 10);
         const z = cz * CHUNK + 3 + Math.floor(rand() * 10);
@@ -788,26 +896,28 @@ export class World {
       }
     }
 
-    // ---- structures (deterministic per chunk) ----
-    const sRand = mulberry32(this.seed * 101 + 41 + chunkKey(cx, cz) * 7919);
-    const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-    const firstStructureSite = this.structureSites.length;
-    if (biome === 'desert' || biome === 'canyon') {
-      spawnDesertBiomeStructures(this, cx, cz, sRand);
-    } else if (isDesertMountainTransition(this, cx, cz) && sRand() < 0.45) {
-      buildCliffsideCarvedTemple(this, cx, cz, sRand);
-    } else {
-      const roll = sRand();
-      // keep the spawn basin itself clear
-      const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
-      if (!nearSpawn) {
-        if (roll < 0.055) this.buildCottage(cx, cz, sRand);
-        else if (roll < 0.085) this.buildTower(cx, cz, sRand);
-        else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
+    if (!surfaceOnly) {
+      // ---- structures (deterministic per chunk) ----
+      const sRand = mulberry32(this.seed * 101 + 41 + chunkKey(cx, cz) * 7919);
+      const biome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
+      const firstStructureSite = this.structureSites.length;
+      if (biome === 'desert' || biome === 'canyon') {
+        spawnDesertBiomeStructures(this, cx, cz, sRand);
+      } else if (isDesertMountainTransition(this, cx, cz) && sRand() < 0.45) {
+        buildCliffsideCarvedTemple(this, cx, cz, sRand);
+      } else {
+        const roll = sRand();
+        // keep the spawn basin itself clear
+        const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
+        if (!nearSpawn) {
+          if (roll < 0.055) this.buildCottage(cx, cz, sRand);
+          else if (roll < 0.085) this.buildTower(cx, cz, sRand);
+          else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
+        }
       }
+      this.placeStructureChests(firstStructureSite, sRand);
+      this.decorateTreasureCaches(cx, cz, rand);
     }
-    this.placeStructureChests(firstStructureSite, sRand);
-    this.decorateTreasureCaches(cx, cz, rand);
   }
 
   /** A few safe structures receive a chest; all other sites stay untouched. */
@@ -1997,7 +2107,8 @@ export class World {
       const r = 6 + ((tries % 31) / 30) * 42;
       const x = Math.round(ORIGIN_X + Math.cos(angle) * r);
       const z = Math.round(ORIGIN_Z + Math.sin(angle) * r);
-      if (!this.hasColumn(x, z)) continue;
+      const [cx, cz] = this.chunkOf(x, z);
+      if (!this.hasSurface(cx, cz)) continue;
       const h = this.topSolidY(x, z);
       if (h < SEA + 2 || h > SEA + 18) continue;
       const top = this.get(x, h, z);

@@ -4,7 +4,7 @@ const DEV_SHOP_KEY = 'orerush.dev-shop.claims.v1';
 const PRODUCT_ID = /^[a-z0-9][a-z0-9-]{0,63}$/i;
 let developerShopEnabled = false;
 
-/** Runtime gate: local test claims are enabled only in DEV or an explicit temporary test preview. */
+/** Runtime gate for free local QA claims; the application keeps these controls off on TV devices. */
 export function setDeveloperShopEnabled(enabled: boolean): void {
   developerShopEnabled = enabled;
 }

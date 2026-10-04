@@ -1,5 +1,5 @@
 /** Incremental world/chunk work must produce the same deterministic result as the sync helpers. */
-import { World } from '../../src/game/world';
+import { SEA, SURFACE_MESH_MIN_Y, World } from '../../src/game/world';
 import { buildChunkGeometry, buildChunkGeometrySteps } from '../../src/game/mesher';
 
 let passed = 0;
@@ -29,6 +29,49 @@ for (let i = 0; i < stepChunk.blocks.length; i++) {
 }
 ok(sameBlocks, 'Stepped terrain preserves the deterministic voxel layout');
 ok(stepChunk.height.every((height, index) => height === syncChunk.height[index]), 'Stepped terrain preserves the height map');
+
+const preview = new World(4242);
+preview.reset(4242);
+const previewFirstStepDone = preview.advanceSurface(0, 0, 1);
+ok(!previewFirstStepDone && !preview.hasSurface(0, 0), 'An incomplete surface preview is not exposed to the renderer');
+let surfaceSteps = 1;
+while (!preview.advanceSurface(0, 0, 16) && surfaceSteps < 1000) surfaceSteps++;
+ok(preview.hasSurface(0, 0) && !preview.hasTerrain(0, 0) && surfaceSteps < 1000,
+  'The visible surface can finish before deep terrain');
+let sameSurface = true;
+let surfaceMismatch = '';
+for (let z = 0; z < 16 && sameSurface; z++) {
+  for (let x = 0; x < 16 && sameSurface; x++) {
+    const h = preview.getHeight(x, z);
+    const topY = h <= SEA ? SEA : h;
+    const previewId = preview.get(x, topY, z);
+    const fullId = sync.get(x, topY, z);
+    if (h !== sync.getHeight(x, z) || previewId !== fullId) {
+      sameSurface = false;
+      surfaceMismatch = `at ${x},${topY},${z}: preview height/block ${h}/${previewId}, full ${sync.getHeight(x, z)}/${fullId}`;
+    }
+  }
+}
+ok(sameSurface, 'The fast menu preview matches the eventual ground and exposed water/ice surface', surfaceMismatch);
+ok(preview.get(8, SURFACE_MESH_MIN_Y - 1, 8) === 0, 'Unrequested underground layers remain empty in the surface preview');
+preview.decorate(0, 0, true);
+const previewTop = preview.get(8, preview.getHeight(8, 8), 8);
+ok(preview.getChunk(0, 0)?.surfaceDecorated === true && !preview.hasTerrain(0, 0),
+  'Menu foliage decoration does not mark underground terrain complete');
+const fullUpgradeFirstStep = preview.advanceTerrain(0, 0, 1);
+ok(!fullUpgradeFirstStep && preview.hasSurface(0, 0) && !preview.hasTerrain(0, 0) &&
+  preview.get(8, preview.getHeight(8, 8), 8) === previewTop,
+  'The rendered surface remains intact while full-depth terrain is built');
+let fullUpgradeSteps = 1;
+while (!preview.advanceTerrain(0, 0, 16) && fullUpgradeSteps < 1000) fullUpgradeSteps++;
+ok(preview.hasTerrain(0, 0) && preview.getChunk(0, 0)?.state === 1 && fullUpgradeSteps < 1000,
+  'A preview chunk can be upgraded to full terrain');
+let sameUpgradedTerrain = true;
+const upgraded = preview.getChunk(0, 0)!;
+for (let i = 0; i < upgraded.blocks.length; i++) {
+  if (upgraded.blocks[i] !== syncChunk.blocks[i]) { sameUpgradedTerrain = false; break; }
+}
+ok(sameUpgradedTerrain, 'Preview-to-full upgrade produces the same complete deterministic terrain');
 
 const sliced = buildChunkGeometrySteps(stepped, 0, 0, 1024, 240, 360);
 let sliceCount = 0;

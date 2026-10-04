@@ -177,6 +177,7 @@ export default function Inventory({
             {developerKitEnabled && (
               <button
                 type="button"
+                data-developer-kit="1"
                 onClick={() => onDeveloperGrantAll?.()}
                 title={t('devKitDescription')}
                 className="notch border border-[#ff536466] bg-[#351a20] px-2.5 py-2 font-display text-[10px] tracking-wider text-[#ff7180] transition hover:bg-[#52212a] hover:text-white"

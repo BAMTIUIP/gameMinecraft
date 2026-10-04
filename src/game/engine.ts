@@ -113,7 +113,7 @@ import {
 } from './blocks';
 import { resourceSellPrice } from './economy';
 import { cookedMeatForRaw, foodHeal, meatDropForAnimal } from './food';
-import { CHUNK, ORIGIN_X, ORIGIN_Z, SEA, WY, World, chunkKey, keyToChunk, type Biome } from './world';
+import { CHUNK, ORIGIN_X, ORIGIN_Z, SEA, SURFACE_MESH_MIN_Y, WY, World, chunkKey, keyToChunk, type Biome } from './world';
 import {
   HAND,
   RECIPES,
@@ -1247,7 +1247,7 @@ export class Engine {
     if (!this.isPlayerUnderground()) {
       // Surface-only band: retain terrain, trees and the top of shallow cuts; deeper rock is meshed
       // only after the player descends, rather than paying for it across every visible surface chunk.
-      const minY = Math.max(0, Math.floor((SEA - 24) / 32) * 32);
+      const minY = SURFACE_MESH_MIN_Y;
       return { key: WY * 2 + minY, minY, maxY: WY };
     }
     // Underground, mesh a moving window around the player. The upper cap stays beyond the fog wall.
@@ -3305,8 +3305,8 @@ if (tpClipActive > 0.5) {
     const c0x = Math.floor(ORIGIN_X / CHUNK);
     const c0z = Math.floor(ORIGIN_Z / CHUNK);
     if (dynamicMenu) {
-      // Keep the menu interactive: the new seed appears immediately and its 7×7 surface is rebuilt
-      // incrementally behind the menu instead of replacing it with a loading screen.
+      // Keep the menu interactive and draw the camera-facing surface before returning from the
+      // Generate World click. This is only a shallow 3×3 preview; caves and distant chunks stream later.
       const x = ORIGIN_X + 0.5;
       const z = ORIGIN_Z + 0.5;
       this.pos.set(x, this.world.heightAt(ORIGIN_X, ORIGIN_Z) + 1.02, z);
@@ -3320,6 +3320,26 @@ if (tpClipActive > 0.5) {
       this.loadProgress = 1;
       this.phase = 'menu';
       this.menuWorldStreaming = true;
+
+      const previewRadius = 1;
+      const menuOrbitRadius = 34 + Math.sin(this.menuAngle * 0.45) * 8;
+      const previewCenterX = Math.floor((ORIGIN_X + Math.cos(this.menuAngle) * menuOrbitRadius * 0.5) / CHUNK);
+      const previewCenterZ = Math.floor((ORIGIN_Z + Math.sin(this.menuAngle) * menuOrbitRadius * 0.5) / CHUNK);
+      const previewOffsets: Array<[number, number]> = [];
+      for (let dz = -previewRadius; dz <= previewRadius; dz++)
+        for (let dx = -previewRadius; dx <= previewRadius; dx++) previewOffsets.push([dx, dz]);
+      previewOffsets.sort(([ax, az], [bx, bz]) => ax * ax + az * az - (bx * bx + bz * bz));
+      for (const [dx, dz] of previewOffsets) this.world.genSurface(previewCenterX + dx, previewCenterZ + dz);
+      for (const [dx, dz] of previewOffsets) this.world.decorate(previewCenterX + dx, previewCenterZ + dz, true);
+      const band = this.meshBandForPlayer();
+      for (const [dx, dz] of previewOffsets) {
+        const cx = previewCenterX + dx;
+        const cz = previewCenterZ + dz;
+        const steps = buildChunkGeometrySteps(this.world, cx, cz, 0, band.minY, band.maxY);
+        const result = steps.next();
+        if (result.done) this.installChunkGeometry(cx, cz, result.value, band.key);
+      }
+
       this.lastLoadPct = -1;
       requestMusic();
       this.syncHud(true);
@@ -3374,9 +3394,13 @@ if (tpClipActive > 0.5) {
   // ================= CHUNK STREAMING =================
   /** Generate neighbours and mesh one chunk incrementally to avoid >16 ms frame spikes. */
   private *streamChunkBuildSteps(cx: number, cz: number, band: ReturnType<Engine['meshBandForPlayer']>): Generator<void, void, void> {
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        while (!this.world.advanceTerrain(cx + dx, cz + dz, 1)) yield;
+    // Complete the requested chunk first; nearby support chunks are filled from the centre outward.
+    for (let radius = 0; radius <= 2; radius++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (Math.abs(dx) + Math.abs(dz) !== radius) continue;
+          while (!this.world.advanceTerrain(cx + dx, cz + dz, 1)) yield;
+        }
       }
     }
     const wasDecorated = this.world.isDecorated(cx, cz);
@@ -3456,11 +3480,16 @@ if (tpClipActive > 0.5) {
             const centerZ = cz * CHUNK + CHUNK / 2;
             if (!forceRadius && (centerX - px) ** 2 + (centerZ - pz) ** 2 >= farSq) continue;
             const key = chunkKey(cx, cz);
-            if (this.geometryBandByKey.has(key) && this.geometryBandByKey.get(key) !== this.meshBandKey) {
+            const oldBand = this.geometryBandByKey.get(key);
+            if (oldBand !== undefined && oldBand !== this.meshBandKey && this.world.hasTerrain(cx, cz)) {
               this.dirtyChunks.add(key);
               continue;
             }
-            if (this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key) || this.meshedEmpty.has(key) || this.dirtyChunks.has(key) || this.dirtyMeshJob?.key === key) continue;
+            const hasMesh = this.chunkMeshes.has(key) || this.cutoutMeshes.has(key) || this.waterMeshes.has(key) || this.decorMeshes.has(key) || this.meshedEmpty.has(key);
+            const meshMatchesBand = oldBand === this.meshBandKey;
+            // A shallow menu preview already has a mesh but still needs its full-depth terrain job.
+            if (hasMesh && meshMatchesBand && this.world.hasTerrain(cx, cz)) continue;
+            if (this.dirtyChunks.has(key) || this.dirtyMeshJob?.key === key) continue;
             this.activeStreamKey = key;
             this.activeStreamJob = this.streamChunkBuildSteps(cx, cz, this.meshBandForPlayer());
             break outer;
@@ -4639,10 +4668,15 @@ if (tpClipActive > 0.5) {
 
   // ================= PHASE CONTROL =================
   startRun(seconds?: number, sandbox = false): boolean {
-    // If the player starts before a regenerated menu world has reached its spawn chunk, finish just
-    // that one terrain chunk synchronously; the surrounding surface and all deep meshes keep streaming.
-    if (this.menuWorldStreaming && !this.menuWorldStarterSeeded)
-      this.world.genTerrain(Math.floor(ORIGIN_X / CHUNK), Math.floor(ORIGIN_Z / CHUNK));
+    // Starting from a freshly regenerated menu seed needs only the spawn surface. Deep terrain stays
+    // in the streaming queue and will be completed before a nearby underground chunk is needed.
+    const deferStarterWildlife = this.menuWorldStreaming && !this.menuWorldStarterSeeded;
+    if (deferStarterWildlife) {
+      const cx = Math.floor(ORIGIN_X / CHUNK);
+      const cz = Math.floor(ORIGIN_Z / CHUNK);
+      this.world.genSurface(cx, cz);
+      this.world.decorate(cx, cz, true);
+    }
     if (this.activeChest) this.closeActiveChest();
     const survivalRun = this.survival;
     this.clearWolfPetRig();
@@ -4790,8 +4824,8 @@ if (tpClipActive > 0.5) {
     this.pitch = -0.1;
     this.updateClock(0);
     this.wasNight = this.isNightClock();
-    this.seedStarterWildlife(x, z, this.yaw);
-    this.menuWorldStarterSeeded = true;
+    if (!deferStarterWildlife) this.seedStarterWildlife(x, z, this.yaw);
+    this.menuWorldStarterSeeded = !deferStarterWildlife;
     this.deepest = 0;
     this.phase = 'playing';
     this.banner = null;
@@ -10869,7 +10903,7 @@ if (tpClipActive > 0.5) {
     return ensureGearHid(item);
   }
 
-  /** Grant the full gatherable/crafted/dropped catalogue in local developer builds only. */
+  /** Grant the full gatherable/crafted/dropped catalogue in the temporary developer QA mode. */
   grantDeveloperCatalog(): boolean {
     if (!isDeveloperShopEnabled() || this.phase !== 'playing') {
       sfx.ui(false);

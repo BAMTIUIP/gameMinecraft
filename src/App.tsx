@@ -63,9 +63,10 @@ import { getCharacterCustomization, saveCharacterCustomization, type CharacterCu
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
 const REVIVE_SECONDS = 60;
 const MAX_REVIVES_PER_RUN = 2;
-/** The free local test catalogue is available in DEV or with ?devtools=1 in a production preview. */
+/** Temporary QA controls are deliberately visible on the test server; rendering still excludes TV devices. */
 const SHOP_SCREENS_ENABLED = true;
-const DEVELOPER_TOOLS_ENABLED = import.meta.env.DEV || new URLSearchParams(window.location.search).get('devtools') === '1';
+const DEVELOPER_TOOLS_ENABLED = true;
+const DEVELOPER_FPS_ENABLED = import.meta.env.DEV || new URLSearchParams(window.location.search).get('devtools') === '1';
 setDeveloperShopEnabled(DEVELOPER_TOOLS_ENABLED && !tvMode());
 
 /** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
@@ -940,7 +941,7 @@ export default function App() {
           onBag={openInventory}
           onCaptureMouse={captureMouse}
           isTouch={isTouch}
-          showFps={DEVELOPER_TOOLS_ENABLED}
+          showFps={DEVELOPER_FPS_ENABLED}
         />
       )}
 
