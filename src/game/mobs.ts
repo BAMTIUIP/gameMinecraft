@@ -258,7 +258,7 @@ const FISH_VARIANTS = [
 ] as const;
 
 /** blocky Minecraft-ish silhouettes assembled from boxes */
-function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | null; legs: THREE.Object3D[]; mats: THREE.MeshLambertMaterial[] } {
+function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | null; legs: THREE.Object3D[]; mats: THREE.MeshLambertMaterial[]; tail?: THREE.Group } {
   const g = new THREE.Group();
   const mats: THREE.MeshLambertMaterial[] = [];
   const legs: THREE.Object3D[] = [];
@@ -717,11 +717,15 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
       const foot = box(0.16, 0.3, 0.18, def.legs, mats);
       foot.position.set(side * 0.13, 0.16, 0.08); g.add(foot); legs.push(foot);
     }
-    const tail = box(0.11, 0.11, 0.55, def.body, mats);
-    tail.position.set(0, 0.65, 0.39); tail.rotation.x = -0.2; g.add(tail);
+    const tail = new THREE.Group();
+    tail.position.set(0, 0.65, 0.39);
+    tail.rotation.x = -0.2;
+    const tailBase = box(0.11, 0.11, 0.55, def.body, mats);
     const tailEnd = box(0.1, 0.24, 0.11, def.body, mats);
-    tailEnd.position.set(0, 0.82, 0.65); g.add(tailEnd);
-    return { group: g, head, legs, mats };
+    tailEnd.position.set(0, 0.17, 0.26);
+    tail.add(tailBase, tailEnd);
+    g.add(tail);
+    return { group: g, head, legs, mats, tail };
   }
 
   if (def.id === 'chicken') {
@@ -1255,6 +1259,15 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
     }
   }
   return { group: g, head, legs, mats };
+}
+
+/**
+ * Companion version of the regular jungle monkey mesh. Keeping this factory next to the mob model
+ * means the pet uses the same silhouette and proportions, while accepting its own saved fur palette.
+ */
+export function buildMonkeyCompanionBody(palette: { body: string; face: string; limbs: string }) {
+  const model = buildBody({ ...MOBS.monkey, body: palette.body, accent: palette.face, legs: palette.limbs });
+  return { group: model.group, head: model.head, limbs: model.legs, tail: model.tail ?? null, materials: model.mats };
 }
 
 /** Rotate the whole face (eyes, muzzle and ears included), not just the head

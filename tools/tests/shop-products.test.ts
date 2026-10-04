@@ -25,6 +25,9 @@ const shopModule = await import('../../src/game/shop');
 const { Engine } = await import('../../src/game/engine');
 const {
   SHOP_PRODUCT_IDS,
+  SHOP_REWARD_PRODUCT_IDS,
+  isShopProductId,
+  isShopRewardProduct,
   applyCloudShopRewards,
   completePendingShopRewards,
   pendingShopProductRewards,
@@ -56,6 +59,10 @@ const createEngineShell = () => {
 
 resetShopRewards();
 ok(SHOP_PRODUCT_IDS.includes('armor-uncommon') && SHOP_PRODUCT_IDS.includes('chest-common'), 'The paid catalogue lists individual reward SKUs');
+ok(SHOP_PRODUCT_IDS.includes('pet-wolf') && isShopProductId('pet-wolf'), 'The permanent wolf is a direct catalogue SKU');
+ok(SHOP_PRODUCT_IDS.includes('pet-monkey') && isShopProductId('pet-monkey'), 'The permanent monkey is also a direct catalogue SKU');
+ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-wolf') && !isShopRewardProduct('pet-wolf'), 'The permanent wolf is excluded from consumable reward receipts');
+ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-monkey') && !isShopRewardProduct('pet-monkey'), 'The permanent monkey is excluded from consumable reward receipts');
 ok(!SHOP_PRODUCT_IDS.some((id) => id.startsWith('diamonds-')), 'Coin-pack SKUs are absent from the supported products');
 ok(!('buyDiamondPack' in shopModule) && !('buyShopItem' in shopModule), 'The old wallet and in-game charge APIs no longer exist');
 

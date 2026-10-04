@@ -67,6 +67,8 @@ export type CloudProfile = {
     pending?: unknown[];
     delivered?: unknown[];
   };
+  /** permanent companion entitlements and the selected wolf coat */
+  pets?: { owned?: unknown; wolfCoatIndex?: unknown };
   /** validated by game/character when the cloud character-creator part applies it */
   character?: unknown;
 };

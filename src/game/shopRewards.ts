@@ -2,9 +2,10 @@
 
 import { markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
 import { storageGet, storageSet } from './storage';
+import { MONKEY_PET_PRODUCT_ID, WOLF_PET_PRODUCT_ID } from './pets';
 
-/** Current consumable catalogue SKUs. Each one grants its matching shop reward directly. */
-export const SHOP_PRODUCT_IDS = [
+/** Paid catalogue SKUs; pets are permanent entitlements, the remaining products are consumable rewards. */
+const CONSUMABLE_SHOP_PRODUCT_IDS = [
   'armor-uncommon',
   'armor-rare',
   'armor-epic',
@@ -17,10 +18,11 @@ export const SHOP_PRODUCT_IDS = [
   'booster-ore',
   'booster-score',
 ] as const;
+export const SHOP_PRODUCT_IDS = [...CONSUMABLE_SHOP_PRODUCT_IDS, WOLF_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID] as const;
 export type ShopProductId = (typeof SHOP_PRODUCT_IDS)[number];
 
 /** Include old queued gear receipts so an upgrade never drops a reward already paid for in-game. */
-export const SHOP_REWARD_PRODUCT_IDS = [...SHOP_PRODUCT_IDS, 'diamond-pickaxe', 'diamond-armor'] as const;
+export const SHOP_REWARD_PRODUCT_IDS = [...CONSUMABLE_SHOP_PRODUCT_IDS, 'diamond-pickaxe', 'diamond-armor'] as const;
 export type ShopRewardProductId = (typeof SHOP_REWARD_PRODUCT_IDS)[number];
 
 export function isShopProductId(id: string): id is ShopProductId {

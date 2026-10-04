@@ -17,6 +17,7 @@ import {
   type ShopProductId,
 } from './shopRewards';
 import { tvDevice } from './params';
+import { hasPet, MONKEY_PET_PRODUCT_ID, unlockPet, WOLF_PET_PRODUCT_ID } from './pets';
 import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
 
 export { AD_FREE_PRODUCT_ID, SHOP_PRODUCT_IDS };
@@ -108,6 +109,16 @@ type SettlementResult = {
 async function settleShopPurchase(productId: string, purchaseToken: string): Promise<SettlementResult> {
   if (!purchaseToken || !isShopProductId(productId)) {
     return { recognized: false, queued: false, saved: false };
+  }
+
+  // Pets are permanent account entitlements: keep each Yandex receipt so getPurchases() restores
+  // ownership, and never pass the receipt to consumePurchase().
+  if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) {
+    const kind = productId === WOLF_PET_PRODUCT_ID ? 'wolf' : 'monkey';
+    const newlyOwned = !hasPet(kind);
+    if (!unlockPet(kind)) return { recognized: true, queued: false, saved: false };
+    const saved = await flushProfile(true);
+    return { recognized: true, queued: newlyOwned, saved };
   }
 
   const alreadyDelivered = hasDeliveredPurchase(purchaseToken);

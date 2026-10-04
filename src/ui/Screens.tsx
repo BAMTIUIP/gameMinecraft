@@ -115,8 +115,8 @@ const Row = ({ k, v, accent }: { k: React.ReactNode; v: React.ReactNode; accent?
   </div>
 );
 
-type ShopCategory = 'gear' | 'drops' | 'boosters';
-type ShopFilter = 'all' | 'weapons' | 'armor' | 'offers' | 'rewards';
+type ShopCategory = 'gear' | 'drops' | 'boosters' | 'pets';
+type ShopFilter = 'all' | 'weapons' | 'armor' | 'offers' | 'rewards' | 'pets';
 type ShopMode = 'store' | 'developer';
 type ShopProduct = {
   id: string;
@@ -137,6 +137,7 @@ const SHOP_TABS: ReadonlyArray<{ id: ShopFilter; labelKey: TKey }> = [
   { id: 'weapons', labelKey: 'shopTabWeapon' },
   { id: 'armor', labelKey: 'shopTabArmor' },
   { id: 'offers', labelKey: 'shopTabBoosters' },
+  { id: 'pets', labelKey: 'shopTabPets' },
   { id: 'rewards', labelKey: 'shopTabRewards' },
 ];
 
@@ -145,6 +146,7 @@ function productMatchesShopTab(product: ShopProduct, tab: ShopFilter) {
   if (tab === 'weapons') return product.id === 'netherite-pickaxe';
   if (tab === 'armor') return product.id === 'netherite-armor' || product.id.startsWith('armor-');
   if (tab === 'offers') return product.category === 'boosters';
+  if (tab === 'pets') return product.category === 'pets';
   return product.category === 'drops';
 }
 
@@ -152,6 +154,7 @@ function shopTabForProduct(product: ShopProduct | undefined): ShopFilter {
   if (!product) return 'offers';
   if (productMatchesShopTab(product, 'weapons')) return 'weapons';
   if (productMatchesShopTab(product, 'armor')) return 'armor';
+  if (productMatchesShopTab(product, 'pets')) return 'pets';
   if (productMatchesShopTab(product, 'rewards')) return 'rewards';
   return 'offers';
 }
@@ -162,6 +165,8 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
   { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
+  { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
 
   { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
   { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
@@ -484,6 +489,8 @@ export function StartScreen({
   shopEnabled,
   developerShopEnabled,
   shopPrices,
+  wolfPetOwned,
+  monkeyPetOwned,
   onOpenShop,
   paymentsAvailable,
   adFreeOwned,
@@ -540,6 +547,9 @@ export function StartScreen({
   developerShopEnabled: boolean;
   /** prices from the Yandex Console catalogue, keyed by product id */
   shopPrices: ShopCatalog;
+  /** restored permanent companion ownership; prevents another purchase for the same account */
+  wolfPetOwned: boolean;
+  monkeyPetOwned: boolean;
   /** retries the catalogue request when the shop is opened after an initial failure */
   onOpenShop: () => void;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
@@ -1055,16 +1065,17 @@ export function StartScreen({
                   const rewardedDrop = isRewardedDrop(product.id);
                   const dropStatus = rewardedDrop ? rewardedDrops[product.id as RewardedDropId] : null;
                   const devAlreadyClaimed = devClaims.includes(product.id);
+                  const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-monkey' && monkeyPetOwned;
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
-                  const purchasable = developerMode
+                  const purchasable = !alreadyOwned && (developerMode
                     ? !devAlreadyClaimed
                     : rewardedDrop
                       ? rewardedAdsEnabled && Boolean(dropStatus?.available)
-                      : paymentsAvailable && Boolean(catalogPrice);
+                      : paymentsAvailable && Boolean(catalogPrice));
                   const priceLabel: React.ReactNode = developerMode
                     ? t('devShopPrice')
                     : rewardedDrop
@@ -1133,9 +1144,11 @@ export function StartScreen({
                         <button
                           type="button"
                           disabled={!purchasable || buying !== null}
-                          title={developerMode
-                            ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
-                            : rewardedDrop
+                          title={alreadyOwned
+                            ? t('shopOwned')
+                            : developerMode
+                              ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
+                              : rewardedDrop
                               ? dropStatus?.available
                                 ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
                                 : dropStatusLabel
@@ -1179,7 +1192,9 @@ export function StartScreen({
                             if (result.ok) {
                               setShopNotice(result.syncPending
                                 ? t('shopPurchasePending')
-                                : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
+                                : product.id === 'pet-wolf' || product.id === 'pet-monkey'
+                                  ? t('shopPetPurchaseDone')
+                                  : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
                             } else {
                               setShopNotice(result.reason === 'cancelled'
                                 ? t('shopPurchaseCancelled')
@@ -1194,8 +1209,10 @@ export function StartScreen({
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {developerMode
-                            ? devAlreadyClaimed
+                          {alreadyOwned
+                            ? t('shopOwned')
+                            : developerMode
+                              ? devAlreadyClaimed
                               ? t('devShopTaken')
                               : buying === product.id
                                 ? t('devShopTaking')

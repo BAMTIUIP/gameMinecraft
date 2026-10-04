@@ -557,6 +557,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       <div
         className={`hud-information hud-information--hint absolute left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5 ${isTouch ? 'bottom-60' : 'bottom-24'}`}
       >
+        {!isTouch && hud.petInteractNear && hud.phase === 'playing' && (
+          <div data-pet-interact className="anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: '#c59b66' }}>
+            <kbd className="rounded bg-black/45 px-1.5 py-0.5 font-display text-[10px] text-torch">E</kbd>
+            <span className="font-display text-xs tracking-widest text-[#f3d49a] sm:text-sm">{t('petInteract')}</span>
+          </div>
+        )}
         {hud.tradeNear && hud.phase === 'playing' && (
           <div className="anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: '#d98cff' }}>
             <span className="font-display text-xs tracking-widest text-[#d98cff] sm:text-sm">{t('pressTrade')}</span>

@@ -2,6 +2,16 @@ import { storageGet, storageSet } from './storage';
 
 const DEV_SHOP_KEY = 'orerush.dev-shop.claims.v1';
 const PRODUCT_ID = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+let developerShopEnabled = false;
+
+/** Runtime gate: local test claims are honored only by the development build. */
+export function setDeveloperShopEnabled(enabled: boolean): void {
+  developerShopEnabled = enabled;
+}
+
+export function isDeveloperShopEnabled(): boolean {
+  return developerShopEnabled;
+}
 
 /** Developer-only test entitlements live on this device and are intentionally not added to the cloud profile. */
 export function developerShopClaims(): string[] {

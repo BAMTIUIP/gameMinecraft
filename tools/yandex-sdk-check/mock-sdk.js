@@ -363,6 +363,8 @@
                 offer('armor-epic', 'Epic armor', 'Netherite armor set', '399 TST'),
                 offer('netherite-pickaxe', 'Netherite pickaxe', 'Direct item purchase', '499 TST'),
                 offer('netherite-armor', 'Netherite armor', 'Complete armor set', '799 TST'),
+                offer('pet-wolf', 'Wolf companion', 'Permanent companion', '199 TST'),
+                offer('pet-monkey', 'Monkey companion', 'Permanent color-selectable companion', '249 TST'),
                 offer('chest-common', 'Common supply chest', 'Supplies for a run', '99 ₽', 'RUB'),
                 offer('chest-rare', 'Rare ore chest', 'Supplies and gear', '199 TST'),
                 offer('chest-epic', 'Epic treasure chest', 'Resources and gear', '399 TST'),

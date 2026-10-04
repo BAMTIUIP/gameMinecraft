@@ -17,6 +17,7 @@ import TouchControls from './ui/TouchControls';
 import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Screens';
 import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, type ScoreEntry } from './ui/scores';
 import Inventory from './ui/Inventory';
+import ChestInventory from './ui/ChestInventory';
 import { EMPTY_STATS, type Slot } from './game/items';
 import { getLang, initLang, resolveLang, setLang, t, type Lang } from './game/i18n';
 import {
@@ -45,7 +46,8 @@ import { completePendingRewardedDropItems, pendingRewardedDropItems, recordRewar
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
-import { grantDeveloperShopProduct } from './game/devShop';
+import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
+import { hasMonkeyPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -61,8 +63,9 @@ import { getCharacterCustomization, saveCharacterCustomization, type CharacterCu
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
 const REVIVE_SECONDS = 60;
 const MAX_REVIVES_PER_RUN = 2;
-/** Ordinary shop is back; the developer-only free catalogue remains explicitly disabled. */
+/** Ordinary shop is enabled; the free developer catalogue is restricted to local DEV builds. */
 const SHOP_SCREENS_ENABLED = true;
+setDeveloperShopEnabled(import.meta.env.DEV && !tvMode());
 
 /** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
 function coopSink(engine: Engine): CoopSink {
@@ -113,6 +116,7 @@ const INITIAL_HUD: HudState = {
   freeLook: true,
   runTime: EXPLORATION_RUN_TIME,
   inventoryOpen: false,
+  chest: null,
   tutorialTip: null,
   explorationObjectives: [],
   objectiveIndex: 0,
@@ -130,6 +134,15 @@ const INITIAL_HUD: HudState = {
   swordTier: -1,
   equipped: {},
   bagItems: [],
+  petOwned: false,
+  petOwnedKinds: [],
+  petTokenAvailable: false,
+  petEquipped: false,
+  petEquippedKind: null,
+  petSelectedKind: 'wolf',
+  petCoatIndices: { wolf: 0, monkey: 0 },
+  petCoatIndex: 0,
+  petInteractNear: false,
   stats: EMPTY_STATS,
   killedBy: null,
   offers: [],
@@ -179,6 +192,12 @@ export default function App() {
   const [shopPrices, setShopPrices] = useState<ShopCatalog>(() => new Map());
   const [canPay, setCanPay] = useState(false);
   const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
+  const [wolfPetOwned, setWolfPetOwned] = useState(() => hasWolfPet());
+  const [monkeyPetOwned, setMonkeyPetOwned] = useState(() => hasMonkeyPet());
+  const refreshPetOwnership = useCallback(() => {
+    setWolfPetOwned(hasWolfPet());
+    setMonkeyPetOwned(hasMonkeyPet());
+  }, []);
   const [adFreeBusy, setAdFreeBusy] = useState(false);
   const [adFreeNotice, setAdFreeNotice] = useState<string | null>(null);
   // leaderboard: the platform keeps the rating, the game only submits results and draws the top
@@ -224,8 +243,10 @@ export default function App() {
     // Yandex Games: auto-detect the user's language from the platform (rule 2.14).
     // An explicit in-game choice (saved in safeStorage) always wins.
     void initYandex().then(async () => {
-      // Yandex may have installed safeStorage after the first render; refresh the local ad-free cache
-      // before remote flags, the catalogue and the platform's default sticky banner are reconciled.
+      // Yandex may have installed safeStorage after the first render; refresh permanent entitlements
+      // before cloud reconciliation, catalogue loading and the platform's default sticky banner.
+      refreshPetStateFromStorage();
+      refreshPetOwnership();
       setAdFreeOwned(hasAdFreeEntitlement());
       const platformLang = yaLang();
       if (platformLang && storageGet('orerush.lang') === null) {
@@ -237,6 +258,7 @@ export default function App() {
       // Cloud profile: pull records/settings made on another device and report our own progress.
       // Outside Yandex this resolves immediately with platform: null.
       const snapshot = await startProfileSync();
+      refreshPetOwnership();
       // Apply cloud progress first, then record today's unique trusted-UTC login date.
       recordRewardedDropLogin();
       setProfile(snapshot.platform);
@@ -258,12 +280,13 @@ export default function App() {
       if (paymentsAvailable()) {
         const catalog = await loadShopCatalog();
         const restored = await deliverPendingPurchases();
-        // Publish the catalogue after getPurchases() settles so a returning owner never sees a
-        // second-purchase button while their permanent entitlement is still being restored.
+        // Publish entitlements after getPurchases() settles so returning owners never see a second-purchase button.
+        refreshPetOwnership();
         setAdFreeOwned(hasAdFreeEntitlement());
         setShopPrices(catalog);
         if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
       } else {
+        refreshPetOwnership();
         setAdFreeOwned(hasAdFreeEntitlement());
       }
       setLbAvailable(leaderboardAvailable());
@@ -382,6 +405,7 @@ export default function App() {
         })
         .then(async () => {
           const restored = await deliverPendingPurchases();
+          refreshPetOwnership();
           setAdFreeOwned(hasAdFreeEntitlement());
           if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
           setCharacterCustomization(getCharacterCustomization());
@@ -460,6 +484,10 @@ export default function App() {
 
   const equip = useCallback((uid: string) => engineRef.current?.equip(uid), []);
   const unequip = useCallback((slot: Slot) => engineRef.current?.unequip(slot), []);
+  const equipPet = useCallback((kind: PetKind) => engineRef.current?.setPetEquipped(kind, true), []);
+  const unequipPet = useCallback((kind: PetKind) => engineRef.current?.setPetEquipped(kind, false), []);
+  const selectPetKind = useCallback((kind: PetKind) => engineRef.current?.selectPetKind(kind), []);
+  const cyclePetCoat = useCallback((kind: PetKind, direction: number) => engineRef.current?.cyclePetCoat(kind, direction), []);
   const sell = useCallback((id: number) => engineRef.current?.sellResource(id), []);
   const buyOffer = useCallback((i: number) => engineRef.current?.buyOffer(i), []);
   const upgradeItem = useCallback((uid: string) => engineRef.current?.upgradeToNetherite(uid), []);
@@ -667,6 +695,11 @@ export default function App() {
   const craft = useCallback((key: string) => engineRef.current?.craft(key), []);
   const openInventory = useCallback(() => engineRef.current?.openInventory(), []);
   const closeInventory = useCallback(() => engineRef.current?.closeInventory(), []);
+  const transferChestItem = useCallback(
+    (id: number, amount: number, toChest: boolean) => engineRef.current?.transferChestItem(id, amount, toChest) ?? false,
+    [],
+  );
+  const takeAllFromChest = useCallback(() => engineRef.current?.takeAllFromChest() ?? false, []);
 
   // live profile updates (avatar appears after the first getPlayer, sign-in refreshes it)
   useEffect(() => onProfileChange((snap: ProfileSnapshot) => setProfile(snap.platform)), []);
@@ -684,7 +717,9 @@ export default function App() {
 
   useEffect(() => {
     isTvRef.current = isTv;
-  }, [isTv]);
+    setDeveloperShopEnabled(import.meta.env.DEV && !isTv && !tvMode());
+    refreshPetOwnership();
+  }, [isTv, refreshPetOwnership]);
   useEffect(() => {
     exitPromptOpenRef.current = exitPrompt;
     // A TV player must see where the remote is pointing: when the leave dialog opens, the focus (and
@@ -728,12 +763,13 @@ export default function App() {
     // player, so force a fresh cloud read before applying the newly authorised account's progress.
     const cloudApplied = await resyncProfile();
     const restored = await deliverPendingPurchases();
+    refreshPetOwnership();
     setAdFreeOwned(hasAdFreeEntitlement());
     if (restored > 0) setAdNotice(t('shopPurchaseDone').replace('{n}', String(restored)));
     setScores(loadScores());
     setName(loadPlayerName());
     if (cloudApplied) setCloudSavedAt(Number(storageGet('orerush.profile.savedAt') ?? 0));
-  }, []);
+  }, [refreshPetOwnership]);
 
   /**
    * World ranking: loaded when the player opens the tab (and by the refresh button). The module
@@ -821,9 +857,11 @@ export default function App() {
   }, []);
 
   /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
-  const buyInGameShopItem = useCallback((productId: string): Promise<ShopItemBuyResult> => {
-    return buyShopProduct(productId);
-  }, []);
+  const buyInGameShopItem = useCallback(async (productId: string): Promise<ShopItemBuyResult> => {
+    const result = await buyShopProduct(productId);
+    if ((productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
+    return result;
+  }, [refreshPetOwnership]);
 
   const buyAdFree = useCallback(async () => {
     if (adFreeBusyRef.current) return;
@@ -853,9 +891,11 @@ export default function App() {
 
   /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
-    if (!import.meta.env.DEV || isTvRef.current) return false;
-    return grantDeveloperShopProduct(productId);
-  }, []);
+    if (!import.meta.env.DEV || isTvRef.current || tvMode()) return false;
+    const granted = grantDeveloperShopProduct(productId);
+    if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) refreshPetOwnership();
+    return granted;
+  }, [refreshPetOwnership]);
 
   const playing = hud.phase === 'playing' || hud.phase === 'paused';
 
@@ -885,7 +925,7 @@ export default function App() {
         />
       )}
 
-      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} />}
+      {isTouch && hud.phase === 'playing' && !hud.inventoryOpen && <TouchControls engine={engine} petInteractNear={hud.petInteractNear} />}
 
       {hud.phase === 'loading' && <LoadingScreen progress={hud.loading} />}
       {hud.phase === 'menu' && (
@@ -912,8 +952,10 @@ export default function App() {
           onSignIn={signIn}
           cloudSavedAt={cloudSavedAt}
           shopEnabled={SHOP_SCREENS_ENABLED && flags['shop.enabled'] !== 'false' && !isTv && !tvMode()}
-          developerShopEnabled={false}
+          developerShopEnabled={import.meta.env.DEV && !isTv && !tvMode()}
           shopPrices={shopPrices}
+          wolfPetOwned={wolfPetOwned}
+          monkeyPetOwned={monkeyPetOwned}
           onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
           adFreeOwned={adFreeOwned}
@@ -943,7 +985,15 @@ export default function App() {
           onSaveCharacter={saveCharacter}
         />
       )}
-      {hud.phase === 'playing' && hud.inventoryOpen && (
+      {hud.phase === 'playing' && hud.inventoryOpen && hud.chest && (
+        <ChestInventory
+          hud={hud}
+          onTransfer={transferChestItem}
+          onTakeAll={takeAllFromChest}
+          onClose={closeInventory}
+        />
+      )}
+      {hud.phase === 'playing' && hud.inventoryOpen && !hud.chest && (
         <Inventory
           hud={hud}
           onCraft={craft}
@@ -951,6 +1001,10 @@ export default function App() {
           onClose={closeInventory}
           onEquip={equip}
           onUnequip={unequip}
+          onEquipPet={equipPet}
+          onUnequipPet={unequipPet}
+          onSelectPetKind={selectPetKind}
+          onCyclePetCoat={cyclePetCoat}
           onSell={sell}
           onBuy={buyOffer}
           onUpgrade={upgradeItem}

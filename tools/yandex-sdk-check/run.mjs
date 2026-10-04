@@ -866,13 +866,14 @@ async function scenarioShop() {
     const weaponCards = await select('weapons');
     const armorCards = await select('armor');
     const offerCards = await select('offers');
+    const petCards = await select('pets');
     const rewardCards = await select('rewards');
     const allCards = await select('all');
     const pricedCards = [...document.querySelectorAll('[data-shop-product]')].filter((card) =>
       !['drop-daily', 'drop-weekly', 'drop-monthly'].includes(card.getAttribute('data-shop-product')),
     );
     const priceCurrencyIcons = pricedCards.map((card) => Boolean(card.querySelector('.shop-product-footer img[src]')));
-    const hasUnfinishedProducts = allCards.some((id) => id.startsWith('pet-') || id.startsWith('skin-'));
+    const hasUnfinishedProducts = allCards.some((id) => (id.startsWith('pet-') && !['pet-wolf', 'pet-monkey'].includes(id)) || id.startsWith('skin-'));
     const hasLegacyCoinPacks = allCards.some((id) => id.startsWith('diamonds-'));
     const hasUnfinishedLabels = [...document.querySelectorAll('[data-shop-product]')].some((card) =>
       /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG|COMING SOON|СКОРО|BIENTÔT|BALD/i.test(card.textContent ?? ''),
@@ -882,6 +883,7 @@ async function scenarioShop() {
       weaponCards,
       armorCards,
       offerCards,
+      petCards,
       rewardCards,
       priceCurrencyIcons,
       hasUnfinishedProducts,
@@ -889,10 +891,11 @@ async function scenarioShop() {
       hasUnfinishedLabels,
     };
   });
-  check(shopCategories?.categoryCount === 5, 'Внизу каталога ровно пять категорий');
+  check(shopCategories?.categoryCount === 6, 'Внизу каталога шесть категорий, включая отдельную вкладку питомцев');
   check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
   check(shopCategories?.armorCards?.includes('netherite-armor') && shopCategories.armorCards.includes('armor-epic'), 'Категория брони содержит прямые товары Яндекс Игр');
   check(shopCategories?.offerCards?.includes('booster-start') && shopCategories.offerCards.includes('booster-score'), 'Категория предложений показывает прямые SKU-бустеры');
+  check(shopCategories?.petCards?.length === 2 && shopCategories.petCards.includes('pet-wolf') && shopCategories.petCards.includes('pet-monkey'), 'Вкладка питомцев содержит волка и обезьяну с прямыми SKU');
   check(shopCategories?.rewardCards?.includes('drop-daily') && shopCategories.rewardCards.includes('chest-epic'), 'Категория наград сохраняет бесплатную рекламу и платные предметы');
   check(!shopCategories?.hasLegacyCoinPacks, 'В магазине отсутствуют наборы внутриигровых монет');
   check(
@@ -1110,6 +1113,96 @@ async function scenarioShop() {
   const noticeShown = await game.page.evaluate(() => /Покупка оформлена|Purchase complete|Achat effectué|Kauf abgeschlossen/.test(document.body.innerText ?? ''));
   check(noticeShown, 'Игрок видит подтверждение покупки');
 
+  const petTab = await game.page.evaluate(() => {
+    const tab = document.querySelector('[data-shop-category="pets"]');
+    tab?.click();
+    return !!tab;
+  });
+  check(petTab, 'Отдельная вкладка питомцев открывается');
+  const petOffer = await game.page.evaluate(() => {
+    const card = document.querySelector('[data-shop-product="pet-wolf"]');
+    return {
+      present: !!card,
+      priceFromCatalog: Boolean(card?.textContent?.includes('199 TST')),
+      currencyIconFromCatalog: Boolean(card?.querySelector('.shop-product-footer img[src]')),
+    };
+  });
+  check(petOffer.present && petOffer.priceFromCatalog && petOffer.currencyIconFromCatalog, 'Волк показывается с ценой и значком валюты из каталога SDK', JSON.stringify(petOffer));
+  const wolfConsumeBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const wolfPurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const wolfBuyClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="pet-wolf"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(wolfBuyClicked, 'Покупка постоянного волка доступна один раз');
+  const wolfPurchaseRequested = await game.waitFor(
+    'Покупка pet-wolf',
+    (beforeCount) => (window.__yaCalls ?? []).slice(beforeCount).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'pet-wolf'),
+    10_000,
+    wolfPurchaseBefore,
+  );
+  check(wolfPurchaseRequested, 'Оплата запускается напрямую для SKU pet-wolf');
+  const wolfOwned = await game.waitFor(
+    'Постоянное владение волком сохранено',
+    () => {
+      try {
+        return JSON.parse(window.localStorage.getItem('orerush.pets.v1') ?? '{}').wolfOwned === true;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(wolfOwned, 'Покупка сохраняет постоянное право на волка');
+  const wolfNotConsumed = game.count(await game.calls(), 'payments.consumePurchase') === wolfConsumeBefore;
+  check(wolfNotConsumed, 'Постоянный SKU питомца остаётся в Yandex и не погашается как расходуемый');
+  const wolfOwnedButton = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-shop-product="pet-wolf"] button')?.disabled),
+    { timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(wolfOwnedButton, 'После покупки вместо повторного списания показывается состояние «уже куплен»');
+
+  const monkeyOffer = await game.page.evaluate(() => {
+    const card = document.querySelector('[data-shop-product="pet-monkey"]');
+    return {
+      present: !!card,
+      priceFromCatalog: Boolean(card?.textContent?.includes('249 TST')),
+      currencyIconFromCatalog: Boolean(card?.querySelector('.shop-product-footer img[src]')),
+    };
+  });
+  check(monkeyOffer.present && monkeyOffer.priceFromCatalog && monkeyOffer.currencyIconFromCatalog, 'Обезьяна показывается с ценой и значком валюты из каталога SDK', JSON.stringify(monkeyOffer));
+  const monkeyConsumeBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const monkeyPurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const monkeyBuyClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="pet-monkey"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(monkeyBuyClicked, 'Покупка постоянной обезьяны доступна напрямую');
+  const monkeyPurchaseRequested = await game.waitFor(
+    'Покупка pet-monkey',
+    (beforeCount) => (window.__yaCalls ?? []).slice(beforeCount).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'pet-monkey'),
+    10_000,
+    monkeyPurchaseBefore,
+  );
+  check(monkeyPurchaseRequested, 'Оплата запускается напрямую для SKU pet-monkey');
+  const monkeyOwned = await game.waitFor(
+    'Постоянное владение обезьяной сохранено',
+    () => {
+      try {
+        return JSON.parse(window.localStorage.getItem('orerush.pets.v1') ?? '{}').monkeyOwned === true;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(monkeyOwned, 'Покупка сохраняет постоянное право на обезьяну');
+  check(game.count(await game.calls(), 'payments.consumePurchase') === monkeyConsumeBefore, 'Постоянный SKU обезьяны не погашается как расходуемый товар');
+
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
   check(fatal.length === 0, 'Магазин работает без ошибок в консоли', fatal.slice(0, 3).join(' | '));
 
@@ -1210,6 +1303,97 @@ async function scenarioShop() {
     10_000,
   );
   check(dailySuppliesDelivered, 'После старта смены дневные припасы подтверждены как добавленные в инвентарь');
+
+  await game.page.keyboard.press('Tab');
+  const petTokenShown = await game.waitFor(
+    'Жетон купленного волка в инвентаре нового режима',
+    () => Boolean(document.querySelector('[data-pet-resource="wolf"]') && document.querySelector('[data-pet-slot="wolf"]')),
+    10_000,
+  );
+  check(petTokenShown, 'После покупки и старта любого режима в инвентаре появляется жетон питомца и его отдельный слот');
+  const wolfSelected = await game.page.evaluate(() => {
+    const selector = document.querySelector('[data-pet-select="wolf"]');
+    selector?.click();
+    return Boolean(selector);
+  });
+  check(wolfSelected, 'Перед wolf-only проверкой явно выбран вид «волк»');
+  const petEquipClicked = await game.page.evaluate(() => {
+    const token = document.querySelector('[data-pet-resource="wolf"]');
+    token?.click();
+    return !!token;
+  });
+  check(petEquipClicked, 'Жетон питомца можно установить в новый слот касанием/кликом');
+  const petEquipped = await game.waitFor(
+    'Волк установлен и доступно E-взаимодействие',
+    () => document.querySelector('[data-pet-slot="wolf"]')?.getAttribute('data-pet-equipped') === 'true',
+    10_000,
+  );
+  check(petEquipped, 'Установка жетона помечает питомца экипированным');
+  await game.page.keyboard.press('Tab');
+  // The companion can react to a nearby mob and move out of range within a few frames. Poll every
+  // rendered frame here instead of the generic 250 ms SDK wait so the short interaction window is not missed.
+  const petNearby = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-pet-interact]')),
+    { polling: 'raf', timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(petNearby, 'Рядом с экипированным волком появляется подсказка взаимодействия');
+  await game.page.keyboard.press('e');
+  const petReacted = await game.page.waitForFunction(
+    () => /виляет хвостом|лает|кружится|wags its tail|barks happily|spins with joy/i.test(document.body.innerText ?? ''),
+    { polling: 'raf', timeout: 4_000 },
+  ).then(() => true).catch(() => false);
+  const petReactionDebug = petReacted ? '' : JSON.stringify(await game.page.evaluate(() => ({
+    prompt: Boolean(document.querySelector('[data-pet-interact]')),
+    target: document.querySelector('.hud-information--center')?.textContent?.trim() ?? null,
+    inventory: Boolean(document.querySelector('[data-pet-slot]')),
+    pointerLocked: document.pointerLockElement !== null,
+  })));
+  check(petReacted, 'Клавиша E вызывает одну из случайных реакций волка', petReactionDebug);
+  await game.page.keyboard.press('Tab');
+  await game.page.evaluate(() => document.querySelector('[data-pet-slot="wolf"] [data-pet-toggle]')?.click());
+  const petReturned = await game.waitFor(
+    'Возврат жетона после снятия питомца',
+    () => document.querySelector('[data-pet-slot="wolf"]')?.getAttribute('data-pet-equipped') === 'false'
+      && Boolean(document.querySelector('[data-pet-resource="wolf"]')),
+    10_000,
+  );
+  check(petReturned, 'Снятие волка убирает питомца и возвращает жетон в инвентарь');
+
+  const monkeyTokenShown = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-pet-resource="monkey"]')),
+    { timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(monkeyTokenShown, 'После покупки обезьяны её отдельный жетон доступен в инвентаре');
+  await game.page.evaluate(() => document.querySelector('[data-pet-resource="monkey"]')?.click());
+  const monkeyEquipped = await game.waitFor(
+    'Обезьяна установлена в общий слот питомца',
+    () => document.querySelector('[data-pet-slot="monkey"]')?.getAttribute('data-pet-equipped') === 'true',
+    10_000,
+  );
+  check(monkeyEquipped, 'Обезьяну можно экипировать в тот же слот, что и волка');
+  await game.page.keyboard.press('Tab');
+  const monkeyNear = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-pet-interact]')),
+    { polling: 'raf', timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(monkeyNear, 'Рядом с обезьяной появляется подсказка взаимодействия');
+  await game.page.keyboard.press('e');
+  const monkeyReacted = await game.waitFor(
+    'Обезьяна отвечает собственной реакцией',
+    () => /Обезьянка падает|Обезьянка несколько раз|Обезьянка смеётся|Обезьянка кружится|The monkey flops|The monkey bounces|The monkey laughs|The monkey spins/i.test(document.body.innerText ?? ''),
+    4_000,
+  );
+  check(monkeyReacted, 'Поглаживание вызывает одну из четырёх реакций обезьяны, а не волчью анимацию');
+  await game.page.keyboard.press('Tab');
+  await game.page.evaluate(() => document.querySelector('[data-pet-slot="monkey"] [data-pet-toggle]')?.click());
+  const monkeyReturned = await game.waitFor(
+    'Возврат жетона обезьяны',
+    () => document.querySelector('[data-pet-slot="monkey"]')?.getAttribute('data-pet-equipped') === 'false'
+      && Boolean(document.querySelector('[data-pet-resource="monkey"]')),
+    10_000,
+  );
+  check(monkeyReturned, 'Снятие обезьяны возвращает её жетон в инвентарь');
+  await game.page.keyboard.press('Tab');
 
   const sessionsLoaded = await game.waitFor(
     'Загрузка сессий оппонентов',

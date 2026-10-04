@@ -417,7 +417,7 @@ export function requestMusic() {
    ======================================================================= */
 
 export type CreatureVoice =
-  | 'cow' | 'pig' | 'sheep' | 'chicken' | 'bird' | 'bee' | 'cat' | 'deer' | 'moose'
+  | 'cow' | 'pig' | 'sheep' | 'chicken' | 'bird' | 'bee' | 'cat' | 'wolf' | 'deer' | 'moose'
   | 'camel' | 'monkey' | 'frog' | 'lizard' | 'rabbit' | 'hedgehog' | 'crab' | 'turtle'
   | 'fish' | 'jellyfish' | 'rustle'
   | 'zombie' | 'skeleton' | 'spider' | 'creeper' | 'trader';
@@ -495,6 +495,15 @@ const VOICES: Record<CreatureVoice, (c: VoiceCtx) => void> = {
     toneTo(c.dest, c.t0, { freq: 640 * P, slideTo: 430 * P, dur: 0.5 * c.dur, type: 'sawtooth', vol: 0.12 * V,
       filter: { type: 'bandpass', freq: 1100 * P, q: 3.5, sweepTo: 720 * P }, vibrato: { rate: 15, depth: 14 * P } });
     noiseTo(c.dest, c.t0 + 0.28, { dur: 0.14, vol: 0.02 * V, freq: 2600, q: 2 });
+  },
+  // Two short, playful barks with a little breathy rasp.
+  wolf: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [delay, pitch] of [[0, 1], [0.16, 0.88]] as const) {
+      toneTo(c.dest, c.t0 + delay, { freq: 570 * P * pitch, slideTo: 350 * P * pitch, dur: 0.12 * c.dur,
+        type: 'square', vol: 0.13 * V, attack: 0.006, filter: { type: 'bandpass', freq: 1050 * P, q: 2.6, sweepTo: 700 * P } });
+      noiseTo(c.dest, c.t0 + delay, { dur: 0.075 * c.dur, vol: 0.055 * V, freq: 1700 * P, q: 1.8, sweepTo: 900 * P });
+    }
   },
   deer: (c) => {
     const P = c.pitch, V = c.vol;
