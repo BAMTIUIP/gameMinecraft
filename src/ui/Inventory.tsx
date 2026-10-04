@@ -414,13 +414,13 @@ export default function Inventory({
             <div className="mt-3 border-t border-white/10 pt-2.5 flex flex-col">
               <div className="mb-2 flex items-baseline justify-between">
                 <span className="font-display text-sm tracking-widest text-torch">{t('gear')}</span>
-                <span className="font-display text-[11px] text-white/45">
+                <span className="font-display text-[10px] text-white/45">
                   ⛨{st.armor} · ⚔{Math.round(st.damage)}
                 </span>
               </div>
 
               <div className="equipment-grid grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
-                <div className="notch relative flex min-h-[92px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
+                <div className="notch relative flex min-h-[72px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
                   <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
                   {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
                   {hud.arrowLoadout !== null && <button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="btn-mc notch mt-0.5 w-full px-1 py-0.5 font-display text-[8px] leading-none text-[#f2b3ae]">СНЯТЬ</button>}
@@ -450,7 +450,7 @@ export default function Inventory({
                         const bag = hud.bagItems.find((b) => b.uid === uid);
                         if (bag && bag.slot === slot) onEquip(uid);
                       }}
-                      className="notch relative min-w-0 min-h-[92px] transition-transform duration-100"
+                      className="notch relative min-w-0 min-h-[72px] transition-transform duration-100"
                     >
                       <div
                         role="button"
