@@ -146,7 +146,7 @@ export default function Inventory({
   const filteredStacks =
     invCat === 'armor' || invCat === 'pets'
       ? []
-      : hud.inventory.filter((it) => invCat === 'all' || getItemInvCategory(it.id) === invCat);
+      : hud.inventory.filter((it) => it.id !== hud.arrowLoadout && (invCat === 'all' || getItemInvCategory(it.id) === invCat));
   const filteredGear = (invCat === 'all' || invCat === 'armor' ? hud.bagItems : [])
     .filter((it) => gearTab === 'all' || it.slot === gearTab)
     .sort((a, b) => (a.armor + a.damage) - (b.armor + b.damage));
@@ -312,7 +312,7 @@ export default function Inventory({
                   return (
                     <button
                       key={`item-${it.id}-${it.instanceId ?? 'stack'}`}
-                      onClick={() => arrowIds.includes(it.id) ? onEquipArrow?.(it.id) : onPlaceItem(it.id, undefined, undefined, it.instanceId)}
+                      onClick={() => onPlaceItem(it.id, undefined, undefined, it.instanceId)}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
@@ -351,6 +351,9 @@ export default function Inventory({
                       <span className="pointer-events-none absolute inset-x-0 -bottom-5 z-20 hidden truncate bg-black/80 px-1 text-center font-display text-[9px] text-torch group-hover:block">
                         {label}
                       </span>
+                      {arrowIds.includes(it.id) && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onEquipArrow?.(it.id); }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</button>
+                      )}
                     </button>
                   );
                 })}
@@ -417,8 +420,8 @@ export default function Inventory({
               </div>
 
               <div className="mb-2 flex items-center gap-2">
-                <div className="notch flex h-12 w-20 items-center justify-center border-2 border-[#f4b942] bg-black/30 text-center">
-                  {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated h-9 w-9" /> : <span className="font-display text-[8px] text-white/35">СТРЕЛЫ</span>}
+                <div className="notch relative flex h-12 w-20 items-center justify-center border-2 border-[#f4b942] bg-black/30 text-center">
+                  {hud.arrowLoadout !== null ? <><img src={getBlockIcon(hud.arrowLoadout)} className="pixelated h-9 w-9" /><button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="absolute -right-1 -top-1 z-10 rounded bg-[#7a3a33] px-1 py-0.5 font-display text-[8px] text-white">СНЯТЬ</button></> : <span className="font-display text-[8px] text-white/35">СТРЕЛЫ</span>}
                 </div>
                 <div className="text-[9px] leading-tight text-white/45"><b className="text-torch">СНАРЯЖЕНО</b><br/>Нажмите на стрелы в инвентаре, чтобы экипировать или снять</div>
               </div>
