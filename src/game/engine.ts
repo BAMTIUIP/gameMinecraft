@@ -294,6 +294,7 @@ type ExplorationTaskDefinition = {
   mineBlockIds?: readonly number[];
   craftPickaxeTier?: number;
   craftRecipeKey?: string;
+  craftRecipeKeys?: readonly string[];
   craftKind?: Recipe['kind'];
   craftTier?: number;
   openChest?: boolean;
@@ -316,7 +317,7 @@ const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'sword', craftTier: 0 },
-  { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKey: 'campfire' },
+  { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
   { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftRecipeKey: 'cook_meat' },
   { id: 'secret-chest', titleKey: 'objectiveFindChest', target: 1, rewardScore: 220, rewardSeconds: 35, openChest: true },
   { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
@@ -11506,6 +11507,7 @@ if (tpClipActive > 0.5) {
     for (const task of this.explorationObjectives) {
       const craftedPickaxe = task.craftPickaxeTier !== undefined && recipe.kind === 'pickaxe' && recipe.tier === task.craftPickaxeTier;
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
+      const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
       const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
       if (craftedPickaxe || craftedRecipe || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }

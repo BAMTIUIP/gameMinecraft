@@ -504,6 +504,8 @@ export const RECIPES: Recipe[] = [
     hotkey: '',
     group: 'food',
   },
+  , { key: 'campfire_birch', name: 'BIRCH CAMPFIRE', desc: 'Campfire made with birch logs', inputs: [[BIRCH_LOG, 2], [COAL, 1]], out: [CAMPFIRE, 1], kind: 'blocks', accent: '#ff8a2b', hotkey: '', group: 'food' },
+  { key: 'campfire_palm', name: 'PALM CAMPFIRE', desc: 'Campfire made with palm logs', inputs: [[PALM_LOG, 2], [COAL, 1]], out: [CAMPFIRE, 1], kind: 'blocks', accent: '#ff8a2b', hotkey: '', group: 'food' },
   {
     key: 'cook_meat',
     name: 'COOK MEAT',
