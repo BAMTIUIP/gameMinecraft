@@ -66,7 +66,13 @@ const MAX_REVIVES_PER_RUN = 2;
 /** Temporary QA controls are deliberately visible on the test server; rendering still excludes TV devices. */
 const SHOP_SCREENS_ENABLED = true;
 const DEVELOPER_TOOLS_ENABLED = true;
-const DEVELOPER_FPS_ENABLED = import.meta.env.DEV || new URLSearchParams(window.location.search).get('devtools') === '1';
+/**
+ * The FPS overlay is a development instrument and exists in the dev build only (requirement 1.14:
+ * «игра не содержит технических надписей»). It used to be switchable on with `?devtools=1`, which
+ * also worked in the published archive — any link carrying that parameter, a moderation tool or a
+ * curious player would get a debug panel over the game.
+ */
+const DEVELOPER_FPS_ENABLED = import.meta.env.DEV;
 setDeveloperShopEnabled(DEVELOPER_TOOLS_ENABLED && !tvMode());
 
 /** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
