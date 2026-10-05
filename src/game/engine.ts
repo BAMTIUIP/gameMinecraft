@@ -14188,7 +14188,8 @@ if (tpClipActive > 0.5) {
       rig.fetchBlockedTimer = 0;
     }
     const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
-    const threat = this.nearestWolfThreat();
+    // Only the owl defends the player; the parrot is a peaceful helper and never attacks monsters.
+    const threat = rig.kind === 'owl' ? this.nearestWolfThreat() : null;
     const followPoint = this.parrotFollowTarget(rig, this.parrotFollowPoint(), dt);
     const hasFlightRoom = this.parrotHasFlightRoom(rig, followPoint);
 
@@ -14461,7 +14462,8 @@ if (tpClipActive > 0.5) {
       }
     }
 
-    const threat = this.nearestWolfThreat();
+    // Only the wolf fights; the monkey is a peaceful helper and never attacks monsters.
+    const threat = rig.kind === 'wolf' ? this.nearestWolfThreat() : null;
     if (threat && !rig.carrying) {
       rig.teleportRevealTimer = 0;
       rig.restAnchorValid = false;

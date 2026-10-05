@@ -299,7 +299,7 @@ try {
     }
     ok(collected.includes(drop) && !drop.active, 'The flying parrot picks up and delivers a loose resource');
 
-    // Hostiles are attacked in repeated dives, with a climb back into the air between hits.
+    // The parrot is peaceful: nearby hostiles are ignored (only the owl defends the player).
     const monster = { alive: true, hidden: false, def: { hostile: true }, x: 0, y: 6.001, z: -3, hp: 50, vx: 0, vy: 0, vz: 0, hurtFlash: 0, onGround: true };
     engine.mobSys.mobs = [monster];
     const hpBefore = monster.hp;
@@ -307,8 +307,8 @@ try {
       engine.updateParrotPet(rig, 0.1);
       engine.time += 0.1;
     }
-    ok(monster.hp < hpBefore, 'The parrot repeatedly dive-attacks nearby monsters');
-    ok(voiceCalls.some((voice) => voice === 'bird'), 'Parrot calls, feeding, petting and attacks use bird chirps');
+    ok(monster.hp === hpBefore && rig.parrotMode !== 'attack', 'The parrot never attacks nearby monsters');
+    ok(voiceCalls.some((voice) => voice === 'bird'), 'Parrot calls, feeding and petting use bird chirps');
 
     ok(engine.setPetEquipped('parrot', false) && !engine.petEquipped && engine.wolfPetRig === null, 'Unequipping removes the parrot rig and returns its token');
   }
