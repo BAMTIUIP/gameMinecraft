@@ -1640,8 +1640,7 @@ export class Engine {
 
   // ================= SETUP =================
   mount() {
-    const w = this.container.clientWidth || window.innerWidth;
-    const h = this.container.clientHeight || window.innerHeight;
+    const { w, h } = this.viewportSize();
     const coarseDevice = this.isCoarse();
     // Rendering at DPR 2 costs roughly four times as many pixels as DPR 1; favour frame time on phones.
     // Start near native resolution instead of a costly 1.5x supersample; quality rises only after
@@ -4232,9 +4231,24 @@ if (tpClipActive > 0.5) {
     this.selectSlot((this.selected + dir + 10) % 10);
   };
   private onContext = (e: Event) => e.preventDefault();
+  /**
+   * A usable pixel size for the renderer.
+   *
+   * Requirement 1.14 lists «перестаёт отвечать после сворачивания браузера» and «при изменении
+   * размера» among the reasons a game is taken down. A minimised window, a hidden tab or a container
+   * collapsed by an overlay reports `clientWidth === 0`, and `0 || window.innerWidth` used to fall
+   * through to `0` as well — then `aspect = 0 / 0` is `NaN`, `updateProjectionMatrix()` writes it into
+   * the projection matrix and the frame renders nothing at all. The next real resize fixed it, but a
+   * player who came back to a black canvas had already reloaded the game. One pixel is enough to keep
+   * the matrix finite; the following resize restores the true size.
+   */
+  private viewportSize(): { w: number; h: number } {
+    const w = Math.max(1, this.container.clientWidth || window.innerWidth || 1);
+    const h = Math.max(1, this.container.clientHeight || window.innerHeight || 1);
+    return { w, h };
+  }
   private onResize = () => {
-    const w = this.container.clientWidth || window.innerWidth;
-    const h = this.container.clientHeight || window.innerHeight;
+    const { w, h } = this.viewportSize();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.hudCamera.aspect = w / h;

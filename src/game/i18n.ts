@@ -602,6 +602,7 @@ const EN = {
   tier_diamond: 'DIAMOND',
   tier_netherite: 'NETHERITE',
   tool_pickaxe: 'PICKAXE',
+  toolUnknown: 'UNKNOWN TOOL',
   tool_sword_wood: 'WOODEN SWORD',
   tool_sword_stone: 'STONE SWORD',
   tool_sword_iron: 'IRON SWORD',
@@ -1273,6 +1274,7 @@ const RU: Dict = {
   tier_diamond: 'АЛМАЗНАЯ',
   tier_netherite: 'НЕЗЕРИТОВАЯ',
   tool_pickaxe: 'КИРКА',
+  toolUnknown: 'НЕИЗВЕСТНЫЙ ИНСТРУМЕНТ',
   tool_sword_wood: 'ДЕРЕВЯННЫЙ МЕЧ',
   tool_sword_stone: 'КАМЕННЫЙ МЕЧ',
   tool_sword_iron: 'ЖЕЛЕЗНЫЙ МЕЧ',
@@ -1936,6 +1938,7 @@ const FR: Dict = {
   tier_diamond: 'EN DIAMANT',
   tier_netherite: 'EN NETHERITE',
   tool_pickaxe: 'PIOCHE',
+  toolUnknown: 'OUTIL INCONNU',
   tool_sword_wood: 'ÉPÉE EN BOIS',
   tool_sword_stone: 'ÉPÉE EN PIERRE',
   tool_sword_iron: 'ÉPÉE EN FER',
@@ -2599,6 +2602,7 @@ const DE: Dict = {
   tier_diamond: 'DIAMANT',
   tier_netherite: 'NETHERIT',
   tool_pickaxe: 'SPITZHACKE',
+  toolUnknown: 'UNBEKANNTES WERKZEUG',
   tool_sword_wood: 'HOLZSCHWERT',
   tool_sword_stone: 'STEINSCHWERT',
   tool_sword_iron: 'EISENSCHWERT',
@@ -2826,7 +2830,11 @@ export function toolLabelForId(id: number): string {
   const spec = getToolSpec(id);
   // Never guess PICKAXE for an unknown/legacy id: that made a shovel look
   // like a wooden pick in the first-person label.
-  if (!spec) return id === 202 ? t('handTorch') : `TOOL #${id}`;
+  // A legacy save or a hand-edited profile can still carry an id the game no
+  // longer ships. Requirement 1.14 forbids technical text on screen, so the
+  // label must not become `TOOL #207` — it degrades to a plain, translated
+  // «unknown tool» instead.
+  if (!spec) return id === 202 ? t('handTorch') : t('toolUnknown');
   if (spec.kind === 'pickaxe') return pickaxeLabel(spec.tier);
   if (spec.kind === 'sword') return swordLabel(spec.tier);
   if (spec.kind === 'axe') return axeLabel(spec.tier);

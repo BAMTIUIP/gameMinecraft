@@ -34,6 +34,7 @@ import {
   setLang,
   t,
   tierLabel,
+  toolLabelForId,
   type Lang,
 } from '../../src/game/i18n';
 import { MATERIALS, RARITY } from '../../src/game/items';
@@ -93,6 +94,44 @@ for (const lang of LANGS_CHECKED) {
   ok(missing.length === 0, `Словарь ${lang} покрывает все ключи английского`, missing.slice(0, 10).join(', '));
   ok(extra.length === 0, `В словаре ${lang} нет лишних ключей`, extra.slice(0, 10).join(', '));
   ok(dictKeys.length === keys.length, `Словарь ${lang} того же размера, что и английский`, `${dictKeys.length} vs ${keys.length}`);
+}
+
+/* ----------- 1b. no technical text leaks onto the screen (1.14) ----------- */
+
+/**
+ * Requirement 1.14 rejects «технические надписи на экране». `t()` falls back to the raw key when a
+ * key is missing, and `toolLabelForId()` used to fall back to `TOOL #207` for a legacy id — both put
+ * code on the player's screen. Every `t()` call in the game is a literal key that section 1 already
+ * proves exists, so the remaining leak was that fallback.
+ */
+{
+  const technical = keys.filter((k) => /#\s*\d/.test(String(en[k] ?? '')));
+  ok(technical.length === 0, 'В английском словаре нет технических пометок вида «#207»', technical.slice(0, 10).join(', '));
+  for (const lang of LANGS_CHECKED) {
+    const dict = dictFor(lang);
+    const marked = keys.filter((k) => /#\s*\d/.test(String(dict[k] ?? '')));
+    ok(marked.length === 0, `В словаре ${lang} нет технических пометок вида «#207»`, marked.slice(0, 10).join(', '));
+  }
+}
+
+/**
+ * A legacy save or a hand-edited profile can still carry a tool id the game no longer ships.
+ * Requirement 1.14 forbids technical text on screen, so such a label must degrade to a translated
+ * «unknown tool» and never to `TOOL #207`.
+ */
+{
+  const unknownIds = [-1, 0, 1, 42, 199, 9999];
+  for (const lang of ['en', ...LANGS_CHECKED] as Lang[]) {
+    setLang(lang);
+    for (const id of unknownIds) {
+      const label = toolLabelForId(id);
+      ok(!/#\s*\d/.test(label) && !/\d/.test(label), `Неизвестный инструмент ${id} на ${lang} подписан без технических цифр`, label);
+      ok(label.trim().length > 0, `Подпись неизвестного инструмента ${id} на ${lang} не пустая`, label);
+    }
+  }
+  setLang('en');
+  ok(toolLabelForId(9999) === toolLabelForId(9998), 'Любой неизвестный id даёт одну и ту же подпись', `${toolLabelForId(9999)} vs ${toolLabelForId(9998)}`);
+  ok(toolLabelForId(202) === t('handTorch'), 'id 202 — ручной факел, а не «неизвестный инструмент»', toolLabelForId(202));
 }
 
 /* ------------------------ 2. values and placeholders ----------------------- */
