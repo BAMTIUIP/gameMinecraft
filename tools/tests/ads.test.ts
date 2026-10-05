@@ -31,6 +31,8 @@ Object.defineProperty(globalThis, 'navigator', { value: { language: 'en' }, conf
 /** the ad currently on screen; the test decides when the player closes it */
 let onScreen: { kind: string; callbacks: Record<string, (...args: unknown[]) => void> } | null = null;
 let bannerShowing = true; // Yandex may show the sticky banner by default for the whole session
+/** when set, the SDK throws right after it has called the callbacks — sdk-example's lesson #4 */
+let sdkThrowsAfterCallbacks = false;
 
 g.YaGames = {
   init: async () => ({
@@ -48,6 +50,12 @@ g.YaGames = {
       showRewardedVideo: ({ callbacks }: never) => {
         record('adv.showRewardedVideo');
         onScreen = { kind: 'rewarded', callbacks };
+        if (sdkThrowsAfterCallbacks) {
+          // the reward is confirmed, the ad closes, and only then the SDK itself blows up
+          callbacks.onRewarded?.();
+          callbacks.onClose?.(true);
+          throw new Error('sdk died after the callbacks');
+        }
       },
       getBannerAdvStatus: async () => {
         record('adv.getBannerAdvStatus');
@@ -138,6 +146,23 @@ await new Promise((r) => setTimeout(r, 10));
 onScreen!.callbacks.onError?.(new Error('no fill'));
 const failed = await failing;
 ok(failed.skipped === 'error' && !failed.rewarded, 'Ошибка рекламы не даёт награду и не ломает состояние', JSON.stringify(failed));
+
+// --- an SDK that throws after its callbacks must not eat the reward or the ad lock ---------------
+// sdk-example deliberately throws inside a callback to show the rest of the code keeps running; the
+// same must hold for the SDK itself failing after onRewarded/onClose, or the "one ad at a time" lock
+// would stay held for the whole session and no ad could ever be shown again.
+sdkThrowsAfterCallbacks = true;
+const afterSdkError = showRewardedAd();
+const afterSdkOutcome = await afterSdkError;
+ok(afterSdkOutcome.rewarded, 'Награда засчитана, даже если SDK упал после своих колбэков', JSON.stringify(afterSdkOutcome));
+ok(!adInFlight(), 'Сбой SDK после колбэков не оставляет блокировку показа рекламы');
+sdkThrowsAfterCallbacks = false;
+const recovered = showRewardedAd();
+await new Promise((r) => setTimeout(r, 10));
+ok(calls.filter((c) => c.name === 'adv.showRewardedVideo').length > 0, 'После сбоя реклама снова доступна');
+onScreen?.callbacks.onClose?.(false);
+const recoveredOutcome = await recovered;
+ok(recoveredOutcome.skipped !== 'busy', 'Повторный показ не отклоняется как занятый', JSON.stringify(recoveredOutcome));
 
 // --- the fullscreen cooldown: after a shown ad the next one waits --------------------------------
 // rewind the clock instead of waiting three minutes
