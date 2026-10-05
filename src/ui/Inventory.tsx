@@ -21,8 +21,9 @@ import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../g
 import { meatItemLabel } from '../game/food';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
-import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
+import { MONKEY_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { MonkeyIcon } from './MonkeyIcon';
+import { ParrotIcon } from './ParrotIcon';
 import { WolfIcon } from './WolfIcon';
 import { GearIcon } from './GearIcon';
 import ItemInfoPopup from './ItemInfoPopup';
@@ -289,9 +290,9 @@ export default function Inventory({
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
                 {filteredPets.map((kind) => {
                   const coatIndex = hud.petCoatIndices[kind];
-                  const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
+                  const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : PARROT_COATS;
                   const details = getPetDetails(kind);
-                  const resourceKey = kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource';
+                  const resourceKey = kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : 'petParrotResource';
                   return (
                     <button
                       key={`pet-${kind}-token`}
@@ -315,7 +316,11 @@ export default function Inventory({
                         boxShadow: 'inset 2px 2px 0 rgba(255,255,255,.08), 0 0 10px rgba(197,155,102,.18)',
                       }}
                     >
-                      {kind === 'wolf' ? <WolfIcon coatIndex={coatIndex} size={42} /> : <MonkeyIcon coatIndex={coatIndex} size={39} />}
+                      {kind === 'wolf'
+                        ? <WolfIcon coatIndex={coatIndex} size={42} />
+                        : kind === 'monkey'
+                          ? <MonkeyIcon coatIndex={coatIndex} size={39} />
+                          : <ParrotIcon coatIndex={coatIndex} size={39} />}
                       <span className="max-w-full truncate px-1 font-display text-[8px] leading-none text-[#e8d5b4]">
                         {t(resourceKey)}
                       </span>
@@ -538,7 +543,7 @@ export default function Inventory({
                   onDrop={(e) => {
                     const data = e.dataTransfer.getData('text/plain');
                     const kind = data.startsWith('pet:') ? data.slice(4) : '';
-                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petInventoryKinds.includes(kind)) return;
+                    if ((kind !== 'wolf' && kind !== 'monkey' && kind !== 'parrot') || !hud.petInventoryKinds.includes(kind)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     onEquipPet(kind);
@@ -552,7 +557,7 @@ export default function Inventory({
                           key={`pet-select-${kind}`}
                           type="button"
                           data-pet-select={kind}
-                          aria-label={t(kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource')}
+                          aria-label={t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : 'petParrotResource')}
                           onClick={() => onSelectPetKind(kind)}
                           className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
                           style={{
@@ -563,7 +568,9 @@ export default function Inventory({
                         >
                           {kind === 'wolf'
                             ? <WolfIcon coatIndex={hud.petCoatIndices.wolf} size={23} />
-                            : <MonkeyIcon coatIndex={hud.petCoatIndices.monkey} size={21} />}
+                            : kind === 'monkey'
+                              ? <MonkeyIcon coatIndex={hud.petCoatIndices.monkey} size={21} />
+                              : <ParrotIcon coatIndex={hud.petCoatIndices.parrot} size={21} />}
                         </button>
                       ))}
                     </div>
@@ -587,7 +594,9 @@ export default function Inventory({
                     {petDisplayOwned
                       ? petDisplayKind === 'wolf'
                         ? <WolfIcon coatIndex={petDisplayCoatIndex} size={31} />
-                        : <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
+                        : petDisplayKind === 'monkey'
+                          ? <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
+                          : <ParrotIcon coatIndex={petDisplayCoatIndex} size={29} />
                       : <span className="text-2xl leading-none text-white/25">🐾</span>}
                     <span className="max-w-full truncate font-display text-[8px] leading-none text-[#e8d5b4]">
                       {hud.petEquipped ? 'ДОМОЙ' : hud.petTokenAvailable ? 'В ПУТЬ' : t('petNotOwned')}
@@ -598,20 +607,20 @@ export default function Inventory({
                       <button
                         type="button"
                         data-pet-coat-prev
-                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatPrevious' : 'petMonkeyCoatPrevious')}
+                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatPrevious' : petDisplayKind === 'monkey' ? 'petMonkeyCoatPrevious' : 'petParrotCoatPrevious')}
                         onClick={() => onCyclePetCoat(petDisplayKind, -1)}
                         className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
                       >
                         ‹
                       </button>
                       <span className="min-w-0 truncate text-center font-display text-[8px] text-torch">
-                        {t((petDisplayKind === 'wolf' ? WOLF_COATS : MONKEY_COATS)[petDisplayCoatIndex]?.nameKey
-                          ?? (petDisplayKind === 'wolf' ? WOLF_COATS : MONKEY_COATS)[0].nameKey)}
+                        {t((petDisplayKind === 'wolf' ? WOLF_COATS : petDisplayKind === 'monkey' ? MONKEY_COATS : PARROT_COATS)[petDisplayCoatIndex]?.nameKey
+                          ?? (petDisplayKind === 'wolf' ? WOLF_COATS : petDisplayKind === 'monkey' ? MONKEY_COATS : PARROT_COATS)[0].nameKey)}
                       </span>
                       <button
                         type="button"
                         data-pet-coat-next
-                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatNext' : 'petMonkeyCoatNext')}
+                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatNext' : petDisplayKind === 'monkey' ? 'petMonkeyCoatNext' : 'petParrotCoatNext')}
                         onClick={() => onCyclePetCoat(petDisplayKind, 1)}
                         className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
                       >

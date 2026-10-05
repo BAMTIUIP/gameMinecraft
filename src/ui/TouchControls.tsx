@@ -7,12 +7,14 @@ const SENS = 0.0048;
 export default function TouchControls({
   engine,
   petInteractNear,
+  parrotEquipped,
   thirdPerson,
   crouching,
   crawling,
 }: {
   engine: Engine | null;
   petInteractNear: boolean;
+  parrotEquipped: boolean;
   thirdPerson: boolean;
   crouching: boolean;
   crawling: boolean;
@@ -268,11 +270,27 @@ export default function TouchControls({
               {t('run')}
             </button>
           </div>
+          {parrotEquipped && (
+            <button
+              type="button"
+              data-parrot-whistle
+              aria-label={t('petParrotWhistleTouch')}
+              title={t('petParrotWhistleTouch')}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                engine?.whistleParrot();
+              }}
+              className={`${btn(false)} h-12 w-14 text-[9px] bg-gradient-to-b from-[#367d6b] to-[#205246] text-[#d7ffef]`}
+              style={{ borderColor: '#53c7a4' }}
+            >
+              {t('petParrotWhistleTouch')}
+            </button>
+          )}
           {petInteractNear && (
             <button
               type="button"
               data-pet-interact
-              aria-label={t('petInteractTouch')}
+              aria-label={t(parrotEquipped ? 'petParrotInteractTouch' : 'petInteractTouch')}
               onPointerDown={(e) => {
                 e.preventDefault();
                 engine?.interact();
@@ -280,7 +298,7 @@ export default function TouchControls({
               className={`${btn(false)} h-12 w-14 text-[9px] bg-gradient-to-b from-[#766043] to-[#49321f] text-[#fff0d5]`}
               style={{ borderColor: '#c59b66' }}
             >
-              {t('petInteractTouch')}
+              {t(parrotEquipped ? 'petParrotInteractTouch' : 'petInteractTouch')}
             </button>
           )}
           <button

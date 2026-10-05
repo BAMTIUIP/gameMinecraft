@@ -158,8 +158,8 @@ export function getGearDetails(item: Item): ItemDetails {
   };
 }
 
-export function getPetDetails(kind: 'wolf' | 'monkey'): ItemDetails {
-  const name = t(kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource');
+export function getPetDetails(kind: 'wolf' | 'monkey' | 'parrot'): ItemDetails {
+  const name = t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : 'petParrotResource');
   return {
     name,
     description: t('itemDescPet'),

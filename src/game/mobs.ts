@@ -4,6 +4,7 @@ import { WY } from './world';
 import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
 import type { TKey } from './i18n';
 import { shouldDieInDaylight } from './survival';
+import { PARROT_VARIANTS } from './parrotVariants';
 
 export type MobId =
   | 'pig'
@@ -1267,6 +1268,35 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
   return { group: g, head, legs, mats };
 }
 
+/** Build the exact existing wild-parrot mesh and select one of its six shared feather palettes. */
+export function buildParrotCompanionBody(variantIndex?: number) {
+  const model = buildBody(MOBS.bird);
+  const vi = Number.isInteger(variantIndex)
+    ? Math.max(0, Math.min(PARROT_VARIANTS.length - 1, Math.trunc(variantIndex as number)))
+    : Math.floor(Math.random() * PARROT_VARIANTS.length);
+  const variant = PARROT_VARIANTS[vi] ?? PARROT_VARIANTS[0];
+  const [bodyColor, accentColor, wingColor] = variant.colors;
+  for (const mat of model.mats) {
+    const hex = `#${mat.color.getHexString()}`;
+    if (hex === MOBS.bird.body) mat.color.set(bodyColor);
+    else if (hex === MOBS.bird.accent) mat.color.set(accentColor);
+    else if (hex === MOBS.bird.legs) mat.color.set(wingColor);
+  }
+  model.group.userData.variant = vi;
+  model.group.userData.modelSize = variant.size;
+  for (const part of model.group.children) {
+    if (part.userData.birdBody) {
+      part.scale.z = variant.length;
+      part.position.z += 0.2 * (variant.length - 1);
+    } else if (part.userData.birdTail) {
+      part.scale.z = variant.tail;
+      part.position.z = 0.28 + 0.4 * (variant.length - 1) + 0.1 * (variant.tail - 1);
+    }
+  }
+  for (const shoulder of model.legs) shoulder.position.z += 0.2 * (variant.length - 1);
+  return { ...model, variantIndex: vi, modelSize: variant.size };
+}
+
 /**
  * Companion version of the regular jungle monkey mesh. Keeping this factory next to the mob model
  * means the pet uses the same silhouette and proportions, while accepting its own saved fur palette.
@@ -1420,7 +1450,7 @@ export class MobSystem {
       if (this.mobs.filter((m) => m.alive && m.id === 'jellyfish').length >= 7) return null;
     } else if (this.mobs.length >= this.maxMobs) return null;
     const def = MOBS[id];
-    let { group, head, legs, mats } = buildBody(def);
+    let { group, head, legs, mats } = id === 'bird' ? buildParrotCompanionBody() : buildBody(def);
     if (id === 'jellyfish') for (const mat of mats) { mat.transparent = true; mat.opacity = 0.78; mat.depthWrite = false; }
     if (id === 'fish') {
       const vi = fishVariant === undefined ? Math.floor(Math.random() * (FISH_VARIANTS.length - 1)) :
@@ -1465,40 +1495,6 @@ export class MobSystem {
       });
       // stash on the mob after creation (see below)
       (group.userData as { retract?: THREE.Object3D[] }).retract = retract;
-    }
-    // Birds now render as parrot-style variants: macaw, cockatiel, grey parrot, budgie.
-    if (id === 'bird') {
-      const variants: Array<{ colors: [string, string, string]; size: number; length: number; tail: number }> = [
-        { colors: ['#d83b2f', '#ffe15c', '#255bc2'], size: 1.35, length: 1.12, tail: 2.2 }, // red/blue macaw
-        { colors: ['#2ebd52', '#f45858', '#1f7c40'], size: 1.28, length: 1.08, tail: 2.1 }, // green parrot
-        { colors: ['#1e8eea', '#ffd24a', '#1455a8'], size: 1.22, length: 1.06, tail: 1.9 }, // blue parrot
-        { colors: ['#f0de72', '#ff8b3d', '#d0b24a'], size: 1.15, length: 1.0, tail: 1.55 }, // cockatiel
-        { colors: ['#6c6d78', '#f2f0e6', '#484a56'], size: 1.25, length: 1.05, tail: 1.45 }, // grey parrot
-        { colors: ['#5ec7ec', '#f5f1dc', '#2f8e4a'], size: 1.05, length: 0.95, tail: 1.65 }, // budgie
-      ];
-      const vi = Math.floor(Math.random() * variants.length);
-      const { colors: [b, a, l], size, length, tail: tailLength } = variants[vi];
-      // Recolour only plumage, not the beak or eyes.
-      for (const mat of mats) {
-        const hex = `#${mat.color.getHexString()}`;
-        if (hex === MOBS.bird.body) mat.color.set(b);
-        else if (hex === MOBS.bird.accent) mat.color.set(a);
-        else if (hex === MOBS.bird.legs) mat.color.set(l);
-      }
-      group.userData.variant = vi;
-      group.userData.modelSize = size;
-      // Grow the body backwards so its chest stays joined to the head;
-      // move the tail to the new rump and keep its base overlapping it.
-      for (const part of group.children) {
-        if (part.userData.birdBody) {
-          part.scale.z = length;
-          part.position.z += 0.2 * (length - 1);
-        } else if (part.userData.birdTail) {
-          part.scale.z = tailLength;
-          part.position.z = 0.28 + 0.4 * (length - 1) + 0.1 * (tailLength - 1);
-        }
-      }
-      for (const shoulder of legs) shoulder.position.z += 0.2 * (length - 1);
     }
     // domestic / ocelot cat coats inspired by Minecraft cats. Markings are flat coat patches.
     if (id === 'cat') {

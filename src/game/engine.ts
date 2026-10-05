@@ -147,18 +147,22 @@ import {
   toolRepairCost,
   toolWearRatio,
 } from './tools';
-import { babyGrowthScale, buildMonkeyCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, buildMonkeyCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
 import {
   MONKEY_COATS,
+  PARROT_COATS,
   WOLF_COATS,
   getMonkeyCoatIndex,
+  getParrotCoatIndex,
   getWolfCoatIndex,
   hasMonkeyPet,
+  hasParrotPet,
   hasWolfPet,
   refreshPetStateFromStorage,
   setMonkeyCoatIndex,
+  setParrotCoatIndex,
   setWolfCoatIndex,
   getPetInventoryKinds,
   type MonkeyCoat,
@@ -590,6 +594,8 @@ type AvatarFadeMaterial = {
 };
 
 type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
+type ParrotPetMode = 'shoulder' | 'hand' | 'follow' | 'fetch' | 'delivery' | 'attack';
+type ParrotAttackStage = 'approach' | 'dive' | 'soar';
 type WolfChestTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number; swimming: boolean };
 const WOLF_PET_PLAYER_GAP = 1.28;
 const WOLF_PET_INTERACTION_RANGE = 2.2;
@@ -645,6 +651,16 @@ type WolfPetRig = {
   swimming: boolean;
   underwater: boolean;
   reactionLookTimer: number;
+  /** Bird-only flight, call, feeding and repeat-dive state. */
+  parrotMode: ParrotPetMode;
+  parrotCalled: boolean;
+  parrotIdleTimer: number;
+  parrotAttackTarget: Mob | null;
+  parrotAttackStage: ParrotAttackStage;
+  parrotStageTimer: number;
+  parrotHappyTimer: number;
+  parrotEatTimer: number;
+  parrotSoundTimer: number;
 };
 
 /* =========================== co-op rig helpers =========================== */
@@ -818,6 +834,15 @@ function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
   };
 }
 
@@ -879,6 +904,85 @@ function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+  };
+}
+
+
+/** Use the exact wild-parrot mesh and its shared six-color coat palette for the permanent pet. */
+function buildParrotPetRig(variantIndex: number): WolfPetRig {
+  const parrot = buildParrotCompanionBody(variantIndex);
+  const group = new THREE.Group();
+  group.name = 'equipped-parrot-pet';
+  group.userData.companion = 'parrot-pet';
+  const model = parrot.group;
+  model.scale.setScalar(0.64 * parrot.modelSize);
+  group.add(model);
+  const body = model.children.find((part) => part.userData.birdBody) ?? null;
+  const tail = model.children.find((part) => part.userData.birdTail) ?? null;
+  const jaw = model.children.find((part) => part instanceof THREE.Mesh && part.position.y < 0.49 && part.position.z < -0.35) ?? null;
+  return {
+    kind: 'parrot',
+    group,
+    model,
+    pose: model,
+    body,
+    head: parrot.head,
+    jaw,
+    tail,
+    legs: parrot.legs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: false,
+    attackTimer: 0.7,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
   };
 }
 
@@ -1433,7 +1537,7 @@ export class Engine {
   private petEquipped = false;
   private petEquippedKind: PetKind | null = null;
   private petSelectedKind: PetKind = 'wolf';
-  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0 };
+  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0, parrot: 0 };
   private petCoatIndex = 0;
   private stats: Stats = { ...EMPTY_STATS };
   private attackCd = 0;
@@ -1480,6 +1584,9 @@ export class Engine {
   private avatarFaceTexture: THREE.CanvasTexture | null = null;
   private avatarLeftArm: THREE.Object3D | null = null;
   private avatarRightArm: THREE.Object3D | null = null;
+  /** Detached copy of the left arm, rendered in world space only for a first-person hand perch. */
+  private firstPersonParrotArm: THREE.Group | null = null;
+  private parrotHandArmBlend = 0;
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
   private avatarArmorModels: Partial<Record<Slot, AvatarArmorAttachment[]>> = {};
@@ -1603,6 +1710,7 @@ export class Engine {
   private touchMine = false;
   private touchPlace = false;
   private touchSprint = false;
+  private playerSprinting = false;
   private touchCrouch = false;
   private touchCrawl = false;
   private mining = false;
@@ -2634,6 +2742,11 @@ if (tpClipActive > 0.5) {
     });
     this.scene.add(g);
     this.playerAvatar = g;
+    this.firstPersonParrotArm = leftArm.clone(true);
+    this.firstPersonParrotArm.name = 'first-person-parrot-arm';
+    this.firstPersonParrotArm.visible = false;
+    this.firstPersonParrotArm.frustumCulled = false;
+    this.scene.add(this.firstPersonParrotArm);
     this.applyCharacterCustomization();
   }
 
@@ -4124,6 +4237,11 @@ if (tpClipActive > 0.5) {
       this.togglePerspective();
       return;
     }
+    if (c === 'KeyB') {
+      e.preventDefault();
+      this.whistleParrot();
+      return;
+    }
     if (c === 'KeyF') this.tryPlace();
     if (c === 'KeyG') {
       this.dropHeldItem();
@@ -4874,12 +4992,14 @@ if (tpClipActive > 0.5) {
     this.petOwnedKinds = [];
     if (hasWolfPet()) this.petOwnedKinds.push('wolf');
     if (hasMonkeyPet()) this.petOwnedKinds.push('monkey');
+    if (hasParrotPet()) this.petOwnedKinds.push('parrot');
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = this.petOwned;
     this.petEquipped = false;
     this.petEquippedKind = null;
+    this.playerSprinting = false;
     this.petSelectedKind = this.petOwnedKinds[0] ?? 'wolf';
-    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex() };
+    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex() };
     this.petCoatIndex = this.petCoatIndices[this.petSelectedKind];
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
@@ -5997,6 +6117,7 @@ if (tpClipActive > 0.5) {
     this.bob += dt * (this.inWater ? 1.9 + planar * 1.75 + (jumpHeld ? 1.25 : 0) : this.onGround ? planar * 1.55 : 3.2);
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
     const sprinting = sprint && planar > 0.5;
+    this.playerSprinting = sprinting;
     this.staminaState = stepStamina(this.staminaState, sprinting, dt);
     // Hunger drains slowly while exploring; at zero it causes periodic starvation damage.
     this.hunger = Math.max(0, this.hunger - dt * (sprinting ? 0.11 : 0.055));
@@ -6069,20 +6190,31 @@ if (tpClipActive > 0.5) {
     return null;
   }
 
-  private updatePlayerAvatar() {
+  private updatePlayerAvatar(dt: number) {
     if (!this.playerAvatar) return;
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
+    const parrotCallStationary = Math.hypot(this.vel.x, this.vel.z) <= 0.45 && Math.abs(this.vel.y) <= 0.72;
+    const activeParrot = this.wolfPetRig?.kind === 'parrot' && this.petEquipped && this.wolfPetRig.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
+    this.parrotHandArmBlend += ((activeParrot ? 1 : 0) - this.parrotHandArmBlend) * Math.min(1, dt * 9);
+    const firstPersonArmVisible = !this.thirdPerson
+      && (this.phase === 'playing' || this.phase === 'paused')
+      && this.parrotHandArmBlend > 0.005;
+    if (this.firstPersonParrotArm) this.firstPersonParrotArm.visible = firstPersonArmVisible;
     if (this.avatarFireFx) {
       this.avatarFireFx.visible = visible && this.stats.fire > 0;
       animateEnchantedFlames(this.avatarFireFx, this.time);
     }
-    if (!visible) return;
-    for (const attachments of Object.values(this.avatarArmorModels)) {
-      for (const attachment of attachments ?? []) animateArmorVisuals(attachment.group, this.time);
-    }
-    if (this.avatarSkirt && this.characterCustomization.gender === 'girl' && this.equipped.legs) {
-      animateArmorVisuals(this.avatarSkirt, this.time);
+    // The first-person view shows only a detached left-arm copy; update the hidden avatar pose
+    // while that arm is extended so its world transform stays aligned with the bird's perch.
+    if (!visible && !firstPersonArmVisible) return;
+    if (visible) {
+      for (const attachments of Object.values(this.avatarArmorModels)) {
+        for (const attachment of attachments ?? []) animateArmorVisuals(attachment.group, this.time);
+      }
+      if (this.avatarSkirt && this.characterCustomization.gender === 'girl' && this.equipped.legs) {
+        animateArmorVisuals(this.avatarSkirt, this.time);
+      }
     }
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -6190,11 +6322,22 @@ if (tpClipActive > 0.5) {
     rightLegZ = mix(rightLegZ, swimRightLegZ, swim);
     leftArmZ = mix(leftArmZ, swimLeftArmZ, swim);
     rightArmZ = mix(rightArmZ, swimRightArmZ, swim);
+    // Hold the character's left arm out as a perch while the parrot answers the whistle.
+    leftArmX = mix(leftArmX, 1.45, this.parrotHandArmBlend);
+    leftArmZ = mix(leftArmZ, 0.035, this.parrotHandArmBlend);
 
     if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.set(leftLegX, 0, leftLegZ);
     if (this.avatarRightLeg) this.avatarRightLeg.rotation.set(rightLegX, 0, rightLegZ);
     if (this.avatarLeftArm) this.avatarLeftArm.rotation.set(leftArmX, 0, leftArmZ);
     if (this.avatarRightArm) this.avatarRightArm.rotation.set(rightArmX, 0, rightArmZ);
+    if (firstPersonArmVisible && this.firstPersonParrotArm && this.avatarLeftArm) {
+      this.playerAvatar.updateMatrixWorld(true);
+      this.avatarLeftArm.matrixWorld.decompose(
+        this.firstPersonParrotArm.position,
+        this.firstPersonParrotArm.quaternion,
+        this.firstPersonParrotArm.scale,
+      );
+    }
     if (this.avatarHead) {
       const uprightHead = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45));
       const crawlHead = Math.max(-0.25, Math.min(0.58, this.pitch * 0.22 + 0.26));
@@ -6265,7 +6408,7 @@ if (tpClipActive > 0.5) {
     // it made normal walking and sprinting feel like the camera was shaking.
     const thirdPersonTargetY = this.pos.y + EYE - eyeDrop - this.landDip * 0.16 + this.stepSmooth * 0.08;
     this.landDip = Math.max(0, this.landDip - dt * 1.6);
-    this.updatePlayerAvatar();
+    this.updatePlayerAvatar(dt);
 
     if (this.thirdPerson && this.phase === 'playing') {
       this.updateThirdPersonOrbitReturn(dt);
@@ -7235,7 +7378,7 @@ if (tpClipActive > 0.5) {
   interact(skipPet = false): boolean {
     if (this.phase !== 'playing') return false;
     // A nearby companion must not consume the E action intended for the chest under the crosshair.
-    if (!skipPet && this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE) && !isTreasureChest(this.target?.id ?? AIR)) return this.petWolf();
+    if (!skipPet && this.petInteractionAvailable() && !isTreasureChest(this.target?.id ?? AIR)) return this.petWolf();
     // trader first — walking up to him and pressing E opens the trade tab
     if (this.traderNear()) {
       this.queueTutorialTip('mechanic:trader', t('tutorialTraderTitle'), t('tutorialTraderBody'), '#d98cff', 'trader');
@@ -11406,10 +11549,11 @@ if (tpClipActive > 0.5) {
   private ensurePetRuntimeState(kind: PetKind) {
     if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
     if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
-    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey'))];
-    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0 };
+    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey' || owned === 'parrot'))];
+    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0, parrot: 0 };
+    if (!Number.isFinite(this.petCoatIndices.parrot)) this.petCoatIndices.parrot = getParrotCoatIndex();
     if (this.petEquippedKind === undefined) this.petEquippedKind = null;
-    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null).length > 0;
   }
@@ -11476,11 +11620,11 @@ if (tpClipActive > 0.5) {
   cyclePetCoat(kind: PetKind, direction = 1): boolean {
     this.ensurePetRuntimeState(kind);
     if (!this.petOwnedKinds.includes(kind) || !Number.isFinite(direction) || direction === 0) return false;
-    const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
+    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : PARROT_COATS;
     const current = this.petCoatIndices[kind];
     const delta = direction < 0 ? -1 : 1;
     const requested = (current + delta + coats.length) % coats.length;
-    const saved = kind === 'wolf' ? setWolfCoatIndex(requested) : setMonkeyCoatIndex(requested);
+    const saved = kind === 'wolf' ? setWolfCoatIndex(requested) : kind === 'monkey' ? setMonkeyCoatIndex(requested) : setParrotCoatIndex(requested);
     if (saved === current) return false;
     this.petCoatIndices[kind] = saved;
     if (kind === this.petSelectedKind || kind === this.petEquippedKind) this.petCoatIndex = saved;
@@ -12013,8 +12157,9 @@ if (tpClipActive > 0.5) {
       this.petSelectedKind,
       this.petCoatIndices.wolf,
       this.petCoatIndices.monkey,
+      this.petCoatIndices.parrot,
       this.petCoatIndex,
-      this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE) ? 1 : 0,
+      this.petInteractionAvailable() ? 1 : 0,
       this.lastCraft ?? '-',
       targetBlock ? targetBlock.id : 0,
       this.hotbar.map((id, i) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}:${this.hotbarInstanceIds[i] ?? -1}`).join('|'),
@@ -12107,7 +12252,7 @@ if (tpClipActive > 0.5) {
       petSelectedKind: this.petSelectedKind,
       petCoatIndices: { ...this.petCoatIndices },
       petCoatIndex: this.petCoatIndices[this.petSelectedKind],
-      petInteractNear: this.phase === 'playing' && this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE),
+      petInteractNear: this.phase === 'playing' && this.petInteractionAvailable(),
       stats: this.stats,
       killedBy: this.killedBy,
       offers: this.offers,
@@ -12410,11 +12555,24 @@ if (tpClipActive > 0.5) {
   private buildPetRig(kind: PetKind): WolfPetRig {
     return kind === 'wolf'
       ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
-      : buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0]);
+      : kind === 'monkey'
+        ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
+        : buildParrotPetRig(this.petCoatIndices.parrot);
   }
 
   private createWolfPetRig(kind: PetKind) {
     const rig = this.buildPetRig(kind);
+    if (kind === 'parrot') {
+      rig.group.position.copy(this.parrotShoulderPoint());
+      rig.group.rotation.y = this.yaw;
+      rig.yawTarget = this.yaw;
+      rig.target.copy(rig.group.position);
+      rig.navWaypoint.copy(rig.group.position);
+      rig.navGoal.copy(rig.group.position);
+      this.wolfPetLayer.add(rig.group);
+      this.wolfPetRig = rig;
+      return;
+    }
     const forwardX = -Math.sin(this.yaw);
     const forwardZ = -Math.cos(this.yaw);
     const sideX = Math.cos(this.yaw);
@@ -12505,6 +12663,15 @@ if (tpClipActive > 0.5) {
     next.swimming = current.swimming;
     next.underwater = current.underwater;
     next.reactionLookTimer = current.reactionLookTimer;
+    next.parrotMode = current.parrotMode;
+    next.parrotCalled = current.parrotCalled;
+    next.parrotIdleTimer = current.parrotIdleTimer;
+    next.parrotAttackTarget = current.parrotAttackTarget;
+    next.parrotAttackStage = current.parrotAttackStage;
+    next.parrotStageTimer = current.parrotStageTimer;
+    next.parrotHappyTimer = current.parrotHappyTimer;
+    next.parrotEatTimer = current.parrotEatTimer;
+    next.parrotSoundTimer = current.parrotSoundTimer;
     this.wolfPetLayer.remove(current.group);
     disposeObject(current.group);
     this.wolfPetLayer.add(next.group);
@@ -12513,13 +12680,64 @@ if (tpClipActive > 0.5) {
 
   private wolfPetIsNear(radius: number): boolean {
     const rig = this.wolfPetRig;
-    if (!this.petEquipped || !rig || !rig.group.visible) return false;
+    if (!this.petEquipped || !rig || !rig.group.visible || rig.kind === 'parrot') return false;
     return Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z) <= radius
       && Math.abs(rig.group.position.y - this.pos.y) <= 2.2;
   }
 
+  private petInteractionAvailable(): boolean {
+    const rig = this.wolfPetRig;
+    if (!this.petEquipped || !rig || !rig.group.visible) return false;
+    if (rig.kind === 'parrot') {
+      return rig.parrotMode === 'hand' && rig.group.position.distanceTo(this.parrotHandPoint()) <= 0.72;
+    }
+    return this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE);
+  }
+
+  /** B whistle (and the mobile CALL button) brings an equipped parrot onto the outstretched left hand. */
+  whistleParrot(): boolean {
+    const rig = this.wolfPetRig;
+    if (this.phase !== 'playing' || !this.petEquipped || rig?.kind !== 'parrot') {
+      sfx.ui(false);
+      return false;
+    }
+    rig.parrotCalled = true;
+    rig.parrotMode = 'hand';
+    rig.parrotIdleTimer = 0;
+    rig.parrotAttackTarget = null;
+    rig.reaction = null;
+    sfx.creature('bird', { state: 'idle', volume: 0.82, pitch: 1.08 + Math.random() * 0.12 });
+    this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotWhistle'), '#f3d49a', false, { duration: 1.0 });
+    this.syncHud(true);
+    return true;
+  }
+
+  private interactParrot(): boolean {
+    const rig = this.wolfPetRig;
+    if (rig?.kind !== 'parrot' || !this.petInteractionAvailable()) return false;
+    const seeds = this.inventory.get(WHEAT_SEEDS) ?? 0;
+    const feedingSeeds = this.hotbar?.[this.selected] === WHEAT_SEEDS;
+    if (seeds > 0 && feedingSeeds) {
+      if (seeds > 1) this.inventory.set(WHEAT_SEEDS, seeds - 1);
+      else this.inventory.delete(WHEAT_SEEDS);
+      rig.parrotEatTimer = 1.0;
+      rig.parrotHappyTimer = 1.1;
+      rig.parrotSoundTimer = 0;
+      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotFed'), '#f3d49a', false, { duration: 1.35 });
+      sfx.creature('bird', { state: 'idle', volume: 0.86, pitch: 0.96 + Math.random() * 0.16 });
+      this.syncHotbar(true);
+    } else {
+      rig.parrotHappyTimer = 0.85;
+      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotPetted'), '#f3d49a', false, { duration: 1.2 });
+      sfx.creature('bird', { state: 'idle', volume: 0.82, pitch: 1.08 + Math.random() * 0.16 });
+    }
+    this.syncHud(true);
+    return true;
+  }
+
   private petWolf(): boolean {
     const rig = this.wolfPetRig;
+    if (rig?.kind === 'parrot') return this.interactParrot();
     if (!rig || !this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE)) return false;
     if (rig.kind === 'wolf') {
       const reactions = ['wag', 'bark', 'spin'] as const;
@@ -13469,14 +13687,544 @@ if (tpClipActive > 0.5) {
     this.moveWolfPet(rig, dt, 7.8);
   }
 
+  /** A parrot uses a small swept voxel body; water is forbidden flight space, not a swimming medium. */
+  private parrotFlightClear(x: number, y: number, z: number): boolean {
+    const radius = 0.23;
+    const height = 0.62;
+    if (y < 0 || y + height >= WY) return false;
+    for (let cy = Math.floor(y + 0.03); cy <= Math.floor(y + height); cy++) {
+      for (let cz = Math.floor(z - radius); cz <= Math.floor(z + radius); cz++) {
+        for (let cx = Math.floor(x - radius); cx <= Math.floor(x + radius); cx++) {
+          if (!this.world.hasColumn(cx, cz)) return false;
+          const block = this.world.get(cx, cy, cz);
+          if (block === WATER || isSolid(block)) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private parrotFlightPathClear(from: THREE.Vector3, to: THREE.Vector3): boolean {
+    const distance = from.distanceTo(to);
+    const steps = Math.max(1, Math.ceil(distance / 0.14));
+    for (let step = 1; step <= steps; step++) {
+      const progress = step / steps;
+      if (!this.parrotFlightClear(
+        from.x + (to.x - from.x) * progress,
+        from.y + (to.y - from.y) * progress,
+        from.z + (to.z - from.z) * progress,
+      )) return false;
+    }
+    return true;
+  }
+
+  /** The resting perch is on the character's left shoulder, outside the head silhouette. */
+  private parrotShoulderPoint(): THREE.Vector3 {
+    if (this.thirdPerson && this.playerAvatar && this.avatarLeftArm) {
+      this.playerAvatar.updateMatrixWorld(true);
+      return this.playerAvatar.localToWorld(this.avatarLeftArm.position.clone().add(new THREE.Vector3(0, 0, -0.035)));
+    }
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const shoulderOffset = this.characterCustomization.gender === 'girl' ? 0.37 : 0.43;
+    return new THREE.Vector3(
+      this.pos.x - sideX * shoulderOffset + forwardX * 0.035,
+      this.pos.y + 1.32,
+      this.pos.z - sideZ * shoulderOffset + forwardZ * 0.035,
+    );
+  }
+
+  /** The whistle pose extends the left arm forward; land just above the fingertips, not the torso. */
+  private parrotHandPoint(): THREE.Vector3 {
+    if (this.playerAvatar && this.avatarLeftArm && this.parrotHandArmBlend > 0.05) {
+      this.playerAvatar.updateMatrixWorld(true);
+      return this.avatarLeftArm.localToWorld(new THREE.Vector3(0, -0.77, 0)).add(new THREE.Vector3(0, 0.02, 0));
+    }
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const shoulderOffset = this.characterCustomization.gender === 'girl' ? 0.37 : 0.43;
+    const crouchScale = Math.max(0.78, 1 - this.crouchLerp * 0.16);
+    const avatarY = this.pos.y + this.crawlLerp * 0.44;
+    const bodyShift = CRAWL_BODY_CENTER * Math.max(this.crawlLerp, this.swimLerp);
+    const fingertipY = 1.34 - 0.77 * Math.cos(1.45) + 0.02;
+    return new THREE.Vector3(
+      this.pos.x - forwardX * bodyShift - sideX * shoulderOffset + forwardX * 0.77,
+      avatarY + fingertipY * crouchScale,
+      this.pos.z - forwardZ * bodyShift - sideZ * shoulderOffset + forwardZ * 0.77,
+    );
+  }
+
+  /** The summoned bird turns back toward the character once it lands on the left fingertips. */
+  private parrotFacingPlayerYaw(point: THREE.Vector3): number {
+    const dx = this.pos.x - point.x;
+    const dz = this.pos.z - point.z;
+    return Math.atan2(-dx, -dz);
+  }
+
+  /**
+   * A small, continuously moving orbit keeps the bird visibly aloft above a swimmer instead of
+   * pinning it to the player's exact X/Z. Try nearby lanes so a bank or low ledge can be skirted.
+   */
+  private parrotWaterHoverPoint(): THREE.Vector3 {
+    const surface = this.wolfPetWaterSurfaceY(this.pos.x, this.pos.z, this.pos.y);
+    const orbitDirection = this.petCoatIndices.parrot % 2 === 0 ? 1 : -1;
+    const orbit = this.time * 0.78 * orbitDirection;
+    const radius = 0.58 + Math.sin(this.time * 0.63) * 0.14;
+    const bob = Math.sin(this.time * 1.55) * 0.14;
+    const centerY = surface === null
+      ? this.pos.y + 2.45 + bob
+      : Math.max(this.pos.y + 2.32, surface + 1.08) + bob;
+    const offsets = [0, 0.42, -0.42, 0.82, -0.82, Math.PI];
+    const heights = surface === null
+      ? [centerY, centerY + 0.28, centerY - 0.22]
+      : [centerY, Math.max(this.pos.y + 2.2, surface + 0.84) + bob, surface + 0.34];
+    for (const angleOffset of offsets) {
+      const angle = orbit + angleOffset;
+      const x = this.pos.x + Math.cos(angle) * radius;
+      const z = this.pos.z + Math.sin(angle) * radius;
+      for (const y of heights) {
+        if (this.parrotFlightClear(x, y, z)) return new THREE.Vector3(x, y, z);
+      }
+    }
+    // A fully enclosed shoreline has no valid orbit lane; stay at the highest clear point over
+    // the swimmer rather than ever dropping into water.
+    for (let y = centerY + 0.25; y < Math.min(WY - 1, centerY + 5); y += 0.28) {
+      if (this.parrotFlightClear(this.pos.x, y, this.pos.z)) return new THREE.Vector3(this.pos.x, y, this.pos.z);
+    }
+    return new THREE.Vector3(this.pos.x, centerY, this.pos.z);
+  }
+
+  /**
+   * Keep a little height above the character and orbit behind them. The drifting side and bob make
+   * course corrections feel like a living bird; swept steering handles blocks between waypoints.
+   */
+  private parrotFollowPoint(): THREE.Vector3 {
+    if (this.inWater) return this.parrotWaterHoverPoint();
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const phase = this.time * 0.62;
+    const behind = 1.16 + Math.cos(phase) * 0.22;
+    const lateral = Math.sin(phase) * 0.66;
+    const bob = Math.sin(this.time * 1.7) * 0.23 + Math.sin(this.time * 0.53) * 0.08;
+    return new THREE.Vector3(
+      this.pos.x - forwardX * behind + sideX * lateral,
+      this.pos.y + 2.54 + bob,
+      this.pos.z - forwardZ * behind + sideZ * lateral,
+    );
+  }
+
+  /** Low ceilings keep the parrot perched; an obstacle only at the exact target is routed around. */
+  private parrotHasFlightRoom(rig: WolfPetRig, destination = this.parrotFollowPoint()): boolean {
+    const baseY = Math.max(this.pos.y + 2.02, destination.y - 0.22);
+    const lanes: Array<[number, number]> = [
+      [0, 0], [0.48, 0], [-0.48, 0], [0, 0.48], [0, -0.48],
+      [0.72, 0.38], [-0.72, 0.38], [0.72, -0.38], [-0.72, -0.38],
+    ];
+    const heights = [baseY, baseY + 0.3];
+    const overheadAir = lanes.some(([x, z]) => heights.some((y) => this.parrotFlightClear(this.pos.x + x, y, this.pos.z + z)));
+    // In water the first update moves the bird to a safe surface orbit; otherwise it must already
+    // occupy clear air. Wall avoidance and vertical maneuvers happen in moveParrotFlight().
+    return overheadAir && (this.inWater || this.parrotFlightClear(rig.group.position.x, rig.group.position.y, rig.group.position.z));
+  }
+
+  /** Approach the shoulder through clear air; do not lerp the pet through a wall or roof. */
+  private moveParrotToShoulder(rig: WolfPetRig, dt: number, speed: number): boolean {
+    const shoulder = this.parrotShoulderPoint();
+    const distance = rig.group.position.distanceTo(shoulder);
+    if (distance > 0.22 && this.parrotFlightClear(shoulder.x, shoulder.y, shoulder.z)) {
+      this.moveParrotFlight(rig, shoulder, dt, speed);
+    } else if (distance > 0.22) {
+      rig.moving = false;
+    }
+    const perched = rig.group.position.distanceTo(shoulder) <= 0.3;
+    rig.sitting = perched;
+    if (perched) rig.moving = false;
+    rig.yawTarget = this.yaw;
+    return perched;
+  }
+
+  /** 3D obstacle-aware steering for the bird; it slides around a wall rather than entering it. */
+  private moveParrotFlight(rig: WolfPetRig, destination: THREE.Vector3, dt: number, speed: number): boolean {
+    rig.target.copy(destination);
+    const pos = rig.group.position;
+    const dx = destination.x - pos.x;
+    const dy = destination.y - pos.y;
+    const dz = destination.z - pos.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < 0.1) {
+      rig.moving = false;
+      return true;
+    }
+    const stride = Math.min(distance, Math.max(0, speed * dt));
+    const desired = new THREE.Vector3(dx / distance, dy / distance, dz / distance);
+    const horizontal = Math.hypot(dx, dz);
+    const side = horizontal > 0.001
+      ? new THREE.Vector3(-dz / horizontal, 0, dx / horizontal)
+      : new THREE.Vector3(Math.cos(rig.group.rotation.y), 0, -Math.sin(rig.group.rotation.y));
+    // Stable preference per destination gives a natural left/right bank instead of always choosing
+    // the same side. If the route is blocked, the extra lift/drop candidates let the parrot go over
+    // low obstacles or duck under a ledge before trying a wider curve.
+    const sideBias = Math.sin(destination.x * 17.13 + destination.z * 31.71 + destination.y * 4.37) >= 0 ? 1 : -1;
+    const maneuvers: Array<[number, number, boolean?]> = [
+      [0, 0],
+      [sideBias * 0.32, 0], [-sideBias * 0.32, 0],
+      [sideBias * 0.62, 0], [-sideBias * 0.62, 0],
+      [sideBias * 1.25, 0], [-sideBias * 1.25, 0],
+      [sideBias * 2.4, 0], [-sideBias * 2.4, 0],
+      [sideBias * 4.0, 0], [-sideBias * 4.0, 0],
+      [sideBias, 0, true], [-sideBias, 0, true], // near-pure sidesteps for narrow gaps
+      [0, 0.52], [0, -0.36],
+      [sideBias * 0.38, 0.4], [-sideBias * 0.38, 0.4],
+      [sideBias * 0.38, -0.28], [-sideBias * 0.38, -0.28],
+      [sideBias * 0.92, 0.55], [-sideBias * 0.92, 0.55], [sideBias * 0.92, -0.4], [-sideBias * 0.92, -0.4],
+    ];
+    // Shorter sweeps let it make a cautious sideways step when the wingtip is close to a wall,
+    // rather than freezing at the first blocked full-stride attempt.
+    for (const strideScale of [1, 0.72, 0.48, 0.28]) {
+      const safeStride = stride * strideScale;
+      for (const [sideStep, verticalStep, sideOnly] of maneuvers) {
+        const direction = sideOnly
+          ? side.clone().multiplyScalar(Math.sign(sideStep))
+          : desired.clone().addScaledVector(side, sideStep);
+        direction.y += verticalStep;
+        direction.normalize();
+        const stepX = direction.x * safeStride;
+        const stepY = direction.y * safeStride;
+        const stepZ = direction.z * safeStride;
+        const end = new THREE.Vector3(pos.x + stepX, pos.y + stepY, pos.z + stepZ);
+        if (!this.parrotFlightPathClear(pos, end)) continue;
+        pos.copy(end);
+        rig.moving = true;
+        if (Math.hypot(stepX, stepZ) > 0.001) rig.yawTarget = Math.atan2(-stepX, -stepZ);
+        return true;
+      }
+    }
+    rig.moving = false;
+    return false;
+  }
+
+  private closestParrotFetchDrop(rig: WolfPetRig): Drop | null {
+    let best: Drop | null = null;
+    let bestScore = Infinity;
+    for (const drop of this.drops) {
+      // Parrots fetch loose drops only. They never scan, open, or carry anything out of a chest.
+      if (drop.fromChest || !this.isWolfPetFetchDropCandidate(drop)) continue;
+      const playerDistance = Math.hypot(drop.x - this.pos.x, drop.z - this.pos.z);
+      const petDistance = Math.hypot(drop.x - rig.group.position.x, drop.y - rig.group.position.y, drop.z - rig.group.position.z);
+      const score = petDistance + playerDistance * 0.08;
+      if (score < bestScore) {
+        best = drop;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  /** Add a small, randomly chosen swoop/arc before a pickup so the bird doesn't fly like a magnet. */
+  private parrotFetchApproachPoint(rig: WolfPetRig, pickup: THREE.Vector3): THREE.Vector3 {
+    let dx = pickup.x - rig.group.position.x;
+    let dz = pickup.z - rig.group.position.z;
+    let length = Math.hypot(dx, dz);
+    if (length < 0.05) {
+      dx = -Math.sin(this.yaw);
+      dz = -Math.cos(this.yaw);
+      length = 1;
+    }
+    const dirX = dx / length;
+    const dirZ = dz / length;
+    const sideX = -dirZ;
+    const sideZ = dirX;
+    const sideSign = Math.random() < 0.5 ? -1 : 1;
+    const sideDistance = 0.52 + Math.random() * 0.62;
+    const retreat = 0.36 + Math.random() * 0.36;
+    const swoop = Math.random();
+    const lift = swoop < 0.28 ? 0.62 : swoop < 0.52 ? -0.22 : 0.16 + Math.random() * 0.24;
+    const choices: Array<[number, number]> = [
+      [sideSign, lift], [-sideSign, lift], [sideSign, 0.5], [-sideSign, 0.5],
+      [sideSign, -0.1], [-sideSign, -0.1], [0, 0.58], [0, -0.18],
+    ];
+    for (const [side, vertical] of choices) {
+      const point = new THREE.Vector3(
+        pickup.x - dirX * retreat + sideX * sideDistance * side,
+        pickup.y + vertical,
+        pickup.z - dirZ * retreat + sideZ * sideDistance * side,
+      );
+      if (this.parrotFlightClear(point.x, point.y, point.z)) return point;
+    }
+    return pickup.clone();
+  }
+
+  private updateParrotCombat(rig: WolfPetRig, target: Mob, dt: number) {
+    if (rig.parrotAttackTarget !== target) {
+      rig.parrotAttackTarget = target;
+      rig.parrotAttackStage = 'approach';
+      rig.parrotStageTimer = 0;
+    }
+    rig.parrotMode = 'attack';
+    rig.parrotIdleTimer = 0;
+    const hover = new THREE.Vector3(target.x, target.y + 2.05, target.z);
+    const dive = new THREE.Vector3(target.x, target.y + 0.62, target.z);
+    if (rig.parrotAttackStage === 'approach') {
+      this.moveParrotFlight(rig, hover, dt, 8.8);
+      if (rig.group.position.distanceTo(hover) < 0.52) rig.parrotAttackStage = 'dive';
+      return;
+    }
+    if (rig.parrotAttackStage === 'dive') {
+      this.moveParrotFlight(rig, dive, dt, 10.5);
+      if (rig.group.position.distanceTo(dive) <= 0.64) {
+        const dx = target.x - rig.group.position.x;
+        const dz = target.z - rig.group.position.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        target.hp -= 2.4;
+        target.hurtFlash = 0.18;
+        this.mobSys.showHealthBar(target);
+        target.vx += (target.x - rig.group.position.x) / distance * 1.35;
+        target.vz += (target.z - rig.group.position.z) / distance * 1.35;
+        if (target.onGround) target.vy = Math.max(target.vy, 1.0);
+        this.burst(target.x, target.y + 0.42, target.z, [238, 194, 82], 4, 0.9, 0.5);
+        sfx.creature('bird', { state: 'attack', volume: 0.42, pitch: 0.95 + Math.random() * 0.14 });
+        rig.parrotAttackStage = 'soar';
+        rig.parrotStageTimer = 0.62;
+        rig.attackPoseTimer = 0.3;
+        if (target.hp <= 0) this.mobDied(target, false);
+      }
+      return;
+    }
+    this.moveParrotFlight(rig, hover, dt, 8.4);
+    rig.parrotStageTimer = Math.max(0, rig.parrotStageTimer - dt);
+    if (rig.parrotStageTimer <= 0 && rig.group.position.distanceTo(hover) < 0.58) {
+      rig.parrotAttackStage = 'dive';
+    }
+  }
+
+  private updateParrotPet(rig: WolfPetRig, dt: number) {
+    rig.swimming = false;
+    rig.underwater = false;
+    if (this.inWater) {
+      // Water always takes priority over a pending whistle interaction: the parrot stays airborne
+      // above the swimmer instead of perching on a hand or entering the water to follow a target.
+      rig.parrotCalled = false;
+      const hover = this.parrotWaterHoverPoint();
+      if (!this.parrotFlightClear(rig.group.position.x, rig.group.position.y, rig.group.position.z)
+        || rig.group.position.y < hover.y - 0.65) {
+        rig.group.position.copy(hover);
+        rig.group.rotation.y = this.yaw;
+        rig.yawTarget = this.yaw;
+      }
+    }
+    const playerSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const playerMoving = playerSpeed > 0.45 || Math.abs(this.vel.y) > 0.72;
+    const sprinting = this.playerSprinting;
+    if ((sprinting || playerMoving) && rig.parrotCalled) {
+      rig.parrotCalled = false;
+      rig.parrotMode = 'follow';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+    }
+
+    if (rig.fetchTarget && (!rig.fetchTarget.active || rig.fetchTarget.petCarried || rig.fetchTarget.thrown || rig.fetchTarget.fromChest)) {
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+      rig.fetchBlockedTimer = 0;
+    }
+    const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
+    const threat = this.nearestWolfThreat();
+    const followPoint = this.parrotFollowPoint();
+    const hasFlightRoom = this.parrotHasFlightRoom(rig, followPoint);
+
+    // A called parrot catches up promptly; ordinary long-distance pet catch-up mirrors the wolf.
+    if (!rig.carrying && playerDistance > 18 && (rig.parrotCalled || !threat)) {
+      const catchup = rig.parrotCalled ? this.parrotHandPoint() : followPoint;
+      if (this.parrotFlightClear(catchup.x, catchup.y, catchup.z)) {
+        rig.group.position.copy(catchup);
+        rig.group.rotation.y = this.yaw;
+        rig.yawTarget = this.yaw;
+        rig.navTimer = 0;
+        rig.parrotIdleTimer = 0;
+      }
+    }
+
+    if (threat && !rig.carrying && hasFlightRoom) {
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+      this.updateParrotCombat(rig, threat, dt);
+    } else if (rig.carrying) {
+      rig.parrotMode = 'delivery';
+      rig.parrotAttackTarget = null;
+      const deliveryPoint = this.parrotHandPoint();
+      if (rig.navTimer !== 2 && rig.navTimer !== 3) {
+        rig.navTimer = 2;
+        rig.navGoal.copy(deliveryPoint);
+        rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, deliveryPoint));
+      } else if (rig.navTimer === 2 && rig.navGoal.distanceTo(deliveryPoint) > 1.35) {
+        // If the player has moved on, smoothly re-arc toward their new position instead of chasing
+        // the stale point directly through the scene.
+        rig.navGoal.copy(deliveryPoint);
+        rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, deliveryPoint));
+      }
+      if (rig.navTimer === 2 && rig.group.position.distanceTo(rig.navWaypoint) <= 0.46) rig.navTimer = 3;
+      const deliveryRoutePoint = rig.navTimer === 2 ? rig.navWaypoint : deliveryPoint;
+      if (this.parrotHasFlightRoom(rig, deliveryPoint)) this.moveParrotFlight(rig, deliveryRoutePoint, dt, 7.8);
+      else {
+        const perched = this.moveParrotToShoulder(rig, dt, 9.0);
+        rig.parrotMode = perched ? 'shoulder' : 'delivery';
+      }
+      const closeToPlayer = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z) <= 1.72
+        && Math.abs(rig.group.position.y - (this.pos.y + 1.0)) <= 1.25;
+      if (closeToPlayer && rig.carrying?.active) {
+        const drop = rig.carrying;
+        rig.carrying = null;
+        drop.petCarried = false;
+        drop.x = this.pos.x;
+        drop.y = this.pos.y + 0.8;
+        drop.z = this.pos.z;
+        this.collect(drop);
+        rig.parrotHappyTimer = 0.7;
+      }
+    } else if (rig.parrotCalled && !sprinting && !this.inWater && this.parrotHasFlightRoom(rig, this.parrotHandPoint())) {
+      rig.parrotMode = 'hand';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+      const hand = this.parrotHandPoint();
+      this.moveParrotFlight(rig, hand, dt, 7.0);
+      rig.sitting = !rig.moving;
+    } else if (hasFlightRoom) {
+      rig.parrotAttackTarget = null;
+      if (!rig.fetchTarget) rig.fetchTarget = this.closestParrotFetchDrop(rig);
+      if (rig.fetchTarget) {
+        const drop = rig.fetchTarget;
+        rig.parrotMode = 'fetch';
+        rig.parrotIdleTimer = 0;
+        const fetchPoint = new THREE.Vector3(drop.x, drop.y + 0.18, drop.z);
+        rig.fetchTarget = drop;
+        if (rig.fetchBlockedDrop !== drop) {
+          rig.fetchBlockedDrop = drop;
+          rig.fetchBlockedTimer = 0;
+          rig.navTimer = 0;
+          rig.navGoal.copy(fetchPoint);
+          rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, fetchPoint));
+        } else rig.navGoal.copy(fetchPoint);
+        if (rig.navTimer < 1 && rig.group.position.distanceTo(rig.navWaypoint) <= 0.42) rig.navTimer = 1;
+        const distance = rig.group.position.distanceTo(fetchPoint);
+        if (rig.navTimer >= 1 && distance <= 0.62) {
+          drop.petCarried = true;
+          drop.vx = drop.vy = drop.vz = 0;
+          rig.carrying = drop;
+          rig.fetchTarget = null;
+          rig.fetchBlockedDrop = null;
+          rig.fetchBlockedTimer = 0;
+          rig.navTimer = 2;
+          const deliveryPoint = this.parrotHandPoint();
+          rig.navGoal.copy(deliveryPoint);
+          rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, deliveryPoint));
+          sfx.pickup(1);
+          rig.moving = false;
+        } else {
+          const routePoint = rig.navTimer < 1 ? rig.navWaypoint : fetchPoint;
+          const moved = this.moveParrotFlight(rig, routePoint, dt, 8.2);
+          rig.fetchBlockedTimer = moved ? 0 : rig.fetchBlockedTimer + dt;
+          if (rig.fetchBlockedTimer > 2.0) {
+            drop.wolfPetIgnoreUntil = Math.max(drop.wolfPetIgnoreUntil ?? 0, this.time + WOLF_PET_FETCH_RETRY_SECONDS);
+            rig.fetchTarget = null;
+            rig.fetchBlockedDrop = null;
+            rig.fetchBlockedTimer = 0;
+            rig.navTimer = 0;
+          }
+        }
+      } else if (this.inWater || playerMoving || sprinting) {
+        rig.parrotMode = 'follow';
+        rig.parrotIdleTimer = 0;
+        this.moveParrotFlight(rig, followPoint, dt, this.inWater ? 7.6 : sprinting ? 8.4 : 7.4);
+      } else {
+        rig.parrotIdleTimer += dt;
+        if (rig.parrotIdleTimer < WOLF_PET_REST_DELAY) {
+          rig.parrotMode = 'follow';
+          this.moveParrotFlight(rig, followPoint, dt, 5.8);
+        } else {
+          const perched = this.moveParrotToShoulder(rig, dt, 5.8);
+          rig.parrotMode = perched ? 'shoulder' : 'follow';
+        }
+      }
+    } else if (this.inWater) {
+      rig.parrotMode = 'follow';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+      this.moveParrotFlight(rig, this.parrotWaterHoverPoint(), dt, 7.4);
+    } else {
+      // No overhead clearance: approach the shoulder through any clear route until the player
+      // reaches open air; never snap through the nearby blocks.
+      const perched = this.moveParrotToShoulder(rig, dt, 8.4);
+      rig.parrotMode = perched ? 'shoulder' : 'follow';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+    }
+
+    rig.parrotHappyTimer = Math.max(0, rig.parrotHappyTimer - dt);
+    rig.parrotEatTimer = Math.max(0, rig.parrotEatTimer - dt);
+    rig.parrotSoundTimer = Math.max(0, rig.parrotSoundTimer - dt);
+    if (rig.parrotEatTimer > 0 && rig.parrotSoundTimer <= 0) {
+      sfx.creature('bird', { state: 'idle', volume: 0.58, pitch: 1.02 + Math.random() * 0.12 });
+      rig.parrotSoundTimer = 0.36;
+    }
+
+    const perched = !rig.moving && (rig.parrotMode === 'shoulder' || rig.parrotMode === 'hand');
+    rig.swimming = false;
+    rig.underwater = false;
+    rig.phase += dt * (perched ? 2.1 : 13.5);
+    rig.attackPoseTimer = Math.max(0, rig.attackPoseTimer - dt);
+    rig.model.position.y = perched
+      ? Math.sin(rig.phase * 1.8) * (rig.parrotHappyTimer > 0 ? 0.045 : 0.018)
+      : Math.sin(rig.phase * 1.65) * 0.035;
+    const diving = rig.parrotMode === 'attack' && rig.parrotAttackStage === 'dive';
+    rig.model.rotation.x = diving ? -0.55 : rig.moving ? Math.max(-0.22, Math.min(0.22, -(rig.target.y - rig.group.position.y) * 0.12)) : 0;
+    if (rig.head) {
+      rig.head.rotation.x = rig.parrotEatTimer > 0 ? Math.sin(this.time * 28) * 0.16 : rig.parrotHappyTimer > 0 ? Math.sin(this.time * 12) * 0.1 : 0;
+      rig.head.rotation.z = rig.parrotHappyTimer > 0 ? Math.sin(this.time * 10) * 0.08 : 0;
+    }
+    if (rig.jaw) rig.jaw.rotation.x = rig.parrotEatTimer > 0 ? Math.abs(Math.sin(this.time * 23)) * 0.32 : 0;
+    const flap = 0.58 + Math.sin(rig.phase * 1.6) * 0.18;
+    const wingPoseBlend = Math.min(1, dt * 10);
+    rig.legs.forEach((wing, index) => {
+      // Fold both wings down against the body on a perch; only spread and flap while airborne.
+      const foldedDown = index === 0 ? 0.42 : -0.42;
+      const flying = (index === 0 ? -1 : 1) * flap;
+      const targetWingAngle = perched ? foldedDown : flying;
+      wing.rotation.z += (targetWingAngle - wing.rotation.z) * wingPoseBlend;
+    });
+    if (rig.tail) {
+      rig.tail.rotation.y = Math.sin(rig.phase * (perched ? 3.0 : 1.8)) * (perched ? 0.09 : 0.17);
+      rig.tail.rotation.x = 0.52 + (diving ? -0.18 : 0);
+    }
+
+    if (rig.parrotMode === 'hand' && rig.group.position.distanceTo(this.parrotHandPoint()) < 0.9) {
+      rig.yawTarget = this.parrotFacingPlayerYaw(rig.group.position);
+    } else if (perched || !rig.moving) rig.yawTarget = this.yaw;
+    let yawDelta = rig.yawTarget - rig.group.rotation.y;
+    while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+    while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+    const bankTarget = rig.moving && !perched ? Math.max(-0.34, Math.min(0.34, -yawDelta * 0.42)) : 0;
+    rig.model.rotation.z += (bankTarget - rig.model.rotation.z) * Math.min(1, dt * 5.5);
+    rig.group.rotation.y += yawDelta * Math.min(1, dt * 8);
+    this.syncWolfPetCarriedDrop(rig);
+  }
+
   private syncWolfPetCarriedDrop(rig: WolfPetRig) {
     const drop = rig.carrying;
     if (!drop || !drop.active || !drop.petCarried) return;
     const forwardX = -Math.sin(rig.group.rotation.y);
     const forwardZ = -Math.cos(rig.group.rotation.y);
-    drop.x = rig.group.position.x + forwardX * 0.38;
-    drop.y = rig.group.position.y + 0.76;
-    drop.z = rig.group.position.z + forwardZ * 0.38;
+    const offset = rig.kind === 'parrot' ? 0.18 : 0.38;
+    drop.x = rig.group.position.x + forwardX * offset;
+    drop.y = rig.group.position.y + (rig.kind === 'parrot' ? 0.56 : 0.76);
+    drop.z = rig.group.position.z + forwardZ * offset;
     drop.vx = drop.vy = drop.vz = 0;
   }
 
@@ -13493,6 +14241,10 @@ if (tpClipActive > 0.5) {
     }
 
     rig.group.visible = true;
+    if (rig.kind === 'parrot') {
+      this.updateParrotPet(rig, dt);
+      return;
+    }
     const movingPlayer = Math.hypot(this.vel.x, this.vel.z) > 0.72 || Math.abs(this.vel.y) > 0.72;
     const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
     if (!rig.carrying && playerDistance > 14) {
@@ -13948,6 +14700,8 @@ if (tpClipActive > 0.5) {
 
   dispose() {
     this.clearArrows();
+    if (this.firstPersonParrotArm) this.scene.remove(this.firstPersonParrotArm);
+    this.firstPersonParrotArm = null;
     this.clearWolfPetRig();
     this.clearCompanions();
     this.disposed = true;

@@ -48,7 +48,7 @@ import { completePendingShopRewards, pendingShopProductRewards } from './game/sh
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
-import { hasMonkeyPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
+import { hasMonkeyPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -161,7 +161,7 @@ const INITIAL_HUD: HudState = {
   petEquipped: false,
   petEquippedKind: null,
   petSelectedKind: 'wolf',
-  petCoatIndices: { wolf: 0, monkey: 0 },
+  petCoatIndices: { wolf: 0, monkey: 0, parrot: 0 },
   petCoatIndex: 0,
   petInteractNear: false,
   stats: EMPTY_STATS,
@@ -221,9 +221,11 @@ export default function App() {
   const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
   const [wolfPetOwned, setWolfPetOwned] = useState(() => hasWolfPet());
   const [monkeyPetOwned, setMonkeyPetOwned] = useState(() => hasMonkeyPet());
+  const [parrotPetOwned, setParrotPetOwned] = useState(() => hasParrotPet());
   const refreshPetOwnership = useCallback(() => {
     setWolfPetOwned(hasWolfPet());
     setMonkeyPetOwned(hasMonkeyPet());
+    setParrotPetOwned(hasParrotPet());
   }, []);
   const [adFreeBusy, setAdFreeBusy] = useState(false);
   const [adFreeNotice, setAdFreeNotice] = useState<string | null>(null);
@@ -900,7 +902,7 @@ export default function App() {
   /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
   const buyInGameShopItem = useCallback(async (productId: string): Promise<ShopItemBuyResult> => {
     const result = await buyShopProduct(productId);
-    if ((productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
+    if ((productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
     return result;
   }, [refreshPetOwnership]);
 
@@ -934,7 +936,7 @@ export default function App() {
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!DEVELOPER_TOOLS_ENABLED || isTvRef.current || tvMode()) return false;
     const granted = grantDeveloperShopProduct(productId);
-    if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID) refreshPetOwnership();
+    if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID) refreshPetOwnership();
     return granted;
   }, [refreshPetOwnership]);
 
@@ -970,6 +972,7 @@ export default function App() {
         <TouchControls
           engine={engine}
           petInteractNear={hud.petInteractNear}
+          parrotEquipped={hud.petEquippedKind === 'parrot'}
           thirdPerson={!!hud.thirdPerson}
           crouching={hud.crouching}
           crawling={hud.crawling}
@@ -1005,6 +1008,7 @@ export default function App() {
           shopPrices={shopPrices}
           wolfPetOwned={wolfPetOwned}
           monkeyPetOwned={monkeyPetOwned}
+          parrotPetOwned={parrotPetOwned}
           onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
           adFreeOwned={adFreeOwned}
