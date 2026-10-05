@@ -68,6 +68,21 @@ const LANGS_CHECKED: Lang[] = ['ru', 'fr', 'de'];
 const en = dictFor('en');
 const keys = Object.keys(en).sort();
 
+/* ---------------- 0. no development leftovers in the texts (1.15) ----------- */
+
+/**
+ * Requirement 1.15: the game must look finished. A "Coming soon" / "Скоро появится" / "Bientôt
+ * disponible" / "Kommt bald" line, a `beta` or a `TODO` is exactly the marker moderation rejects a
+ * draft for, so no dictionary may carry one.
+ */
+const UNFINISHED = /(coming soon|bient[oô]t disponible|kommt bald|скоро появ|в разработке|заглушка|черновик|\bbeta\b|\bwip\b|\btodo\b|\btbd\b|not implemented|placeholder)/i;
+
+for (const lang of ['en', ...LANGS_CHECKED] as Lang[]) {
+  const dict = dictFor(lang);
+  const marked = keys.filter((k) => UNFINISHED.test(String(dict[k] ?? '')));
+  ok(marked.length === 0, `В словаре ${lang} нет текстов «в разработке»`, marked.slice(0, 10).join(', '));
+}
+
 /* ------------------------------ 1. key parity ------------------------------ */
 
 for (const lang of LANGS_CHECKED) {
