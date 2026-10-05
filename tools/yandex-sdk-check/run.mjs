@@ -524,6 +524,22 @@ async function scenarioProgress() {
 
   // ===================== 8. restart from the results screen → fullscreen ad =====================
   const gameplayStartsBeforeRestart = game.count(await game.calls(), 'GameplayAPI.start');
+  // Requirement 4.4: the gap between the action that causes an ad and the ad itself may not exceed two
+  // seconds. Record the click in the page's own clock so it can be compared with the timestamp the
+  // mock puts on every SDK call.
+  await game.page.evaluate(() => {
+    window.__adTriggerAt = null;
+    document.addEventListener(
+      'click',
+      (e) => {
+        const button = (e.target)?.closest('button');
+        if (button && /ЕЩЁ РАЗ|MINE AGAIN|NOCHMAL|REJOUER/i.test(button.textContent ?? '')) {
+          window.__adTriggerAt = performance.now();
+        }
+      },
+      { once: true, capture: true },
+    );
+  });
   const restartClicked = await game.clickByText(/ЕЩЁ РАЗ|MINE AGAIN|NOCHMAL|REJOUER/);
   const fullscreenCall = (await game.calls()).filter((c) => c.name === 'adv.showFullscreenAdv').at(-1)?.arg;
   check(
@@ -539,6 +555,16 @@ async function scenarioProgress() {
     10_000,
   );
   check(restartClicked && fullscreenShown, 'Полноэкранная реклама вызвана действием игрока (кнопка «Заново»)');
+  const adDelayMs = await game.page.evaluate(() => {
+    const trigger = window.__adTriggerAt;
+    const call = (window.__yaCalls ?? []).filter((c) => c.name === 'adv.showFullscreenAdv').at(-1);
+    return trigger !== null && call ? call.t - trigger : null;
+  });
+  check(
+    adDelayMs !== null && adDelayMs >= 0 && adDelayMs <= 2000,
+    'Реклама начинается не позже 2 секунд после действия игрока (пункт 4.4)',
+    adDelayMs === null ? 'нет данных о клике или о вызове' : `${Math.round(adDelayMs)} мс`,
+  );
   const restarted = await game.waitFor(
     'Новый забег начался после рекламы',
     (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before
