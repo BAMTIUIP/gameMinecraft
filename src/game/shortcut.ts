@@ -29,7 +29,12 @@ export const SHORTCUT_REWARD_ITEMS: readonly RewardedDropItem[] = [
   [TORCH, 12],
 ];
 
-export type ShortcutOffer = { available: boolean; reason: 'cooldown' | 'accepted' | 'offline' | 'done' | null };
+/**
+ * `offline` = there is no SDK or the method is missing (own hosting, itch, dev). `unsupported` = the
+ * platform answered and the device/browser cannot drop a shortcut at all — a different situation
+ * that only looks the same in the UI, and telling them apart keeps diagnostics honest.
+ */
+export type ShortcutOffer = { available: boolean; reason: 'cooldown' | 'accepted' | 'offline' | 'unsupported' | 'done' | null };
 export type ShortcutResult = 'accepted' | 'dismissed' | 'unavailable' | 'failed';
 
 type ShortcutState = { at: number; accepted: boolean; rewardQueued: boolean };
@@ -96,7 +101,7 @@ export async function shortcutOffer(): Promise<ShortcutOffer> {
     const canShow = await yaCanShowShortcutPrompt();
     offerCache = canShow === null
       ? { available: false, reason: 'offline' }
-      : { available: canShow, reason: canShow ? null : 'offline' };
+      : { available: canShow, reason: canShow ? null : 'unsupported' };
     return offerCache;
   })();
   offerCheckInFlight = check;
