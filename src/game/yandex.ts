@@ -102,6 +102,12 @@ export type YaPurchase = {
   productID: string;
   purchaseToken: string;
   developerPayload?: string;
+  /**
+   * Only present when the SDK was initialised with `signed: true` — then every purchase answer is
+   * `{ signature }` instead of readable data. This game handles payments on the client, so a
+   * signature-only answer means the payment happened but the reward cannot be granted from here.
+   */
+  signature?: string;
 };
 
 /** An item of the Yandex Console catalogue: the price (and its currency icon) comes from here. */
@@ -1113,7 +1119,16 @@ export async function yaPurchase(id: string, developerPayload?: string): Promise
   if (!payments?.purchase) return null;
   try {
     const purchase = await payments.purchase(developerPayload === undefined ? { id } : { id, developerPayload });
-    if (!purchase?.purchaseToken) return null;
+    if (!purchase) return null;
+    if (!purchase.purchaseToken && typeof purchase.signature === 'string') {
+      // `signed: true`: the player has paid, but the receipt is encrypted for a server this game does
+      // not have. Never report it as a cancellation — the shop would say "отменено" about real money.
+      console.error(
+        '[Yandex SDK] purchase() answered with a signature only — payments must be initialised with `signed: false` for client-side processing',
+      );
+      throw new Error('purchase-signature-not-supported');
+    }
+    if (!purchase.purchaseToken) return null;
     return purchase;
   } catch (err) {
     // a cancelled purchase is a normal outcome, not an error state

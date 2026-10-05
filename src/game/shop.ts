@@ -18,7 +18,7 @@ import {
 } from './shopRewards';
 import { tvDevice } from './params';
 import { hasPet, MONKEY_PET_PRODUCT_ID, unlockPet, WOLF_PET_PRODUCT_ID } from './pets';
-import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
+import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase, type YaPurchase } from './yandex';
 
 export { AD_FREE_PRODUCT_ID, SHOP_PRODUCT_IDS };
 
@@ -94,6 +94,21 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
 export function resetShopCatalog() {
   catalogCache = null;
   catalogPromise = null;
+}
+
+/**
+ * `payments.purchase()` resolves for a cancelled payment too, so it never throws on its own. The one
+ * case where it must throw is a signature-only answer (`signed: true`): the player has paid, but the
+ * encrypted receipt can only be processed on a server this game does not have. Reported as `failed`
+ * — never as `cancelled`, which would call a real payment a cancellation.
+ */
+async function purchaseOrFail(id: string, developerPayload: string): Promise<YaPurchase | null> {
+  try {
+    return await yaPurchase(id, developerPayload);
+  } catch (err) {
+    console.error('[shop] purchase could not be processed on the client', err);
+    return null;
+  }
 }
 
 type SettlementResult = {
@@ -180,7 +195,7 @@ export async function buyShopProduct(productId: string): Promise<ShopItemBuyResu
   const catalog = await loadShopCatalog();
   if (!catalog.has(productId)) return { ok: false, productId, reason: 'unavailable' };
 
-  const purchase = await yaPurchase(productId, JSON.stringify({ source: 'shop-item', v: 2 }));
+  const purchase = await purchaseOrFail(productId, JSON.stringify({ source: 'shop-item', v: 2 }));
   if (!purchase) return { ok: false, productId, reason: 'cancelled' };
   if (purchase.productID !== productId) {
     // Do not consume an unexpected receipt. If it is a supported SKU, the startup restore path will
@@ -210,7 +225,7 @@ export async function buyAdFree(): Promise<AdFreeBuyResult> {
   const catalog = await loadShopCatalog();
   if (!catalog.has(AD_FREE_PRODUCT_ID)) return { ok: false, reason: 'unavailable' };
 
-  const purchase = await yaPurchase(AD_FREE_PRODUCT_ID, JSON.stringify({ source: 'ad-free', v: 1 }));
+  const purchase = await purchaseOrFail(AD_FREE_PRODUCT_ID, JSON.stringify({ source: 'ad-free', v: 1 }));
   if (!purchase) return { ok: false, reason: 'cancelled' };
   if (purchase.productID !== AD_FREE_PRODUCT_ID) {
     console.warn('[shop] ad-free purchase returned a different product id', purchase.productID);
