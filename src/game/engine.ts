@@ -10393,6 +10393,8 @@ if (tpClipActive > 0.5) {
     critMultiplier?: number;
     /** true = shot by a skeleton archer, hurts the player */
     hostile?: boolean;
+    /** which arrow item was spent on the shot (ARROW_ITEM when nothing was equipped) */
+    arrowId?: number | null;
   }> = [];
   private arrowGeo: THREE.BoxGeometry | null = null;
   private arrowMat = new THREE.MeshBasicMaterial({ color: 0xd9cba8 });
@@ -10497,11 +10499,12 @@ if (tpClipActive > 0.5) {
             this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.2);
             if (Math.random() < 0.8) {
               const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
+              // the arrow falls back out of the block, so it can be picked up again
               this.spawnDrop(
                 a.x - (a.vx / speed) * 0.35,
                 a.y - (a.vy / speed) * 0.35 + 0.15,
                 a.z - (a.vz / speed) * 0.35,
-                ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
+                a.arrowId ?? ARROW_ITEM,
               );
             }
             dead = true;
@@ -11542,7 +11545,7 @@ if (tpClipActive > 0.5) {
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
       const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
       const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
-      if (craftedPickaxe || craftedRecipe || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
+      if (craftedPickaxe || craftedRecipe || craftedRecipeVariant || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();
   }
