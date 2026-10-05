@@ -4132,6 +4132,30 @@ if (tpClipActive > 0.5) {
     return this.collides(x, this.pos.y, z, this.crawling, this.yaw) && !this.collides(x, this.pos.y + 1.05, z, this.crawling, this.yaw);
   }
 
+  /**
+   * Is the way ahead too tall for a single jump, but the player's own column free to rise?
+   * That is the two-block-deep pit: without an automatic jump the remote has no key for it at all,
+   * and the run would be over (requirement 1.6.3 — arrows alone must be enough to finish the game).
+   * A ceiling right above the head still stops the jump, so the player never bonks into stone.
+   */
+  private tvClimbAhead(): boolean {
+    const dirX = -Math.sin(this.yaw);
+    const dirZ = -Math.cos(this.yaw);
+    const x = this.pos.x + dirX * 0.6;
+    const z = this.pos.z + dirZ * 0.6;
+    const ahead = this.collides(x, this.pos.y, z, this.crawling, this.yaw) || this.collides(x, this.pos.y + 1.05, z, this.crawling, this.yaw);
+    if (!ahead) return false;
+    return !this.collides(this.pos.x, this.pos.y + 2.05, this.pos.z, this.crawling, this.yaw);
+  }
+
+  /**
+   * On a TV the remote sends one press at a time, so the game jumps by itself while the player
+   * walks forward: over a one-block step, and out of a pit whose walls leave room to rise.
+   */
+  private tvAutoJump(): boolean {
+    return this.tvStepAhead() || this.tvClimbAhead();
+  }
+
   private onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.mining = false;
     if (e.button === 2 || e.button === 1) this.placing = false;
@@ -5689,7 +5713,7 @@ if (tpClipActive > 0.5) {
     // jump — with coyote time so edge-of-a-ledge jumps still feel fair. On a TV a single-block step
     // is climbed automatically while walking forward: a remote sends one press at a time and the
     // player should not have to fight the terrain with it.
-    const autoStep = this.tv && fz > 0.1 && this.onGround && this.tvStepAhead();
+    const autoStep = this.tv && fz > 0.1 && this.onGround && this.tvAutoJump();
     const jumpHeld = (k['Space'] || this.touchJump || autoStep) && !this.crouching && !this.crawling;
     if (jumpHeld && !wasInWater && (this.onGround || this.coyote > 0)) {
       this.vel.y = JUMP_V;
