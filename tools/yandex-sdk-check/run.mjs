@@ -2314,6 +2314,64 @@ async function scenarioAsyncSdk() {
  *
  * `SHOTS_LANG=ru|en|fr|de` and `SHOTS_DIR` override the interface language and the output folder.
  */
+/**
+ * Requirement 5.1.1.2 is about the pictures that go to the Console: the real gameplay must occupy at
+ * least 70% of a promo image, and the rest has to be filled with things that belong to the game. Those
+ * images are chosen by hand in the Console, so what is verified here is the part that can be measured
+ * on the files this repo produces — that a frame is a real capture and not a blank one.
+ *
+ * A sampled pixel counts as «flat» only when the whole 6×6 block around it is *exactly* its colour.
+ * A tolerance of even two steps stops measuring «empty background» and starts measuring the game's own
+ * smooth gradients — the pause overlay alone is 80% gradient, and calling that a violation would say
+ * nothing about the material. With no tolerance at all, a black screen, a half-loaded frame or a
+ * placeholder shows up immediately (they are nearly 100% flat) while a live frame stays in single digits.
+ */
+async function backgroundShare(page, file) {
+  const base64 = readFileSync(file).toString('base64');
+  return page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0);
+    const { data: pixels, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const at = (x, y) => (y * width + x) * 4;
+    const step = 3;
+    const radius = 3;
+    const tolerance = 0; // exactly one colour: a blank frame, not the game's own gradients
+    let sampled = 0;
+    let background = 0;
+    for (let y = radius; y < height - radius; y += step) {
+      for (let x = radius; x < width - radius; x += step) {
+        const i = at(x, y);
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        let flat = true;
+        for (let dy = -radius; dy <= radius && flat; dy += 1) {
+          for (let dx = -radius; dx <= radius; dx += 1) {
+            const j = at(x + dx, y + dy);
+            if (
+              Math.abs(pixels[j] - r) > tolerance ||
+              Math.abs(pixels[j + 1] - g) > tolerance ||
+              Math.abs(pixels[j + 2] - b) > tolerance
+            ) {
+              flat = false;
+              break;
+            }
+          }
+        }
+        sampled += 1;
+        if (flat) background += 1;
+      }
+    }
+    return { width, height, share: background / Math.max(1, sampled) };
+  }, base64);
+}
+
 async function scenarioScreenshots() {
   const outDir = process.env.SHOTS_DIR ?? path.join(process.cwd(), 'docs', 'shots');
   mkdirSync(outDir, { recursive: true });
@@ -2322,6 +2380,16 @@ async function scenarioScreenshots() {
     await game.page.screenshot({ path: file });
     const size = existsSync(file) ? statSync(file).size : 0;
     check(size > 20_000, label, `${name}.png ${Math.round(size / 1024)} КБ`);
+    // Requirement 5.1.1.2 is about what the picture is made of, so measure the produced file rather
+    // than trusting that a full-window capture is automatically «70% gameplay».
+    if (size > 0) {
+      const measured = await backgroundShare(game.page, file);
+      check(
+        measured.share <= 0.3,
+        `Кадр ${name} — живой кадр, а не пустая заливка (пункт 5.1.1.2)`,
+        `ровный фон ${Math.round(measured.share * 100)}% из ${measured.width}×${measured.height}`,
+      );
+    }
   };
 
   const game = await openGame({
