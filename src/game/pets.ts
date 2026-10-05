@@ -3,8 +3,9 @@ import { developerShopClaims, isDeveloperShopEnabled } from './devShop';
 import { storageGet, storageRemove, storageSet } from './storage';
 import type { TKey } from './i18n';
 import { PARROT_VARIANTS } from './parrotVariants';
+import { OWL_VARIANTS } from './owlVariants';
 
-export type PetKind = 'wolf' | 'monkey' | 'parrot';
+export type PetKind = 'wolf' | 'monkey' | 'parrot' | 'owl';
 
 /** The equipped companion is represented in the world/slot, not as a duplicate inventory token. */
 export function getPetInventoryKinds(ownedKinds: readonly PetKind[], equippedKind: PetKind | null = null): PetKind[] {
@@ -15,7 +16,8 @@ export function getPetInventoryKinds(ownedKinds: readonly PetKind[], equippedKin
 export const WOLF_PET_PRODUCT_ID = 'pet-wolf' as const;
 export const MONKEY_PET_PRODUCT_ID = 'pet-monkey' as const;
 export const PARROT_PET_PRODUCT_ID = 'pet-parrot' as const;
-export const PET_PRODUCT_IDS = [WOLF_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID] as const;
+export const OWL_PET_PRODUCT_ID = 'pet-owl' as const;
+export const PET_PRODUCT_IDS = [WOLF_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID] as const;
 
 export type WolfMarking = 'plain' | 'striped' | 'spotted';
 export type WolfCoat = {
@@ -63,20 +65,25 @@ export const MONKEY_COATS: readonly MonkeyCoat[] = [
 /** The companion's six palettes are the same variants used by the existing wild bird model. */
 export const PARROT_COATS = PARROT_VARIANTS;
 
+/** The eagle owl companion features six distinct plumages. */
+export const OWL_COATS = OWL_VARIANTS;
+
 const STORAGE_KEY = 'orerush.pets.v1';
 type PetState = {
   wolfOwned: boolean;
   monkeyOwned: boolean;
   parrotOwned: boolean;
+  owlOwned: boolean;
   wolfCoatIndex: number;
   monkeyCoatIndex: number;
   parrotCoatIndex: number;
+  owlCoatIndex: number;
 };
 let cached: PetState | undefined;
 
 const emptyState = (): PetState => ({
-  wolfOwned: false, monkeyOwned: false, parrotOwned: false,
-  wolfCoatIndex: 0, monkeyCoatIndex: 0, parrotCoatIndex: 0,
+  wolfOwned: false, monkeyOwned: false, parrotOwned: false, owlOwned: false,
+  wolfCoatIndex: 0, monkeyCoatIndex: 0, parrotCoatIndex: 0, owlCoatIndex: 0,
 });
 
 export function normalizeWolfCoatIndex(value: unknown): number {
@@ -94,6 +101,11 @@ export function normalizeParrotCoatIndex(value: unknown): number {
   return Number.isInteger(index) && index >= 0 && index < PARROT_COATS.length ? index : 0;
 }
 
+export function normalizeOwlCoatIndex(value: unknown): number {
+  const index = typeof value === 'number' ? Math.trunc(value) : Number.NaN;
+  return Number.isInteger(index) && index >= 0 && index < OWL_COATS.length ? index : 0;
+}
+
 function normalizeState(value: unknown): PetState {
   if (!value || typeof value !== 'object') return emptyState();
   const raw = value as {
@@ -101,18 +113,22 @@ function normalizeState(value: unknown): PetState {
     wolfOwned?: unknown;
     monkeyOwned?: unknown;
     parrotOwned?: unknown;
+    owlOwned?: unknown;
     wolfCoatIndex?: unknown;
     monkeyCoatIndex?: unknown;
     parrotCoatIndex?: unknown;
+    owlCoatIndex?: unknown;
   };
   const ownedList = Array.isArray(raw.owned) ? raw.owned : [];
   return {
     wolfOwned: raw.wolfOwned === true || ownedList.includes('wolf'),
     monkeyOwned: raw.monkeyOwned === true || ownedList.includes('monkey'),
     parrotOwned: raw.parrotOwned === true || ownedList.includes('parrot'),
+    owlOwned: raw.owlOwned === true || ownedList.includes('owl'),
     wolfCoatIndex: normalizeWolfCoatIndex(raw.wolfCoatIndex),
     monkeyCoatIndex: normalizeMonkeyCoatIndex(raw.monkeyCoatIndex),
     parrotCoatIndex: normalizeParrotCoatIndex(raw.parrotCoatIndex),
+    owlCoatIndex: normalizeOwlCoatIndex(raw.owlCoatIndex),
   };
 }
 
@@ -128,7 +144,13 @@ function state(): PetState {
 }
 
 function productIdFor(kind: PetKind) {
-  return kind === 'wolf' ? WOLF_PET_PRODUCT_ID : kind === 'monkey' ? MONKEY_PET_PRODUCT_ID : PARROT_PET_PRODUCT_ID;
+  return kind === 'wolf'
+    ? WOLF_PET_PRODUCT_ID
+    : kind === 'monkey'
+      ? MONKEY_PET_PRODUCT_ID
+      : kind === 'parrot'
+        ? PARROT_PET_PRODUCT_ID
+        : OWL_PET_PRODUCT_ID;
 }
 
 function hasDeveloperPet(kind: PetKind): boolean {
@@ -137,11 +159,12 @@ function hasDeveloperPet(kind: PetKind): boolean {
 
 function cloudState(value: PetState) {
   return {
-    owned: [value.wolfOwned && 'wolf', value.monkeyOwned && 'monkey', value.parrotOwned && 'parrot'].filter(Boolean),
+    owned: [value.wolfOwned && 'wolf', value.monkeyOwned && 'monkey', value.parrotOwned && 'parrot', value.owlOwned && 'owl'].filter(Boolean),
     // Appearance has no cloud meaning unless its permanent Yandex entitlement is owned.
     wolfCoatIndex: value.wolfOwned ? value.wolfCoatIndex : 0,
     monkeyCoatIndex: value.monkeyOwned ? value.monkeyCoatIndex : 0,
     parrotCoatIndex: value.parrotOwned ? value.parrotCoatIndex : 0,
+    owlCoatIndex: value.owlOwned ? value.owlCoatIndex : 0,
   };
 }
 
@@ -161,44 +184,80 @@ export function refreshPetStateFromStorage(): void {
 
 export function hasPet(kind: PetKind): boolean {
   const current = state();
-  const owned = kind === 'wolf' ? current.wolfOwned : kind === 'monkey' ? current.monkeyOwned : current.parrotOwned;
+  const owned = kind === 'wolf'
+    ? current.wolfOwned
+    : kind === 'monkey'
+      ? current.monkeyOwned
+      : kind === 'parrot'
+        ? current.parrotOwned
+        : current.owlOwned;
   return owned || hasDeveloperPet(kind);
 }
 export function hasWolfPet(): boolean { return hasPet('wolf'); }
 export function hasMonkeyPet(): boolean { return hasPet('monkey'); }
 export function hasParrotPet(): boolean { return hasPet('parrot'); }
+export function hasOwlPet(): boolean { return hasPet('owl'); }
 
 /** Permanently unlock a companion. Repeating a restore is idempotent. */
 export function unlockPet(kind: PetKind): boolean {
   const current = state();
   if (kind === 'wolf') return current.wolfOwned || write({ ...current, wolfOwned: true });
   if (kind === 'monkey') return current.monkeyOwned || write({ ...current, monkeyOwned: true });
-  return current.parrotOwned || write({ ...current, parrotOwned: true });
+  if (kind === 'parrot') return current.parrotOwned || write({ ...current, parrotOwned: true });
+  return current.owlOwned || write({ ...current, owlOwned: true });
 }
 export function unlockWolfPet(): boolean { return unlockPet('wolf'); }
 export function unlockMonkeyPet(): boolean { return unlockPet('monkey'); }
 export function unlockParrotPet(): boolean { return unlockPet('parrot'); }
+export function unlockOwlPet(): boolean { return unlockPet('owl'); }
 
 export function getPetCoatIndex(kind: PetKind): number {
   const current = state();
-  return kind === 'wolf' ? current.wolfCoatIndex : kind === 'monkey' ? current.monkeyCoatIndex : current.parrotCoatIndex;
+  return kind === 'wolf'
+    ? current.wolfCoatIndex
+    : kind === 'monkey'
+      ? current.monkeyCoatIndex
+      : kind === 'parrot'
+        ? current.parrotCoatIndex
+        : current.owlCoatIndex;
 }
 export function getWolfCoatIndex(): number { return getPetCoatIndex('wolf'); }
 export function getMonkeyCoatIndex(): number { return getPetCoatIndex('monkey'); }
 export function getParrotCoatIndex(): number { return getPetCoatIndex('parrot'); }
+export function getOwlCoatIndex(): number { return getPetCoatIndex('owl'); }
 
 export function setPetCoatIndex(kind: PetKind, index: number): number {
   const current = state();
   const owned = hasPet(kind);
-  const nextIndex = kind === 'wolf' ? normalizeWolfCoatIndex(index) : kind === 'monkey' ? normalizeMonkeyCoatIndex(index) : normalizeParrotCoatIndex(index);
-  const currentIndex = kind === 'wolf' ? current.wolfCoatIndex : kind === 'monkey' ? current.monkeyCoatIndex : current.parrotCoatIndex;
+  const nextIndex = kind === 'wolf'
+    ? normalizeWolfCoatIndex(index)
+    : kind === 'monkey'
+      ? normalizeMonkeyCoatIndex(index)
+      : kind === 'parrot'
+        ? normalizeParrotCoatIndex(index)
+        : normalizeOwlCoatIndex(index);
+  const currentIndex = kind === 'wolf'
+    ? current.wolfCoatIndex
+    : kind === 'monkey'
+      ? current.monkeyCoatIndex
+      : kind === 'parrot'
+        ? current.parrotCoatIndex
+        : current.owlCoatIndex;
   if (!owned || currentIndex === nextIndex) return currentIndex;
   const next = kind === 'wolf'
     ? { ...current, wolfCoatIndex: nextIndex }
     : kind === 'monkey'
       ? { ...current, monkeyCoatIndex: nextIndex }
-      : { ...current, parrotCoatIndex: nextIndex };
-  const permanentlyOwnedForKind = kind === 'wolf' ? current.wolfOwned : kind === 'monkey' ? current.monkeyOwned : current.parrotOwned;
+      : kind === 'parrot'
+        ? { ...current, parrotCoatIndex: nextIndex }
+        : { ...current, owlCoatIndex: nextIndex };
+  const permanentlyOwnedForKind = kind === 'wolf'
+    ? current.wolfOwned
+    : kind === 'monkey'
+      ? current.monkeyOwned
+      : kind === 'parrot'
+        ? current.parrotOwned
+        : current.owlOwned;
   if (!permanentlyOwnedForKind) {
     // Developer-shop pets are local-only test grants; keep their appearance local too.
     if (!storageSet(STORAGE_KEY, JSON.stringify(normalizeState(next)))) return currentIndex;
@@ -210,10 +269,21 @@ export function setPetCoatIndex(kind: PetKind, index: number): number {
 export function setWolfCoatIndex(index: number): number { return setPetCoatIndex('wolf', index); }
 export function setMonkeyCoatIndex(index: number): number { return setPetCoatIndex('monkey', index); }
 export function setParrotCoatIndex(index: number): number { return setPetCoatIndex('parrot', index); }
+export function setOwlCoatIndex(index: number): number { return setPetCoatIndex('owl', index); }
 
-function readRemote(value: unknown): { state: PetState; hasWolfCoat: boolean; hasMonkeyCoat: boolean; hasParrotCoat: boolean } | null {
+function readRemote(value: unknown): { state: PetState; hasWolfCoat: boolean; hasMonkeyCoat: boolean; hasParrotCoat: boolean; hasOwlCoat: boolean } | null {
   if (!value || typeof value !== 'object') return null;
-  const raw = value as { owned?: unknown; wolfOwned?: unknown; monkeyOwned?: unknown; parrotOwned?: unknown; wolfCoatIndex?: unknown; monkeyCoatIndex?: unknown; parrotCoatIndex?: unknown };
+  const raw = value as {
+    owned?: unknown;
+    wolfOwned?: unknown;
+    monkeyOwned?: unknown;
+    parrotOwned?: unknown;
+    owlOwned?: unknown;
+    wolfCoatIndex?: unknown;
+    monkeyCoatIndex?: unknown;
+    parrotCoatIndex?: unknown;
+    owlCoatIndex?: unknown;
+  };
   const normalized = normalizeState(raw);
   return {
     state: normalized,
@@ -226,6 +296,9 @@ function readRemote(value: unknown): { state: PetState; hasWolfCoat: boolean; ha
     hasParrotCoat: Number.isInteger(raw.parrotCoatIndex)
       && Number(raw.parrotCoatIndex) >= 0
       && Number(raw.parrotCoatIndex) < PARROT_COATS.length,
+    hasOwlCoat: Number.isInteger(raw.owlCoatIndex)
+      && Number(raw.owlCoatIndex) >= 0
+      && Number(raw.owlCoatIndex) < OWL_COATS.length,
   };
 }
 
@@ -237,10 +310,12 @@ export function applyCloudPetState(value: unknown, stale = false): void {
   const developerOnlyWolf = !local.wolfOwned && !incoming.state.wolfOwned && hasDeveloperPet('wolf');
   const developerOnlyMonkey = !local.monkeyOwned && !incoming.state.monkeyOwned && hasDeveloperPet('monkey');
   const developerOnlyParrot = !local.parrotOwned && !incoming.state.parrotOwned && hasDeveloperPet('parrot');
+  const developerOnlyOwl = !local.owlOwned && !incoming.state.owlOwned && hasDeveloperPet('owl');
   const next: PetState = {
     wolfOwned: local.wolfOwned || incoming.state.wolfOwned,
     monkeyOwned: local.monkeyOwned || incoming.state.monkeyOwned,
     parrotOwned: local.parrotOwned || incoming.state.parrotOwned,
+    owlOwned: local.owlOwned || incoming.state.owlOwned,
     wolfCoatIndex: !stale && incoming.hasWolfCoat && !developerOnlyWolf
       ? incoming.state.wolfCoatIndex
       : local.wolfCoatIndex,
@@ -250,10 +325,13 @@ export function applyCloudPetState(value: unknown, stale = false): void {
     parrotCoatIndex: !stale && incoming.hasParrotCoat && !developerOnlyParrot
       ? incoming.state.parrotCoatIndex
       : local.parrotCoatIndex,
+    owlCoatIndex: !stale && incoming.hasOwlCoat && !developerOnlyOwl
+      ? incoming.state.owlCoatIndex
+      : local.owlCoatIndex,
   };
-  if (next.wolfOwned === local.wolfOwned && next.monkeyOwned === local.monkeyOwned && next.parrotOwned === local.parrotOwned
+  if (next.wolfOwned === local.wolfOwned && next.monkeyOwned === local.monkeyOwned && next.parrotOwned === local.parrotOwned && next.owlOwned === local.owlOwned
     && next.wolfCoatIndex === local.wolfCoatIndex && next.monkeyCoatIndex === local.monkeyCoatIndex
-    && next.parrotCoatIndex === local.parrotCoatIndex) return;
+    && next.parrotCoatIndex === local.parrotCoatIndex && next.owlCoatIndex === local.owlCoatIndex) return;
   const normalized = normalizeState(next);
   if (!storageSet(STORAGE_KEY, JSON.stringify(normalized))) return;
   cached = normalized;

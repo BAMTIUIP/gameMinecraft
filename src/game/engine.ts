@@ -147,21 +147,25 @@ import {
   toolRepairCost,
   toolWearRatio,
 } from './tools';
-import { babyGrowthScale, buildMonkeyCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, buildMonkeyCompanionBody, buildOwlCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
 import {
   MONKEY_COATS,
+  OWL_COATS,
   PARROT_COATS,
   WOLF_COATS,
   getMonkeyCoatIndex,
+  getOwlCoatIndex,
   getParrotCoatIndex,
   getWolfCoatIndex,
   hasMonkeyPet,
+  hasOwlPet,
   hasParrotPet,
   hasWolfPet,
   refreshPetStateFromStorage,
   setMonkeyCoatIndex,
+  setOwlCoatIndex,
   setParrotCoatIndex,
   setWolfCoatIndex,
   getPetInventoryKinds,
@@ -923,6 +927,80 @@ function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
 }
 
 
+function isBirdCompanion(kind: PetKind | null | undefined): boolean {
+  return kind === 'parrot' || kind === 'owl';
+}
+
+/** Dedicated eagle owl companion mesh and six selectable plumages. */
+function buildOwlPetRig(variantIndex: number): WolfPetRig {
+  const owl = buildOwlCompanionBody(variantIndex);
+  const group = new THREE.Group();
+  group.name = 'equipped-owl-pet';
+  group.userData.companion = 'owl-pet';
+  const model = owl.group;
+  model.scale.setScalar(0.64 * owl.modelSize);
+  group.add(model);
+  const body = model.children.find((part) => part.userData.birdBody) ?? null;
+  const tail = model.children.find((part) => part.userData.birdTail) ?? null;
+  return {
+    kind: 'owl',
+    group,
+    model,
+    pose: model,
+    body,
+    head: owl.head,
+    jaw: null,
+    tail,
+    legs: owl.legs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: false,
+    attackTimer: 0.7,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
+  };
+}
+
 /** Use the exact wild-parrot mesh and its shared six-color coat palette for the permanent pet. */
 function buildParrotPetRig(variantIndex: number): WolfPetRig {
   const parrot = buildParrotCompanionBody(variantIndex);
@@ -1545,7 +1623,7 @@ export class Engine {
   private petEquipped = false;
   private petEquippedKind: PetKind | null = null;
   private petSelectedKind: PetKind = 'wolf';
-  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0, parrot: 0 };
+  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0, parrot: 0, owl: 0 };
   private petCoatIndex = 0;
   private stats: Stats = { ...EMPTY_STATS };
   private attackCd = 0;
@@ -5001,13 +5079,14 @@ if (tpClipActive > 0.5) {
     if (hasWolfPet()) this.petOwnedKinds.push('wolf');
     if (hasMonkeyPet()) this.petOwnedKinds.push('monkey');
     if (hasParrotPet()) this.petOwnedKinds.push('parrot');
+    if (hasOwlPet()) this.petOwnedKinds.push('owl');
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = this.petOwned;
     this.petEquipped = false;
     this.petEquippedKind = null;
     this.playerSprinting = false;
     this.petSelectedKind = this.petOwnedKinds[0] ?? 'wolf';
-    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex() };
+    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex(), owl: getOwlCoatIndex() };
     this.petCoatIndex = this.petCoatIndices[this.petSelectedKind];
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
@@ -6203,8 +6282,8 @@ if (tpClipActive > 0.5) {
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
     const parrotCallStationary = Math.hypot(this.vel.x, this.vel.z) <= 0.45 && Math.abs(this.vel.y) <= 0.72;
-    const activeParrot = this.wolfPetRig?.kind === 'parrot' && this.petEquipped && this.wolfPetRig.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
-    this.parrotHandArmBlend += ((activeParrot ? 1 : 0) - this.parrotHandArmBlend) * Math.min(1, dt * 9);
+    const activeBird = isBirdCompanion(this.wolfPetRig?.kind) && this.petEquipped && this.wolfPetRig.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
+    this.parrotHandArmBlend += ((activeBird ? 1 : 0) - this.parrotHandArmBlend) * Math.min(1, dt * 9);
     const firstPersonArmVisible = !this.thirdPerson
       && (this.phase === 'playing' || this.phase === 'paused')
       && this.parrotHandArmBlend > 0.005;
@@ -11557,11 +11636,12 @@ if (tpClipActive > 0.5) {
   private ensurePetRuntimeState(kind: PetKind) {
     if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
     if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
-    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey' || owned === 'parrot'))];
-    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0, parrot: 0 };
+    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey' || owned === 'parrot' || owned === 'owl'))];
+    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0, parrot: 0, owl: 0 };
     if (!Number.isFinite(this.petCoatIndices.parrot)) this.petCoatIndices.parrot = getParrotCoatIndex();
+    if (!Number.isFinite(this.petCoatIndices.owl)) this.petCoatIndices.owl = getOwlCoatIndex();
     if (this.petEquippedKind === undefined) this.petEquippedKind = null;
-    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot' && this.petSelectedKind !== 'owl') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null).length > 0;
   }
@@ -11612,6 +11692,14 @@ if (tpClipActive > 0.5) {
     return this.setPetEquipped('monkey', equipped);
   }
 
+  setParrotPetEquipped(equipped: boolean): boolean {
+    return this.setPetEquipped('parrot', equipped);
+  }
+
+  setOwlPetEquipped(equipped: boolean): boolean {
+    return this.setPetEquipped('owl', equipped);
+  }
+
   /** Select a pet token; while the slot is occupied this also replaces the active species. */
   selectPetKind(kind: PetKind): boolean {
     this.ensurePetRuntimeState(kind);
@@ -11628,17 +11716,31 @@ if (tpClipActive > 0.5) {
   cyclePetCoat(kind: PetKind, direction = 1): boolean {
     this.ensurePetRuntimeState(kind);
     if (!this.petOwnedKinds.includes(kind) || !Number.isFinite(direction) || direction === 0) return false;
-    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : PARROT_COATS;
+    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
     const current = this.petCoatIndices[kind];
     const delta = direction < 0 ? -1 : 1;
     const requested = (current + delta + coats.length) % coats.length;
-    const saved = kind === 'wolf' ? setWolfCoatIndex(requested) : kind === 'monkey' ? setMonkeyCoatIndex(requested) : setParrotCoatIndex(requested);
+    const saved = kind === 'wolf'
+      ? setWolfCoatIndex(requested)
+      : kind === 'monkey'
+        ? setMonkeyCoatIndex(requested)
+        : kind === 'parrot'
+          ? setParrotCoatIndex(requested)
+          : setOwlCoatIndex(requested);
     if (saved === current) return false;
     this.petCoatIndices[kind] = saved;
     if (kind === this.petSelectedKind || kind === this.petEquippedKind) this.petCoatIndex = saved;
     if (this.wolfPetRig?.kind === kind) this.rebuildWolfPetRigForCoat();
     this.syncHud(true);
     return true;
+  }
+
+  cycleOwlPetCoat(direction = 1): boolean {
+    return this.cyclePetCoat('owl', direction);
+  }
+
+  cycleParrotPetCoat(direction = 1): boolean {
+    return this.cyclePetCoat('parrot', direction);
   }
 
   /** Wolf-specific compatibility wrapper. */
@@ -12166,6 +12268,7 @@ if (tpClipActive > 0.5) {
       this.petCoatIndices.wolf,
       this.petCoatIndices.monkey,
       this.petCoatIndices.parrot,
+      this.petCoatIndices.owl,
       this.petCoatIndex,
       this.petInteractionAvailable() ? 1 : 0,
       this.lastCraft ?? '-',
@@ -12565,12 +12668,14 @@ if (tpClipActive > 0.5) {
       ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
       : kind === 'monkey'
         ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
-        : buildParrotPetRig(this.petCoatIndices.parrot);
+        : kind === 'parrot'
+          ? buildParrotPetRig(this.petCoatIndices.parrot)
+          : buildOwlPetRig(this.petCoatIndices.owl);
   }
 
   private createWolfPetRig(kind: PetKind) {
     const rig = this.buildPetRig(kind);
-    if (kind === 'parrot') {
+    if (isBirdCompanion(kind)) {
       rig.group.position.copy(this.parrotShoulderPoint());
       rig.group.rotation.y = this.yaw;
       rig.yawTarget = this.yaw;
@@ -12690,7 +12795,7 @@ if (tpClipActive > 0.5) {
 
   private wolfPetIsNear(radius: number): boolean {
     const rig = this.wolfPetRig;
-    if (!this.petEquipped || !rig || !rig.group.visible || rig.kind === 'parrot') return false;
+    if (!this.petEquipped || !rig || !rig.group.visible || isBirdCompanion(rig.kind)) return false;
     return Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z) <= radius
       && Math.abs(rig.group.position.y - this.pos.y) <= 2.2;
   }
@@ -12698,16 +12803,16 @@ if (tpClipActive > 0.5) {
   private petInteractionAvailable(): boolean {
     const rig = this.wolfPetRig;
     if (!this.petEquipped || !rig || !rig.group.visible) return false;
-    if (rig.kind === 'parrot') {
+    if (isBirdCompanion(rig.kind)) {
       return rig.parrotMode === 'hand' && rig.group.position.distanceTo(this.parrotHandPoint()) <= 0.72;
     }
     return this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE);
   }
 
-  /** B whistle (and the mobile CALL button) brings an equipped parrot onto the outstretched left hand. */
+  /** B whistle (and the mobile CALL button) brings an equipped bird companion onto the outstretched left hand. */
   whistleParrot(): boolean {
     const rig = this.wolfPetRig;
-    if (this.phase !== 'playing' || !this.petEquipped || rig?.kind !== 'parrot') {
+    if (this.phase !== 'playing' || !this.petEquipped || !isBirdCompanion(rig?.kind)) {
       sfx.ui(false);
       return false;
     }
@@ -12716,15 +12821,15 @@ if (tpClipActive > 0.5) {
     rig.parrotIdleTimer = 0;
     rig.parrotAttackTarget = null;
     rig.reaction = null;
-    sfx.creature('bird', { state: 'idle', volume: 0.82, pitch: 1.08 + Math.random() * 0.12 });
-    this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotWhistle'), '#f3d49a', false, { duration: 1.0 });
+    sfx.creature(rig.kind === 'owl' ? 'owl' : 'bird', { state: 'idle', volume: 0.82, pitch: rig.kind === 'owl' ? 0.96 + Math.random() * 0.1 : 1.08 + Math.random() * 0.12 });
+    this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t(rig.kind === 'owl' ? 'petOwlWhistle' : 'petParrotWhistle'), '#f3d49a', false, { duration: 1.0 });
     this.syncHud(true);
     return true;
   }
 
   private interactParrot(): boolean {
     const rig = this.wolfPetRig;
-    if (rig?.kind !== 'parrot' || !this.petInteractionAvailable()) return false;
+    if (!isBirdCompanion(rig?.kind) || !this.petInteractionAvailable()) return false;
     const seeds = this.inventory.get(WHEAT_SEEDS) ?? 0;
     const feedingSeeds = this.hotbar?.[this.selected] === WHEAT_SEEDS;
     if (seeds > 0 && feedingSeeds) {
@@ -12733,13 +12838,13 @@ if (tpClipActive > 0.5) {
       rig.parrotEatTimer = 1.0;
       rig.parrotHappyTimer = 1.1;
       rig.parrotSoundTimer = 0;
-      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotFed'), '#f3d49a', false, { duration: 1.35 });
-      sfx.creature('bird', { state: 'idle', volume: 0.86, pitch: 0.96 + Math.random() * 0.16 });
+      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t(rig.kind === 'owl' ? 'petOwlFed' : 'petParrotFed'), '#f3d49a', false, { duration: 1.35 });
+      sfx.creature(rig.kind === 'owl' ? 'owl' : 'bird', { state: 'idle', volume: 0.86, pitch: rig.kind === 'owl' ? 0.92 + Math.random() * 0.12 : 0.96 + Math.random() * 0.16 });
       this.syncHotbar(true);
     } else {
       rig.parrotHappyTimer = 0.85;
-      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotPetted'), '#f3d49a', false, { duration: 1.2 });
-      sfx.creature('bird', { state: 'idle', volume: 0.82, pitch: 1.08 + Math.random() * 0.16 });
+      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t(rig.kind === 'owl' ? 'petOwlPetted' : 'petParrotPetted'), '#f3d49a', false, { duration: 1.2 });
+      sfx.creature(rig.kind === 'owl' ? 'owl' : 'bird', { state: 'idle', volume: 0.82, pitch: rig.kind === 'owl' ? 0.96 + Math.random() * 0.12 : 1.08 + Math.random() * 0.16 });
     }
     this.syncHud(true);
     return true;
@@ -12747,7 +12852,7 @@ if (tpClipActive > 0.5) {
 
   private petWolf(): boolean {
     const rig = this.wolfPetRig;
-    if (rig?.kind === 'parrot') return this.interactParrot();
+    if (isBirdCompanion(rig?.kind)) return this.interactParrot();
     if (!rig || !this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE)) return false;
     if (rig.kind === 'wolf') {
       const reactions = ['wag', 'bark', 'spin'] as const;
@@ -13781,7 +13886,8 @@ if (tpClipActive > 0.5) {
    */
   private parrotWaterHoverPoint(): THREE.Vector3 {
     const surface = this.wolfPetWaterSurfaceY(this.pos.x, this.pos.z, this.pos.y);
-    const orbitDirection = this.petCoatIndices.parrot % 2 === 0 ? 1 : -1;
+    const coatIndex = this.wolfPetRig?.kind === 'owl' ? this.petCoatIndices.owl : this.petCoatIndices.parrot;
+    const orbitDirection = coatIndex % 2 === 0 ? 1 : -1;
     const orbit = this.time * 0.78 * orbitDirection;
     const radius = 0.58 + Math.sin(this.time * 0.63) * 0.14;
     const bob = Math.sin(this.time * 1.55) * 0.14;
@@ -14013,7 +14119,7 @@ if (tpClipActive > 0.5) {
         target.vz += (target.z - rig.group.position.z) / distance * 1.35;
         if (target.onGround) target.vy = Math.max(target.vy, 1.0);
         this.burst(target.x, target.y + 0.42, target.z, [238, 194, 82], 4, 0.9, 0.5);
-        sfx.creature('bird', { state: 'attack', volume: 0.42, pitch: 0.95 + Math.random() * 0.14 });
+        sfx.creature(rig.kind === 'owl' ? 'owl' : 'bird', { state: 'attack', volume: 0.42, pitch: rig.kind === 'owl' ? 0.9 + Math.random() * 0.12 : 0.95 + Math.random() * 0.14 });
         rig.parrotAttackStage = 'soar';
         rig.parrotStageTimer = 0.62;
         rig.attackPoseTimer = 0.3;
@@ -14198,7 +14304,7 @@ if (tpClipActive > 0.5) {
     rig.parrotEatTimer = Math.max(0, rig.parrotEatTimer - dt);
     rig.parrotSoundTimer = Math.max(0, rig.parrotSoundTimer - dt);
     if (rig.parrotEatTimer > 0 && rig.parrotSoundTimer <= 0) {
-      sfx.creature('bird', { state: 'idle', volume: 0.58, pitch: 1.02 + Math.random() * 0.12 });
+      sfx.creature(rig.kind === 'owl' ? 'owl' : 'bird', { state: 'idle', volume: 0.58, pitch: rig.kind === 'owl' ? 0.95 + Math.random() * 0.1 : 1.02 + Math.random() * 0.12 });
       rig.parrotSoundTimer = 0.36;
     }
 
@@ -14207,31 +14313,65 @@ if (tpClipActive > 0.5) {
     rig.underwater = false;
     rig.phase += dt * (perched ? 2.1 : 13.5);
     rig.attackPoseTimer = Math.max(0, rig.attackPoseTimer - dt);
+
+    const isOwl = rig.kind === 'owl';
+    const diving = rig.parrotMode === 'attack' && rig.parrotAttackStage === 'dive';
+
+    // Dynamic flight flapping rhythms: periodic bursts of energetic wingbeats
+    // alternated with buoyant soaring glides. Over water or in active flight,
+    // flap bursts occur regularly so the bird genuinely flies instead of statically hovering.
+    const flapRate = isOwl ? 11.2 : 14.8;
+    const cyclePeriod = isOwl ? 2.8 : 2.4;
+    const cycleTime = (this.time + (isOwl ? 0.45 : 0)) % cyclePeriod;
+    const waterHover = this.inWater;
+    const activeFlapDuration = diving ? cyclePeriod : waterHover ? cyclePeriod * 0.72 : (rig.moving ? cyclePeriod * 0.62 : cyclePeriod * 0.52);
+
+    let burstWeight = 0;
+    if (cycleTime < activeFlapDuration) {
+      const burstProgress = cycleTime / activeFlapDuration;
+      burstWeight = Math.pow(Math.sin(burstProgress * Math.PI), 0.45);
+    }
+
+    const flapWave = Math.sin(this.time * flapRate);
+    const strokeCenter = isOwl ? 0.52 : 0.56;
+    const flapAmplitude = isOwl ? 0.44 : 0.40;
+    const activeFlapAngle = strokeCenter + flapWave * flapAmplitude;
+    const gentleGlideAngle = (isOwl ? 0.40 : 0.44) + Math.sin(this.time * 2.6) * 0.04;
+    const flightWingAngle = gentleGlideAngle * (1 - burstWeight) + activeFlapAngle * burstWeight;
+
+    const flightBob = (burstWeight * Math.sin(this.time * flapRate - 0.45) * (isOwl ? 0.042 : 0.035))
+      + (1 - burstWeight) * Math.sin(this.time * 2.4) * 0.022;
+
     rig.model.position.y = perched
       ? Math.sin(rig.phase * 1.8) * (rig.parrotHappyTimer > 0 ? 0.045 : 0.018)
-      : Math.sin(rig.phase * 1.65) * 0.035;
-    const diving = rig.parrotMode === 'attack' && rig.parrotAttackStage === 'dive';
+      : flightBob;
+
     rig.model.rotation.x = diving ? -0.55 : rig.moving ? Math.max(-0.22, Math.min(0.22, -(rig.target.y - rig.group.position.y) * 0.12)) : 0;
     if (rig.head) {
       rig.head.rotation.x = rig.parrotEatTimer > 0 ? Math.sin(this.time * 28) * 0.16 : rig.parrotHappyTimer > 0 ? Math.sin(this.time * 12) * 0.1 : 0;
       rig.head.rotation.z = rig.parrotHappyTimer > 0 ? Math.sin(this.time * 10) * 0.08 : 0;
     }
     if (rig.jaw) rig.jaw.rotation.x = rig.parrotEatTimer > 0 ? Math.abs(Math.sin(this.time * 23)) * 0.32 : 0;
-    const flap = 0.58 + Math.sin(rig.phase * 1.6) * 0.18;
+
     const wingPoseBlend = Math.min(1, dt * 10);
     rig.legs.forEach((wing, index) => {
       // Fold both wings down and tuck their span against the body on a perch. They open and flap
-      // again only after takeoff, with blending so neither landing nor launch snaps the wings.
-      const foldedDown = index === 0 ? 1.0 : -1.0;
-      const flying = (index === 0 ? -1 : 1) * flap;
+      // again only after takeoff, with periodic flap bursts and glides in active flight.
+      const foldedDown = index === 0 ? 1.05 : -1.05;
+      const flying = (index === 0 ? -1 : 1) * flightWingAngle;
       const targetWingAngle = perched ? foldedDown : flying;
       const targetWingSpan = perched ? 0.72 : 1;
       wing.rotation.z += (targetWingAngle - wing.rotation.z) * wingPoseBlend;
       wing.scale.x += (targetWingSpan - wing.scale.x) * wingPoseBlend;
+      if (!perched) {
+        wing.rotation.y = (index === 0 ? 0.08 : -0.08) * flapWave * burstWeight;
+      } else {
+        wing.rotation.y = 0;
+      }
     });
     if (rig.tail) {
       rig.tail.rotation.y = Math.sin(rig.phase * (perched ? 3.0 : 1.8)) * (perched ? 0.09 : 0.17);
-      rig.tail.rotation.x = 0.52 + (diving ? -0.18 : 0);
+      rig.tail.rotation.x = (0.50 + (burstWeight * flapWave * 0.1)) + (diving ? -0.18 : 0);
     }
 
     if (rig.parrotMode === 'hand' && rig.group.position.distanceTo(this.parrotHandPoint()) < 0.9) {
@@ -14251,9 +14391,9 @@ if (tpClipActive > 0.5) {
     if (!drop || !drop.active || !drop.petCarried) return;
     const forwardX = -Math.sin(rig.group.rotation.y);
     const forwardZ = -Math.cos(rig.group.rotation.y);
-    const offset = rig.kind === 'parrot' ? 0.18 : 0.38;
+    const offset = isBirdCompanion(rig.kind) ? 0.18 : 0.38;
     drop.x = rig.group.position.x + forwardX * offset;
-    drop.y = rig.group.position.y + (rig.kind === 'parrot' ? 0.56 : 0.76);
+    drop.y = rig.group.position.y + (isBirdCompanion(rig.kind) ? 0.56 : 0.76);
     drop.z = rig.group.position.z + forwardZ * offset;
     drop.vx = drop.vy = drop.vz = 0;
   }
@@ -14271,7 +14411,7 @@ if (tpClipActive > 0.5) {
     }
 
     rig.group.visible = true;
-    if (rig.kind === 'parrot') {
+    if (isBirdCompanion(rig.kind)) {
       this.updateParrotPet(rig, dt);
       return;
     }

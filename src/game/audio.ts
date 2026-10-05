@@ -436,7 +436,7 @@ export function requestMusic() {
    ======================================================================= */
 
 export type CreatureVoice =
-  | 'cow' | 'pig' | 'sheep' | 'chicken' | 'bird' | 'bee' | 'cat' | 'wolf' | 'deer' | 'moose'
+  | 'cow' | 'pig' | 'sheep' | 'chicken' | 'bird' | 'owl' | 'bee' | 'cat' | 'wolf' | 'deer' | 'moose'
   | 'camel' | 'monkey' | 'frog' | 'lizard' | 'rabbit' | 'hedgehog' | 'crab' | 'turtle'
   | 'fish' | 'jellyfish' | 'rustle'
   | 'zombie' | 'skeleton' | 'spider' | 'creeper' | 'trader';
@@ -503,6 +503,37 @@ const VOICES: Record<CreatureVoice, (c: VoiceCtx) => void> = {
         type: 'sine', vol: 0.09 * V, attack: 0.008 });
     }
     noiseTo(c.dest, c.t0, { dur: 0.05, vol: 0.02 * V, freq: 5200, q: 3 });
+  },
+  // Resonant, deep double hoot "Hoo-hoo... Hoo" with warm sine/triangle harmonics
+  owl: (c) => {
+    const P = c.pitch, V = c.vol;
+    for (const [d, f, dur] of [[0, 1, 0.16], [0.18, 0.94, 0.28]] as const) {
+      toneTo(c.dest, c.t0 + d, {
+        freq: 380 * P * f,
+        slideTo: 340 * P * f,
+        dur: dur * c.dur,
+        type: 'sine',
+        vol: 0.14 * V,
+        attack: 0.02,
+        vibrato: { rate: 6, depth: 4 * P },
+      });
+      toneTo(c.dest, c.t0 + d, {
+        freq: 760 * P * f,
+        slideTo: 680 * P * f,
+        dur: dur * c.dur * 0.7,
+        type: 'triangle',
+        vol: 0.04 * V,
+        attack: 0.03,
+      });
+      noiseTo(c.dest, c.t0 + d, {
+        dur: 0.08 * c.dur,
+        vol: 0.025 * V,
+        freq: 1200 * P,
+        q: 2.5,
+        type: 'bandpass',
+        sweepTo: 600 * P,
+      });
+    }
   },
   bee: (c) => {
     const P = c.pitch, V = c.vol;

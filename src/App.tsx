@@ -48,7 +48,7 @@ import { completePendingShopRewards, pendingShopProductRewards } from './game/sh
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
-import { hasMonkeyPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
+import { hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -161,7 +161,7 @@ const INITIAL_HUD: HudState = {
   petEquipped: false,
   petEquippedKind: null,
   petSelectedKind: 'wolf',
-  petCoatIndices: { wolf: 0, monkey: 0, parrot: 0 },
+  petCoatIndices: { wolf: 0, monkey: 0, parrot: 0, owl: 0 },
   petCoatIndex: 0,
   petInteractNear: false,
   stats: EMPTY_STATS,
@@ -222,10 +222,12 @@ export default function App() {
   const [wolfPetOwned, setWolfPetOwned] = useState(() => hasWolfPet());
   const [monkeyPetOwned, setMonkeyPetOwned] = useState(() => hasMonkeyPet());
   const [parrotPetOwned, setParrotPetOwned] = useState(() => hasParrotPet());
+  const [owlPetOwned, setOwlPetOwned] = useState(() => hasOwlPet());
   const refreshPetOwnership = useCallback(() => {
     setWolfPetOwned(hasWolfPet());
     setMonkeyPetOwned(hasMonkeyPet());
     setParrotPetOwned(hasParrotPet());
+    setOwlPetOwned(hasOwlPet());
   }, []);
   const [adFreeBusy, setAdFreeBusy] = useState(false);
   const [adFreeNotice, setAdFreeNotice] = useState<string | null>(null);
@@ -972,7 +974,7 @@ export default function App() {
         <TouchControls
           engine={engine}
           petInteractNear={hud.petInteractNear}
-          parrotEquipped={hud.petEquippedKind === 'parrot'}
+          parrotEquipped={hud.petEquippedKind === 'parrot' || hud.petEquippedKind === 'owl'}
           thirdPerson={!!hud.thirdPerson}
           crouching={hud.crouching}
           crawling={hud.crawling}
@@ -1009,6 +1011,7 @@ export default function App() {
           wolfPetOwned={wolfPetOwned}
           monkeyPetOwned={monkeyPetOwned}
           parrotPetOwned={parrotPetOwned}
+          owlPetOwned={owlPetOwned}
           onOpenShop={refreshShopCatalog}
           paymentsAvailable={canPay}
           adFreeOwned={adFreeOwned}
