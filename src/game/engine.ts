@@ -14193,11 +14193,14 @@ if (tpClipActive > 0.5) {
     const flap = 0.58 + Math.sin(rig.phase * 1.6) * 0.18;
     const wingPoseBlend = Math.min(1, dt * 10);
     rig.legs.forEach((wing, index) => {
-      // Fold both wings down against the body on a perch; only spread and flap while airborne.
-      const foldedDown = index === 0 ? 0.42 : -0.42;
+      // Fold both wings down and tuck their span against the body on a perch. They open and flap
+      // again only after takeoff, with blending so neither landing nor launch snaps the wings.
+      const foldedDown = index === 0 ? 1.0 : -1.0;
       const flying = (index === 0 ? -1 : 1) * flap;
       const targetWingAngle = perched ? foldedDown : flying;
+      const targetWingSpan = perched ? 0.72 : 1;
       wing.rotation.z += (targetWingAngle - wing.rotation.z) * wingPoseBlend;
+      wing.scale.x += (targetWingSpan - wing.scale.x) * wingPoseBlend;
     });
     if (rig.tail) {
       rig.tail.rotation.y = Math.sin(rig.phase * (perched ? 3.0 : 1.8)) * (perched ? 0.09 : 0.17);

@@ -153,7 +153,7 @@ try {
     ok(engine.parrotFollowPoint().y > engine.pos.y + 2.45, 'Free follow flight keeps the parrot higher above the player');
     engine.updateParrotPet(rig, 0.4);
     ok(rig.parrotMode === 'shoulder' && !rig.swimming, 'An idle parrot perches on the shoulder and never enters swimming state');
-    ok(rig.legs[0].rotation.z > 0 && rig.legs[1].rotation.z < 0, 'A shoulder-perched parrot folds its wings down');
+    ok(rig.legs[0].rotation.z > 0.9 && rig.legs[1].rotation.z < -0.9 && rig.legs[0].scale.x < 0.8 && rig.legs[1].scale.x < 0.8, 'A shoulder-perched parrot lowers and tucks its wings against its body');
     ok(rig.yawTarget === engine.yaw, 'A shoulder-perched parrot faces the same direction as the player');
 
     // A two-block cave leaves too little room for the bird's wings, so it stays perched.
@@ -197,7 +197,7 @@ try {
     const leftHand = engine.parrotHandPoint();
     ok(leftHand.x < 0 && leftHand.z < -0.6, 'The whistle perch is extended forward from the character’s left hand');
     ok(rig.parrotMode === 'hand' && engine.petInteractionAvailable(), 'After the whistle the parrot settles on the left fingertips and becomes interactable');
-    ok(rig.legs[0].rotation.z > 0 && rig.legs[1].rotation.z < 0, 'A hand-perched parrot folds its wings down while resting');
+    ok(rig.legs[0].rotation.z > 0.9 && rig.legs[1].rotation.z < -0.9 && rig.legs[0].scale.x < 0.8 && rig.legs[1].scale.x < 0.8, 'A hand-perched parrot lowers and tucks its wings against its body');
     ok(Math.abs(rig.yawTarget - engine.parrotFacingPlayerYaw(rig.group.position)) < 0.001, 'The hand-perched bird turns to face the player');
 
     engine.inventory.set(WHEAT_SEEDS, 2);
@@ -245,7 +245,7 @@ try {
     ok(engine.parrotHandArmBlend < 0.2 && firstPersonArm.visible, 'The first-person left arm smoothly begins retracting as soon as the player walks');
     engine.updateParrotPet(rig, 0.1);
     ok(!rig.parrotCalled && rig.parrotMode === 'follow' && rig.moving, 'Walking ends the hand perch and makes the parrot take off');
-    ok(rig.legs[0].rotation.z < 0 && rig.legs[1].rotation.z > 0, 'The parrot spreads its wings again when it becomes airborne');
+    ok(rig.legs[0].rotation.z < 0 && rig.legs[1].rotation.z > 0 && rig.legs[0].scale.x > 0.95 && rig.legs[1].scale.x > 0.95, 'The parrot spreads its wings again when it becomes airborne');
     engine.updatePlayerAvatar(0.1);
     engine.updatePlayerAvatar(0.1);
     ok(!firstPersonArm.visible, 'The first-person arm view fades out after it returns to rest');
