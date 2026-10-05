@@ -16,6 +16,7 @@
  *   6. auto-detection follows the documented reserve sets: `ru` for be/kk/uk/uz, `en` otherwise.
  */
 
+import { GAME_NAME, GAME_NAME_LINES } from '../../src/game/brand';
 import { BLOCKS } from '../../src/game/blocks';
 import { MOBS } from '../../src/game/mobs';
 import { RECIPES } from '../../src/game/recipes';
@@ -132,6 +133,29 @@ for (const lang of LANGS_CHECKED) {
   setLang('en');
   ok(toolLabelForId(9999) === toolLabelForId(9998), 'Любой неизвестный id даёт одну и ту же подпись', `${toolLabelForId(9999)} vs ${toolLabelForId(9998)}`);
   ok(toolLabelForId(202) === t('handTorch'), 'id 202 — ручной факел, а не «неизвестный инструмент»', toolLabelForId(202));
+}
+
+/* ---------------- 1c. the game's name is the same everywhere (5.1.3) ---------------- */
+
+/**
+ * Requirement 5.1.3: the name has to be identical in the game and in every draft material, in every
+ * declared language. A translator who «improves» it in one dictionary, or a tagline that replaces the
+ * name instead of following it, is a rejection. Only the tagline after the name may be translated.
+ */
+{
+  ok(GAME_NAME_LINES.join(' ') === GAME_NAME, 'Логотип меню складывается в название игры', GAME_NAME_LINES.join(' '));
+  for (const lang of ['en', ...LANGS_CHECKED] as Lang[]) {
+    const dict = dictFor(lang);
+    const title = String(dict.docTitle ?? '');
+    ok(title.startsWith(`${GAME_NAME} `), `Заголовок страницы на ${lang} начинается с названия игры`, title);
+    ok(title.length > GAME_NAME.length, `После названия на ${lang} идёт переведённая подпись жанра`, title);
+    const share = String(dict.shareTemplate ?? '');
+    ok(share.includes(GAME_NAME), `Текст «поделиться» на ${lang} содержит точное название игры`, share);
+  }
+  // the shell's <title> is what a player sees before the dictionaries load: it must carry the same name
+  const shell = readFileSync('index.html', 'utf8');
+  const shellTitle = /<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '';
+  ok(shellTitle.startsWith(`${GAME_NAME} `), 'index.html объявляет то же название игры', shellTitle);
 }
 
 /* ------------------------ 2. values and placeholders ----------------------- */
