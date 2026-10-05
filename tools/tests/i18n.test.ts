@@ -193,6 +193,46 @@ for (const lang of LANGS_CHECKED) {
   ok(english.length === 0, 'В русском словаре нет непереведённых английских надписей (п. 8.2.3)', english.slice(0, 12).join(', '));
 }
 
+/* --------- 1e. no erotica and no insults in any language (8.3.5) --------- */
+
+/**
+ * Requirement 8.3.5 (https://yandex.ru/dev/games/doc/ru/requirements/8/3/5): neither the game nor its
+ * materials may carry erotic content, objects imitating genitals, calls to undress, or anything
+ * insulting a person or a group by sex, nationality or religion. The texts of the game are the only
+ * part of that this repository owns, so every dictionary is scanned for it.
+ *
+ * The list is deliberately short and unambiguous — whole words only, no substrings. A substring search
+ * is useless here: German «Bruststück» (a piece of armour) contains «brust», French «ci-dessous»
+ * contains «dessous», and English «Striped» contains «strip». Anything vague enough to need a human
+ * judgement is left to the manual check described in the README.
+ */
+{
+  const FORBIDDEN = [
+    // explicit / erotic
+    'porn', 'erotic', 'erotik', 'nude', 'nackt', 'naked', 'lingerie', 'dessous', 'strip', 'breast',
+    'brust', 'poitrine', 'buttock', 'genital', 'penis', 'vagina', 'orgasm', 'masturbat', 'fetish',
+    'sexy', 'seduction', 'topless', 'nsfw', 'sex', 'adult', '18+',
+    'секс', 'эротик', 'порно', 'нюд', 'голый', 'голая', 'огол', 'раздева', 'раздень', 'разделся',
+    'белье', 'интим', 'взросл',
+    // insults by sex, nationality or religion
+    'жид', 'хач', 'чурк', 'нацист', 'фашист', 'расист',
+    'nigger', 'faggot', 'retard', 'bitch', 'whore', 'slut',
+  ];
+  const boundary = (word) =>
+    new RegExp(`(?<![A-Za-zÀ-ÿА-Яа-я0-9-])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-zÀ-ÿА-Яа-я0-9-])`, 'i');
+  const found: string[] = [];
+  for (const lang of ['en', ...LANGS_CHECKED] as Lang[]) {
+    const dict = dictFor(lang);
+    for (const key of Object.keys(dict)) {
+      const value = String(dict[key] ?? '');
+      for (const word of FORBIDDEN) {
+        if (boundary(word).test(value)) found.push(`${lang}:${key}: ${word}`);
+      }
+    }
+  }
+  ok(found.length === 0, 'Ни в одном словаре нет эротики и оскорблений (п. 8.3.5)', found.slice(0, 12).join(', '));
+}
+
 /* ------------------------ 2. values and placeholders ----------------------- */
 
 const placeholders = (value: string) => [...value.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => m[1]).sort().join(',');
