@@ -233,6 +233,41 @@ for (const lang of LANGS_CHECKED) {
   ok(found.length === 0, 'Ни в одном словаре нет эротики и оскорблений (п. 8.3.5)', found.slice(0, 12).join(', '));
 }
 
+/* ------- 1f. no toilet or otherwise unpleasant content (8.3.6) ------- */
+
+/**
+ * Requirement 8.3.6 (https://yandex.ru/dev/games/doc/ru/requirements/8/3/6): the media materials must
+ * be safe for every age, and a game whose materials focus on toilet content, scary characters or blood
+ * is taken down. The texts are the part of that this repository owns.
+ *
+ * Whole words only, and «pet» is deliberately absent from the English list: the game sells animal
+ * companions, and a substring or over-eager root would flag the shop.
+ */
+{
+  const UNPLEASANT = [
+    // toilet content — the documentation names faeces, the processes, the attributes and the words
+    'какашк', 'фекал', 'мочеиспус', 'дефека', 'унитаз', 'скибиди', 'пука', 'пердел', 'говн', 'дерьм',
+    'подгузн', 'сперм', 'рвот', 'блеват',
+    'poop', 'feces', 'fecal', 'urine', 'urination', 'defecat', 'toilet', 'skibidi', 'fart', 'diaper',
+    'sperm', 'vomit', 'puke', 'sewage',
+    'caca', 'crotte', 'pipi', 'prout', 'toilette', 'vomi',
+    'kacke', 'kot', 'scheiss', 'urin', 'furz', 'windel', 'kotze', 'erbrochen', 'klo',
+  ];
+  const boundary = (word) =>
+    new RegExp(`(?<![A-Za-zÀ-ÿА-Яа-я0-9-])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-zÀ-ÿА-Яа-я0-9-])`, 'i');
+  const found: string[] = [];
+  for (const lang of ['en', ...LANGS_CHECKED] as Lang[]) {
+    const dict = dictFor(lang);
+    for (const key of Object.keys(dict)) {
+      const value = String(dict[key] ?? '');
+      for (const word of UNPLEASANT) {
+        if (boundary(word).test(value)) found.push(`${lang}:${key}: ${word}`);
+      }
+    }
+  }
+  ok(found.length === 0, 'Ни в одном словаре нет туалетной и неприятной лексики (п. 8.3.6)', found.slice(0, 12).join(', '));
+}
+
 /* ------------------------ 2. values and placeholders ----------------------- */
 
 const placeholders = (value: string) => [...value.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => m[1]).sort().join(',');
