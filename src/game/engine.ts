@@ -3640,6 +3640,7 @@ if (tpClipActive > 0.5) {
   private activeStreamKey: number | null = null;
 
   private markDirtyAt(x: number, z: number) {
+    this.worldChangedAt = performance.now();
     const cx = Math.floor(x / CHUNK);
     const cz = Math.floor(z / CHUNK);
     const lx = x - cx * CHUNK;
@@ -4492,6 +4493,8 @@ if (tpClipActive > 0.5) {
   sandbox = false;
   private endlessRun = false;
   private static SAVE_KEY = 'orerush.myworld.v1';
+  /** How long after the last terrain edit the sandbox is written to storage (requirement 1.9). */
+  private static WORLD_AUTOSAVE_DELAY = 1_500;
 
   static hasSavedWorld(): boolean {
     try {
@@ -4528,7 +4531,20 @@ if (tpClipActive > 0.5) {
    * automatic save taken when the page is being hidden or left (requirement 1.9: a refresh must not
    * lose the built world) — it keeps quiet, because the player is no longer looking at the game.
    */
+  /**
+   * Requirement 1.9: «прогресс сохраняется сразу после действия игрока». Mining and building are the
+   * player's actions in a sandbox, so the world is stored a moment after the last edit instead of
+   * waiting for the page to be hidden — a killed tab or a crashed browser must not undo the shift.
+   */
+  private worldChangedAt = 0;
+
+  /** Is the sandbox due for its delayed autosave? (requirement 1.9) */
+  private worldAutosaveDue(now: number): boolean {
+    return this.sandbox === true && this.worldChangedAt > 0 && now - this.worldChangedAt > Engine.WORLD_AUTOSAVE_DELAY;
+  }
+
   saveWorld(silent = false): boolean {
+    this.worldChangedAt = 0;
     try {
       const chunks: Array<[number, number, number[], number[]]> = [];
       for (const [key, ch] of this.world.chunks) {
@@ -5257,6 +5273,10 @@ if (tpClipActive > 0.5) {
     if (dt <= 0) dt = 1 / 60;
     this.time += dt;
     this.frameNo++;
+
+    // Store the sandbox shortly after the player stops editing it (requirement 1.9). Silent: the
+    // player is still building, and a banner over the crosshair would only be in the way.
+    if (this.worldAutosaveDue(t)) this.saveWorld(true);
 
     // Track real frame gaps for quality decisions; keep simulation dt capped after stalls.
     this.fpsAcc += Math.min(elapsed, 0.5);
