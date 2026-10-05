@@ -587,7 +587,7 @@ export const RECIPES: Recipe[] = [
   {
     key: 'bed',
     name: 'BED',
-    desc: 'Minecraft classic: 3 wool + 3 planks · E at night to sleep',
+    desc: '3 wool + 3 planks · Explorer mode only: press E at night to sleep',
     inputs: [
       [PLANKS, 3],
       [WOOL, 3],

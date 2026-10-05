@@ -167,12 +167,18 @@ import {
 } from './pets';
 import { companionSpawnIsClear } from './companionSpawn';
 import {
+  canSleepInMode,
   canSpawnSurvivalHostiles,
   FIRST_SURVIVAL_DAY_SECONDS,
+  isPermanentSurvivalNight,
+  SURVIVAL_DAWN_SECONDS,
   SURVIVAL_DAY_SECONDS,
+  SURVIVAL_DUSK_SECONDS,
+  SURVIVAL_NIGHT_SECONDS,
   survivalHostileCap,
   survivalHostileDamageScale,
   survivalHostileHpScale,
+  survivalPhaseSeconds,
   survivalThreatLevel,
 } from './survival';
 import {
@@ -509,9 +515,6 @@ const CLOCK_NIGHT_START = 0.88;
 const MENU_SURVIVAL_CLOCK = 0.04;
 const MENU_EXPLORER_CLOCK = 0.48;
 const SURVIVAL_START_CLOCK = CLOCK_DAY_START + 0.01;
-const DAWN_SECONDS = 95;
-const DUSK_SECONDS = 95;
-const NIGHT_SECONDS = 95;
 
 type PopupAnchor = 'world' | 'crosshair';
 type PopupOptions = { anchor?: PopupAnchor; duration?: number; screenRiseSpeed?: number };
@@ -7260,10 +7263,11 @@ if (tpClipActive > 0.5) {
       this.openChestAt(tg.x, tg.y, tg.z, tg.id);
       return true;
     }
-    // bed → sleep through the night
+    // Beds may skip the night in Explorer mode, but Survival must play every night through.
     if (tg && tg.id === BED) {
-      if (this.daylight > 0.5) {
-        this.popup(tg.x + 0.5, tg.y + 1.2, tg.z + 0.5, t('sleepOnlyNight'), '#a8c0ff');
+      if (!canSleepInMode(this.survival, this.daylight)) {
+        const message = this.survival ? t('sleepSurvivalDisabled') : t('sleepOnlyNight');
+        this.popup(tg.x + 0.5, tg.y + 1.2, tg.z + 0.5, message, '#a8c0ff');
         sfx.ui(false);
       } else if (!this.sleeping) {
         this.sleeping = true;
@@ -9914,6 +9918,7 @@ if (tpClipActive > 0.5) {
   // ================= DAY / NIGHT =================
   /** 0 = midnight, 0.5 = noon */
   private clockPhase(clock = this.clock): HudState['phaseName'] {
+    if (this.survival && isPermanentSurvivalNight(this.survivalNight)) return 'night';
     if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return 'dawn';
     if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return 'day';
     if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return 'dusk';
@@ -9921,6 +9926,11 @@ if (tpClipActive > 0.5) {
   }
 
   private clockPhaseProgress(clock = this.clock) {
+    if (this.survival && isPermanentSurvivalNight(this.survivalNight)) {
+      const nightSpan = 1 - CLOCK_NIGHT_START + CLOCK_DAWN_START;
+      const nightProgress = ((clock - CLOCK_NIGHT_START + 1) % 1) / nightSpan;
+      return Math.max(0, Math.min(1, nightProgress));
+    }
     if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return (clock - CLOCK_DAWN_START) / (CLOCK_DAY_START - CLOCK_DAWN_START);
     if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return (clock - CLOCK_DAY_START) / (CLOCK_DUSK_START - CLOCK_DAY_START);
     if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return (clock - CLOCK_DUSK_START) / (CLOCK_NIGHT_START - CLOCK_DUSK_START);
@@ -9929,10 +9939,14 @@ if (tpClipActive > 0.5) {
   }
 
   private phaseSeconds(phase: HudState['phaseName']) {
-    if (phase === 'dawn') return DAWN_SECONDS;
+    if (this.survival) {
+      if (phase === 'day' && this.firstSurvivalDay) return FIRST_SURVIVAL_DAY_SECONDS;
+      return survivalPhaseSeconds(phase, this.survivalNight);
+    }
+    if (phase === 'dawn') return SURVIVAL_DAWN_SECONDS;
     if (phase === 'day') return this.firstSurvivalDay ? FIRST_SURVIVAL_DAY_SECONDS : SURVIVAL_DAY_SECONDS;
-    if (phase === 'dusk') return DUSK_SECONDS;
-    return NIGHT_SECONDS;
+    if (phase === 'dusk') return SURVIVAL_DUSK_SECONDS;
+    return SURVIVAL_NIGHT_SECONDS;
   }
 
   private phaseSpan(phase: HudState['phaseName']) {
@@ -9990,7 +10004,16 @@ if (tpClipActive > 0.5) {
   }
 
   private updateClock(dt: number) {
-    if (dt > 0) {
+    if (this.survival && isPermanentSurvivalNight(this.survivalNight)) {
+      // Keep the celestial clock on the dark arc even when loading an older save
+      // whose saved time happened to be daytime when the permanent-night threshold is reached.
+      const nightStart = CLOCK_NIGHT_START;
+      const nightSpan = 1 - CLOCK_NIGHT_START + CLOCK_DAWN_START;
+      let nightProgress = (this.clock - nightStart + 1) % 1;
+      if (nightProgress > nightSpan) nightProgress = 0;
+      if (dt > 0) nightProgress = (nightProgress + (dt * nightSpan) / this.phaseSeconds('night')) % nightSpan;
+      this.clock = (nightStart + nightProgress) % 1;
+    } else if (dt > 0) {
       const phase = this.clockPhase();
       this.clock = (this.clock + (dt * this.phaseSpan(phase)) / this.phaseSeconds(phase)) % 1;
     }
