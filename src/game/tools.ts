@@ -22,6 +22,7 @@ export type ToolMaterial = {
   axeDamage: number;
   shovelDamage: number;
   hoeDamage: number;
+  /** Projectile damage for arrows fired by this bow; melee hits still use fist damage. */
   bowDamage: number;
 };
 
@@ -30,32 +31,32 @@ export const TOOL_MATERIALS: readonly ToolMaterial[] = [
   {
     key: 'wood', durability: 55, speed: 1.0,
     head: '#7a472b', edge: '#b8733d', accent: '#8f542c', handle: '#5a321f',
-    repairResource: PLANKS, pickDamage: 3.5, swordDamage: 7, axeDamage: 8, shovelDamage: 3.5, hoeDamage: 3.2, bowDamage: 5,
+    repairResource: PLANKS, pickDamage: 2, swordDamage: 4, axeDamage: 7, shovelDamage: 2.5, hoeDamage: 1, bowDamage: 6,
   },
   {
     key: 'stone', durability: 105, speed: 1.4,
     head: '#59636a', edge: '#aeb9c0', accent: '#c9e0dc', handle: '#65462b',
-    repairResource: COBBLE, pickDamage: 4.4, swordDamage: 9, axeDamage: 10, shovelDamage: 4.4, hoeDamage: 4, bowDamage: 6.8,
+    repairResource: COBBLE, pickDamage: 3, swordDamage: 5, axeDamage: 9, shovelDamage: 3.5, hoeDamage: 1, bowDamage: 6.5,
   },
   {
     key: 'iron', durability: 230, speed: 1.9,
     head: '#8f9ca2', edge: '#e0e5dc', accent: '#f3bb7a', handle: '#5a3c25',
-    repairResource: IRON, pickDamage: 5.5, swordDamage: 11.5, axeDamage: 12.5, shovelDamage: 5.2, hoeDamage: 4.8, bowDamage: 8.5,
+    repairResource: IRON, pickDamage: 4, swordDamage: 6, axeDamage: 9, shovelDamage: 4.5, hoeDamage: 1, bowDamage: 7.2,
   },
   {
     key: 'gold', durability: 42, speed: 2.25,
     head: '#a65d12', edge: '#f5c548', accent: '#fff0a0', handle: '#54351d',
-    repairResource: GOLD, pickDamage: 4.8, swordDamage: 10, axeDamage: 11, shovelDamage: 4.8, hoeDamage: 4.6, bowDamage: 7.8,
+    repairResource: GOLD, pickDamage: 2, swordDamage: 4, axeDamage: 7, shovelDamage: 2.5, hoeDamage: 1, bowDamage: 6.8,
   },
   {
     key: 'diamond', durability: 480, speed: 2.65,
     head: '#087e8a', edge: '#51e1d2', accent: '#c4fff3', handle: '#4b3829',
-    repairResource: DIAMOND, pickDamage: 7.2, swordDamage: 14.5, axeDamage: 15, shovelDamage: 6.5, hoeDamage: 6, bowDamage: 11,
+    repairResource: DIAMOND, pickDamage: 5, swordDamage: 7, axeDamage: 9, shovelDamage: 5.5, hoeDamage: 1, bowDamage: 8.4,
   },
   {
     key: 'netherite', durability: 0, speed: 3.0,
     head: '#29282d', edge: '#68515a', accent: '#ff7045', handle: '#35251f',
-    repairResource: null, pickDamage: 8.4, swordDamage: 17.5, axeDamage: 18, shovelDamage: 7.3, hoeDamage: 6.8, bowDamage: 13,
+    repairResource: null, pickDamage: 6, swordDamage: 8, axeDamage: 10, shovelDamage: 6.5, hoeDamage: 1, bowDamage: 9,
   },
 ] as const;
 
@@ -94,7 +95,7 @@ function makeSpec(id: number, kind: ToolKind, tier: number): ToolSpec {
     kind === 'sword' ? material.swordDamage :
     kind === 'axe' ? material.axeDamage :
     kind === 'shovel' ? material.shovelDamage :
-    kind === 'hoe' ? material.hoeDamage : material.bowDamage;
+    kind === 'hoe' ? material.hoeDamage : 1;
   return { ...material, id, kind, tier, maxDurability: material.durability, attackDamage };
 }
 
@@ -143,10 +144,16 @@ export function toolIdFor(kind: Exclude<ToolKind, 'bow'>, tier: number): number 
   return ids[Math.max(0, Math.min(ids.length - 1, tier))];
 }
 
-/** Condition stage used by both pixel art and the 3D mesh. */
-export function toolWearStage(current: number, max: number): number {
+/** Continuous normalized wear used to deform held and dropped 3D models. */
+export function toolWearRatio(current: number, max: number): number {
   if (max <= 0) return 0;
-  const ratio = Math.max(0, Math.min(1, current / max));
+  const safeCurrent = Number.isFinite(current) ? current : max;
+  return 1 - Math.max(0, Math.min(1, safeCurrent / max));
+}
+
+/** Condition stage used by compact pixel-art icons. */
+export function toolWearStage(current: number, max: number): number {
+  const ratio = 1 - toolWearRatio(current, max);
   if (ratio > 0.72) return 0;
   if (ratio > 0.44) return 1;
   if (ratio > 0.2) return 2;

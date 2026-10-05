@@ -18,6 +18,7 @@ import {
   MEAT_SIZES,
   MEAT_ITEM_IDS,
   isMeatItem,
+  isArrowId,
   TURTLE_SHELL,
   WOOL,
   FLOWER_BLUE,
@@ -170,8 +171,8 @@ export type Recipe = {
 
 /** bare hand pseudo-item: always occupies hotbar slot 1 */
 export const HAND = -1;
-/** hotbar ids above this range are tools, not placeable blocks */
-export const isToolId = (id: number) => id >= 200;
+/** The 200+ tool-ID space excludes stackable arrows and relocated meat portions. */
+export const isToolId = (id: number) => id >= 200 && !isArrowId(id) && !isMeatItem(id);
 
 const MATERIAL_ITEMS = [PLANKS, COBBLE, IRON, GOLD, DIAMOND, NETHERITE_INGOT] as const;
 
@@ -586,7 +587,7 @@ export const RECIPES: Recipe[] = [
   {
     key: 'bed',
     name: 'BED',
-    desc: 'Minecraft classic: 3 wool + 3 planks · E at night to sleep',
+    desc: '3 wool + 3 planks · Explorer mode only: press E at night to sleep',
     inputs: [
       [PLANKS, 3],
       [WOOL, 3],
@@ -1007,9 +1008,10 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets'
  * - 'blocks': building blocks & raw materials
  */
 export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
+  if (isArrowId(id)) return 'tools';
   if (id >= 300) return 'armor';
-  // Food must win before the numeric tool/arrow range: cooked meat ids are
-  // generated dynamically and can overlap the high item range.
+  // Meat IDs are table-backed because portions that collided with legacy arrow
+  // IDs are relocated after the durable-tool range.
   if (
     isMeatItem(id) ||
     id === APPLE ||

@@ -13,7 +13,7 @@ import {
   getSalvageForGear,
   type InvCategory,
 } from '../game/recipes';
-import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW } from '../game/blocks';
+import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW, isArrowId, isMeatItem } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
@@ -21,10 +21,13 @@ import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../g
 import { meatItemLabel } from '../game/food';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
-import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
+import { MONKEY_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { MonkeyIcon } from './MonkeyIcon';
+import { ParrotIcon } from './ParrotIcon';
 import { WolfIcon } from './WolfIcon';
 import { GearIcon } from './GearIcon';
+import ItemInfoPopup from './ItemInfoPopup';
+import { getGearDetails, getItemDetails, getPetDetails, type ItemDetails } from '../game/itemDetails';
 
 // ---------- helpers ----------
 
@@ -139,6 +142,22 @@ export default function Inventory({
   const [invCat, setInvCat] = useState<InvCategory>('all');
   const [gearTab, setGearTab] = useState<'all' | Slot>('all');
   const [wbTarget, setWbTarget] = useState<WorkbenchTarget>(null);
+  const [hoveredDetails, setHoveredDetails] = useState<ItemDetails | null>(null);
+  const [pinnedDetails, setPinnedDetails] = useState<ItemDetails | null>(null);
+  const activeDetails = hoveredDetails ?? pinnedDetails;
+  const detailsPinned = hoveredDetails === null && pinnedDetails !== null;
+  const itemDetails = (id: number, context: { count?: number; durability?: number; maxDurability?: number } = {}) =>
+    getItemDetails(id, { damage: st.damage, swift: st.swift, ...context });
+  const inspectProps = (details: ItemDetails) => ({
+    onMouseEnter: () => setHoveredDetails(details),
+    onMouseLeave: () => setHoveredDetails(null),
+    onFocus: () => setHoveredDetails(details),
+    onBlur: () => setHoveredDetails(null),
+  });
+  const pinDetails = (details: ItemDetails) => {
+    setHoveredDetails(null);
+    setPinnedDetails(details);
+  };
 
   const shownRecipes = RECIPES.filter((r) => r.group === tab);
 
@@ -271,21 +290,25 @@ export default function Inventory({
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
                 {filteredPets.map((kind) => {
                   const coatIndex = hud.petCoatIndices[kind];
-                  const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
-                  const resourceKey = kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource';
+                  const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : PARROT_COATS;
+                  const details = getPetDetails(kind);
+                  const resourceKey = kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : 'petParrotResource';
                   return (
                     <button
                       key={`pet-${kind}-token`}
                       type="button"
                       data-pet-resource={kind}
                       aria-label={t(resourceKey)}
-                      onClick={() => onEquipPet(kind)}
+                      {...inspectProps(details)}
+                      onClick={() => {
+                        pinDetails(details);
+                        onEquipPet(kind);
+                      }}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `pet:${kind}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${t(resourceKey)} — ${t('petEquipHint')}`}
                       className="anim-pop notch group relative flex aspect-square cursor-grab flex-col items-center justify-center gap-0.5 transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         background: 'linear-gradient(180deg,#3a3026,#171a17)',
@@ -293,7 +316,11 @@ export default function Inventory({
                         boxShadow: 'inset 2px 2px 0 rgba(255,255,255,.08), 0 0 10px rgba(197,155,102,.18)',
                       }}
                     >
-                      {kind === 'wolf' ? <WolfIcon coatIndex={coatIndex} size={42} /> : <MonkeyIcon coatIndex={coatIndex} size={39} />}
+                      {kind === 'wolf'
+                        ? <WolfIcon coatIndex={coatIndex} size={42} />
+                        : kind === 'monkey'
+                          ? <MonkeyIcon coatIndex={coatIndex} size={39} />
+                          : <ParrotIcon coatIndex={coatIndex} size={39} />}
                       <span className="max-w-full truncate px-1 font-display text-[8px] leading-none text-[#e8d5b4]">
                         {t(resourceKey)}
                       </span>
@@ -309,16 +336,21 @@ export default function Inventory({
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
+                  const details = itemDetails(it.id, { count: it.count, durability: it.durability, maxDurability: it.maxDurability });
                   return (
                     <button
                       key={`item-${it.id}-${it.instanceId ?? 'stack'}`}
-                      onClick={() => onPlaceItem(it.id, undefined, undefined, it.instanceId)}
+                      {...inspectProps(details)}
+                      onClick={() => {
+                        pinDetails(details);
+                        onPlaceItem(it.id, undefined, undefined, it.instanceId);
+                      }}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${label}${condition ? ` · ${condition}` : ''}${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc ? ` · ${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc}` : ''} — ${t('dragHint')}`}
+                      aria-label={`${label}${condition ? ` · ${condition}` : ''}`}
                       className="anim-pop notch group relative flex aspect-square items-center justify-center transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         animationDelay: `${i * 18}ms`,
@@ -352,7 +384,7 @@ export default function Inventory({
                         {label}
                       </span>
                       {arrowIds.includes(it.id) && (
-                        <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
+                        <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
                       )}
                     </button>
                   );
@@ -365,16 +397,21 @@ export default function Inventory({
                   const armorTint = gearColor(it);
                   const inBar = hud.hotbar.some((h) => h !== null && h.id === it.hid);
                   const label = `${t(SLOT_KEY[it.slot])} · ${matName(mat.label)} (${rarName(it.rarity, rar.name)})`;
+                  const details = getGearDetails(it);
                   return (
                     <div
                       key={`gear-${it.uid}`}
+                      {...inspectProps(details)}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `gear:${it.uid}:${it.hid}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      onClick={() => onPlaceItem(it.hid)}
-                      title={`${label} · ⛨${it.armor}${it.damage > 0 ? ` ⚔${it.damage}` : ''} — ${t('dragHint')}`}
+                      onClick={() => {
+                        pinDetails(details);
+                        onPlaceItem(it.hid);
+                      }}
+                      aria-label={`${label} · ⛨${it.armor}${it.damage > 0 ? ` ⚔${it.damage}` : ''}`}
                       className="anim-pop notch group relative flex aspect-square cursor-grab flex-col items-center justify-center p-1 transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:cursor-grabbing"
                       style={{
                         animationDelay: `${(filteredStacks.length + i) * 18}ms`,
@@ -394,6 +431,7 @@ export default function Inventory({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          pinDetails(details);
                           onEquip(it.uid);
                         }}
                         className="absolute left-0.5 top-0.5 z-10 rounded bg-black/70 px-1 py-0.5 font-display text-[7px] leading-none text-moss hover:bg-moss hover:text-pit-950"
@@ -428,6 +466,7 @@ export default function Inventory({
                 {SLOTS.map((slot) => {
                   const it = hud.equipped[slot];
                   const rar = it ? RARITY[it.rarity] : null;
+                  const details = it ? getGearDetails(it) : null;
                   return (
                     <div
                       key={slot}
@@ -455,7 +494,12 @@ export default function Inventory({
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => it && onUnequip(slot)}
+                        {...(details ? inspectProps(details) : {})}
+                        onClick={() => {
+                          if (!it || !details) return;
+                          pinDetails(details);
+                          onUnequip(slot);
+                        }}
                         className="notch relative flex min-h-[72px] w-full flex-col justify-center px-1 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
                         style={{
                           background: it ? `linear-gradient(180deg, ${rar!.color}22, rgba(10,14,12,.9))` : 'rgba(255,255,255,.02)',
@@ -479,7 +523,7 @@ export default function Inventory({
                             ))}
                           </div>
                         )}
-                        {it && <button onClick={(e) => { e.stopPropagation(); onUnequip(slot); }} className="btn-mc notch mt-auto w-full px-1 py-0.5 font-display text-[8px] leading-none" style={{ background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }} title={t('unequip')}>{t('unequip')}</button>}
+                        {it && details && <button onClick={(e) => { e.stopPropagation(); pinDetails(details); onUnequip(slot); }} className="btn-mc notch mt-auto w-full px-1 py-0.5 font-display text-[8px] leading-none" style={{ background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }} title={t('unequip')}>{t('unequip')}</button>}
                       </div>
                     </div>
                   );
@@ -499,7 +543,7 @@ export default function Inventory({
                   onDrop={(e) => {
                     const data = e.dataTransfer.getData('text/plain');
                     const kind = data.startsWith('pet:') ? data.slice(4) : '';
-                    if ((kind !== 'wolf' && kind !== 'monkey') || !hud.petInventoryKinds.includes(kind)) return;
+                    if ((kind !== 'wolf' && kind !== 'monkey' && kind !== 'parrot') || !hud.petInventoryKinds.includes(kind)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     onEquipPet(kind);
@@ -513,7 +557,7 @@ export default function Inventory({
                           key={`pet-select-${kind}`}
                           type="button"
                           data-pet-select={kind}
-                          aria-label={t(kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource')}
+                          aria-label={t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : 'petParrotResource')}
                           onClick={() => onSelectPetKind(kind)}
                           className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
                           style={{
@@ -524,7 +568,9 @@ export default function Inventory({
                         >
                           {kind === 'wolf'
                             ? <WolfIcon coatIndex={hud.petCoatIndices.wolf} size={23} />
-                            : <MonkeyIcon coatIndex={hud.petCoatIndices.monkey} size={21} />}
+                            : kind === 'monkey'
+                              ? <MonkeyIcon coatIndex={hud.petCoatIndices.monkey} size={21} />
+                              : <ParrotIcon coatIndex={hud.petCoatIndices.parrot} size={21} />}
                         </button>
                       ))}
                     </div>
@@ -548,7 +594,9 @@ export default function Inventory({
                     {petDisplayOwned
                       ? petDisplayKind === 'wolf'
                         ? <WolfIcon coatIndex={petDisplayCoatIndex} size={31} />
-                        : <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
+                        : petDisplayKind === 'monkey'
+                          ? <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
+                          : <ParrotIcon coatIndex={petDisplayCoatIndex} size={29} />
                       : <span className="text-2xl leading-none text-white/25">🐾</span>}
                     <span className="max-w-full truncate font-display text-[8px] leading-none text-[#e8d5b4]">
                       {hud.petEquipped ? 'ДОМОЙ' : hud.petTokenAvailable ? 'В ПУТЬ' : t('petNotOwned')}
@@ -559,20 +607,20 @@ export default function Inventory({
                       <button
                         type="button"
                         data-pet-coat-prev
-                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatPrevious' : 'petMonkeyCoatPrevious')}
+                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatPrevious' : petDisplayKind === 'monkey' ? 'petMonkeyCoatPrevious' : 'petParrotCoatPrevious')}
                         onClick={() => onCyclePetCoat(petDisplayKind, -1)}
                         className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
                       >
                         ‹
                       </button>
                       <span className="min-w-0 truncate text-center font-display text-[8px] text-torch">
-                        {t((petDisplayKind === 'wolf' ? WOLF_COATS : MONKEY_COATS)[petDisplayCoatIndex]?.nameKey
-                          ?? (petDisplayKind === 'wolf' ? WOLF_COATS : MONKEY_COATS)[0].nameKey)}
+                        {t((petDisplayKind === 'wolf' ? WOLF_COATS : petDisplayKind === 'monkey' ? MONKEY_COATS : PARROT_COATS)[petDisplayCoatIndex]?.nameKey
+                          ?? (petDisplayKind === 'wolf' ? WOLF_COATS : petDisplayKind === 'monkey' ? MONKEY_COATS : PARROT_COATS)[0].nameKey)}
                       </span>
                       <button
                         type="button"
                         data-pet-coat-next
-                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatNext' : 'petMonkeyCoatNext')}
+                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatNext' : petDisplayKind === 'monkey' ? 'petMonkeyCoatNext' : 'petParrotCoatNext')}
                         onClick={() => onCyclePetCoat(petDisplayKind, 1)}
                         className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
                       >
@@ -607,9 +655,15 @@ export default function Inventory({
                     const active = i === hud.selected;
                     const gearInSlot = slot && isGearHotbarId(slot.id) ? hud.bagItems.find((b) => b.hid === slot.id) : undefined;
                     const toolSpec = slot ? getToolSpec(slot.id) : null;
+                    const details = slot
+                      ? gearInSlot
+                        ? getGearDetails(gearInSlot)
+                        : itemDetails(slot.id, { count: slot.count, durability: slot.durability, maxDurability: slot.maxDurability })
+                      : null;
                     return (
                       <div
                         key={i}
+                        {...(details ? inspectProps(details) : {})}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -645,6 +699,7 @@ export default function Inventory({
                       >
                         <button
                           onClick={() => {
+                            if (details) pinDetails(details);
                             if (onSelectSlot) onSelectSlot(i);
                           }}
                           draggable={!!slot}
@@ -654,17 +709,7 @@ export default function Inventory({
                             e.dataTransfer.effectAllowed = 'move';
                           }}
                           className="absolute inset-0 flex items-center justify-center cursor-grab active:cursor-grabbing"
-                          title={
-                            slot
-                              ? slot.id === HAND
-                                ? `${t('emptyHand')} — ${t('dragHint')}`
-                                : gearInSlot
-                                  ? `${t(SLOT_KEY[gearInSlot.slot])} · ${matName(MATERIALS[gearInSlot.material].label)}`
-                                  : isToolId(slot.id)
-                                    ? `${toolLabel(slot.id)}${toolSpec ? ` · ${slot.durability ?? toolSpec.maxDurability}/${toolSpec.maxDurability || '∞'}` : ''} — ${t('dragHint')}`
-                                    : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count} — ${t('dragHint')}`
-                              : t('emptySlot')
-                          }
+                          aria-label={details?.name ?? t('emptySlot')}
                         >
                           {slot ? (
                             slot.id === HAND ? (
@@ -714,7 +759,7 @@ export default function Inventory({
                               className="absolute bottom-1 left-1 right-1 h-[2px]"
                             />
                           )}
-                          {slot && slot.id < 200 && slot.id !== HAND && (
+                          {slot && (slot.id < 200 || isArrowId(slot.id) || isMeatItem(slot.id)) && slot.id !== HAND && (
                             <span className="absolute bottom-0 right-0.5 font-display text-[8px] leading-none text-white text-shadow-hard">
                               {slot.count}
                             </span>
@@ -799,6 +844,16 @@ export default function Inventory({
             </>
           )}
         </div>
+        {activeDetails && (
+          <ItemInfoPopup
+            details={activeDetails}
+            pinned={detailsPinned}
+            onClose={() => {
+              setPinnedDetails(null);
+              setHoveredDetails(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -955,7 +1010,7 @@ function WorkbenchDismantlePanel({
               </>
             ) : resolvedItemId !== null ? (
               <>
-                {resolvedItemId >= 200 ? (
+                {isToolId(resolvedItemId) ? (
                   <>
                     <span className="flex h-12 w-12 items-center justify-center">{toolIcon(resolvedItemId, 34, resolvedItemDurability).el}</span>
                     {resolvedItemMaxDurability !== undefined && (
@@ -1000,7 +1055,7 @@ function WorkbenchDismantlePanel({
               </div>
             ) : resolvedItemId !== null ? (
               <div className="font-display text-sm text-white">
-                {resolvedItemId >= 200
+                {isToolId(resolvedItemId)
                   ? toolLabel(resolvedItemId)
                   : blockName(resolvedItemId, BLOCKS[resolvedItemId]?.name ?? '')}
               </div>
@@ -1218,7 +1273,7 @@ function TradePanel({
   onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0 && it.id < 200);
+  const sellable = hud.inventory.filter((it) => it.count > 0 && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
   const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">

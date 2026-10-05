@@ -168,6 +168,7 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
+  { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#4bc7a2', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
 
   { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
   { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
@@ -492,6 +493,7 @@ export function StartScreen({
   shopPrices,
   wolfPetOwned,
   monkeyPetOwned,
+  parrotPetOwned,
   onOpenShop,
   paymentsAvailable,
   adFreeOwned,
@@ -551,6 +553,7 @@ export function StartScreen({
   /** restored permanent companion ownership; prevents another purchase for the same account */
   wolfPetOwned: boolean;
   monkeyPetOwned: boolean;
+  parrotPetOwned: boolean;
   /** retries the catalogue request when the shop is opened after an initial failure */
   onOpenShop: () => void;
   /** true when the payment flow exists (inside Yandex Games with purchases connected) */
@@ -1074,7 +1077,7 @@ export function StartScreen({
                   const rewardedDrop = isRewardedDrop(product.id);
                   const dropStatus = rewardedDrop ? rewardedDrops[product.id as RewardedDropId] : null;
                   const devAlreadyClaimed = devClaims.includes(product.id);
-                  const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-monkey' && monkeyPetOwned;
+                  const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-monkey' ? monkeyPetOwned : product.id === 'pet-parrot' && parrotPetOwned;
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
@@ -1201,7 +1204,7 @@ export function StartScreen({
                             if (result.ok) {
                               setShopNotice(result.syncPending
                                 ? t('shopPurchasePending')
-                                : product.id === 'pet-wolf' || product.id === 'pet-monkey'
+                                : product.id === 'pet-wolf' || product.id === 'pet-monkey' || product.id === 'pet-parrot'
                                   ? t('shopPetPurchaseDone')
                                   : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
                             } else {
@@ -1424,6 +1427,7 @@ export function StartScreen({
                     <div className="space-y-1.5">
                       <Row k={<><Key>W</Key><Key>A</Key><Key>S</Key><Key>D</Key></>} v={t('move')} />
                       <Row k={<Key>V</Key>} v={t('togglePerspective')} />
+                      <Row k={<Key>B</Key>} v={t('petParrotWhistle')} />
                       <Row k={<Key>SPACE</Key>} v={t('jump')} />
                       <Row k={<Key wide>SHIFT</Key>} v={t('sprint')} />
                       <Row k={<Key wide>LMB</Key>} v={t('mineHold')} />

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { createBreathState, stepBreath, type BreathState } from './breath';
+import { ARROW_IDS, buildArrowModel, isArrowId } from './arrowVisuals';
+import { arrowBreaksOnBlock, bowArrowDamage, meleeAttackInterval, meleeDamage } from './combat';
 import { canSprint, createStaminaState, stepStamina } from './stamina';
 import { storageGet, storageSet } from './storage';
 import {
@@ -47,7 +49,7 @@ import {
   T,
   TORCH,
   WATER,
-  ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
+  ARROW_ITEM, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
@@ -102,6 +104,7 @@ import {
   isLadder,
   isBreakable,
   isInteractive,
+  isMeatItem,
   isResource,
   isSolid,
   isTreasureChest,
@@ -142,20 +145,24 @@ import {
   isDurabilityTool,
   normalizeToolDurability,
   toolRepairCost,
-  toolWearStage,
+  toolWearRatio,
 } from './tools';
-import { babyGrowthScale, buildMonkeyCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, buildMonkeyCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
 import {
   MONKEY_COATS,
+  PARROT_COATS,
   WOLF_COATS,
   getMonkeyCoatIndex,
+  getParrotCoatIndex,
   getWolfCoatIndex,
   hasMonkeyPet,
+  hasParrotPet,
   hasWolfPet,
   refreshPetStateFromStorage,
   setMonkeyCoatIndex,
+  setParrotCoatIndex,
   setWolfCoatIndex,
   getPetInventoryKinds,
   type MonkeyCoat,
@@ -164,12 +171,18 @@ import {
 } from './pets';
 import { companionSpawnIsClear } from './companionSpawn';
 import {
+  canSleepInMode,
   canSpawnSurvivalHostiles,
   FIRST_SURVIVAL_DAY_SECONDS,
+  isPermanentSurvivalNight,
+  SURVIVAL_DAWN_SECONDS,
   SURVIVAL_DAY_SECONDS,
+  SURVIVAL_DUSK_SECONDS,
+  SURVIVAL_NIGHT_SECONDS,
   survivalHostileCap,
   survivalHostileDamageScale,
   survivalHostileHpScale,
+  survivalPhaseSeconds,
   survivalThreatLevel,
 } from './survival';
 import {
@@ -481,6 +494,7 @@ export const SESSION_LENGTHS = [
 export type TradeOffer = { item: Item; cost: Array<[number, number]>; sold: boolean };
 const MAX_PARTICLES = 520;
 const MAX_DROPS = 44;
+const MAX_STUCK_ARROWS = 48;
 const CHEST_SLOT_LIMIT = 27;
 const CHEST_STACK_LIMIT = 999;
 const GRAVITY = 30;
@@ -505,9 +519,6 @@ const CLOCK_NIGHT_START = 0.88;
 const MENU_SURVIVAL_CLOCK = 0.04;
 const MENU_EXPLORER_CLOCK = 0.48;
 const SURVIVAL_START_CLOCK = CLOCK_DAY_START + 0.01;
-const DAWN_SECONDS = 95;
-const DUSK_SECONDS = 95;
-const NIGHT_SECONDS = 95;
 
 type PopupAnchor = 'world' | 'crosshair';
 type PopupOptions = { anchor?: PopupAnchor; duration?: number; screenRiseSpeed?: number };
@@ -530,6 +541,17 @@ type Popup = {
 type WeatherKind = 'clear' | 'rain' | 'snow';
 type Particle = { weather?: Exclude<WeatherKind, 'clear'>; smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
 type ToolInstance = { instanceId: number; id: number; durability: number };
+
+type StuckArrow = {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  blockX: number;
+  blockY: number;
+  blockZ: number;
+  mesh: THREE.Group;
+};
 
 type Drop = {
   active: boolean;
@@ -572,6 +594,8 @@ type AvatarFadeMaterial = {
 };
 
 type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
+type ParrotPetMode = 'shoulder' | 'hand' | 'follow' | 'fetch' | 'delivery' | 'attack';
+type ParrotAttackStage = 'approach' | 'dive' | 'soar';
 type WolfChestTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number; swimming: boolean };
 const WOLF_PET_PLAYER_GAP = 1.28;
 const WOLF_PET_INTERACTION_RANGE = 2.2;
@@ -627,6 +651,18 @@ type WolfPetRig = {
   swimming: boolean;
   underwater: boolean;
   reactionLookTimer: number;
+  /** Bird-only flight, call, feeding and repeat-dive state. */
+  parrotMode: ParrotPetMode;
+  parrotCalled: boolean;
+  parrotIdleTimer: number;
+  parrotAttackTarget: Mob | null;
+  parrotAttackStage: ParrotAttackStage;
+  parrotStageTimer: number;
+  parrotHappyTimer: number;
+  parrotEatTimer: number;
+  parrotSoundTimer: number;
+  parrotFollowAnchor: THREE.Vector3;
+  parrotFollowAnchorValid: boolean;
 };
 
 /* =========================== co-op rig helpers =========================== */
@@ -800,6 +836,17 @@ function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
   };
 }
 
@@ -861,6 +908,89 @@ function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
+  };
+}
+
+
+/** Use the exact wild-parrot mesh and its shared six-color coat palette for the permanent pet. */
+function buildParrotPetRig(variantIndex: number): WolfPetRig {
+  const parrot = buildParrotCompanionBody(variantIndex);
+  const group = new THREE.Group();
+  group.name = 'equipped-parrot-pet';
+  group.userData.companion = 'parrot-pet';
+  const model = parrot.group;
+  model.scale.setScalar(0.64 * parrot.modelSize);
+  group.add(model);
+  const body = model.children.find((part) => part.userData.birdBody) ?? null;
+  const tail = model.children.find((part) => part.userData.birdTail) ?? null;
+  const jaw = model.children.find((part) => part instanceof THREE.Mesh && part.position.y < 0.49 && part.position.z < -0.35) ?? null;
+  return {
+    kind: 'parrot',
+    group,
+    model,
+    pose: model,
+    body,
+    head: parrot.head,
+    jaw,
+    tail,
+    legs: parrot.legs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: false,
+    attackTimer: 0.7,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
   };
 }
 
@@ -1293,6 +1423,7 @@ export class Engine {
   private pDummy = new THREE.Object3D();
   private pColor = new THREE.Color();
   private drops: Drop[] = [];
+  private stuckArrows: StuckArrow[] = [];
   private dropUVBase = new Float32Array(48);
   private motes!: THREE.Points;
   private clouds!: THREE.Mesh;
@@ -1414,7 +1545,7 @@ export class Engine {
   private petEquipped = false;
   private petEquippedKind: PetKind | null = null;
   private petSelectedKind: PetKind = 'wolf';
-  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0 };
+  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0, parrot: 0 };
   private petCoatIndex = 0;
   private stats: Stats = { ...EMPTY_STATS };
   private attackCd = 0;
@@ -1461,6 +1592,9 @@ export class Engine {
   private avatarFaceTexture: THREE.CanvasTexture | null = null;
   private avatarLeftArm: THREE.Object3D | null = null;
   private avatarRightArm: THREE.Object3D | null = null;
+  /** Detached copy of the left arm, rendered in world space only for a first-person hand perch. */
+  private firstPersonParrotArm: THREE.Group | null = null;
+  private parrotHandArmBlend = 0;
   private avatarLeftLeg: THREE.Object3D | null = null;
   private avatarRightLeg: THREE.Object3D | null = null;
   private avatarArmorModels: Partial<Record<Slot, AvatarArmorAttachment[]>> = {};
@@ -1480,6 +1614,8 @@ export class Engine {
   private avatarHeldHoe!: THREE.Group;
   private avatarHeldBow!: THREE.Group;
   private avatarHeldTorch!: THREE.Group;
+  private avatarHeldArrow!: THREE.Group;
+  private avatarHeldArrowKey = '';
   private avatarHeldBlock!: THREE.Mesh;
   private avatarHeldGear!: THREE.Group;
   private avatarHeldGearKey = '';
@@ -1582,6 +1718,7 @@ export class Engine {
   private touchMine = false;
   private touchPlace = false;
   private touchSprint = false;
+  private playerSprinting = false;
   private touchCrouch = false;
   private touchCrawl = false;
   private mining = false;
@@ -2544,6 +2681,9 @@ if (tpClipActive > 0.5) {
     addBox(0.09, 0.12, 0.09, new THREE.MeshBasicMaterial({ color: 0xffec8c, transparent: true, opacity: 0.9 }), 0, 0.42, 0, this.avatarHeldTorch);
     this.avatarHeldTorch.rotation.set(0.05, 0, 0.2);
 
+    this.avatarHeldArrow = makeHeldGroup();
+    this.avatarHeldArrow.scale.setScalar(0.72);
+
     this.avatarHeldBlockMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     this.avatarHeldBlock = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), this.avatarHeldBlockMat);
     this.avatarHeldBlock.position.set(0, 0.08, -0.02);
@@ -2610,6 +2750,11 @@ if (tpClipActive > 0.5) {
     });
     this.scene.add(g);
     this.playerAvatar = g;
+    this.firstPersonParrotArm = leftArm.clone(true);
+    this.firstPersonParrotArm.name = 'first-person-parrot-arm';
+    this.firstPersonParrotArm.visible = false;
+    this.firstPersonParrotArm.frustumCulled = false;
+    this.scene.add(this.firstPersonParrotArm);
     this.applyCharacterCustomization();
   }
 
@@ -2977,11 +3122,12 @@ if (tpClipActive > 0.5) {
     const holdingCraftedTool = !!craftedSpec;
     if (craftedSpec && heldId !== undefined) {
       const durability = this.heldToolDurability(heldId);
-      const wear = toolWearStage(durability, craftedSpec.maxDurability);
-      const signature = `${heldId}:${wear}`;
+      const wear = toolWearRatio(durability, craftedSpec.maxDurability);
+      const wearStep = Math.round(wear * 24);
+      const signature = `${heldId}:${wearStep}`;
       if (signature !== this.craftedToolKey) {
         this.clearToolModel(this.toolCrafted);
-        this.toolCrafted.add(this.buildToolModel(heldId, wear));
+        this.toolCrafted.add(this.buildToolModel(heldId, wearStep / 24));
         this.craftedToolKey = signature;
       }
       // Lean the business end slightly away from the forearm and into the world;
@@ -3017,7 +3163,7 @@ if (tpClipActive > 0.5) {
       kind === 'block' && heldId !== undefined && !holdingLanternBlock && !BLOCKS[heldId]?.solid;
     if (isCandidateItem && heldId !== undefined && heldId !== this.itemShown) {
       this.itemShown = heldId;
-      this.toolItem.clear();
+      this.clearToolModel(this.toolItem);
       const fancy = this.buildFancyDrop(heldId);
       if (fancy) {
         this.toolItem.add(fancy);
@@ -3027,6 +3173,18 @@ if (tpClipActive > 0.5) {
       }
     }
     const holdingFancyItem = isCandidateItem && this.itemHasFancy;
+    if (holdingFancyItem && heldId !== undefined) {
+      if (isArrowId(heldId)) {
+        // The arrow crosses the hand diagonally, point forward and up instead of reading as a tiny cube.
+        this.toolItem.position.set(0.02, -0.02, 0.02);
+        this.toolItem.rotation.set(-0.65, 0.5, 0.15);
+        this.toolItem.scale.setScalar(0.9);
+      } else {
+        this.toolItem.position.set(0.02, 0.04, 0.02);
+        this.toolItem.rotation.set(0.18, 0.55, 0.08);
+        this.toolItem.scale.setScalar(1.38);
+      }
+    }
 
     this.toolCrafted.visible = holdingCraftedTool;
     this.toolPick.visible = kind === 'pick' && !holdingCraftedTool;
@@ -3163,6 +3321,7 @@ if (tpClipActive > 0.5) {
     ];
     for (const g of all) if (g) g.visible = false;
     if (this.avatarHeldTool) this.avatarHeldTool.visible = false;
+    if (this.avatarHeldArrow) this.avatarHeldArrow.visible = false;
     if (this.avatarHeldBlock) this.avatarHeldBlock.visible = false;
     if (this.avatarHeldGear) this.avatarHeldGear.visible = false;
     const kind = this.heldKind();
@@ -3170,11 +3329,12 @@ if (tpClipActive > 0.5) {
     const craftedSpec = heldId === undefined ? null : getToolSpec(heldId);
     if (craftedSpec && heldId !== undefined) {
       const durability = this.heldToolDurability(heldId);
-      const wear = toolWearStage(durability, craftedSpec.maxDurability);
-      const signature = `${heldId}:${wear}`;
+      const wear = toolWearRatio(durability, craftedSpec.maxDurability);
+      const wearStep = Math.round(wear * 24);
+      const signature = `${heldId}:${wearStep}`;
       if (signature !== this.avatarHeldToolKey) {
         this.clearToolModel(this.avatarHeldTool);
-        this.avatarHeldTool.add(this.buildToolModel(heldId, wear));
+        this.avatarHeldTool.add(this.buildToolModel(heldId, wearStep / 24));
         this.avatarHeldToolKey = signature;
       }
       this.avatarHeldTool.scale.setScalar(0.72);
@@ -3245,6 +3405,17 @@ if (tpClipActive > 0.5) {
     } else if (kind === 'torch' || heldId === TORCH) {
       this.positionAvatarHeldItemAtGrip(this.avatarHeldTorch, 0, 0, 0);
       this.avatarHeldTorch.visible = true;
+    } else if (kind === 'block' && heldId !== undefined && isArrowId(heldId)) {
+      const signature = String(heldId);
+      if (signature !== this.avatarHeldArrowKey) {
+        this.clearToolModel(this.avatarHeldArrow);
+        this.avatarHeldArrow.add(buildArrowModel(heldId));
+        this.avatarHeldArrowKey = signature;
+      }
+      this.avatarHeldArrow.scale.setScalar(0.72);
+      this.avatarHeldArrow.rotation.set(0.72, Math.PI, 0.04);
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldArrow, 0, 0, 0);
+      this.avatarHeldArrow.visible = true;
     } else if (kind === 'gear' && heldId !== undefined) {
       const item = this.bagItems.find((gear) => gear.hid === heldId);
       if (!item) return;
@@ -4074,6 +4245,11 @@ if (tpClipActive > 0.5) {
       this.togglePerspective();
       return;
     }
+    if (c === 'KeyB') {
+      e.preventDefault();
+      this.whistleParrot();
+      return;
+    }
     if (c === 'KeyF') this.tryPlace();
     if (c === 'KeyG') {
       this.dropHeldItem();
@@ -4824,12 +5000,14 @@ if (tpClipActive > 0.5) {
     this.petOwnedKinds = [];
     if (hasWolfPet()) this.petOwnedKinds.push('wolf');
     if (hasMonkeyPet()) this.petOwnedKinds.push('monkey');
+    if (hasParrotPet()) this.petOwnedKinds.push('parrot');
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = this.petOwned;
     this.petEquipped = false;
     this.petEquippedKind = null;
+    this.playerSprinting = false;
     this.petSelectedKind = this.petOwnedKinds[0] ?? 'wolf';
-    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex() };
+    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex() };
     this.petCoatIndex = this.petCoatIndices[this.petSelectedKind];
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
@@ -5504,6 +5682,7 @@ if (tpClipActive > 0.5) {
     this.updateNature(dt);
     this.updateHiveFx(dt);
     this.updateArrows(dt);
+    this.updateStuckArrows();
     this.updateFallingTrees(dt);
     this.updateChestLids(dt);
     this.updateBlockGravity();
@@ -5946,6 +6125,7 @@ if (tpClipActive > 0.5) {
     this.bob += dt * (this.inWater ? 1.9 + planar * 1.75 + (jumpHeld ? 1.25 : 0) : this.onGround ? planar * 1.55 : 3.2);
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
     const sprinting = sprint && planar > 0.5;
+    this.playerSprinting = sprinting;
     this.staminaState = stepStamina(this.staminaState, sprinting, dt);
     // Hunger drains slowly while exploring; at zero it causes periodic starvation damage.
     this.hunger = Math.max(0, this.hunger - dt * (sprinting ? 0.11 : 0.055));
@@ -6018,20 +6198,31 @@ if (tpClipActive > 0.5) {
     return null;
   }
 
-  private updatePlayerAvatar() {
+  private updatePlayerAvatar(dt: number) {
     if (!this.playerAvatar) return;
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
+    const parrotCallStationary = Math.hypot(this.vel.x, this.vel.z) <= 0.45 && Math.abs(this.vel.y) <= 0.72;
+    const activeParrot = this.wolfPetRig?.kind === 'parrot' && this.petEquipped && this.wolfPetRig.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
+    this.parrotHandArmBlend += ((activeParrot ? 1 : 0) - this.parrotHandArmBlend) * Math.min(1, dt * 9);
+    const firstPersonArmVisible = !this.thirdPerson
+      && (this.phase === 'playing' || this.phase === 'paused')
+      && this.parrotHandArmBlend > 0.005;
+    if (this.firstPersonParrotArm) this.firstPersonParrotArm.visible = firstPersonArmVisible;
     if (this.avatarFireFx) {
       this.avatarFireFx.visible = visible && this.stats.fire > 0;
       animateEnchantedFlames(this.avatarFireFx, this.time);
     }
-    if (!visible) return;
-    for (const attachments of Object.values(this.avatarArmorModels)) {
-      for (const attachment of attachments ?? []) animateArmorVisuals(attachment.group, this.time);
-    }
-    if (this.avatarSkirt && this.characterCustomization.gender === 'girl' && this.equipped.legs) {
-      animateArmorVisuals(this.avatarSkirt, this.time);
+    // The first-person view shows only a detached left-arm copy; update the hidden avatar pose
+    // while that arm is extended so its world transform stays aligned with the bird's perch.
+    if (!visible && !firstPersonArmVisible) return;
+    if (visible) {
+      for (const attachments of Object.values(this.avatarArmorModels)) {
+        for (const attachment of attachments ?? []) animateArmorVisuals(attachment.group, this.time);
+      }
+      if (this.avatarSkirt && this.characterCustomization.gender === 'girl' && this.equipped.legs) {
+        animateArmorVisuals(this.avatarSkirt, this.time);
+      }
     }
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -6139,11 +6330,22 @@ if (tpClipActive > 0.5) {
     rightLegZ = mix(rightLegZ, swimRightLegZ, swim);
     leftArmZ = mix(leftArmZ, swimLeftArmZ, swim);
     rightArmZ = mix(rightArmZ, swimRightArmZ, swim);
+    // Hold the character's left arm out as a perch while the parrot answers the whistle.
+    leftArmX = mix(leftArmX, 1.45, this.parrotHandArmBlend);
+    leftArmZ = mix(leftArmZ, 0.035, this.parrotHandArmBlend);
 
     if (this.avatarLeftLeg) this.avatarLeftLeg.rotation.set(leftLegX, 0, leftLegZ);
     if (this.avatarRightLeg) this.avatarRightLeg.rotation.set(rightLegX, 0, rightLegZ);
     if (this.avatarLeftArm) this.avatarLeftArm.rotation.set(leftArmX, 0, leftArmZ);
     if (this.avatarRightArm) this.avatarRightArm.rotation.set(rightArmX, 0, rightArmZ);
+    if (firstPersonArmVisible && this.firstPersonParrotArm && this.avatarLeftArm) {
+      this.playerAvatar.updateMatrixWorld(true);
+      this.avatarLeftArm.matrixWorld.decompose(
+        this.firstPersonParrotArm.position,
+        this.firstPersonParrotArm.quaternion,
+        this.firstPersonParrotArm.scale,
+      );
+    }
     if (this.avatarHead) {
       const uprightHead = Math.max(-0.65, Math.min(0.65, this.pitch * 0.45));
       const crawlHead = Math.max(-0.25, Math.min(0.58, this.pitch * 0.22 + 0.26));
@@ -6214,7 +6416,7 @@ if (tpClipActive > 0.5) {
     // it made normal walking and sprinting feel like the camera was shaking.
     const thirdPersonTargetY = this.pos.y + EYE - eyeDrop - this.landDip * 0.16 + this.stepSmooth * 0.08;
     this.landDip = Math.max(0, this.landDip - dt * 1.6);
-    this.updatePlayerAvatar();
+    this.updatePlayerAvatar(dt);
 
     if (this.thirdPerson && this.phase === 'playing') {
       this.updateThirdPersonOrbitReturn(dt);
@@ -7184,7 +7386,7 @@ if (tpClipActive > 0.5) {
   interact(skipPet = false): boolean {
     if (this.phase !== 'playing') return false;
     // A nearby companion must not consume the E action intended for the chest under the crosshair.
-    if (!skipPet && this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE) && !isTreasureChest(this.target?.id ?? AIR)) return this.petWolf();
+    if (!skipPet && this.petInteractionAvailable() && !isTreasureChest(this.target?.id ?? AIR)) return this.petWolf();
     // trader first — walking up to him and pressing E opens the trade tab
     if (this.traderNear()) {
       this.queueTutorialTip('mechanic:trader', t('tutorialTraderTitle'), t('tutorialTraderBody'), '#d98cff', 'trader');
@@ -7212,10 +7414,11 @@ if (tpClipActive > 0.5) {
       this.openChestAt(tg.x, tg.y, tg.z, tg.id);
       return true;
     }
-    // bed → sleep through the night
+    // Beds may skip the night in Explorer mode, but Survival must play every night through.
     if (tg && tg.id === BED) {
-      if (this.daylight > 0.5) {
-        this.popup(tg.x + 0.5, tg.y + 1.2, tg.z + 0.5, t('sleepOnlyNight'), '#a8c0ff');
+      if (!canSleepInMode(this.survival, this.daylight)) {
+        const message = this.survival ? t('sleepSurvivalDisabled') : t('sleepOnlyNight');
+        this.popup(tg.x + 0.5, tg.y + 1.2, tg.z + 0.5, message, '#a8c0ff');
         sfx.ui(false);
       } else if (!this.sleeping) {
         this.sleeping = true;
@@ -7440,7 +7643,7 @@ if (tpClipActive > 0.5) {
   /** Transfer a stack amount between the opened chest and the player's pack. */
   transferChestItem(id: number, amount: number, toChest: boolean): boolean {
     const chest = this.activeChestItems();
-    if (!chest || !Number.isInteger(id) || id <= AIR || id >= 200 || !BLOCKS[id] || getToolSpec(id)) {
+    if (!chest || !Number.isInteger(id) || id <= AIR || (id >= 200 && !isArrowId(id) && !isMeatItem(id)) || !BLOCKS[id] || getToolSpec(id)) {
       sfx.ui(false);
       return false;
     }
@@ -8920,11 +9123,12 @@ if (tpClipActive > 0.5) {
     g.add(m);
   }
 
-  private buildToolModel(id: number, wearStage = 0): THREE.Group {
+  private buildToolModel(id: number, wearRatio = 0): THREE.Group {
     const spec = getToolSpec(id);
     const group = new THREE.Group();
     if (!spec) return group;
 
+    const wear = Number.isFinite(wearRatio) ? Math.max(0, Math.min(1, wearRatio)) : 0;
     const materialCache = new Map<string, THREE.MeshLambertMaterial>();
     const outlineColor = spec.tier === 0 ? '#4b2a1c' : '#17171a';
     const material = (color: string, glow = false) => {
@@ -8942,49 +9146,98 @@ if (tpClipActive > 0.5) {
     };
     const addBox = (
       w: number, h: number, d: number, x: number, y: number, z: number,
-      color: string, outline = true, glow = false,
+      color: string, outline = true, glow = false, parent: THREE.Group = group,
     ) => {
+      // Keep each box's outline and colored face together so rotations and wear deformation
+      // affect the complete part instead of leaving the dark pixel shell behind.
+      const part = new THREE.Group();
+      part.position.set(x, y, z);
       if (outline) {
-        const shell = new THREE.Mesh(
+        part.add(new THREE.Mesh(
           new THREE.BoxGeometry(w * 1.14, h * 1.14, d * 1.14),
           material(outlineColor),
-        );
-        shell.position.set(x, y, z);
-        group.add(shell);
+        ));
       }
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color, glow));
-      mesh.position.set(x, y, z);
-      group.add(mesh);
-      return mesh;
+      part.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color, glow)));
+      parent.add(part);
+      return part;
     };
-    const addSegment = (x1: number, y1: number, x2: number, y2: number, width: number, color: string) => {
+    const addSegment = (
+      x1: number, y1: number, x2: number, y2: number, width: number, color: string,
+      parent: THREE.Group = group,
+    ) => {
       const dx = x2 - x1;
       const dy = y2 - y1;
       const length = Math.hypot(dx, dy);
-      const mesh = addBox(width, length, width, (x1 + x2) / 2, (y1 + y2) / 2, 0, color);
-      mesh.rotation.z = -Math.atan2(dx, dy);
-      return mesh;
+      const segment = addBox(width, length, width, (x1 + x2) / 2, (y1 + y2) / 2, 0, color, true, false, parent);
+      segment.rotation.z = -Math.atan2(dx, dy);
+      return segment;
     };
+    const pivot = (x: number, y: number, z = 0) => {
+      const part = new THREE.Group();
+      part.position.set(x, y, z);
+      group.add(part);
+      return part;
+    };
+    const addAt = (
+      parent: THREE.Group, w: number, h: number, d: number,
+      x: number, y: number, z: number, color: string, outline = true, glow = false,
+    ) => addBox(
+      w, h, d,
+      x - parent.position.x,
+      y - parent.position.y,
+      z - parent.position.z,
+      color, outline, glow, parent,
+    );
 
     if (spec.kind === 'bow') {
+      // The grip is the bow's pivot. Worn limbs contract around it and the chips remain
+      // on the curved wood instead of being emitted as unrelated floating cubes.
+      const bow = pivot(-0.2, 0.02);
       const curve: Array<[number, number]> = [
-        [-0.12, 0.48], [-0.23, 0.34], [-0.29, 0.12], [-0.26, -0.13], [-0.16, -0.38],
+        [0.08, 0.46], [-0.03, 0.32], [-0.09, 0.1], [-0.06, -0.15], [0.04, -0.4],
       ];
       for (let i = 0; i < curve.length - 1; i++) {
-        addSegment(...curve[i], ...curve[i + 1], 0.075, spec.handle);
+        addSegment(...curve[i], ...curve[i + 1], 0.075, spec.handle, bow);
       }
-      addSegment(-0.12, 0.48, -0.16, -0.38, 0.018, '#e4d9c7');
-      addBox(0.1, 0.2, 0.1, -0.2, 0.02, 0.02, spec.edge);
-      addBox(0.105, 0.05, 0.12, -0.2, 0.02, 0.025, spec.accent, false);
+      addSegment(0.08, 0.46, 0.04, -0.4, 0.018, '#e4d9c7', bow);
+      addBox(0.1, 0.2, 0.1, 0, 0, 0.02, spec.edge, true, false, bow);
+      addBox(0.105, 0.05, 0.12, 0, 0, 0.025, spec.accent, false, false, bow);
+      bow.scale.setScalar(1 - wear * 0.12);
+      if (wear >= 0.08) {
+        const chip = addBox(0.022, 0.065, 0.009, -0.057, 0.22, 0.043, '#342522', false, false, bow);
+        chip.rotation.z = -0.28;
+      }
+      if (wear >= 0.42) {
+        const chip = addBox(0.022, 0.07, 0.009, -0.005, -0.23, 0.043, '#342522', false, false, bow);
+        chip.rotation.z = 0.25;
+      }
+      if (wear >= 0.76) {
+        addBox(0.025, 0.035, 0.009, 0.052, 0.1, 0.017, '#b9a88d', false, false, bow);
+      }
     } else if (spec.kind === 'sword') {
-      addBox(0.13, 0.68, 0.08, 0, 0.35, 0, spec.head);
-      addBox(0.085, 0.57, 0.09, -0.016, 0.39, 0.045, spec.edge);
-      addBox(0.045, 0.38, 0.012, -0.016, 0.43, 0.093, spec.accent, false, spec.tier === 5);
-      addBox(0.18, 0.14, 0.11, 0, 0.79, 0, spec.head);
+      // Blade deformation is pivoted at the guard: it gets narrower and genuinely shorter
+      // as condition falls, while the grip, pommel and guard remain attached and intact.
+      const blade = new THREE.Group();
+      group.add(blade);
+      addBox(0.13, 0.68, 0.08, 0, 0.35, 0, spec.head, true, false, blade);
+      addBox(0.085, 0.57, 0.09, -0.016, 0.39, 0.045, spec.edge, true, false, blade);
+      addBox(0.045, 0.38, 0.012, -0.016, 0.43, 0.093, spec.accent, false, spec.tier === 5, blade);
+      addBox(0.18, 0.14, 0.11, 0, 0.79, 0, spec.head, true, false, blade);
       addBox(0.28, 0.085, 0.13, 0, -0.025, 0, spec.edge);
       addBox(0.095, 0.29, 0.105, 0, -0.22, 0, spec.handle);
       addBox(0.14, 0.07, 0.14, 0, -0.4, 0, spec.head);
       addBox(0.045, 0.055, 0.115, 0, -0.22, 0.06, spec.accent, false);
+      blade.scale.set(1 - wear * 0.15, 1 - wear * 0.42, 1 - wear * 0.08);
+      if (wear >= 0.08) {
+        addBox(0.022, 0.065, 0.009, 0.044, 0.53, 0.103, '#392b28', false, false, blade);
+      }
+      if (wear >= 0.42) {
+        addBox(0.02, 0.055, 0.009, -0.045, 0.31, 0.103, '#392b28', false, false, blade);
+      }
+      if (wear >= 0.76) {
+        addBox(0.025, 0.055, 0.009, 0.043, 0.19, 0.103, '#392b28', false, false, blade);
+      }
     } else {
       // Shared wrapped haft: diagonal leather bands make the silhouette read at small scale.
       const haft = addBox(0.095, 0.78, 0.095, -0.025, -0.17, 0, spec.handle);
@@ -8996,39 +9249,47 @@ if (tpClipActive > 0.5) {
       addBox(0.13, 0.1, 0.13, -0.025, -0.58, 0, spec.head);
 
       if (spec.kind === 'pickaxe') {
-        addBox(0.68, 0.15, 0.19, 0, 0.37, 0, spec.head);
-        addBox(0.23, 0.17, 0.2, -0.39, 0.33, 0, spec.head).rotation.z = -0.45;
-        addBox(0.23, 0.17, 0.2, 0.39, 0.33, 0, spec.head).rotation.z = 0.45;
-        addBox(0.42, 0.045, 0.205, 0, 0.415, 0.012, spec.edge, false);
-        addBox(0.1, 0.1, 0.205, 0, 0.36, 0.02, spec.accent, false, spec.tier === 5);
+        const head = pivot(0, 0.37);
+        addAt(head, 0.68, 0.15, 0.19, 0, 0.37, 0, spec.head);
+        addAt(head, 0.23, 0.17, 0.2, -0.39, 0.33, 0, spec.head).rotation.z = -0.45;
+        addAt(head, 0.23, 0.17, 0.2, 0.39, 0.33, 0, spec.head).rotation.z = 0.45;
+        addAt(head, 0.42, 0.045, 0.205, 0, 0.415, 0.012, spec.edge, false);
+        addAt(head, 0.1, 0.1, 0.205, 0, 0.36, 0.02, spec.accent, false, spec.tier === 5);
+        head.scale.set(1 - wear * 0.24, 1 - wear * 0.2, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.06, 0.025, 0.01, 0.45, 0.38, 0.109, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.055, 0.025, 0.01, -0.45, 0.38, 0.109, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.045, 0.022, 0.01, 0.39, 0.32, 0.11, '#332a29', false);
       } else if (spec.kind === 'axe') {
-        addBox(0.32, 0.28, 0.2, 0.17, 0.34, 0, spec.head);
-        addBox(0.15, 0.36, 0.21, 0.34, 0.32, 0, spec.edge);
-        addBox(0.06, 0.24, 0.22, 0.41, 0.32, 0, spec.accent, false, spec.tier === 5);
-        addBox(0.19, 0.08, 0.205, 0.12, 0.47, 0.01, spec.edge, false);
+        const head = pivot(0.14, 0.34);
+        addAt(head, 0.32, 0.28, 0.2, 0.17, 0.34, 0, spec.head);
+        addAt(head, 0.15, 0.36, 0.21, 0.34, 0.32, 0, spec.edge);
+        addAt(head, 0.06, 0.24, 0.22, 0.41, 0.32, 0, spec.accent, false, spec.tier === 5);
+        addAt(head, 0.19, 0.08, 0.205, 0.12, 0.47, 0.01, spec.edge, false);
+        head.scale.set(1 - wear * 0.26, 1 - wear * 0.18, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.024, 0.065, 0.01, 0.39, 0.35, 0.114, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.03, 0.06, 0.01, 0.37, 0.22, 0.114, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.026, 0.055, 0.01, 0.34, 0.43, 0.114, '#332a29', false);
       } else if (spec.kind === 'hoe') {
-        addBox(0.27, 0.13, 0.16, 0.11, 0.34, 0, spec.head);
-        addBox(0.1, 0.3, 0.18, 0.28, 0.22, 0, spec.edge);
-        addBox(0.05, 0.23, 0.19, 0.34, 0.22, 0, spec.accent, false, spec.tier === 5);
+        const head = pivot(0.11, 0.34);
+        addAt(head, 0.27, 0.13, 0.16, 0.11, 0.34, 0, spec.head);
+        addAt(head, 0.1, 0.3, 0.18, 0.28, 0.22, 0, spec.edge);
+        addAt(head, 0.05, 0.23, 0.19, 0.34, 0.22, 0, spec.accent, false, spec.tier === 5);
+        head.scale.set(1 - wear * 0.22, 1 - wear * 0.22, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.025, 0.055, 0.01, 0.35, 0.25, 0.103, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.025, 0.05, 0.01, 0.32, 0.17, 0.103, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.025, 0.05, 0.01, 0.28, 0.34, 0.103, '#332a29', false);
       } else {
-        addBox(0.3, 0.34, 0.2, 0.02, 0.43, 0, spec.head);
-        addBox(0.23, 0.11, 0.21, 0.02, 0.56, 0.01, spec.edge, false);
-        addBox(0.12, 0.08, 0.215, 0.02, 0.4, 0.015, spec.accent, false, spec.tier === 5);
+        const head = pivot(0.02, 0.43);
+        addAt(head, 0.3, 0.34, 0.2, 0.02, 0.43, 0, spec.head);
+        addAt(head, 0.23, 0.11, 0.21, 0.02, 0.56, 0.01, spec.edge, false);
+        addAt(head, 0.12, 0.08, 0.215, 0.02, 0.4, 0.015, spec.accent, false, spec.tier === 5);
+        head.scale.set(1 - wear * 0.2, 1 - wear * 0.25, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.045, 0.022, 0.01, 0.09, 0.57, 0.12, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.04, 0.022, 0.01, -0.04, 0.56, 0.12, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.04, 0.022, 0.01, 0.02, 0.51, 0.12, '#332a29', false);
       }
     }
 
-    // Progressive chips and ember cracks are shared by held and dropped models.
-    if (wearStage >= 1) {
-      addBox(0.09, 0.07, 0.22, 0.32, 0.3, 0.08, '#292126', false);
-    }
-    if (wearStage >= 2) {
-      addBox(0.045, 0.2, 0.225, 0.23, 0.34, 0.09, '#211b20', false);
-      addBox(0.035, 0.09, 0.23, 0.25, 0.34, 0.11, spec.accent, false, spec.tier === 5);
-    }
-    if (wearStage >= 3) {
-      addBox(0.11, 0.11, 0.23, 0.34, 0.42, 0.1, '#17171a', false);
-      addBox(0.035, 0.12, 0.24, 0.26, 0.4, 0.12, '#ff7045', false, true);
-    }
     return group;
   }
 
@@ -9055,13 +9316,12 @@ if (tpClipActive > 0.5) {
   }
 
   private buildFancyDrop(id: number, durability?: number): THREE.Group | null {
+    if (isArrowId(id)) return buildArrowModel(id);
     const toolSpec = getToolSpec(id);
     if (toolSpec) {
-      const stage = toolSpec.maxDurability > 0
-        ? toolWearStage(durability ?? toolSpec.maxDurability, toolSpec.maxDurability)
-        : 0;
+      const wear = toolWearRatio(durability ?? toolSpec.maxDurability, toolSpec.maxDurability);
       const model = new THREE.Group();
-      model.add(this.buildToolModel(id, stage));
+      model.add(this.buildToolModel(id, wear));
       model.rotation.set(0.18, 0, -0.16);
       return model;
     }
@@ -9446,7 +9706,7 @@ if (tpClipActive > 0.5) {
       this.inventory.set(id, count - 1);
     }
 
-    if (id >= 200) {
+    if (id >= 200 && !isArrowId(id) && !isMeatItem(id)) {
       this.recalcOwnedToolTiers();
     }
 
@@ -9654,7 +9914,7 @@ if (tpClipActive > 0.5) {
     }
     const itemCount = Math.max(1, Math.floor(d.count ?? 1));
     // Picking up a dropped weapon or tool; durable items keep their exact wear/identity.
-    if (d.id >= 200) {
+    if (d.id >= 200 && !isArrowId(d.id) && !isMeatItem(d.id)) {
       if (isDurabilityTool(d.id)) {
         this.addToolInstance(d.id, carriedTool?.durability, carriedTool?.instanceId);
       } else {
@@ -9809,6 +10069,7 @@ if (tpClipActive > 0.5) {
   // ================= DAY / NIGHT =================
   /** 0 = midnight, 0.5 = noon */
   private clockPhase(clock = this.clock): HudState['phaseName'] {
+    if (this.survival && isPermanentSurvivalNight(this.survivalNight)) return 'night';
     if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return 'dawn';
     if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return 'day';
     if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return 'dusk';
@@ -9816,6 +10077,11 @@ if (tpClipActive > 0.5) {
   }
 
   private clockPhaseProgress(clock = this.clock) {
+    if (this.survival && isPermanentSurvivalNight(this.survivalNight)) {
+      const nightSpan = 1 - CLOCK_NIGHT_START + CLOCK_DAWN_START;
+      const nightProgress = ((clock - CLOCK_NIGHT_START + 1) % 1) / nightSpan;
+      return Math.max(0, Math.min(1, nightProgress));
+    }
     if (clock >= CLOCK_DAWN_START && clock < CLOCK_DAY_START) return (clock - CLOCK_DAWN_START) / (CLOCK_DAY_START - CLOCK_DAWN_START);
     if (clock >= CLOCK_DAY_START && clock < CLOCK_DUSK_START) return (clock - CLOCK_DAY_START) / (CLOCK_DUSK_START - CLOCK_DAY_START);
     if (clock >= CLOCK_DUSK_START && clock < CLOCK_NIGHT_START) return (clock - CLOCK_DUSK_START) / (CLOCK_NIGHT_START - CLOCK_DUSK_START);
@@ -9824,10 +10090,14 @@ if (tpClipActive > 0.5) {
   }
 
   private phaseSeconds(phase: HudState['phaseName']) {
-    if (phase === 'dawn') return DAWN_SECONDS;
+    if (this.survival) {
+      if (phase === 'day' && this.firstSurvivalDay) return FIRST_SURVIVAL_DAY_SECONDS;
+      return survivalPhaseSeconds(phase, this.survivalNight);
+    }
+    if (phase === 'dawn') return SURVIVAL_DAWN_SECONDS;
     if (phase === 'day') return this.firstSurvivalDay ? FIRST_SURVIVAL_DAY_SECONDS : SURVIVAL_DAY_SECONDS;
-    if (phase === 'dusk') return DUSK_SECONDS;
-    return NIGHT_SECONDS;
+    if (phase === 'dusk') return SURVIVAL_DUSK_SECONDS;
+    return SURVIVAL_NIGHT_SECONDS;
   }
 
   private phaseSpan(phase: HudState['phaseName']) {
@@ -9885,7 +10155,16 @@ if (tpClipActive > 0.5) {
   }
 
   private updateClock(dt: number) {
-    if (dt > 0) {
+    if (this.survival && isPermanentSurvivalNight(this.survivalNight)) {
+      // Keep the celestial clock on the dark arc even when loading an older save
+      // whose saved time happened to be daytime when the permanent-night threshold is reached.
+      const nightStart = CLOCK_NIGHT_START;
+      const nightSpan = 1 - CLOCK_NIGHT_START + CLOCK_DAWN_START;
+      let nightProgress = (this.clock - nightStart + 1) % 1;
+      if (nightProgress > nightSpan) nightProgress = 0;
+      if (dt > 0) nightProgress = (nightProgress + (dt * nightSpan) / this.phaseSeconds('night')) % nightSpan;
+      this.clock = (nightStart + nightProgress) % 1;
+    } else if (dt > 0) {
       const phase = this.clockPhase();
       this.clock = (this.clock + (dt * this.phaseSpan(phase)) / this.phaseSeconds(phase)) % 1;
     }
@@ -10381,16 +10660,15 @@ if (tpClipActive > 0.5) {
     if (m.id === 'trader') return true; // he's a merchant, not target practice
 
     const swift = 1 - Math.min(0.4, this.stats.swift / 100);
-    const held = this.heldKind();
-    const cooldown = held === 'sword' ? 0.44 : held === 'axe' ? 0.68 : held === 'hoe' ? 0.56 : 0.58;
-    const weaponSpec = getToolSpec(this.hotbar[this.selected] ?? -1);
-    const materialTempo = weaponSpec?.key === 'gold' ? 0.8 : 1;
-    this.attackCd = cooldown * swift * materialTempo;
+    const heldId = this.hotbar[this.selected] ?? HAND;
+    const cooldown = meleeAttackInterval(heldId);
+    this.attackCd = cooldown * swift;
     this.startSwing(0.6);
 
     let dmg = this.attackDamage();
-    const crit = Math.random() < 0.18;
-    if (crit) dmg *= 1.8;
+    // Like Java combat, a melee critical is deliberate: the player must strike while falling.
+    const crit = !this.onGround && !this.inWater && this.vel.y < -0.25;
+    if (crit) dmg *= 1.5;
     m.hp -= dmg;
     m.hurtFlash = 0.18;
     this.mobSys.showHealthBar(m);
@@ -10436,17 +10714,7 @@ if (tpClipActive > 0.5) {
   }
 
   attackDamage() {
-    const held = this.heldKind();
-    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
-    const base = spec?.attackDamage ?? 3;
-    const mul =
-      held === 'sword' ? 1 :
-      held === 'axe' ? 1.05 :
-      held === 'pick' ? 0.62 :
-      held === 'shovel' ? 0.46 :
-      held === 'hoe' ? 0.4 :
-      held === 'fist' ? 0.38 : 0.3;
-    return (base * mul + this.stats.damage) * (1 + this.stats.swift / 500);
+    return meleeDamage(this.hotbar[this.selected] ?? HAND, this.stats.damage);
   }
 
   // ================= ARROWS =================
@@ -10458,23 +10726,19 @@ if (tpClipActive > 0.5) {
     vy: number;
     vz: number;
     life: number;
-    mesh: THREE.Mesh;
+    mesh: THREE.Group;
     /** Player arrow stats are captured at launch so switching bows cannot change an in-flight shot. */
     damage?: number;
-    critChance?: number;
-    critMultiplier?: number;
     /** true = shot by a skeleton archer, hurts the player */
     hostile?: boolean;
     /** which arrow item was spent on the shot (ARROW_ITEM when nothing was equipped) */
     arrowId?: number | null;
   }> = [];
-  private arrowGeo: THREE.BoxGeometry | null = null;
-  private arrowMat = new THREE.MeshBasicMaterial({ color: 0xd9cba8 });
 
-  /** skeleton archer fires an arrow at the player */
+  /** skeleton archer fires the standard arrow model at the player */
   private mobShoot(m: Mob) {
-    if (!this.arrowGeo) this.arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.52);
-    const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
+    const arrowId = ARROW_ITEM;
+    const mesh = buildArrowModel(arrowId);
     const ox = m.x;
     const oy = m.y + 1.4;
     const oz = m.z;
@@ -10487,21 +10751,20 @@ if (tpClipActive > 0.5) {
     dy = dy / len + (Math.random() - 0.5) * 0.06 + 0.03;
     dz = dz / len + (Math.random() - 0.5) * 0.08;
     const sp = 22;
-    const a = { x: ox + dx, y: oy, z: oz + dz, vx: dx * sp, vy: dy * sp, vz: dz * sp, life: 2.2, mesh, hostile: true };
+    const a = { x: ox + dx, y: oy, z: oz + dz, vx: dx * sp, vy: dy * sp, vz: dz * sp, life: 2.2, mesh, hostile: true, arrowId };
     mesh.position.set(a.x, a.y, a.z);
     this.scene.add(mesh);
-    this.arrows.push(a as (typeof this.arrows)[number]);
+    this.arrows.push(a);
     sfx.swing(3);
   }
 
   private tryShoot() {
     if (this.attackCd > 0) return;
-    const arrowTypes = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
     // The active hotbar is the player's arrow pool: when a bow is drawn, use the first
     // loaded arrow stack in that row, rather than silently choosing a random inventory stack.
-    const arrowId = (this.arrowLoadout !== null && (this.inventory.get(this.arrowLoadout) ?? 0) > 0 ? this.arrowLoadout : null)
-      ?? this.hotbar.find((id) => id !== undefined && arrowTypes.includes(id) && (this.inventory.get(id) ?? 0) > 0)
-      ?? arrowTypes.find((id) => (this.inventory.get(id) ?? 0) > 0)
+    const arrowId = (this.arrowLoadout !== null && isArrowId(this.arrowLoadout) && (this.inventory.get(this.arrowLoadout) ?? 0) > 0 ? this.arrowLoadout : null)
+      ?? this.hotbar.find((id): id is (typeof ARROW_IDS)[number] => id !== undefined && isArrowId(id) && (this.inventory.get(id) ?? 0) > 0)
+      ?? ARROW_IDS.find((id) => (this.inventory.get(id) ?? 0) > 0)
       ?? ARROW_ITEM;
     if ((this.inventory.get(arrowId) ?? 0) <= 0) {
       this.queueTutorialTip('mechanic:bow-ammo', t('tutorialBowTitle'), t('tutorialBowAmmo'), '#c7a879', 'bow');
@@ -10521,8 +10784,7 @@ if (tpClipActive > 0.5) {
     this.startSwing(0.4);
     sfx.swing(4);
     this.damageHeldTool(1);
-    if (!this.arrowGeo) this.arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.52);
-    const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
+    const mesh = buildArrowModel(arrowId);
     const sp = speeds[tier];
     const a = {
       x: this.eyeV.x + this.dirV.x * 0.6,
@@ -10533,10 +10795,8 @@ if (tpClipActive > 0.5) {
       vz: this.dirV.z * sp,
       life: 2.4,
       mesh,
-      damage: ((spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35) * (arrowId === STONE_ARROW ? 1.2 : arrowId === IRON_ARROW ? 1.45 : arrowId === GOLD_ARROW ? 1.7 : arrowId === NETHERITE_ARROW ? 2.2 : 1),
+      damage: bowArrowDamage(spec?.id ?? TOOL_BOW, arrowId, this.stats.damage),
       arrowId,
-      critChance: 0.14,
-      critMultiplier: 1.55,
     };
     mesh.position.set(a.x, a.y, a.z);
     this.scene.add(mesh);
@@ -10568,17 +10828,7 @@ if (tpClipActive > 0.5) {
             break;
           }
           if (isSolid(this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)))) {
-            this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.2);
-            if (Math.random() < 0.8) {
-              const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
-              // the arrow falls back out of the block, so it can be picked up again
-              this.spawnDrop(
-                a.x - (a.vx / speed) * 0.35,
-                a.y - (a.vy / speed) * 0.35 + 0.15,
-                a.z - (a.vz / speed) * 0.35,
-                a.arrowId ?? ARROW_ITEM,
-              );
-            }
+            this.resolveArrowBlockImpact(a);
             dead = true;
             break;
           }
@@ -10587,8 +10837,7 @@ if (tpClipActive > 0.5) {
         // hit a mob?
         const hit = this.mobSys.inRadius(a.x, a.y, a.z, 0.75).filter((m) => m.id !== 'trader')[0];
         if (hit) {
-          const crit = Math.random() < (a.critChance ?? 0.18);
-          const dmg = (a.damage ?? 8) * (crit ? (a.critMultiplier ?? 1.6) : 1);
+          const dmg = a.damage ?? 6;
           hit.hp -= dmg;
           hit.hurtFlash = 0.18;
           this.mobSys.showHealthBar(hit);
@@ -10600,11 +10849,12 @@ if (tpClipActive > 0.5) {
           if (a.arrowId === POISON_ARROW) { hit.poison = 5; hit.poisonTick = 0; hit.hurtFlash = 0.5; this.burst(a.x, a.y, a.z, [120, 220, 70], 8, 1.1); }
           if (a.arrowId === FREEZE_ARROW) { hit.vx *= 0.12; hit.vz *= 0.12; this.burst(a.x, a.y, a.z, [100, 220, 255], 10, 1.2); }
           if (a.arrowId === STUN_ARROW) { hit.stun = 5; hit.vx = 0; hit.vz = 0; hit.hurtFlash = 0.65; this.burst(a.x, a.y, a.z, [250, 220, 80], 10, 1.2); }
-          // the arrow lodges in the target — it drops back out on death
+          // the arrow lodges in the target and recovers as the same ammunition when the mob dies
           hit.stuckArrows++;
+          hit.stuckArrowIds.push(a.arrowId ?? ARROW_ITEM);
           if (this.stats.fire > 0) hit.burn = Math.max(hit.burn, 3);
           if (this.stats.frost > 0) hit.slow = 2;
-          this.popup(hit.x, hit.y + 1.5, hit.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#93c95d', crit);
+          this.popup(hit.x, hit.y + 1.5, hit.z, `${Math.round(dmg)}`, '#93c95d', false);
           this.burst(a.x, a.y, a.z, [220, 220, 200], 5, 2);
           sfx.crack(2);
           if (hit.hp <= 0) this.mobDied(hit, false);
@@ -10612,13 +10862,7 @@ if (tpClipActive > 0.5) {
           break;
         }
         if (isSolid(this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)))) {
-          // stick into the ground as a retrievable pickup (arrows survive ~80% of landings)
-          this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.4);
-          if (Math.random() < 0.8) {
-            // back out of the wall a touch so the drop doesn't spawn inside the block
-            const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
-            this.spawnDrop(a.x - (a.vx / speed) * 0.35, a.y - (a.vy / speed) * 0.35 + 0.15, a.z - (a.vz / speed) * 0.35, ARROW_ITEM);
-          }
+          this.resolveArrowBlockImpact(a);
           dead = true;
           break;
         }
@@ -10627,14 +10871,100 @@ if (tpClipActive > 0.5) {
       a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
       if (dead) {
         this.scene.remove(a.mesh);
+        disposeObject(a.mesh);
         this.arrows.splice(i, 1);
       }
     }
   }
 
+  private resolveArrowBlockImpact(a: { x: number; y: number; z: number; vx: number; vy: number; vz: number; arrowId?: number | null }) {
+    const blockId = this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z));
+    if (arrowBreaksOnBlock(blockId)) {
+      this.burst(a.x, a.y, a.z, [207, 177, 139], 7, 1.1);
+      sfx.crack(2);
+      return;
+    }
+    this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.3);
+    this.stickArrowInBlock(a);
+  }
+
+  private stickArrowInBlock(a: { x: number; y: number; z: number; vx: number; vy: number; vz: number; arrowId?: number | null }) {
+    const candidateId = a.arrowId ?? ARROW_ITEM;
+    const id = isArrowId(candidateId) ? candidateId : ARROW_ITEM;
+    const direction = new THREE.Vector3(a.vx, a.vy, a.vz);
+    if (direction.lengthSq() < 1e-6) direction.set(0, 0, 1);
+    else direction.normalize();
+
+    // The model's point is on local +Z. Place it just through the block face, with
+    // most of the shaft and its fletching visible on the side the shot came from.
+    const center = new THREE.Vector3(a.x, a.y, a.z).addScaledVector(direction, -0.35);
+    const mesh = buildArrowModel(id);
+    mesh.scale.setScalar(0.82);
+    mesh.position.copy(center);
+    mesh.lookAt(center.clone().add(direction));
+    mesh.userData.stuckInBlock = true;
+    this.scene.add(mesh);
+
+    this.stuckArrows.push({
+      id,
+      x: center.x,
+      y: center.y,
+      z: center.z,
+      blockX: Math.floor(a.x),
+      blockY: Math.floor(a.y),
+      blockZ: Math.floor(a.z),
+      mesh,
+    });
+    // Bound scene/GPU memory in long-running games; the oldest embedded arrow
+    // falls free as a pickup rather than disappearing when the visual cap is hit.
+    if (this.stuckArrows.length > MAX_STUCK_ARROWS) this.removeStuckArrow(0, true);
+  }
+
+  private removeStuckArrow(index: number, returnToWorld: boolean) {
+    const [arrow] = this.stuckArrows.splice(index, 1);
+    if (!arrow) return;
+    this.scene.remove(arrow.mesh);
+    disposeObject(arrow.mesh);
+    if (returnToWorld) this.spawnDrop(arrow.x, arrow.y, arrow.z, arrow.id);
+  }
+
+  private updateStuckArrows() {
+    let collected = false;
+    const eyeX = this.pos.x;
+    const eyeY = this.pos.y + 1.1;
+    const eyeZ = this.pos.z;
+    for (let i = this.stuckArrows.length - 1; i >= 0; i--) {
+      const arrow = this.stuckArrows[i];
+      // Breaking/removing the supporting block releases the same arrow type as a pickup.
+      if (!isSolid(this.world.get(arrow.blockX, arrow.blockY, arrow.blockZ))) {
+        this.removeStuckArrow(i, true);
+        continue;
+      }
+      // An embedded arrow is an ordinary collectible: walk within 1.35 blocks to reclaim it.
+      if (Math.hypot(arrow.x - eyeX, arrow.y - eyeY, arrow.z - eyeZ) > 1.35) continue;
+      this.removeStuckArrow(i, false);
+      this.inventory.set(arrow.id, (this.inventory.get(arrow.id) ?? 0) + 1);
+      this.addToHotbar(arrow.id);
+      collected = true;
+    }
+    if (collected) {
+      sfx.pickup(1);
+      this.syncHotbar(true);
+      this.syncHud(true);
+    }
+  }
+
+  private clearStuckArrows() {
+    for (let i = this.stuckArrows.length - 1; i >= 0; i--) this.removeStuckArrow(i, false);
+  }
+
   private clearArrows() {
-    for (const a of this.arrows) this.scene.remove(a.mesh);
+    for (const a of this.arrows) {
+      this.scene.remove(a.mesh);
+      disposeObject(a.mesh);
+    }
     this.arrows.length = 0;
+    this.clearStuckArrows();
   }
 
   private mobDied(m: Mob, burned: boolean) {
@@ -10694,9 +11024,12 @@ if (tpClipActive > 0.5) {
         for (let i = 0; i < 3; i++) this.spawnDrop(m.x, m.y + 0.5, m.z, ARROW_ITEM);
       }
     }
-    // every arrow you shot into it clatters back out — walk over and re-collect
-    for (let i = 0; i < m.stuckArrows; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, ARROW_ITEM);
+    // Every arrow you shot into it clatters back out with its original type.
+    for (let i = 0; i < m.stuckArrows; i++) {
+      this.spawnDrop(m.x, m.y + 0.6, m.z, m.stuckArrowIds[i] ?? ARROW_ITEM);
+    }
     m.stuckArrows = 0;
+    m.stuckArrowIds.length = 0;
     const gained = this.awardScore(Math.round(def.score * this.comboMult() * (1 + this.stats.greed / 100)));
     this.combo++;
     this.comboTimer = 3;
@@ -10831,7 +11164,7 @@ if (tpClipActive > 0.5) {
 
   /** sell a tool straight out of the hotbar or inventory */
   sellTool(id: number, instanceId?: number) {
-    if (id < 200) return;
+    if (id < 200 || isArrowId(id) || isMeatItem(id)) return;
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) return; // nothing owned — never sell an air slot
     let durability: number | undefined;
@@ -11224,10 +11557,11 @@ if (tpClipActive > 0.5) {
   private ensurePetRuntimeState(kind: PetKind) {
     if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
     if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
-    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey'))];
-    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0 };
+    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey' || owned === 'parrot'))];
+    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0, parrot: 0 };
+    if (!Number.isFinite(this.petCoatIndices.parrot)) this.petCoatIndices.parrot = getParrotCoatIndex();
     if (this.petEquippedKind === undefined) this.petEquippedKind = null;
-    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null).length > 0;
   }
@@ -11294,11 +11628,11 @@ if (tpClipActive > 0.5) {
   cyclePetCoat(kind: PetKind, direction = 1): boolean {
     this.ensurePetRuntimeState(kind);
     if (!this.petOwnedKinds.includes(kind) || !Number.isFinite(direction) || direction === 0) return false;
-    const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
+    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : PARROT_COATS;
     const current = this.petCoatIndices[kind];
     const delta = direction < 0 ? -1 : 1;
     const requested = (current + delta + coats.length) % coats.length;
-    const saved = kind === 'wolf' ? setWolfCoatIndex(requested) : setMonkeyCoatIndex(requested);
+    const saved = kind === 'wolf' ? setWolfCoatIndex(requested) : kind === 'monkey' ? setMonkeyCoatIndex(requested) : setParrotCoatIndex(requested);
     if (saved === current) return false;
     this.petCoatIndices[kind] = saved;
     if (kind === this.petSelectedKind || kind === this.petEquippedKind) this.petCoatIndex = saved;
@@ -11831,8 +12165,9 @@ if (tpClipActive > 0.5) {
       this.petSelectedKind,
       this.petCoatIndices.wolf,
       this.petCoatIndices.monkey,
+      this.petCoatIndices.parrot,
       this.petCoatIndex,
-      this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE) ? 1 : 0,
+      this.petInteractionAvailable() ? 1 : 0,
       this.lastCraft ?? '-',
       targetBlock ? targetBlock.id : 0,
       this.hotbar.map((id, i) => `${id ?? -1}:${this.inventory.get(id ?? -1) ?? 0}:${this.hotbarInstanceIds[i] ?? -1}`).join('|'),
@@ -11925,11 +12260,11 @@ if (tpClipActive > 0.5) {
       petSelectedKind: this.petSelectedKind,
       petCoatIndices: { ...this.petCoatIndices },
       petCoatIndex: this.petCoatIndices[this.petSelectedKind],
-      petInteractNear: this.phase === 'playing' && this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE),
+      petInteractNear: this.phase === 'playing' && this.petInteractionAvailable(),
       stats: this.stats,
       killedBy: this.killedBy,
       offers: this.offers,
-      sellPrices: Object.fromEntries(BLOCKS.map((block) => [block.id, this.sellPrice(block.id)])),
+      sellPrices: Object.fromEntries(BLOCKS.filter((block) => block !== undefined).map((block) => [block.id, this.sellPrice(block.id)])),
       invTab: this.invTab,
       tradeNear: this.phase === 'playing' || this.inventoryOpen ? this.traderNear() !== null : false,
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,
@@ -12228,11 +12563,24 @@ if (tpClipActive > 0.5) {
   private buildPetRig(kind: PetKind): WolfPetRig {
     return kind === 'wolf'
       ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
-      : buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0]);
+      : kind === 'monkey'
+        ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
+        : buildParrotPetRig(this.petCoatIndices.parrot);
   }
 
   private createWolfPetRig(kind: PetKind) {
     const rig = this.buildPetRig(kind);
+    if (kind === 'parrot') {
+      rig.group.position.copy(this.parrotShoulderPoint());
+      rig.group.rotation.y = this.yaw;
+      rig.yawTarget = this.yaw;
+      rig.target.copy(rig.group.position);
+      rig.navWaypoint.copy(rig.group.position);
+      rig.navGoal.copy(rig.group.position);
+      this.wolfPetLayer.add(rig.group);
+      this.wolfPetRig = rig;
+      return;
+    }
     const forwardX = -Math.sin(this.yaw);
     const forwardZ = -Math.cos(this.yaw);
     const sideX = Math.cos(this.yaw);
@@ -12323,6 +12671,17 @@ if (tpClipActive > 0.5) {
     next.swimming = current.swimming;
     next.underwater = current.underwater;
     next.reactionLookTimer = current.reactionLookTimer;
+    next.parrotMode = current.parrotMode;
+    next.parrotCalled = current.parrotCalled;
+    next.parrotIdleTimer = current.parrotIdleTimer;
+    next.parrotAttackTarget = current.parrotAttackTarget;
+    next.parrotAttackStage = current.parrotAttackStage;
+    next.parrotStageTimer = current.parrotStageTimer;
+    next.parrotHappyTimer = current.parrotHappyTimer;
+    next.parrotEatTimer = current.parrotEatTimer;
+    next.parrotSoundTimer = current.parrotSoundTimer;
+    next.parrotFollowAnchor.copy(current.parrotFollowAnchor);
+    next.parrotFollowAnchorValid = current.parrotFollowAnchorValid;
     this.wolfPetLayer.remove(current.group);
     disposeObject(current.group);
     this.wolfPetLayer.add(next.group);
@@ -12331,13 +12690,64 @@ if (tpClipActive > 0.5) {
 
   private wolfPetIsNear(radius: number): boolean {
     const rig = this.wolfPetRig;
-    if (!this.petEquipped || !rig || !rig.group.visible) return false;
+    if (!this.petEquipped || !rig || !rig.group.visible || rig.kind === 'parrot') return false;
     return Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z) <= radius
       && Math.abs(rig.group.position.y - this.pos.y) <= 2.2;
   }
 
+  private petInteractionAvailable(): boolean {
+    const rig = this.wolfPetRig;
+    if (!this.petEquipped || !rig || !rig.group.visible) return false;
+    if (rig.kind === 'parrot') {
+      return rig.parrotMode === 'hand' && rig.group.position.distanceTo(this.parrotHandPoint()) <= 0.72;
+    }
+    return this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE);
+  }
+
+  /** B whistle (and the mobile CALL button) brings an equipped parrot onto the outstretched left hand. */
+  whistleParrot(): boolean {
+    const rig = this.wolfPetRig;
+    if (this.phase !== 'playing' || !this.petEquipped || rig?.kind !== 'parrot') {
+      sfx.ui(false);
+      return false;
+    }
+    rig.parrotCalled = true;
+    rig.parrotMode = 'hand';
+    rig.parrotIdleTimer = 0;
+    rig.parrotAttackTarget = null;
+    rig.reaction = null;
+    sfx.creature('bird', { state: 'idle', volume: 0.82, pitch: 1.08 + Math.random() * 0.12 });
+    this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotWhistle'), '#f3d49a', false, { duration: 1.0 });
+    this.syncHud(true);
+    return true;
+  }
+
+  private interactParrot(): boolean {
+    const rig = this.wolfPetRig;
+    if (rig?.kind !== 'parrot' || !this.petInteractionAvailable()) return false;
+    const seeds = this.inventory.get(WHEAT_SEEDS) ?? 0;
+    const feedingSeeds = this.hotbar?.[this.selected] === WHEAT_SEEDS;
+    if (seeds > 0 && feedingSeeds) {
+      if (seeds > 1) this.inventory.set(WHEAT_SEEDS, seeds - 1);
+      else this.inventory.delete(WHEAT_SEEDS);
+      rig.parrotEatTimer = 1.0;
+      rig.parrotHappyTimer = 1.1;
+      rig.parrotSoundTimer = 0;
+      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotFed'), '#f3d49a', false, { duration: 1.35 });
+      sfx.creature('bird', { state: 'idle', volume: 0.86, pitch: 0.96 + Math.random() * 0.16 });
+      this.syncHotbar(true);
+    } else {
+      rig.parrotHappyTimer = 0.85;
+      this.popup(this.pos.x, this.pos.y + 2.0, this.pos.z, t('petParrotPetted'), '#f3d49a', false, { duration: 1.2 });
+      sfx.creature('bird', { state: 'idle', volume: 0.82, pitch: 1.08 + Math.random() * 0.16 });
+    }
+    this.syncHud(true);
+    return true;
+  }
+
   private petWolf(): boolean {
     const rig = this.wolfPetRig;
+    if (rig?.kind === 'parrot') return this.interactParrot();
     if (!rig || !this.wolfPetIsNear(WOLF_PET_INTERACTION_RANGE)) return false;
     if (rig.kind === 'wolf') {
       const reactions = ['wag', 'bark', 'spin'] as const;
@@ -12807,7 +13217,7 @@ if (tpClipActive > 0.5) {
   }
 
   private isWolfPetFetchDropCandidate(drop: Drop): boolean {
-    if (!drop.active || drop.petCarried || drop.thrown || drop.id === LOOT_BAG || drop.id <= AIR || drop.id >= 200 || !BLOCKS[drop.id]) return false;
+    if (!drop.active || drop.petCarried || drop.thrown || drop.id === LOOT_BAG || drop.id <= AIR || (drop.id >= 200 && !isArrowId(drop.id) && !isMeatItem(drop.id)) || !BLOCKS[drop.id]) return false;
     if (drop.age < (drop.pickupDelay ?? 0.22) + 0.18) return false;
     if ((drop.wolfPetIgnoreUntil ?? 0) > this.time) return false;
     const playerDistance = Math.hypot(drop.x - this.pos.x, drop.z - this.pos.z);
@@ -12835,7 +13245,7 @@ if (tpClipActive > 0.5) {
     const id = this.world.get(target.x, target.y, target.z);
     if (!isTreasureChest(id) || baseChestId(id) !== baseChestId(target.id)) return false;
     const chest = this.chestInventoryAt(target.x, target.y, target.z, id);
-    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && itemId < 200 && !!BLOCKS[itemId] && !getToolSpec(itemId));
+    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && (itemId < 200 || isArrowId(itemId) || isMeatItem(itemId)) && !!BLOCKS[itemId] && !getToolSpec(itemId));
   }
 
   /** Find a nearby stocked chest and one clear adjacent position the wolf can reach. */
@@ -12979,7 +13389,7 @@ if (tpClipActive > 0.5) {
     if (distance <= 0.48) {
       const currentId = this.world.get(target.x, target.y, target.z);
       const chest = this.chestInventoryAt(target.x, target.y, target.z, currentId);
-      const item = [...chest].find(([id, count]) => id > AIR && id < 200 && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
+      const item = [...chest].find(([id, count]) => id > AIR && (id < 200 || isArrowId(id) || isMeatItem(id)) && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
       if (!item) {
         this.setWolfPetChestLid(target, false);
         rig.chestTarget = null;
@@ -13287,14 +13697,564 @@ if (tpClipActive > 0.5) {
     this.moveWolfPet(rig, dt, 7.8);
   }
 
+  /** A parrot uses a small swept voxel body; water is forbidden flight space, not a swimming medium. */
+  private parrotFlightClear(x: number, y: number, z: number): boolean {
+    const radius = 0.23;
+    const height = 0.62;
+    if (y < 0 || y + height >= WY) return false;
+    for (let cy = Math.floor(y + 0.03); cy <= Math.floor(y + height); cy++) {
+      for (let cz = Math.floor(z - radius); cz <= Math.floor(z + radius); cz++) {
+        for (let cx = Math.floor(x - radius); cx <= Math.floor(x + radius); cx++) {
+          if (!this.world.hasColumn(cx, cz)) return false;
+          const block = this.world.get(cx, cy, cz);
+          if (block === WATER || isSolid(block)) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private parrotFlightPathClear(from: THREE.Vector3, to: THREE.Vector3): boolean {
+    const distance = from.distanceTo(to);
+    const steps = Math.max(1, Math.ceil(distance / 0.14));
+    for (let step = 1; step <= steps; step++) {
+      const progress = step / steps;
+      if (!this.parrotFlightClear(
+        from.x + (to.x - from.x) * progress,
+        from.y + (to.y - from.y) * progress,
+        from.z + (to.z - from.z) * progress,
+      )) return false;
+    }
+    return true;
+  }
+
+  /** The resting perch is on the character's left shoulder, outside the head silhouette. */
+  private parrotShoulderPoint(): THREE.Vector3 {
+    if (this.thirdPerson && this.playerAvatar && this.avatarLeftArm) {
+      this.playerAvatar.updateMatrixWorld(true);
+      return this.playerAvatar.localToWorld(this.avatarLeftArm.position.clone().add(new THREE.Vector3(0, 0, -0.035)));
+    }
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const shoulderOffset = this.characterCustomization.gender === 'girl' ? 0.37 : 0.43;
+    return new THREE.Vector3(
+      this.pos.x - sideX * shoulderOffset + forwardX * 0.035,
+      this.pos.y + 1.32,
+      this.pos.z - sideZ * shoulderOffset + forwardZ * 0.035,
+    );
+  }
+
+  /** The whistle pose extends the left arm forward; land just above the fingertips, not the torso. */
+  private parrotHandPoint(): THREE.Vector3 {
+    if (this.playerAvatar && this.avatarLeftArm && this.parrotHandArmBlend > 0.05) {
+      this.playerAvatar.updateMatrixWorld(true);
+      return this.avatarLeftArm.localToWorld(new THREE.Vector3(0, -0.77, 0)).add(new THREE.Vector3(0, 0.02, 0));
+    }
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const shoulderOffset = this.characterCustomization.gender === 'girl' ? 0.37 : 0.43;
+    const crouchScale = Math.max(0.78, 1 - this.crouchLerp * 0.16);
+    const avatarY = this.pos.y + this.crawlLerp * 0.44;
+    const bodyShift = CRAWL_BODY_CENTER * Math.max(this.crawlLerp, this.swimLerp);
+    const fingertipY = 1.34 - 0.77 * Math.cos(1.45) + 0.02;
+    return new THREE.Vector3(
+      this.pos.x - forwardX * bodyShift - sideX * shoulderOffset + forwardX * 0.77,
+      avatarY + fingertipY * crouchScale,
+      this.pos.z - forwardZ * bodyShift - sideZ * shoulderOffset + forwardZ * 0.77,
+    );
+  }
+
+  /** The summoned bird turns back toward the character once it lands on the left fingertips. */
+  private parrotFacingPlayerYaw(point: THREE.Vector3): number {
+    const dx = this.pos.x - point.x;
+    const dz = this.pos.z - point.z;
+    return Math.atan2(-dx, -dz);
+  }
+
+  /**
+   * A small, continuously moving orbit keeps the bird visibly aloft above a swimmer instead of
+   * pinning it to the player's exact X/Z. Try nearby lanes so a bank or low ledge can be skirted.
+   */
+  private parrotWaterHoverPoint(): THREE.Vector3 {
+    const surface = this.wolfPetWaterSurfaceY(this.pos.x, this.pos.z, this.pos.y);
+    const orbitDirection = this.petCoatIndices.parrot % 2 === 0 ? 1 : -1;
+    const orbit = this.time * 0.78 * orbitDirection;
+    const radius = 0.58 + Math.sin(this.time * 0.63) * 0.14;
+    const bob = Math.sin(this.time * 1.55) * 0.14;
+    const centerY = surface === null
+      ? this.pos.y + 2.45 + bob
+      : Math.max(this.pos.y + 2.32, surface + 1.08) + bob;
+    const offsets = [0, 0.42, -0.42, 0.82, -0.82, Math.PI];
+    const heights = surface === null
+      ? [centerY, centerY + 0.28, centerY - 0.22]
+      : [centerY, Math.max(this.pos.y + 2.2, surface + 0.84) + bob, surface + 0.34];
+    for (const angleOffset of offsets) {
+      const angle = orbit + angleOffset;
+      const x = this.pos.x + Math.cos(angle) * radius;
+      const z = this.pos.z + Math.sin(angle) * radius;
+      for (const y of heights) {
+        if (this.parrotFlightClear(x, y, z)) return new THREE.Vector3(x, y, z);
+      }
+    }
+    // A fully enclosed shoreline has no valid orbit lane; stay at the highest clear point over
+    // the swimmer rather than ever dropping into water.
+    for (let y = centerY + 0.25; y < Math.min(WY - 1, centerY + 5); y += 0.28) {
+      if (this.parrotFlightClear(this.pos.x, y, this.pos.z)) return new THREE.Vector3(this.pos.x, y, this.pos.z);
+    }
+    return new THREE.Vector3(this.pos.x, centerY, this.pos.z);
+  }
+
+  /**
+   * Keep a little height above the character and orbit behind them. The drifting side and bob make
+   * course corrections feel like a living bird; swept steering handles blocks between waypoints.
+   */
+  private parrotFollowPoint(): THREE.Vector3 {
+    if (this.inWater) return this.parrotWaterHoverPoint();
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const phase = this.time * 0.62;
+    const behind = 1.16 + Math.cos(phase) * 0.22;
+    const lateral = Math.sin(phase) * 0.66;
+    const bob = Math.sin(this.time * 1.7) * 0.23 + Math.sin(this.time * 0.53) * 0.08;
+    return new THREE.Vector3(
+      this.pos.x - forwardX * behind + sideX * lateral,
+      this.pos.y + 2.54 + bob,
+      this.pos.z - forwardZ * behind + sideZ * lateral,
+    );
+  }
+
+  /** A short trailing filter softens player bob, swimming jitter and changing orbit targets. */
+  private parrotFollowTarget(rig: WolfPetRig, desired: THREE.Vector3, dt: number): THREE.Vector3 {
+    const anchor = rig.parrotFollowAnchor;
+    // Treat large world jumps as teleports; normal movement should retain a little lag.
+    if (!rig.parrotFollowAnchorValid || anchor.distanceToSquared(desired) > 100) {
+      anchor.copy(desired);
+      rig.parrotFollowAnchorValid = true;
+    } else {
+      const responseSeconds = this.inWater ? 0.36 : 0.2;
+      const blend = 1 - Math.exp(-Math.max(0, dt) / responseSeconds);
+      anchor.lerp(desired, blend);
+    }
+    return anchor;
+  }
+
+  /** Low ceilings keep the parrot perched; an obstacle only at the exact target is routed around. */
+  private parrotHasFlightRoom(rig: WolfPetRig, destination = this.parrotFollowPoint()): boolean {
+    const baseY = Math.max(this.pos.y + 2.02, destination.y - 0.22);
+    const lanes: Array<[number, number]> = [
+      [0, 0], [0.48, 0], [-0.48, 0], [0, 0.48], [0, -0.48],
+      [0.72, 0.38], [-0.72, 0.38], [0.72, -0.38], [-0.72, -0.38],
+    ];
+    const heights = [baseY, baseY + 0.3];
+    const overheadAir = lanes.some(([x, z]) => heights.some((y) => this.parrotFlightClear(this.pos.x + x, y, this.pos.z + z)));
+    // In water the first update moves the bird to a safe surface orbit; otherwise it must already
+    // occupy clear air. Wall avoidance and vertical maneuvers happen in moveParrotFlight().
+    return overheadAir && (this.inWater || this.parrotFlightClear(rig.group.position.x, rig.group.position.y, rig.group.position.z));
+  }
+
+  /** Approach the shoulder through clear air; do not lerp the pet through a wall or roof. */
+  private moveParrotToShoulder(rig: WolfPetRig, dt: number, speed: number): boolean {
+    const shoulder = this.parrotShoulderPoint();
+    const distance = rig.group.position.distanceTo(shoulder);
+    if (distance > 0.22 && this.parrotFlightClear(shoulder.x, shoulder.y, shoulder.z)) {
+      this.moveParrotFlight(rig, shoulder, dt, speed);
+    } else if (distance > 0.22) {
+      rig.moving = false;
+    }
+    const perched = rig.group.position.distanceTo(shoulder) <= 0.3;
+    rig.sitting = perched;
+    if (perched) rig.moving = false;
+    rig.yawTarget = this.yaw;
+    return perched;
+  }
+
+  /** 3D obstacle-aware steering for the bird; it slides around a wall rather than entering it. */
+  private moveParrotFlight(rig: WolfPetRig, destination: THREE.Vector3, dt: number, speed: number): boolean {
+    rig.target.copy(destination);
+    const pos = rig.group.position;
+    const dx = destination.x - pos.x;
+    const dy = destination.y - pos.y;
+    const dz = destination.z - pos.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < 0.1) {
+      rig.moving = false;
+      return true;
+    }
+    const stride = Math.min(distance, Math.max(0, speed * dt));
+    const desired = new THREE.Vector3(dx / distance, dy / distance, dz / distance);
+    const horizontal = Math.hypot(dx, dz);
+    const side = horizontal > 0.001
+      ? new THREE.Vector3(-dz / horizontal, 0, dx / horizontal)
+      : new THREE.Vector3(Math.cos(rig.group.rotation.y), 0, -Math.sin(rig.group.rotation.y));
+    // Stable preference per destination gives a natural left/right bank instead of always choosing
+    // the same side. If the route is blocked, the extra lift/drop candidates let the parrot go over
+    // low obstacles or duck under a ledge before trying a wider curve.
+    const sideBias = Math.sin(destination.x * 17.13 + destination.z * 31.71 + destination.y * 4.37) >= 0 ? 1 : -1;
+    const maneuvers: Array<[number, number, boolean?]> = [
+      [0, 0],
+      [sideBias * 0.32, 0], [-sideBias * 0.32, 0],
+      [sideBias * 0.62, 0], [-sideBias * 0.62, 0],
+      [sideBias * 1.25, 0], [-sideBias * 1.25, 0],
+      [sideBias * 2.4, 0], [-sideBias * 2.4, 0],
+      [sideBias * 4.0, 0], [-sideBias * 4.0, 0],
+      [sideBias, 0, true], [-sideBias, 0, true], // near-pure sidesteps for narrow gaps
+      [0, 0.52], [0, -0.36],
+      [sideBias * 0.38, 0.4], [-sideBias * 0.38, 0.4],
+      [sideBias * 0.38, -0.28], [-sideBias * 0.38, -0.28],
+      [sideBias * 0.92, 0.55], [-sideBias * 0.92, 0.55], [sideBias * 0.92, -0.4], [-sideBias * 0.92, -0.4],
+    ];
+    // Shorter sweeps let it make a cautious sideways step when the wingtip is close to a wall,
+    // rather than freezing at the first blocked full-stride attempt.
+    for (const strideScale of [1, 0.72, 0.48, 0.28]) {
+      const safeStride = stride * strideScale;
+      for (const [sideStep, verticalStep, sideOnly] of maneuvers) {
+        const direction = sideOnly
+          ? side.clone().multiplyScalar(Math.sign(sideStep))
+          : desired.clone().addScaledVector(side, sideStep);
+        direction.y += verticalStep;
+        direction.normalize();
+        const stepX = direction.x * safeStride;
+        const stepY = direction.y * safeStride;
+        const stepZ = direction.z * safeStride;
+        const end = new THREE.Vector3(pos.x + stepX, pos.y + stepY, pos.z + stepZ);
+        if (!this.parrotFlightPathClear(pos, end)) continue;
+        pos.copy(end);
+        rig.moving = true;
+        if (Math.hypot(stepX, stepZ) > 0.001) rig.yawTarget = Math.atan2(-stepX, -stepZ);
+        return true;
+      }
+    }
+    rig.moving = false;
+    return false;
+  }
+
+  private closestParrotFetchDrop(rig: WolfPetRig): Drop | null {
+    let best: Drop | null = null;
+    let bestScore = Infinity;
+    for (const drop of this.drops) {
+      // Parrots fetch loose drops only. They never scan, open, or carry anything out of a chest.
+      if (drop.fromChest || !this.isWolfPetFetchDropCandidate(drop)) continue;
+      const playerDistance = Math.hypot(drop.x - this.pos.x, drop.z - this.pos.z);
+      const petDistance = Math.hypot(drop.x - rig.group.position.x, drop.y - rig.group.position.y, drop.z - rig.group.position.z);
+      const score = petDistance + playerDistance * 0.08;
+      if (score < bestScore) {
+        best = drop;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  /** Add a small, randomly chosen swoop/arc before a pickup so the bird doesn't fly like a magnet. */
+  private parrotFetchApproachPoint(rig: WolfPetRig, pickup: THREE.Vector3): THREE.Vector3 {
+    let dx = pickup.x - rig.group.position.x;
+    let dz = pickup.z - rig.group.position.z;
+    let length = Math.hypot(dx, dz);
+    if (length < 0.05) {
+      dx = -Math.sin(this.yaw);
+      dz = -Math.cos(this.yaw);
+      length = 1;
+    }
+    const dirX = dx / length;
+    const dirZ = dz / length;
+    const sideX = -dirZ;
+    const sideZ = dirX;
+    const sideSign = Math.random() < 0.5 ? -1 : 1;
+    const sideDistance = 0.52 + Math.random() * 0.62;
+    const retreat = 0.36 + Math.random() * 0.36;
+    const swoop = Math.random();
+    const lift = swoop < 0.28 ? 0.62 : swoop < 0.52 ? -0.22 : 0.16 + Math.random() * 0.24;
+    const choices: Array<[number, number]> = [
+      [sideSign, lift], [-sideSign, lift], [sideSign, 0.5], [-sideSign, 0.5],
+      [sideSign, -0.1], [-sideSign, -0.1], [0, 0.58], [0, -0.18],
+    ];
+    for (const [side, vertical] of choices) {
+      const point = new THREE.Vector3(
+        pickup.x - dirX * retreat + sideX * sideDistance * side,
+        pickup.y + vertical,
+        pickup.z - dirZ * retreat + sideZ * sideDistance * side,
+      );
+      if (this.parrotFlightClear(point.x, point.y, point.z)) return point;
+    }
+    return pickup.clone();
+  }
+
+  private updateParrotCombat(rig: WolfPetRig, target: Mob, dt: number) {
+    if (rig.parrotAttackTarget !== target) {
+      rig.parrotAttackTarget = target;
+      rig.parrotAttackStage = 'approach';
+      rig.parrotStageTimer = 0;
+    }
+    rig.parrotMode = 'attack';
+    rig.parrotIdleTimer = 0;
+    const hover = new THREE.Vector3(target.x, target.y + 2.05, target.z);
+    const dive = new THREE.Vector3(target.x, target.y + 0.62, target.z);
+    if (rig.parrotAttackStage === 'approach') {
+      this.moveParrotFlight(rig, hover, dt, 8.8);
+      if (rig.group.position.distanceTo(hover) < 0.52) rig.parrotAttackStage = 'dive';
+      return;
+    }
+    if (rig.parrotAttackStage === 'dive') {
+      this.moveParrotFlight(rig, dive, dt, 10.5);
+      if (rig.group.position.distanceTo(dive) <= 0.64) {
+        const dx = target.x - rig.group.position.x;
+        const dz = target.z - rig.group.position.z;
+        const distance = Math.hypot(dx, dz) || 1;
+        target.hp -= 2.4;
+        target.hurtFlash = 0.18;
+        this.mobSys.showHealthBar(target);
+        target.vx += (target.x - rig.group.position.x) / distance * 1.35;
+        target.vz += (target.z - rig.group.position.z) / distance * 1.35;
+        if (target.onGround) target.vy = Math.max(target.vy, 1.0);
+        this.burst(target.x, target.y + 0.42, target.z, [238, 194, 82], 4, 0.9, 0.5);
+        sfx.creature('bird', { state: 'attack', volume: 0.42, pitch: 0.95 + Math.random() * 0.14 });
+        rig.parrotAttackStage = 'soar';
+        rig.parrotStageTimer = 0.62;
+        rig.attackPoseTimer = 0.3;
+        if (target.hp <= 0) this.mobDied(target, false);
+      }
+      return;
+    }
+    this.moveParrotFlight(rig, hover, dt, 8.4);
+    rig.parrotStageTimer = Math.max(0, rig.parrotStageTimer - dt);
+    if (rig.parrotStageTimer <= 0 && rig.group.position.distanceTo(hover) < 0.58) {
+      rig.parrotAttackStage = 'dive';
+    }
+  }
+
+  private updateParrotPet(rig: WolfPetRig, dt: number) {
+    rig.swimming = false;
+    rig.underwater = false;
+    if (this.inWater) {
+      // Water always takes priority over a pending whistle interaction: the parrot stays airborne
+      // above the swimmer instead of perching on a hand or entering the water to follow a target.
+      rig.parrotCalled = false;
+      const hover = this.parrotWaterHoverPoint();
+      if (!this.parrotFlightClear(rig.group.position.x, rig.group.position.y, rig.group.position.z)) {
+        // Only make an emergency relocation if the bird is actually inside a block or water.
+        // Being lower than the orbit target is handled by smooth flight, not a positional snap.
+        rig.group.position.copy(hover);
+        rig.parrotFollowAnchorValid = false;
+        rig.group.rotation.y = this.yaw;
+        rig.yawTarget = this.yaw;
+      }
+    }
+    const playerSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const playerMoving = playerSpeed > 0.45 || Math.abs(this.vel.y) > 0.72;
+    const sprinting = this.playerSprinting;
+    if ((sprinting || playerMoving) && rig.parrotCalled) {
+      rig.parrotCalled = false;
+      rig.parrotMode = 'follow';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+    }
+
+    if (rig.fetchTarget && (!rig.fetchTarget.active || rig.fetchTarget.petCarried || rig.fetchTarget.thrown || rig.fetchTarget.fromChest)) {
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+      rig.fetchBlockedTimer = 0;
+    }
+    const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
+    const threat = this.nearestWolfThreat();
+    const followPoint = this.parrotFollowTarget(rig, this.parrotFollowPoint(), dt);
+    const hasFlightRoom = this.parrotHasFlightRoom(rig, followPoint);
+
+    // A called parrot catches up promptly; ordinary long-distance pet catch-up mirrors the wolf.
+    if (!rig.carrying && playerDistance > 18 && (rig.parrotCalled || !threat)) {
+      const catchup = rig.parrotCalled ? this.parrotHandPoint() : followPoint;
+      if (this.parrotFlightClear(catchup.x, catchup.y, catchup.z)) {
+        rig.group.position.copy(catchup);
+        rig.group.rotation.y = this.yaw;
+        rig.yawTarget = this.yaw;
+        rig.navTimer = 0;
+        rig.parrotIdleTimer = 0;
+      }
+    }
+
+    if (threat && !rig.carrying && hasFlightRoom) {
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+      this.updateParrotCombat(rig, threat, dt);
+    } else if (rig.carrying) {
+      rig.parrotMode = 'delivery';
+      rig.parrotAttackTarget = null;
+      const deliveryPoint = this.parrotHandPoint();
+      if (rig.navTimer !== 2 && rig.navTimer !== 3) {
+        rig.navTimer = 2;
+        rig.navGoal.copy(deliveryPoint);
+        rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, deliveryPoint));
+      } else if (rig.navTimer === 2 && rig.navGoal.distanceTo(deliveryPoint) > 1.35) {
+        // If the player has moved on, smoothly re-arc toward their new position instead of chasing
+        // the stale point directly through the scene.
+        rig.navGoal.copy(deliveryPoint);
+        rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, deliveryPoint));
+      }
+      if (rig.navTimer === 2 && rig.group.position.distanceTo(rig.navWaypoint) <= 0.46) rig.navTimer = 3;
+      const deliveryRoutePoint = rig.navTimer === 2 ? rig.navWaypoint : deliveryPoint;
+      if (this.parrotHasFlightRoom(rig, deliveryPoint)) this.moveParrotFlight(rig, deliveryRoutePoint, dt, 7.8);
+      else {
+        const perched = this.moveParrotToShoulder(rig, dt, 9.0);
+        rig.parrotMode = perched ? 'shoulder' : 'delivery';
+      }
+      const closeToPlayer = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z) <= 1.72
+        && Math.abs(rig.group.position.y - (this.pos.y + 1.0)) <= 1.25;
+      if (closeToPlayer && rig.carrying?.active) {
+        const drop = rig.carrying;
+        rig.carrying = null;
+        drop.petCarried = false;
+        drop.x = this.pos.x;
+        drop.y = this.pos.y + 0.8;
+        drop.z = this.pos.z;
+        this.collect(drop);
+        rig.parrotHappyTimer = 0.7;
+      }
+    } else if (rig.parrotCalled && !sprinting && !this.inWater && this.parrotHasFlightRoom(rig, this.parrotHandPoint())) {
+      rig.parrotMode = 'hand';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+      const hand = this.parrotHandPoint();
+      this.moveParrotFlight(rig, hand, dt, 7.0);
+      rig.sitting = !rig.moving;
+    } else if (hasFlightRoom) {
+      rig.parrotAttackTarget = null;
+      if (!rig.fetchTarget) rig.fetchTarget = this.closestParrotFetchDrop(rig);
+      if (rig.fetchTarget) {
+        const drop = rig.fetchTarget;
+        rig.parrotMode = 'fetch';
+        rig.parrotIdleTimer = 0;
+        const fetchPoint = new THREE.Vector3(drop.x, drop.y + 0.18, drop.z);
+        rig.fetchTarget = drop;
+        if (rig.fetchBlockedDrop !== drop) {
+          rig.fetchBlockedDrop = drop;
+          rig.fetchBlockedTimer = 0;
+          rig.navTimer = 0;
+          rig.navGoal.copy(fetchPoint);
+          rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, fetchPoint));
+        } else rig.navGoal.copy(fetchPoint);
+        if (rig.navTimer < 1 && rig.group.position.distanceTo(rig.navWaypoint) <= 0.42) rig.navTimer = 1;
+        const distance = rig.group.position.distanceTo(fetchPoint);
+        if (rig.navTimer >= 1 && distance <= 0.62) {
+          drop.petCarried = true;
+          drop.vx = drop.vy = drop.vz = 0;
+          rig.carrying = drop;
+          rig.fetchTarget = null;
+          rig.fetchBlockedDrop = null;
+          rig.fetchBlockedTimer = 0;
+          rig.navTimer = 2;
+          const deliveryPoint = this.parrotHandPoint();
+          rig.navGoal.copy(deliveryPoint);
+          rig.navWaypoint.copy(this.parrotFetchApproachPoint(rig, deliveryPoint));
+          sfx.pickup(1);
+          rig.moving = false;
+        } else {
+          const routePoint = rig.navTimer < 1 ? rig.navWaypoint : fetchPoint;
+          const moved = this.moveParrotFlight(rig, routePoint, dt, 8.2);
+          rig.fetchBlockedTimer = moved ? 0 : rig.fetchBlockedTimer + dt;
+          if (rig.fetchBlockedTimer > 2.0) {
+            drop.wolfPetIgnoreUntil = Math.max(drop.wolfPetIgnoreUntil ?? 0, this.time + WOLF_PET_FETCH_RETRY_SECONDS);
+            rig.fetchTarget = null;
+            rig.fetchBlockedDrop = null;
+            rig.fetchBlockedTimer = 0;
+            rig.navTimer = 0;
+          }
+        }
+      } else if (this.inWater || playerMoving || sprinting) {
+        rig.parrotMode = 'follow';
+        rig.parrotIdleTimer = 0;
+        this.moveParrotFlight(rig, followPoint, dt, this.inWater ? 7.6 : sprinting ? 8.4 : 7.4);
+      } else {
+        rig.parrotIdleTimer += dt;
+        if (rig.parrotIdleTimer < WOLF_PET_REST_DELAY) {
+          rig.parrotMode = 'follow';
+          this.moveParrotFlight(rig, followPoint, dt, 5.8);
+        } else {
+          const perched = this.moveParrotToShoulder(rig, dt, 5.8);
+          rig.parrotMode = perched ? 'shoulder' : 'follow';
+        }
+      }
+    } else if (this.inWater) {
+      rig.parrotMode = 'follow';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+      this.moveParrotFlight(rig, this.parrotWaterHoverPoint(), dt, 7.4);
+    } else {
+      // No overhead clearance: approach the shoulder through any clear route until the player
+      // reaches open air; never snap through the nearby blocks.
+      const perched = this.moveParrotToShoulder(rig, dt, 8.4);
+      rig.parrotMode = perched ? 'shoulder' : 'follow';
+      rig.parrotIdleTimer = 0;
+      rig.parrotAttackTarget = null;
+      rig.fetchTarget = null;
+      rig.fetchBlockedDrop = null;
+    }
+
+    rig.parrotHappyTimer = Math.max(0, rig.parrotHappyTimer - dt);
+    rig.parrotEatTimer = Math.max(0, rig.parrotEatTimer - dt);
+    rig.parrotSoundTimer = Math.max(0, rig.parrotSoundTimer - dt);
+    if (rig.parrotEatTimer > 0 && rig.parrotSoundTimer <= 0) {
+      sfx.creature('bird', { state: 'idle', volume: 0.58, pitch: 1.02 + Math.random() * 0.12 });
+      rig.parrotSoundTimer = 0.36;
+    }
+
+    const perched = !rig.moving && (rig.parrotMode === 'shoulder' || rig.parrotMode === 'hand');
+    rig.swimming = false;
+    rig.underwater = false;
+    rig.phase += dt * (perched ? 2.1 : 13.5);
+    rig.attackPoseTimer = Math.max(0, rig.attackPoseTimer - dt);
+    rig.model.position.y = perched
+      ? Math.sin(rig.phase * 1.8) * (rig.parrotHappyTimer > 0 ? 0.045 : 0.018)
+      : Math.sin(rig.phase * 1.65) * 0.035;
+    const diving = rig.parrotMode === 'attack' && rig.parrotAttackStage === 'dive';
+    rig.model.rotation.x = diving ? -0.55 : rig.moving ? Math.max(-0.22, Math.min(0.22, -(rig.target.y - rig.group.position.y) * 0.12)) : 0;
+    if (rig.head) {
+      rig.head.rotation.x = rig.parrotEatTimer > 0 ? Math.sin(this.time * 28) * 0.16 : rig.parrotHappyTimer > 0 ? Math.sin(this.time * 12) * 0.1 : 0;
+      rig.head.rotation.z = rig.parrotHappyTimer > 0 ? Math.sin(this.time * 10) * 0.08 : 0;
+    }
+    if (rig.jaw) rig.jaw.rotation.x = rig.parrotEatTimer > 0 ? Math.abs(Math.sin(this.time * 23)) * 0.32 : 0;
+    const flap = 0.58 + Math.sin(rig.phase * 1.6) * 0.18;
+    const wingPoseBlend = Math.min(1, dt * 10);
+    rig.legs.forEach((wing, index) => {
+      // Fold both wings down and tuck their span against the body on a perch. They open and flap
+      // again only after takeoff, with blending so neither landing nor launch snaps the wings.
+      const foldedDown = index === 0 ? 1.0 : -1.0;
+      const flying = (index === 0 ? -1 : 1) * flap;
+      const targetWingAngle = perched ? foldedDown : flying;
+      const targetWingSpan = perched ? 0.72 : 1;
+      wing.rotation.z += (targetWingAngle - wing.rotation.z) * wingPoseBlend;
+      wing.scale.x += (targetWingSpan - wing.scale.x) * wingPoseBlend;
+    });
+    if (rig.tail) {
+      rig.tail.rotation.y = Math.sin(rig.phase * (perched ? 3.0 : 1.8)) * (perched ? 0.09 : 0.17);
+      rig.tail.rotation.x = 0.52 + (diving ? -0.18 : 0);
+    }
+
+    if (rig.parrotMode === 'hand' && rig.group.position.distanceTo(this.parrotHandPoint()) < 0.9) {
+      rig.yawTarget = this.parrotFacingPlayerYaw(rig.group.position);
+    } else if (perched || !rig.moving) rig.yawTarget = this.yaw;
+    let yawDelta = rig.yawTarget - rig.group.rotation.y;
+    while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+    while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+    const bankTarget = rig.moving && !perched ? Math.max(-0.34, Math.min(0.34, -yawDelta * 0.42)) : 0;
+    rig.model.rotation.z += (bankTarget - rig.model.rotation.z) * Math.min(1, dt * 5.5);
+    rig.group.rotation.y += yawDelta * Math.min(1, dt * 8);
+    this.syncWolfPetCarriedDrop(rig);
+  }
+
   private syncWolfPetCarriedDrop(rig: WolfPetRig) {
     const drop = rig.carrying;
     if (!drop || !drop.active || !drop.petCarried) return;
     const forwardX = -Math.sin(rig.group.rotation.y);
     const forwardZ = -Math.cos(rig.group.rotation.y);
-    drop.x = rig.group.position.x + forwardX * 0.38;
-    drop.y = rig.group.position.y + 0.76;
-    drop.z = rig.group.position.z + forwardZ * 0.38;
+    const offset = rig.kind === 'parrot' ? 0.18 : 0.38;
+    drop.x = rig.group.position.x + forwardX * offset;
+    drop.y = rig.group.position.y + (rig.kind === 'parrot' ? 0.56 : 0.76);
+    drop.z = rig.group.position.z + forwardZ * offset;
     drop.vx = drop.vy = drop.vz = 0;
   }
 
@@ -13311,6 +14271,10 @@ if (tpClipActive > 0.5) {
     }
 
     rig.group.visible = true;
+    if (rig.kind === 'parrot') {
+      this.updateParrotPet(rig, dt);
+      return;
+    }
     const movingPlayer = Math.hypot(this.vel.x, this.vel.z) > 0.72 || Math.abs(this.vel.y) > 0.72;
     const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
     if (!rig.carrying && playerDistance > 14) {
@@ -13765,6 +14729,9 @@ if (tpClipActive > 0.5) {
   }
 
   dispose() {
+    this.clearArrows();
+    if (this.firstPersonParrotArm) this.scene.remove(this.firstPersonParrotArm);
+    this.firstPersonParrotArm = null;
     this.clearWolfPetRig();
     this.clearCompanions();
     this.disposed = true;

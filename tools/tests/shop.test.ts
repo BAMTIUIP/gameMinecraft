@@ -56,6 +56,7 @@ const CATALOG = [
   product('netherite-pickaxe', '149 TST'),
   product('pet-wolf', '199 TST'),
   product('pet-monkey', '229 TST'),
+  product('pet-parrot', '179 TST'),
   product('disable_ads', '59 TST'),
   { ...product('raw-price-only', ''), priceValue: '7' },
   { ...product('no-currency-image', '7 TST'), getPriceCurrencyImage: undefined },
@@ -159,7 +160,7 @@ const {
   resetShopCatalog,
 } = await import('../../src/game/shop');
 const { pendingShopProductRewards } = await import('../../src/game/shopRewards');
-const { hasMonkeyPet, hasWolfPet, resetPetsForTests } = await import('../../src/game/pets');
+const { hasMonkeyPet, hasParrotPet, hasWolfPet, resetPetsForTests } = await import('../../src/game/pets');
 
 await initYandex();
 await startProfileSync();
@@ -177,6 +178,7 @@ ok(chestPrice?.currencyIcon === 'icon-small.png' && chestPrice.fromCatalog, 'The
 ok(catalog.get(AD_FREE_PRODUCT_ID)?.label === '59 TST', 'The separate ad-free entitlement also uses the catalogue price');
 ok(catalog.get('pet-wolf')?.label === '199 TST' && catalog.get('pet-wolf')?.currencyIcon === 'icon-small.png', 'The wolf price and currency icon come directly from the Yandex catalogue');
 ok(catalog.get('pet-monkey')?.label === '229 TST' && catalog.get('pet-monkey')?.currencyIcon === 'icon-small.png', 'The monkey price and currency icon also come directly from the Yandex catalogue');
+ok(catalog.get('pet-parrot')?.label === '179 TST' && catalog.get('pet-parrot')?.currencyIcon === 'icon-small.png', 'The parrot price and currency icon come directly from the Yandex catalogue');
 ok(!catalog.has('raw-price-only'), 'A row without the formatted SDK price is omitted');
 // Requirement 1.13.6: an active Console SKU must be present in the game. A missing currency image is
 // decoration, not a price, so the offer stays — without it — instead of disappearing from the shop.
@@ -228,6 +230,15 @@ ok(monkeyBought.ok && monkeyBought.productId === 'pet-monkey' && hasMonkeyPet(),
 ok(count('payments.purchase') === monkeyPurchaseBefore + 1 && (lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === 'pet-monkey', 'The monkey is purchased through its own Yandex SKU');
 ok(count('payments.consumePurchase') === monkeyConsumeBefore && unprocessed.some((purchase) => purchase.productID === 'pet-monkey'), 'The permanent monkey receipt is kept unconsumed for account restoration');
 ok(!((pendingShopProductRewards()?.products as readonly string[] | undefined)?.includes('pet-monkey')), 'The permanent monkey never enters the consumable delivery queue');
+
+// The parrot is likewise a direct permanent SKU, restored from its unconsumed account receipt.
+const parrotConsumeBefore = count('payments.consumePurchase');
+const parrotPurchaseBefore = count('payments.purchase');
+const parrotBought = await buyShopProduct('pet-parrot');
+ok(parrotBought.ok && parrotBought.productId === 'pet-parrot' && hasParrotPet(), 'Buying the parrot permanently unlocks the local entitlement');
+ok(count('payments.purchase') === parrotPurchaseBefore + 1 && (lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === 'pet-parrot', 'The parrot is purchased through its own Yandex SKU');
+ok(count('payments.consumePurchase') === parrotConsumeBefore && unprocessed.some((purchase) => purchase.productID === 'pet-parrot'), 'The permanent parrot receipt remains unconsumed for account restoration');
+ok(!((pendingShopProductRewards()?.products as readonly string[] | undefined)?.includes('pet-parrot')), 'The permanent parrot never enters the consumable delivery queue');
 
 // Cancellation is ordinary and never creates a receipt.
 purchaseRejects = true;

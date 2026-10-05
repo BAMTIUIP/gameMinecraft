@@ -899,7 +899,7 @@ async function scenarioShop() {
       !['drop-daily', 'drop-weekly', 'drop-monthly'].includes(card.getAttribute('data-shop-product')),
     );
     const priceCurrencyIcons = pricedCards.map((card) => Boolean(card.querySelector('.shop-product-footer img[src]')));
-    const hasUnfinishedProducts = allCards.some((id) => (id.startsWith('pet-') && !['pet-wolf', 'pet-monkey'].includes(id)) || id.startsWith('skin-'));
+    const hasUnfinishedProducts = allCards.some((id) => (id.startsWith('pet-') && !['pet-wolf', 'pet-monkey', 'pet-parrot'].includes(id)) || id.startsWith('skin-'));
     const hasLegacyCoinPacks = allCards.some((id) => id.startsWith('diamonds-'));
     const hasUnfinishedLabels = [...document.querySelectorAll('[data-shop-product]')].some((card) =>
       /В РАЗРАБОТКЕ|IN DEVELOPMENT|EN DÉVELOPPEMENT|IN ENTWICKLUNG|COMING SOON|СКОРО|BIENTÔT|BALD/i.test(card.textContent ?? ''),
@@ -921,7 +921,7 @@ async function scenarioShop() {
   check(shopCategories?.weaponCards?.length === 1 && shopCategories.weaponCards[0] === 'netherite-pickaxe', 'Категория оружия содержит новую незеритовую кирку');
   check(shopCategories?.armorCards?.includes('netherite-armor') && shopCategories.armorCards.includes('armor-epic'), 'Категория брони содержит прямые товары Яндекс Игр');
   check(shopCategories?.offerCards?.includes('booster-start') && shopCategories.offerCards.includes('booster-score'), 'Категория предложений показывает прямые SKU-бустеры');
-  check(shopCategories?.petCards?.length === 2 && shopCategories.petCards.includes('pet-wolf') && shopCategories.petCards.includes('pet-monkey'), 'Вкладка питомцев содержит волка и обезьяну с прямыми SKU');
+  check(shopCategories?.petCards?.length === 3 && shopCategories.petCards.includes('pet-wolf') && shopCategories.petCards.includes('pet-monkey') && shopCategories.petCards.includes('pet-parrot'), 'Вкладка питомцев содержит волка, обезьяну и попугая с прямыми SKU');
   check(shopCategories?.rewardCards?.includes('drop-daily') && shopCategories.rewardCards.includes('chest-epic'), 'Категория наград сохраняет бесплатную рекламу и платные предметы');
   check(!shopCategories?.hasLegacyCoinPacks, 'В магазине отсутствуют наборы внутриигровых монет');
   check(
@@ -1228,6 +1228,50 @@ async function scenarioShop() {
   );
   check(monkeyOwned, 'Покупка сохраняет постоянное право на обезьяну');
   check(game.count(await game.calls(), 'payments.consumePurchase') === monkeyConsumeBefore, 'Постоянный SKU обезьяны не погашается как расходуемый товар');
+
+  const parrotOffer = await game.page.evaluate(() => {
+    const card = document.querySelector('[data-shop-product="pet-parrot"]');
+    return {
+      present: !!card,
+      priceFromCatalog: Boolean(card?.textContent?.includes('179 TST')),
+      currencyIconFromCatalog: Boolean(card?.querySelector('.shop-product-footer img[src]')),
+    };
+  });
+  check(parrotOffer.present && parrotOffer.priceFromCatalog && parrotOffer.currencyIconFromCatalog, 'Попугай показывается с ценой и значком валюты из каталога SDK', JSON.stringify(parrotOffer));
+  const parrotConsumeBefore = game.count(await game.calls(), 'payments.consumePurchase');
+  const parrotPurchaseBefore = game.count(await game.calls(), 'payments.purchase');
+  const parrotBuyClicked = await game.page.evaluate(() => {
+    const button = document.querySelector('[data-shop-product="pet-parrot"] button');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  check(parrotBuyClicked, 'Покупка постоянного попугая доступна напрямую');
+  const parrotPurchaseRequested = await game.waitFor(
+    'Покупка pet-parrot',
+    (beforeCount) => (window.__yaCalls ?? []).slice(beforeCount).some((call) => call.name === 'payments.purchase' && call.arg?.id === 'pet-parrot'),
+    10_000,
+    parrotPurchaseBefore,
+  );
+  check(parrotPurchaseRequested, 'Оплата запускается напрямую для SKU pet-parrot');
+  const parrotOwned = await game.waitFor(
+    'Постоянное владение попугаем сохранено',
+    () => {
+      try {
+        return JSON.parse(window.localStorage.getItem('orerush.pets.v1') ?? '{}').parrotOwned === true;
+      } catch {
+        return false;
+      }
+    },
+    10_000,
+  );
+  check(parrotOwned, 'Покупка сохраняет постоянное право на попугая');
+  check(game.count(await game.calls(), 'payments.consumePurchase') === parrotConsumeBefore, 'Постоянный SKU попугая не погашается как расходуемый товар');
+  const parrotOwnedButton = await game.page.waitForFunction(
+    () => Boolean(document.querySelector('[data-shop-product="pet-parrot"] button')?.disabled),
+    { timeout: 10_000 },
+  ).then(() => true).catch(() => false);
+  check(parrotOwnedButton, 'После покупки попугая вместо повторного списания показывается состояние «уже куплен»');
 
   const fatal = game.consoleErrors.filter((e) => !/fonts\.googleapis|fonts\.gstatic|ERR_|Failed to load resource/i.test(e));
   check(fatal.length === 0, 'Магазин работает без ошибок в консоли', fatal.slice(0, 3).join(' | '));

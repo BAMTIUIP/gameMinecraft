@@ -36,6 +36,7 @@ function ok(condition: boolean, label: string, detail = '') {
 
 // Every inventory block has a stable positive merchant price, including ids that use the score fallback.
 for (const block of BLOCKS) {
+  if (!block) continue;
   const price = resourceSellPrice(block.id);
   ok(Number.isInteger(price) && price > 0, `Sell price exists for ${block.name} (#${block.id})`, String(price));
 }

@@ -4,6 +4,7 @@ import { WY } from './world';
 import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
 import type { TKey } from './i18n';
 import { shouldDieInDaylight } from './survival';
+import { PARROT_VARIANTS } from './parrotVariants';
 
 export type MobId =
   | 'pig'
@@ -81,15 +82,15 @@ export type MobDef = {
 
 export const MOBS: Record<MobId, MobDef> = {
   pig: { id: 'pig', nameKey: 'mob_pig', hostile: false, hp: 10, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.9, score: 18, level: 0, body: '#eaa0a8', accent: '#f4bcc2', legs: '#c9757f' },
-  sheep: { id: 'sheep', nameKey: 'mob_sheep', hostile: false, hp: 10, speed: 1.4, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.95, score: 20, level: 0, body: '#e9e6dd', accent: '#d8c8b4', legs: '#5a4c42' },
-  cow: { id: 'cow', nameKey: 'mob_cow', hostile: false, hp: 18, speed: 1.25, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.25, score: 26, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
+  sheep: { id: 'sheep', nameKey: 'mob_sheep', hostile: false, hp: 8, speed: 1.4, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.95, score: 20, level: 0, body: '#e9e6dd', accent: '#d8c8b4', legs: '#5a4c42' },
+  cow: { id: 'cow', nameKey: 'mob_cow', hostile: false, hp: 10, speed: 1.25, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.25, score: 26, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
   calf: { id: 'calf', nameKey: 'mob_calf', hostile: false, hp: 8, speed: 1.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.82, score: 14, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
   fawn: { id: 'fawn', nameKey: 'mob_fawn', hostile: false, hp: 8, speed: 3.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 18, level: 0, body: '#b9854f', accent: '#f2d8ae', legs: '#604230' },
   lizard: { id: 'lizard', nameKey: 'mob_lizard', hostile: false, hp: 4, speed: 3.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.65, score: 12, level: 0, body: '#74a95e', accent: '#b5cb7b', legs: '#4b7a43' },
   frog: { id: 'frog', nameKey: 'mob_frog', hostile: false, hp: 5, speed: 2.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.58, score: 14, level: 0, body: '#5f9c3f', accent: '#e5c878', legs: '#3d6c2e' },
-  chicken: { id: 'chicken', nameKey: 'mob_chicken', hostile: false, hp: 6, speed: 1.7, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.6, score: 12, level: 0, body: '#f2efe6', accent: '#e2483a', legs: '#f3b942' },
-  zombie: { id: 'zombie', nameKey: 'mob_zombie', hostile: true, hp: 22, speed: 2.25, damage: 7, cooldown: 1.1, reach: 1.5, burns: true, scale: 1, score: 120, level: 1, body: '#4a8a4a', accent: '#3d6fa8', legs: '#2f4f7a' },
-  skeleton: { id: 'skeleton', nameKey: 'mob_skeleton', hostile: true, hp: 18, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: true, scale: 1, score: 150, level: 2, body: '#d8d6cc', accent: '#b6b3a8', legs: '#c2bfb4' },
+  chicken: { id: 'chicken', nameKey: 'mob_chicken', hostile: false, hp: 4, speed: 1.7, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.6, score: 12, level: 0, body: '#f2efe6', accent: '#e2483a', legs: '#f3b942' },
+  zombie: { id: 'zombie', nameKey: 'mob_zombie', hostile: true, hp: 20, speed: 2.25, damage: 7, cooldown: 1.1, reach: 1.5, burns: true, scale: 1, score: 120, level: 1, body: '#4a8a4a', accent: '#3d6fa8', legs: '#2f4f7a' },
+  skeleton: { id: 'skeleton', nameKey: 'mob_skeleton', hostile: true, hp: 20, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: true, scale: 1, score: 150, level: 2, body: '#d8d6cc', accent: '#b6b3a8', legs: '#c2bfb4' },
   spider: { id: 'spider', nameKey: 'mob_spider', hostile: true, hp: 16, speed: 3.3, damage: 5, cooldown: 0.7, reach: 1.5, burns: true, scale: 0.95, score: 140, level: 2, body: '#3a2320', accent: '#c4342a', legs: '#2a1a17' },
   spiderling: { id: 'spiderling', nameKey: 'mob_spider', hostile: true, hp: 5, speed: 3.6, damage: 1, cooldown: 0.9, reach: 1.2, burns: true, scale: 0.4, score: 40, level: 0, body: '#3a2320', accent: '#c4342a', legs: '#2a1a17' },
   creeper: { id: 'creeper', nameKey: 'mob_creeper', hostile: true, hp: 20, speed: 2.45, damage: 26, cooldown: 3, reach: 2.2, burns: true, scale: 1, score: 220, level: 3, body: '#5ac45a', accent: '#2f6b2f', legs: '#4aa84a', explodes: true },
@@ -170,8 +171,9 @@ export type Mob = {
   fuse: number;
   alive: boolean;
   jumpCd: number;
-  /** arrows lodged in this mob — they drop back out when it dies */
+  /** arrows lodged in this mob — recovered in their original arrow type when it dies */
   stuckArrows: number;
+  stuckArrowIds: number[];
   /** seconds left until a baby reaches adult size (0 = grown) */
   grow: number;
   /** air supply for land animals caught in water */
@@ -1266,6 +1268,35 @@ function buildBody(def: MobDef): { group: THREE.Group; head: THREE.Object3D | nu
   return { group: g, head, legs, mats };
 }
 
+/** Build the exact existing wild-parrot mesh and select one of its six shared feather palettes. */
+export function buildParrotCompanionBody(variantIndex?: number) {
+  const model = buildBody(MOBS.bird);
+  const vi = Number.isInteger(variantIndex)
+    ? Math.max(0, Math.min(PARROT_VARIANTS.length - 1, Math.trunc(variantIndex as number)))
+    : Math.floor(Math.random() * PARROT_VARIANTS.length);
+  const variant = PARROT_VARIANTS[vi] ?? PARROT_VARIANTS[0];
+  const [bodyColor, accentColor, wingColor] = variant.colors;
+  for (const mat of model.mats) {
+    const hex = `#${mat.color.getHexString()}`;
+    if (hex === MOBS.bird.body) mat.color.set(bodyColor);
+    else if (hex === MOBS.bird.accent) mat.color.set(accentColor);
+    else if (hex === MOBS.bird.legs) mat.color.set(wingColor);
+  }
+  model.group.userData.variant = vi;
+  model.group.userData.modelSize = variant.size;
+  for (const part of model.group.children) {
+    if (part.userData.birdBody) {
+      part.scale.z = variant.length;
+      part.position.z += 0.2 * (variant.length - 1);
+    } else if (part.userData.birdTail) {
+      part.scale.z = variant.tail;
+      part.position.z = 0.28 + 0.4 * (variant.length - 1) + 0.1 * (variant.tail - 1);
+    }
+  }
+  for (const shoulder of model.legs) shoulder.position.z += 0.2 * (variant.length - 1);
+  return { ...model, variantIndex: vi, modelSize: variant.size };
+}
+
 /**
  * Companion version of the regular jungle monkey mesh. Keeping this factory next to the mob model
  * means the pet uses the same silhouette and proportions, while accepting its own saved fur palette.
@@ -1419,7 +1450,7 @@ export class MobSystem {
       if (this.mobs.filter((m) => m.alive && m.id === 'jellyfish').length >= 7) return null;
     } else if (this.mobs.length >= this.maxMobs) return null;
     const def = MOBS[id];
-    let { group, head, legs, mats } = buildBody(def);
+    let { group, head, legs, mats } = id === 'bird' ? buildParrotCompanionBody() : buildBody(def);
     if (id === 'jellyfish') for (const mat of mats) { mat.transparent = true; mat.opacity = 0.78; mat.depthWrite = false; }
     if (id === 'fish') {
       const vi = fishVariant === undefined ? Math.floor(Math.random() * (FISH_VARIANTS.length - 1)) :
@@ -1464,40 +1495,6 @@ export class MobSystem {
       });
       // stash on the mob after creation (see below)
       (group.userData as { retract?: THREE.Object3D[] }).retract = retract;
-    }
-    // Birds now render as parrot-style variants: macaw, cockatiel, grey parrot, budgie.
-    if (id === 'bird') {
-      const variants: Array<{ colors: [string, string, string]; size: number; length: number; tail: number }> = [
-        { colors: ['#d83b2f', '#ffe15c', '#255bc2'], size: 1.35, length: 1.12, tail: 2.2 }, // red/blue macaw
-        { colors: ['#2ebd52', '#f45858', '#1f7c40'], size: 1.28, length: 1.08, tail: 2.1 }, // green parrot
-        { colors: ['#1e8eea', '#ffd24a', '#1455a8'], size: 1.22, length: 1.06, tail: 1.9 }, // blue parrot
-        { colors: ['#f0de72', '#ff8b3d', '#d0b24a'], size: 1.15, length: 1.0, tail: 1.55 }, // cockatiel
-        { colors: ['#6c6d78', '#f2f0e6', '#484a56'], size: 1.25, length: 1.05, tail: 1.45 }, // grey parrot
-        { colors: ['#5ec7ec', '#f5f1dc', '#2f8e4a'], size: 1.05, length: 0.95, tail: 1.65 }, // budgie
-      ];
-      const vi = Math.floor(Math.random() * variants.length);
-      const { colors: [b, a, l], size, length, tail: tailLength } = variants[vi];
-      // Recolour only plumage, not the beak or eyes.
-      for (const mat of mats) {
-        const hex = `#${mat.color.getHexString()}`;
-        if (hex === MOBS.bird.body) mat.color.set(b);
-        else if (hex === MOBS.bird.accent) mat.color.set(a);
-        else if (hex === MOBS.bird.legs) mat.color.set(l);
-      }
-      group.userData.variant = vi;
-      group.userData.modelSize = size;
-      // Grow the body backwards so its chest stays joined to the head;
-      // move the tail to the new rump and keep its base overlapping it.
-      for (const part of group.children) {
-        if (part.userData.birdBody) {
-          part.scale.z = length;
-          part.position.z += 0.2 * (length - 1);
-        } else if (part.userData.birdTail) {
-          part.scale.z = tailLength;
-          part.position.z = 0.28 + 0.4 * (length - 1) + 0.1 * (tailLength - 1);
-        }
-      }
-      for (const shoulder of legs) shoulder.position.z += 0.2 * (length - 1);
     }
     // domestic / ocelot cat coats inspired by Minecraft cats. Markings are flat coat patches.
     if (id === 'cat') {
@@ -1774,6 +1771,7 @@ export class MobSystem {
       alive: true,
       jumpCd: 0,
       stuckArrows: 0,
+      stuckArrowIds: [],
       grow: 0,
       drown: 0,
       hidden: false,
