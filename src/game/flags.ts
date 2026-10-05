@@ -46,7 +46,14 @@ export const LOCAL_FLAGS: YaFlags = {
 const CACHE_KEY = 'orerush.flags.v1';
 
 let flags: YaFlags = { ...LOCAL_FLAGS };
-let loaded = false;
+/**
+ * The single in-flight request. The documentation recommends asking the platform once at startup;
+ * callers that arrive while it is running share that promise instead of racing each other into
+ * two `getFlags()` calls and silently reading the local configuration.
+ */
+let pending: Promise<YaFlags> | null = null;
+/** Set once the request has been made at all, so later callers never trigger a second one. */
+let requested = false;
 
 function readCache(): YaFlags | null {
   const raw = storageGet(CACHE_KEY);
@@ -94,9 +101,16 @@ export function allFlags(): YaFlags {
  * flags can load even when the profile is unavailable.
  */
 export async function loadFlags(payingStatus?: string): Promise<YaFlags> {
-  if (loaded) return flags;
-  loaded = true;
+  if (pending) return pending;
+  if (requested) return flags;
+  requested = true;
+  pending = fetchFlags(payingStatus).finally(() => {
+    pending = null;
+  });
+  return pending;
+}
 
+async function fetchFlags(payingStatus?: string): Promise<YaFlags> {
   const totals = getTotals();
   const features: YaClientFeature[] = [
     { name: 'lang', value: getLang() },
