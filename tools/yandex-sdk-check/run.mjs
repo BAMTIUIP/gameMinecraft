@@ -2405,6 +2405,21 @@ async function scenarioScreenshots() {
 
   const menu = await game.waitFor('Меню для скриншотов', (label) => (document.body.innerText ?? '').includes(label), 60_000, play);
   check(menu, 'Игра открылась для съёмки скриншотов');
+  // Requirement 8.3.4: a media material may not carry the system interface or the Yandex Games
+  // interface — the header, badges, the rating, the debug panel. A frame captured in a headless browser
+  // from dist/ with a mocked SDK has none of that by construction; this pins it down, so that turning
+  // on the visual ad-preview mock (which draws a fake ad card over the game) or adding a debug overlay
+  // cannot quietly end up inside a promo image.
+  const chromeFree = await game.page.evaluate(() => ({
+    outside: [...document.body.children].filter((el) => el.id !== 'root').map((el) => el.tagName + (el.id ? `#${el.id}` : '')),
+    adPreview: document.querySelectorAll('[data-yandex-ad-preview]').length,
+    visualMock: window.__yaVisualAdMock === true,
+  }));
+  check(
+    chromeFree.outside.length === 0 && chromeFree.adPreview === 0 && !chromeFree.visualMock,
+    'Кадры снимаются с чистой страницы: никакого интерфейса платформы и отладочной панели (пункт 8.3.4)',
+    JSON.stringify(chromeFree),
+  );
   await wait(800);
   await shot('01-menu', 'Скриншот главного меню сохранён');
 
