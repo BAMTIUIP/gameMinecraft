@@ -719,9 +719,11 @@ export async function yaExitFullscreen(): Promise<boolean> {
 /** `ysdk.clipboard.writeText(text)` (sdk-params). Returns false when the platform has no clipboard. */
 export async function yaCopyText(text: string): Promise<boolean> {
   try {
-    const write = ysdk?.clipboard?.writeText;
+    const clipboard = ysdk?.clipboard;
+    const write = clipboard?.writeText;
     if (!write) return false;
-    await write(text);
+    // called on the object, exactly as the documentation's `ysdk.clipboard.writeText(text)`
+    await write.call(clipboard, text);
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] clipboard.writeText failed', err);
