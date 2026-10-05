@@ -732,6 +732,30 @@ export async function yaCopyText(text: string): Promise<boolean> {
 }
 
 /**
+ * The engine phases the platform has to be told about. Kept as a plain union so this module does not
+ * have to import the engine (which imports this module back).
+ */
+export type YaPhase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
+
+/**
+ * Requirement 1.19: what the platform must hear for a given phase.
+ *
+ * - `ready` — `LoadingAPI.ready()`, the purple Game Ready indicator on the debug panel. It fires the
+ *   moment the player can actually do something (the menu is up), never on a timer, and never again.
+ * - `gameplay` — the green/red gamepad indicator. Green only while a run is really going.
+ *
+ * The scenarios moderation watches ([1.19.3](https://yandex.ru/dev/games/doc/ru/requirements/1/19)):
+ * level start/end, game menu open/close, purchase menu open/close, ad start/close and focus
+ * loss/return. The last three arrive as `game_api_pause` / `game_api_resume` and land on the
+ * `paused` phase, so they are covered by the same table. The inventory is deliberately *not* a stop:
+ * it is a live overlay over a running world, so the world keeps going and the indicator stays green.
+ */
+export function yaMarkupForPhase(phase: YaPhase): { ready: boolean; gameplay: boolean } {
+  if (phase === 'loading') return { ready: false, gameplay: false };
+  return { ready: true, gameplay: phase === 'playing' };
+}
+
+/**
  * LoadingAPI.ready(): everything is loaded and the player can interact — no loading screen any more
  * (required, requirement 1.19.2). Tie it to real readiness, never to a timer. Sent once per session.
  */

@@ -27,6 +27,7 @@ import {
   yaLang,
   yaMultiplayerAvailable,
   yaLoadingReady,
+  yaMarkupForPhase,
   yaOnPause,
   yaOnResume,
   yaPlatformPaused,
@@ -544,8 +545,10 @@ export default function App() {
   // so opening/crafting/closing it must not stop the session; changing camera perspective is phase-neutral too.
   // Platform/system pauses still switch the phase to 'paused' and stop gameplay until the platform resumes.
   useEffect(() => {
-    if (hud.phase !== 'loading') yaLoadingReady();
-    if (hud.phase === 'playing') yaGameplayStart();
+    // Requirement 1.19: Game Ready follows real readiness, the gamepad indicator follows the phase.
+    const markup = yaMarkupForPhase(hud.phase);
+    if (markup.ready) yaLoadingReady();
+    if (markup.gameplay) yaGameplayStart();
     else yaGameplayStop();
   }, [hud.phase]);
 
