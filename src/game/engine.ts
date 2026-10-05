@@ -661,6 +661,8 @@ type WolfPetRig = {
   parrotHappyTimer: number;
   parrotEatTimer: number;
   parrotSoundTimer: number;
+  parrotFollowAnchor: THREE.Vector3;
+  parrotFollowAnchorValid: boolean;
 };
 
 /* =========================== co-op rig helpers =========================== */
@@ -843,6 +845,8 @@ function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
     parrotHappyTimer: 0,
     parrotEatTimer: 0,
     parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
   };
 }
 
@@ -913,6 +917,8 @@ function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
     parrotHappyTimer: 0,
     parrotEatTimer: 0,
     parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
   };
 }
 
@@ -983,6 +989,8 @@ function buildParrotPetRig(variantIndex: number): WolfPetRig {
     parrotHappyTimer: 0,
     parrotEatTimer: 0,
     parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
   };
 }
 
@@ -12672,6 +12680,8 @@ if (tpClipActive > 0.5) {
     next.parrotHappyTimer = current.parrotHappyTimer;
     next.parrotEatTimer = current.parrotEatTimer;
     next.parrotSoundTimer = current.parrotSoundTimer;
+    next.parrotFollowAnchor.copy(current.parrotFollowAnchor);
+    next.parrotFollowAnchorValid = current.parrotFollowAnchorValid;
     this.wolfPetLayer.remove(current.group);
     disposeObject(current.group);
     this.wolfPetLayer.add(next.group);
@@ -13819,6 +13829,21 @@ if (tpClipActive > 0.5) {
     );
   }
 
+  /** A short trailing filter softens player bob, swimming jitter and changing orbit targets. */
+  private parrotFollowTarget(rig: WolfPetRig, desired: THREE.Vector3, dt: number): THREE.Vector3 {
+    const anchor = rig.parrotFollowAnchor;
+    // Treat large world jumps as teleports; normal movement should retain a little lag.
+    if (!rig.parrotFollowAnchorValid || anchor.distanceToSquared(desired) > 100) {
+      anchor.copy(desired);
+      rig.parrotFollowAnchorValid = true;
+    } else {
+      const responseSeconds = this.inWater ? 0.36 : 0.2;
+      const blend = 1 - Math.exp(-Math.max(0, dt) / responseSeconds);
+      anchor.lerp(desired, blend);
+    }
+    return anchor;
+  }
+
   /** Low ceilings keep the parrot perched; an obstacle only at the exact target is routed around. */
   private parrotHasFlightRoom(rig: WolfPetRig, destination = this.parrotFollowPoint()): boolean {
     const baseY = Math.max(this.pos.y + 2.02, destination.y - 0.22);
@@ -14011,9 +14036,11 @@ if (tpClipActive > 0.5) {
       // above the swimmer instead of perching on a hand or entering the water to follow a target.
       rig.parrotCalled = false;
       const hover = this.parrotWaterHoverPoint();
-      if (!this.parrotFlightClear(rig.group.position.x, rig.group.position.y, rig.group.position.z)
-        || rig.group.position.y < hover.y - 0.65) {
+      if (!this.parrotFlightClear(rig.group.position.x, rig.group.position.y, rig.group.position.z)) {
+        // Only make an emergency relocation if the bird is actually inside a block or water.
+        // Being lower than the orbit target is handled by smooth flight, not a positional snap.
         rig.group.position.copy(hover);
+        rig.parrotFollowAnchorValid = false;
         rig.group.rotation.y = this.yaw;
         rig.yawTarget = this.yaw;
       }
@@ -14035,7 +14062,7 @@ if (tpClipActive > 0.5) {
     }
     const playerDistance = Math.hypot(rig.group.position.x - this.pos.x, rig.group.position.z - this.pos.z);
     const threat = this.nearestWolfThreat();
-    const followPoint = this.parrotFollowPoint();
+    const followPoint = this.parrotFollowTarget(rig, this.parrotFollowPoint(), dt);
     const hasFlightRoom = this.parrotHasFlightRoom(rig, followPoint);
 
     // A called parrot catches up promptly; ordinary long-distance pet catch-up mirrors the wolf.

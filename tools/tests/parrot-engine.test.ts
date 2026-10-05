@@ -122,6 +122,28 @@ try {
     ok(hand.x < 0 && hand.z < -0.7 && Math.abs(hand.y - (engine.pos.y + 1.267)) < 0.02, 'The whistle perch tracks the end of the animated, forward-extended left hand');
   }
 
+  // Follow targets deliberately lag behind player motion, with stronger damping in water.
+  {
+    const { engine } = makeEngine();
+    engine.setPetEquipped('parrot', true);
+    const rig = engine.wolfPetRig;
+    const firstTarget = engine.parrotFollowTarget(rig, engine.parrotFollowPoint(), 0.1).clone();
+    engine.pos.x += 1;
+    engine.time += 0.1;
+    const rawFollow = engine.parrotFollowPoint();
+    const smoothedFollow = engine.parrotFollowTarget(rig, rawFollow, 0.1);
+    ok(smoothedFollow.distanceTo(firstTarget) < rawFollow.distanceTo(firstTarget) * 0.6, 'Land follow flight trails abrupt player movement instead of matching it instantly');
+
+    engine.inWater = true;
+    const firstWaterTarget = engine.parrotWaterHoverPoint();
+    rig.parrotFollowAnchor.copy(firstWaterTarget);
+    rig.parrotFollowAnchorValid = true;
+    engine.pos.y += 0.4;
+    const rawWater = engine.parrotWaterHoverPoint();
+    const smoothedWater = engine.parrotFollowTarget(rig, rawWater, 0.1);
+    ok(Math.abs(smoothedWater.y - firstWaterTarget.y) < Math.abs(rawWater.y - firstWaterTarget.y) * 0.5, 'Water follow filters vertical swimming jitter rather than copying it one-for-one');
+  }
+
   // Swept steering can find a clear curved route around an obstacle without entering its voxel.
   {
     const { engine } = makeEngine();
