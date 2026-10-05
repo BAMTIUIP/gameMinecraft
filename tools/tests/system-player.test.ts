@@ -172,7 +172,10 @@ const forbidden: Array<{ label: string; test: (source: string) => boolean; allow
     test: (src) => /playbackState\s*=\s*['"`]playing['"`]/.test(src),
   },
   { label: 'picture-in-picture', test: (src) => /requestPictureInPicture|disablePictureInPicture/.test(src) },
-];
+  // a media pipeline built by hand still registers a media session in the browser, so it fails 1.6
+  // exactly like an <audio> element would
+  { label: 'MediaSource / captureStream', test: (src) => /new\s+MediaSource|MediaSource\s*\(|\.captureStream\s*\(|new\s+MediaStream/.test(src) },
+  { label: 'ObjectURL для медиа', test: (src) => /createObjectURL\s*\(/.test(src) },];
 
 for (const rule of forbidden) {
   const hits = [...sources, path.join(root, 'index.html')].filter((file) => {
