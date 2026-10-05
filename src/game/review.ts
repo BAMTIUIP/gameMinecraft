@@ -29,15 +29,20 @@ let offerCheckInFlight: Promise<ReviewOffer> | null = null;
 let requestInFlight: Promise<ReviewResult> | null = null;
 let requestedThisSession = false;
 
-/** Last time the dialog was shown (0 = never) — persisted, so a week later it may be offered again. */
-function lastAskedAt(): number {
+/**
+ * Last time the dialog was shown (0 = never) — persisted, so a week later it may be offered again.
+ * A `GAME_RATED` answer is stored too: the platform never asks a player who has already rated the
+ * game, so the button would keep coming back for nothing.
+ */
+function lastAsked(): { at: number; reason?: YaReviewReason } {
   const raw = storageGet(STORAGE_KEY);
-  if (!raw) return 0;
+  if (!raw) return { at: 0 };
   try {
-    const parsed = JSON.parse(raw) as { at?: number };
-    return typeof parsed.at === 'number' && Number.isFinite(parsed.at) ? parsed.at : 0;
+    const parsed = JSON.parse(raw) as { at?: number; reason?: YaReviewReason };
+    const at = typeof parsed.at === 'number' && Number.isFinite(parsed.at) ? parsed.at : 0;
+    return { at, ...(parsed.reason ? { reason: parsed.reason } : {}) };
   } catch {
-    return 0;
+    return { at: 0 };
   }
 }
 
@@ -55,7 +60,10 @@ export function resetReviewState() {
  */
 export async function reviewOffer(): Promise<ReviewOffer> {
   if (requestedThisSession) return { available: false, reason: 'done' };
-  if (yaServerTime() - lastAskedAt() < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
+  const asked = lastAsked();
+  // GAME_RATED is final: the platform will not ask this player again, so the offer is over for good.
+  if (asked.reason === 'GAME_RATED') return { available: false, reason: 'GAME_RATED' };
+  if (yaServerTime() - asked.at < QUIET_PERIOD_MS) return { available: false, reason: 'cooldown' };
   if (offerCache) return offerCache;
   if (offerCheckInFlight) return offerCheckInFlight;
 
@@ -91,7 +99,7 @@ export async function requestGameReview(): Promise<ReviewResult> {
     const result = await yaRequestReview();
     if (!result) return 'failed'; // nothing was shown: stay silent and allow a retry next session
     offerCache = { available: false, reason: 'done' };
-    storageSet(STORAGE_KEY, JSON.stringify({ at: yaServerTime(), sent: result.sent }));
+    storageSet(STORAGE_KEY, JSON.stringify({ at: yaServerTime(), sent: result.sent, reason: offer.reason ?? undefined }));
     return result.sent ? 'sent' : 'dismissed';
   })();
 
