@@ -5,6 +5,7 @@ import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SN
 import type { TKey } from './i18n';
 import { shouldDieInDaylight } from './survival';
 import { PARROT_VARIANTS } from './parrotVariants';
+import { OWL_VARIANTS } from './owlVariants';
 
 export type MobId =
   | 'pig'
@@ -1295,6 +1296,145 @@ export function buildParrotCompanionBody(variantIndex?: number) {
   }
   for (const shoulder of model.legs) shoulder.position.z += 0.2 * (variant.length - 1);
   return { ...model, variantIndex: vi, modelSize: variant.size };
+}
+
+/**
+ * Dedicated companion mesh for the eagle owl (филин). Features a sturdy rounded-block body,
+ * signature feathered ear tufts ("ушки"), large glowing eyes, broad wings and barred chest.
+ */
+export function buildOwlCompanionBody(variantIndex?: number) {
+  const g = new THREE.Group();
+  const mats: THREE.MeshLambertMaterial[] = [];
+  const legs: THREE.Object3D[] = [];
+
+  const vi = Number.isInteger(variantIndex)
+    ? Math.max(0, Math.min(OWL_VARIANTS.length - 1, Math.trunc(variantIndex as number)))
+    : Math.floor(Math.random() * OWL_VARIANTS.length);
+  const variant = OWL_VARIANTS[vi] ?? OWL_VARIANTS[0];
+
+  // 1. Torso: sturdy, rounded-block owl body
+  const body = box(0.36, 0.36, 0.36, variant.body, mats);
+  body.position.set(0, 0.34, 0);
+  body.userData.birdBody = true;
+  body.scale.z = variant.length;
+  g.add(body);
+
+  // 2. Breast / chest feathers: soft lighter belly/chest plumage
+  const chest = box(0.26, 0.28, 0.04, variant.chest, mats);
+  chest.position.set(0, 0.33, -0.19 * variant.length);
+  chest.userData.birdChest = true;
+  g.add(chest);
+
+  // Barred chest markings for eagle owl texture
+  coatPatch(g, mats, 'front', 0, 0.34, -0.215 * variant.length, 0.20, 0.22, variant.wings, 'owlBarring');
+
+  // 3. Head: wide blocky head with facial disc, big eyes, hooked beak, and tufts (ears)
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 0.58, -0.10);
+
+  const headMesh = box(0.34, 0.28, 0.30, variant.body, mats);
+  headMesh.userData.birdBody = true;
+  headGroup.add(headMesh);
+
+  // Facial disc (round/oval plates on front of face)
+  for (const s of [-1, 1]) {
+    const disc = box(0.13, 0.16, 0.03, variant.chest, mats);
+    disc.position.set(s * 0.08, 0.01, -0.16);
+    headGroup.add(disc);
+
+    // Large glowing owl eyes (yellow/amber iris)
+    const iris = box(0.08, 0.08, 0.04, variant.eyes, mats);
+    iris.position.set(s * 0.08, 0.02, -0.17);
+    headGroup.add(iris);
+
+    // Dark pupil
+    const pupil = box(0.04, 0.05, 0.045, '#121216', mats);
+    pupil.position.set(s * 0.08, 0.02, -0.175);
+    headGroup.add(pupil);
+
+    // Eye highlight shine
+    const shine = box(0.02, 0.02, 0.05, '#ffffff', mats);
+    shine.position.set(s * 0.065, 0.04, -0.178);
+    headGroup.add(shine);
+
+    // Signature Eagle Owl feathered ear tufts ("ушки филина")
+    const tuft = box(0.065, 0.15, 0.065, variant.tufts, mats);
+    tuft.position.set(s * 0.12, 0.20, -0.06);
+    tuft.rotation.z = s * -0.32;
+    tuft.rotation.x = -0.22;
+    tuft.userData.owlTuft = true;
+    headGroup.add(tuft);
+
+    // Inner tuft accent feather
+    const tuftAccent = box(0.035, 0.11, 0.035, variant.chest, mats);
+    tuftAccent.position.set(s * 0.10, 0.18, -0.07);
+    tuftAccent.rotation.z = s * -0.32;
+    tuftAccent.rotation.x = -0.22;
+    headGroup.add(tuftAccent);
+  }
+
+  // Hooked beak
+  const upperBeak = box(0.06, 0.08, 0.10, variant.beak, mats);
+  upperBeak.position.set(0, -0.02, -0.20);
+  upperBeak.rotation.x = 0.22;
+  headGroup.add(upperBeak);
+
+  const beakTip = box(0.04, 0.05, 0.06, '#181512', mats);
+  beakTip.position.set(0, -0.06, -0.21);
+  headGroup.add(beakTip);
+
+  g.add(headGroup);
+
+  // 4. Tail: fanned tail feathers
+  const tail = box(0.20, 0.05, 0.30, variant.wings, mats);
+  tail.position.set(0, 0.28, 0.24 * variant.length);
+  tail.rotation.x = 0.45;
+  tail.scale.z = variant.tail;
+  tail.userData.birdTail = true;
+  g.add(tail);
+
+  const tailAccent = box(0.14, 0.04, 0.22, variant.chest, mats);
+  tailAccent.position.set(0, 0.26, 0.28 * variant.length);
+  tailAccent.rotation.x = 0.45;
+  tailAccent.scale.z = variant.tail;
+  tailAccent.userData.birdTail = true;
+  g.add(tailAccent);
+
+  // 5. Wings (shoulders for flapping animations)
+  for (const s of [-1, 1]) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(s * 0.18, 0.40, 0);
+
+    const wing = box(0.36, 0.06, 0.32, variant.wings, mats);
+    wing.position.x = s * 0.16;
+    wing.userData.birdWing = true;
+    shoulder.add(wing);
+
+    // Layered wing covert feathers
+    const covert = box(0.24, 0.04, 0.22, variant.body, mats);
+    covert.position.set(s * 0.12, 0.035, -0.02);
+    shoulder.add(covert);
+
+    g.add(shoulder);
+    legs.push(shoulder);
+
+    // Talons / feet
+    const foot = box(0.09, 0.06, 0.14, variant.beak, mats);
+    foot.position.set(s * 0.10, 0.13, -0.05);
+    g.add(foot);
+  }
+
+  g.userData.variant = vi;
+  g.userData.modelSize = variant.size;
+
+  return {
+    group: g,
+    head: headGroup,
+    legs,
+    mats,
+    variantIndex: vi,
+    modelSize: variant.size,
+  };
 }
 
 /**

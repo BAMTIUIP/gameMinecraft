@@ -572,16 +572,16 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       <div
         className={`hud-information hud-information--hint absolute left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5 ${isTouch ? 'bottom-60' : 'bottom-24'}`}
       >
-        {!isTouch && hud.petEquippedKind === 'parrot' && hud.phase === 'playing' && (
-          <div data-parrot-whistle className="anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: '#53c7a4' }}>
-            <kbd className="rounded bg-black/45 px-1.5 py-0.5 font-display text-[10px] text-[#8ce2c4]">B</kbd>
-            <span className="font-display text-xs tracking-widest text-[#b4f0d9] sm:text-sm">{t('petParrotWhistle')}</span>
+        {!isTouch && (hud.petEquippedKind === 'parrot' || hud.petEquippedKind === 'owl') && hud.phase === 'playing' && (
+          <div data-parrot-whistle className="anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: hud.petEquippedKind === 'owl' ? '#d9a74a' : '#53c7a4' }}>
+            <kbd className="rounded bg-black/45 px-1.5 py-0.5 font-display text-[10px]" style={{ color: hud.petEquippedKind === 'owl' ? '#f4d28c' : '#8ce2c4' }}>B</kbd>
+            <span className="font-display text-xs tracking-widest sm:text-sm" style={{ color: hud.petEquippedKind === 'owl' ? '#fde6b8' : '#b4f0d9' }}>{t(hud.petEquippedKind === 'owl' ? 'petOwlWhistle' : 'petParrotWhistle')}</span>
           </div>
         )}
         {!isTouch && hud.petInteractNear && hud.phase === 'playing' && (
           <div data-pet-interact className="anim-pop bevel-flat notch flex items-center gap-2 px-3 py-1.5" style={{ borderColor: '#c59b66' }}>
             <kbd className="rounded bg-black/45 px-1.5 py-0.5 font-display text-[10px] text-torch">E</kbd>
-            <span className="font-display text-xs tracking-widest text-[#f3d49a] sm:text-sm">{t(hud.petEquippedKind === 'parrot' ? 'petParrotInteract' : 'petInteract')}</span>
+            <span className="font-display text-xs tracking-widest text-[#f3d49a] sm:text-sm">{t(hud.petEquippedKind === 'parrot' ? 'petParrotInteract' : hud.petEquippedKind === 'owl' ? 'petOwlInteract' : 'petInteract')}</span>
           </div>
         )}
         {hud.tradeNear && hud.phase === 'playing' && (

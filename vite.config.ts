@@ -38,7 +38,12 @@ function yandexSdkStub(): Plugin {
 export default defineConfig({
   plugins: [react(), tailwindcss(), viteSingleFile(), yandexSdkStub()],
   server: {
+    host: '0.0.0.0',
     // allow the Arena preview host to reach the dev server
+    allowedHosts: true,
+  },
+  preview: {
+    host: '0.0.0.0',
     allowedHosts: true,
   },
   resolve: {

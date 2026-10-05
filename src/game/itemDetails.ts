@@ -12,6 +12,7 @@ import { blockName, matName, rarName, recipeText, t, toolLabelForId, type TKey }
 import { AFFIXES, gearColor, MATERIALS, RARITY, SLOT_KEY, type Item } from './items';
 import { getItemInvCategory, HAND, RECIPES, TOOL_TORCH } from './recipes';
 import { getToolSpec, TOOL_BOW } from './tools';
+import type { PetKind } from './pets';
 
 export type ItemDetailStat = { label: string; value: string; color?: string };
 export type ItemDetails = { name: string; description: string; color: string; stats: ItemDetailStat[] };
@@ -158,8 +159,8 @@ export function getGearDetails(item: Item): ItemDetails {
   };
 }
 
-export function getPetDetails(kind: 'wolf' | 'monkey' | 'parrot'): ItemDetails {
-  const name = t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : 'petParrotResource');
+export function getPetDetails(kind: PetKind | 'wolf' | 'monkey' | 'parrot' | 'owl'): ItemDetails {
+  const name = t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : kind === 'parrot' ? 'petParrotResource' : 'petOwlResource');
   return {
     name,
     description: t('itemDescPet'),
