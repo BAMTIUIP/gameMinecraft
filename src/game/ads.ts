@@ -44,6 +44,8 @@ let sessionStartedAt = Date.now();
 let inFlight = false;
 let wantedBannerVisible: boolean | null = null;
 let bannerSyncInFlight: Promise<void> | null = null;
+/** `ADV_IS_NOT_CONNECTED` from `getBannerAdvStatus()`: the Console has no banners, so retrying is pointless. */
+let bannerDisabledReason: string | null = null;
 
 /** True when an ad is on screen right now — the game must not start anything interactive. */
 export function adInFlight(): boolean {
@@ -128,9 +130,17 @@ export function syncBanner(visible: boolean): Promise<void> {
     try {
       while (wantedBannerVisible !== null) {
         const desired: boolean = wantedBannerVisible;
+        // Banners not connected in the Console: `getBannerAdvStatus()` says so with a reason, and
+        // the documentation's example only calls showBannerAdv() when there is none. Remember it —
+        // otherwise every phase change would retry a hopeless request.
+        if (desired && bannerDisabledReason) return;
         const status = await yaGetBannerAdvStatus();
         if (wantedBannerVisible !== desired) continue;
         if (!status) return;
+        if (status.reason === 'ADV_IS_NOT_CONNECTED') {
+          bannerDisabledReason = status.reason;
+          return;
+        }
         if (desired !== status.showing) {
           if (desired) await yaShowBannerAdv();
           else await yaHideBannerAdv();
