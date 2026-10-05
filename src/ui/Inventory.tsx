@@ -13,11 +13,12 @@ import {
   getSalvageForGear,
   type InvCategory,
 } from '../game/recipes';
-import { BLOCKS, PICKAXE_TIERS } from '../game/blocks';
+import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
 import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../game/i18n';
+import { meatItemLabel } from '../game/food';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
@@ -45,6 +46,7 @@ type Props = {
   hud: HudState;
   onCraft: (key: string) => void;
   onPlaceItem: (id: number, slot?: number, fromSlot?: number, instanceId?: number) => void;
+  onEquipArrow?: (id: number) => void;
   onRemoveSlot: (slot: number) => void;
   onSelectSlot?: (i: number) => void;
   onClose: () => void;
@@ -103,6 +105,7 @@ export default function Inventory({
   hud,
   onCraft,
   onPlaceItem,
+  onEquipArrow,
   onRemoveSlot,
   onSelectSlot,
   onClose,
@@ -126,6 +129,7 @@ export default function Inventory({
   isTouch,
 }: Props) {
   const craftable = new Set(hud.craftable);
+  const arrowIds = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
   const st = hud.stats;
   const isWorkbenchMode = hud.invTab === 'workbench';
 
@@ -133,6 +137,7 @@ export default function Inventory({
     hud.invTab === 'trade' && hud.tradeNear ? 'trade' : hud.invTab === 'anvil' && hud.anvilNear ? 'anvil' : 'tools',
   );
   const [invCat, setInvCat] = useState<InvCategory>('all');
+  const [gearTab, setGearTab] = useState<'all' | Slot>('all');
   const [wbTarget, setWbTarget] = useState<WorkbenchTarget>(null);
 
   const shownRecipes = RECIPES.filter((r) => r.group === tab);
@@ -141,18 +146,20 @@ export default function Inventory({
   const filteredStacks =
     invCat === 'armor' || invCat === 'pets'
       ? []
-      : hud.inventory.filter((it) => invCat === 'all' || getItemInvCategory(it.id) === invCat);
-  const filteredGear = invCat === 'all' || invCat === 'armor' ? hud.bagItems : [];
-  const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds : [];
+      : hud.inventory.filter((it) => it.id !== hud.arrowLoadout && (invCat === 'all' || getItemInvCategory(it.id) === invCat));
+  const filteredGear = (invCat === 'all' || invCat === 'armor' ? hud.bagItems : [])
+    .filter((it) => gearTab === 'all' || it.slot === gearTab)
+    .sort((a, b) => (a.armor + a.damage) - (b.armor + b.damage));
+  const filteredPets = invCat === 'all' || invCat === 'pets' ? hud.petInventoryKinds.filter((kind) => kind !== hud.petEquippedKind) : [];
   const totalShownCount = filteredStacks.length + filteredGear.length + filteredPets.length;
   const petDisplayKind = hud.petEquippedKind ?? hud.petSelectedKind;
   const petDisplayOwned = hud.petOwnedKinds.includes(petDisplayKind);
   const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
+    <div className="inventory-screen absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
-      <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-3 sm:p-6">
+      <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-2 sm:p-6">
         {/* ---------- header ---------- */}
         <div
           className="anim-rise bevel notch sticky top-0 z-40 mb-3 flex flex-wrap items-center justify-between gap-3 px-4 py-3"
@@ -246,6 +253,13 @@ export default function Inventory({
                 );
               })}
             </div>
+            {invCat === 'armor' && (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {([['all','ВСЕ'], ['head','ШЛЕМ'], ['chest','НАГРУДНИК'], ['legs','ПОНOЖИ'], ['feet','БОТИНКИ'], ['hands','ПЕРЧАТКИ'], ['offhand','ЩИТ']] as const).map(([id,label]) => (
+                  <button key={id} type="button" onClick={() => setGearTab(id)} className={`notch px-2 py-1 font-display text-[9px] ${gearTab === id ? 'text-pit-950 bg-torch' : 'text-white/55 bg-black/25'}`}>{label}</button>
+                ))}
+              </div>
+            )}
 
             {totalShownCount === 0 ? (
               <div className="sunken notch flex min-h-[110px] items-center justify-center px-4 py-8 text-center text-[11px] leading-relaxed tracking-wide text-white/35">
@@ -293,7 +307,7 @@ export default function Inventory({
                   const spec = getToolSpec(it.id);
                   const isTool = isToolId(it.id);
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
-                  const label = isTool ? toolLabel(it.id) : blockName(it.id, BLOCKS[it.id]?.name ?? '');
+                  const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
                   return (
                     <button
@@ -304,7 +318,7 @@ export default function Inventory({
                         e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${label}${condition ? ` · ${condition}` : ''} — ${t('dragHint')}`}
+                      title={`${label}${condition ? ` · ${condition}` : ''}${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc ? ` · ${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc}` : ''} — ${t('dragHint')}`}
                       className="anim-pop notch group relative flex aspect-square items-center justify-center transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         animationDelay: `${i * 18}ms`,
@@ -317,7 +331,7 @@ export default function Inventory({
                       }}
                     >
                       {isTool ? (
-                        <span className="flex h-[62%] w-[62%] items-center justify-center">{toolIcon(it.id, 24, it.durability).el}</span>
+                        <span className="flex h-[82%] w-[82%] items-center justify-center">{toolIcon(it.id, 34, it.durability).el}</span>
                       ) : (
                         <img src={getBlockIcon(it.id)} alt={label} className="pixelated h-[62%] w-[62%]" draggable={false} />
                       )}
@@ -337,6 +351,9 @@ export default function Inventory({
                       <span className="pointer-events-none absolute inset-x-0 -bottom-5 z-20 hidden truncate bg-black/80 px-1 text-center font-display text-[9px] text-torch group-hover:block">
                         {label}
                       </span>
+                      {arrowIds.includes(it.id) && (
+                        <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
+                      )}
                     </button>
                   );
                 })}
@@ -397,12 +414,17 @@ export default function Inventory({
             <div className="mt-3 border-t border-white/10 pt-2.5 flex flex-col">
               <div className="mb-2 flex items-baseline justify-between">
                 <span className="font-display text-sm tracking-widest text-torch">{t('gear')}</span>
-                <span className="font-display text-[11px] text-white/45">
+                <span className="font-display text-[10px] text-white/45">
                   ⛨{st.armor} · ⚔{Math.round(st.damage)}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 md:grid-cols-7">
+              <div className="equipment-grid grid grid-cols-2 gap-1 sm:grid-cols-4 md:grid-cols-8">
+                <div className="notch relative flex min-h-[72px] min-w-0 flex-col border-2 border-[#f4b942] bg-black/30 p-1 text-center">
+                  <div className="font-display text-[8px] tracking-wider text-white/40">СТРЕЛЫ</div>
+                  {hud.arrowLoadout !== null ? <img src={getBlockIcon(hud.arrowLoadout)} className="pixelated mx-auto h-7 w-7" /> : <div className="h-7 text-white/25">—</div>}
+                  {hud.arrowLoadout !== null && <button type="button" onClick={() => onEquipArrow?.(hud.arrowLoadout!)} className="btn-mc notch mt-0.5 w-full px-1 py-0.5 font-display text-[8px] leading-none text-[#f2b3ae]">СНЯТЬ</button>}
+                </div>
                 {SLOTS.map((slot) => {
                   const it = hud.equipped[slot];
                   const rar = it ? RARITY[it.rarity] : null;
@@ -428,11 +450,13 @@ export default function Inventory({
                         const bag = hud.bagItems.find((b) => b.uid === uid);
                         if (bag && bag.slot === slot) onEquip(uid);
                       }}
-                      className="notch relative transition-transform duration-100"
+                      className="notch relative min-w-0 min-h-[72px] transition-transform duration-100"
                     >
-                      <button
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => it && onUnequip(slot)}
-                        className="notch relative w-full px-1.5 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
+                        className="notch relative flex min-h-[72px] w-full flex-col justify-center px-1 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
                         style={{
                           background: it ? `linear-gradient(180deg, ${rar!.color}22, rgba(10,14,12,.9))` : 'rgba(255,255,255,.02)',
                           border: `2px solid ${it ? rar!.color : '#1d2823'}`,
@@ -455,17 +479,8 @@ export default function Inventory({
                             ))}
                           </div>
                         )}
-                      </button>
-                      {it && (
-                        <button
-                          onClick={() => onUnequip(slot)}
-                          className="btn-mc notch absolute -right-1 -top-1 z-10 px-1 py-0.5 font-display text-[8px] leading-none"
-                          style={{ background: 'linear-gradient(180deg,#3d1f1c,#241210)', border: '1px solid #e2564a55', color: '#f2b3ae' }}
-                          title={t('unequip')}
-                        >
-                          {t('unequip')}
-                        </button>
-                      )}
+                        {it && <button onClick={(e) => { e.stopPropagation(); onUnequip(slot); }} className="btn-mc notch mt-auto w-full px-1 py-0.5 font-display text-[8px] leading-none" style={{ background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }} title={t('unequip')}>{t('unequip')}</button>}
+                      </div>
                     </div>
                   );
                 })}
@@ -491,7 +506,7 @@ export default function Inventory({
                   }}
                   className="notch flex min-w-0 flex-col gap-1 p-1"
                 >
-                  {hud.petOwnedKinds.length > 1 && (
+                  {false && (
                     <div className="flex items-center justify-center gap-1 border-b border-white/10 pb-0.5">
                       {hud.petOwnedKinds.map((kind) => (
                         <button
@@ -523,7 +538,7 @@ export default function Inventory({
                       else if (petDisplayOwned) onEquipPet(petDisplayKind);
                     }}
                     title={hud.petEquipped ? t('petUnequipHint') : hud.petTokenAvailable ? t('petEquipHint') : t('petNotOwned')}
-                    className="notch flex min-h-[54px] w-full flex-col items-center justify-center gap-0.5 px-1 py-1 transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
+                    className="notch flex min-h-[72px] w-full flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1 transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
                     style={{
                       background: hud.petEquipped ? 'linear-gradient(180deg,#3a3026,#171a17)' : 'rgba(255,255,255,.02)',
                       border: `2px solid ${hud.petEquipped || hud.petTokenAvailable ? '#c59b66' : '#1d2823'}`,
@@ -536,7 +551,7 @@ export default function Inventory({
                         : <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
                       : <span className="text-2xl leading-none text-white/25">🐾</span>}
                     <span className="max-w-full truncate font-display text-[8px] leading-none text-[#e8d5b4]">
-                      {hud.petEquipped ? t('petEquippedLabel') : hud.petTokenAvailable ? t('petReady') : t('petNotOwned')}
+                      {hud.petEquipped ? 'ДОМОЙ' : hud.petTokenAvailable ? 'В ПУТЬ' : t('petNotOwned')}
                     </span>
                   </button>
                   {petDisplayOwned && (

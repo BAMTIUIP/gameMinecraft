@@ -1811,8 +1811,8 @@ export function PauseScreen({
   onSaveWorld: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-pit-950/78 backdrop-blur-[3px]">
-      <div className="bevel notch anim-pop w-[min(92vw,440px)] p-5 sm:p-6">
+    <div className="pause-screen absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-pit-950/78 px-2 py-3 backdrop-blur-[3px] sm:items-center sm:px-4 sm:py-5">
+      <div className="bevel notch anim-pop my-auto w-[min(92vw,440px)] max-h-[calc(100dvh-1.5rem)] overflow-y-auto p-4 sm:p-6">
         <div className="mb-1 font-display text-4xl leading-none text-white text-outline sm:text-5xl">{t('paused')}</div>
         <div className="mb-5 text-[11px] tracking-[0.3em] text-torch/70">
           {t('pausedSub')} · {hud.endless ? '∞' : fmtMinutes(hud.runTime)}

@@ -95,7 +95,9 @@ const INITIAL_HUD: HudState = {
   score: 0,
   timeLeft: EXPLORATION_RUN_TIME,
   health: 100,
+  hunger: 100,
   stamina: 100,
+  arrowLoadout: null,
   airBubbles: 6,
   inWater: false,
   breathVisible: false,
@@ -516,6 +518,7 @@ export default function App() {
   const sellTool = useCallback((id: number, instanceId?: number) => engineRef.current?.sellTool(id, instanceId), []);
   const sellGear = useCallback((uid: string) => engineRef.current?.sellGear(uid), []);
   // sparse hotbar: place any owned item into a slot (swap / evict), or remove it back
+  const equipArrow = useCallback((id: number) => engineRef.current?.equipArrow(id), []);
   const placeItem = useCallback(
     (id: number, slot?: number, fromSlot?: number, instanceId?: number) => engineRef.current?.placeInSlot(id, slot, fromSlot, instanceId),
     [],
@@ -1043,6 +1046,7 @@ export default function App() {
           onSellTool={sellTool}
           onSellGear={sellGear}
           onPlaceItem={placeItem}
+          onEquipArrow={equipArrow}
           onRemoveSlot={removeSlot}
           onSalvageGear={salvageGear}
           onSalvageItem={salvageItem}

@@ -4,6 +4,7 @@ import {
   APPLE,
   COCONUT, BANANA,
   ARROW_ITEM,
+  STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
   BED,
   CAMPFIRE,
   CAT_CLAW,
@@ -46,6 +47,7 @@ import {
   GOLD,
   GOLD_BLOCK,
   IRON,
+  ICE,
   LEAVES,
   LOG,
   PLANKS,
@@ -466,6 +468,14 @@ export const RECIPES: Recipe[] = [
     hotkey: '',
     group: 'tools',
   },
+  { key: 'arrows_stone', name: 'STONE ARROWS ×8', desc: 'Stone arrowheads · stronger impact', inputs: [[PLANKS, 1], [COBBLE, 2], [FEATHER, 1]], out: [STONE_ARROW, 8], kind: 'blocks', accent: '#aeb7c0', hotkey: '', group: 'tools' },
+  { key: 'arrows_iron', name: 'IRON ARROWS ×8', desc: 'Iron arrowheads · piercing shot', inputs: [[PLANKS, 1], [IRON, 1], [FEATHER, 1]], out: [IRON_ARROW, 8], kind: 'blocks', accent: '#d5e3e8', hotkey: '', group: 'tools' },
+  { key: 'arrows_gold', name: 'GOLDEN ARROWS ×8', desc: 'Golden arrowheads · bright tracer', inputs: [[PLANKS, 1], [GOLD, 1], [FEATHER, 1]], out: [GOLD_ARROW, 8], kind: 'blocks', accent: '#f4c34f', hotkey: '', group: 'tools' },
+  { key: 'arrows_netherite', name: 'NETHERITE ARROWS ×8', desc: 'Netherite arrowheads · devastating shot', inputs: [[PLANKS, 1], [NETHERITE_INGOT, 1], [FEATHER, 1]], out: [NETHERITE_ARROW, 8], kind: 'blocks', accent: '#ff765b', hotkey: '', group: 'tools' },
+  { key: 'arrows_fire', name: 'FIRE ARROWS ×8', desc: 'Burning arrows · ignites targets', inputs: [[ARROW_ITEM, 8], [TORCH, 1]], out: [FIRE_ARROW, 8], kind: 'blocks', accent: '#ff7338', hotkey: '', group: 'tools' },
+  { key: 'arrows_poison', name: 'POISON ARROWS ×8', desc: 'Poison arrows · damage over time', inputs: [[ARROW_ITEM, 8], [FLOWER_PURPLE, 1]], out: [POISON_ARROW, 8], kind: 'blocks', accent: '#9d70d1', hotkey: '', group: 'tools' },
+  { key: 'arrows_freeze', name: 'FREEZE ARROWS ×8', desc: 'Freezing arrows · slows targets', inputs: [[ARROW_ITEM, 8], [ICE, 1]], out: [FREEZE_ARROW, 8], kind: 'blocks', accent: '#76dff5', hotkey: '', group: 'tools' },
+  { key: 'arrows_stun', name: 'STUN ARROWS ×8', desc: 'Stunning arrows · briefly stuns targets', inputs: [[ARROW_ITEM, 8], [GOLD, 1]], out: [STUN_ARROW, 8], kind: 'blocks', accent: '#f6dc72', hotkey: '', group: 'tools' },
   {
     key: 'torch_hand',
     name: 'HAND TORCH',
@@ -504,6 +514,8 @@ export const RECIPES: Recipe[] = [
     hotkey: '',
     group: 'food',
   },
+  , { key: 'campfire_birch', name: 'BIRCH CAMPFIRE', desc: 'Campfire made with birch logs', inputs: [[BIRCH_LOG, 2], [COAL, 1]], out: [CAMPFIRE, 1], kind: 'blocks', accent: '#ff8a2b', hotkey: '', group: 'food' },
+  { key: 'campfire_palm', name: 'PALM CAMPFIRE', desc: 'Campfire made with palm logs', inputs: [[PALM_LOG, 2], [COAL, 1]], out: [CAMPFIRE, 1], kind: 'blocks', accent: '#ff8a2b', hotkey: '', group: 'food' },
   {
     key: 'cook_meat',
     name: 'COOK MEAT',
@@ -996,7 +1008,8 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets'
  */
 export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
   if (id >= 300) return 'armor';
-  if (id >= 200 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
+  // Food must win before the numeric tool/arrow range: cooked meat ids are
+  // generated dynamically and can overlap the high item range.
   if (
     isMeatItem(id) ||
     id === APPLE ||
@@ -1014,6 +1027,7 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pe
   ) {
     return 'food';
   }
+  if (id >= 154 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   return 'blocks';
 }
 

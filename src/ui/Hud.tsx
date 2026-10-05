@@ -112,6 +112,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
       : hud.health > 30
         ? 'from-[#c9761f] to-torch'
         : 'from-[#8f1c14] to-blood';
+  const hungerColor = hud.hunger > 30 ? 'from-[#d98c42] to-[#f4c15d]' : 'from-[#c94c45] to-[#ef735f]';
   const staminaColor =
     hud.stamina > 60
       ? 'from-[#5f9c33] to-moss'
@@ -147,6 +148,12 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             />
           </div>
           <span className="font-display text-sm leading-none text-white/85 sm:text-base">{hud.health}</span>
+        </div>
+
+        <div className="hud-hunger-panel bevel-flat notch -mt-1 flex h-5 items-center gap-2 px-2 sm:h-6 sm:gap-3" role="progressbar" aria-label="Hunger" aria-valuenow={hud.hunger} title={`Голод: ${hud.hunger}%`}>
+          <span className="text-sm" aria-hidden="true">🍖</span>
+          <div className="sunken relative h-2 w-28 shrink-0 overflow-hidden sm:h-2.5 sm:w-44"><div className={`absolute inset-y-0 left-0 bg-gradient-to-r ${hungerColor}`} style={{ width: `${hud.hunger}%` }} /></div>
+          <span className="font-display text-[10px] text-white/70">{hud.hunger}</span>
         </div>
 
         <div
@@ -491,7 +498,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
           <div className="mt-1 font-display text-xs tracking-wide text-white/80 text-shadow-hard sm:text-sm">{hud.target.name}</div>
         )}
         <div className="mt-0.5 flex items-center gap-1.5 font-display text-[10px] tracking-widest text-torch/80 text-shadow-hard">
-          <span>{hud.heldName}</span>
+          {hud.heldKind !== 'fist' && <span>{hud.heldName}</span>}
           {hud.heldKind !== 'fist' && !isTouch && (
             <span className="rounded bg-black/50 px-1 py-0.5 text-[8px] text-white/60">[{t('drop_hint')}]</span>
           )}

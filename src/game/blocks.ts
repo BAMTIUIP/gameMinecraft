@@ -37,6 +37,14 @@ export const GUNPOWDER = 32;
 export const ARROW_ITEM = 33;
 /** a dropped piece of gear waiting on the ground */
 export const LOOT_BAG = 34;
+export const STONE_ARROW = 154;
+export const IRON_ARROW = 155;
+export const GOLD_ARROW = 156;
+export const NETHERITE_ARROW = 157;
+export const FIRE_ARROW = 158;
+export const POISON_ARROW = 159;
+export const FREEZE_ARROW = 160;
+export const STUN_ARROW = 161;
 export const BED = 35;
 export const WATER = 36;
 export const FLOWER_RED = 37;
@@ -728,6 +736,7 @@ export const BLOCKS: BlockDef[] = [
   d({ id: FLESH, name: 'Rotten Flesh', side: T.flesh, hardness: 1, score: 6, solid: false, breakable: false, drop: 0, tint: [140, 170, 90] }),
   d({ id: GUNPOWDER, name: 'Gunpowder', side: T.gunpowder, hardness: 1, score: 20, solid: false, breakable: false, drop: 0, tint: [90, 90, 95] }),
   d({ id: ARROW_ITEM, name: 'Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [200, 190, 170] }),
+
   d({ id: LOOT_BAG, name: 'Loot', side: T.lootBag, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [217, 140, 255] }),
   d({ id: BED, name: 'Bed', top: T.bed, side: T.planks, bottom: T.planks, hardness: 0.6, score: 8, tint: [200, 70, 60] }),
   d({ id: WATER, name: 'Water', side: T.water, hardness: Infinity, score: 0, breakable: false, solid: false, drop: 0, tint: [70, 130, 220] }),
@@ -1095,6 +1104,15 @@ export const BLOCKS: BlockDef[] = [
   d({ id: WHEAT_CROP_2, name: 'Wheat Crop (growing)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [178, 172, 64] }),
   d({ id: WHEAT_CROP_3, name: 'Wheat Crop (ripe)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [226, 191, 76] }),
   ...meatBlockDefs,
+  d({ id: STONE_ARROW, name: 'Stone Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [170,180,190] }),
+  d({ id: IRON_ARROW, name: 'Iron Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [210,225,230] }),
+  d({ id: GOLD_ARROW, name: 'Golden Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [250,205,70] }),
+  d({ id: NETHERITE_ARROW, name: 'Netherite Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [245,100,70] }),
+  d({ id: FIRE_ARROW, name: 'Fire Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [255,90,30] }),
+  d({ id: POISON_ARROW, name: 'Poison Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [150,220,80] }),
+  d({ id: FREEZE_ARROW, name: 'Freeze Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [100,220,255] }),
+  d({ id: STUN_ARROW, name: 'Stun Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [240,220,80] }),
+
 ];
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */

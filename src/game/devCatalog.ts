@@ -25,7 +25,7 @@ export function getDeveloperCatalog(): DeveloperCatalog {
     SLOTS.flatMap((slot) => RARITY.map((_, rarity) => ({ slot, material, rarity: rarity as Rarity }))),
   );
   const gearRecipeKeys = RECIPES
-    .filter((recipe) => recipe.kind === 'gear' && recipe.slot && recipe.material)
+    .filter((recipe) => recipe && recipe.kind === 'gear' && recipe.slot && recipe.material)
     .map((recipe) => recipe.key);
 
   return {

@@ -47,7 +47,7 @@ import {
   T,
   TORCH,
   WATER,
-  ARROW_ITEM,
+  ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
@@ -294,6 +294,10 @@ type ExplorationTaskDefinition = {
   mineBlockIds?: readonly number[];
   craftPickaxeTier?: number;
   craftRecipeKey?: string;
+  craftRecipeKeys?: readonly string[];
+  craftKind?: Recipe['kind'];
+  craftTier?: number;
+  openChest?: boolean;
 };
 
 type ExplorationTask = ExplorationTaskDefinition & { progress: number };
@@ -310,8 +314,29 @@ export type HudObjective = {
 
 const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
+  { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
+  { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'weapon', craftTier: 0 },
+  { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
+  { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftRecipeKey: 'cook_meat' },
+  { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
+  { id: 'hunt-meat', titleKey: 'objectiveCookMeatBatch', target: 3, rewardScore: 220, rewardSeconds: 35, craftRecipeKey: 'cook_meat' },
+  { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
+  { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
+  { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
+  { id: 'netherite-sword', titleKey: 'objectiveCraftNetheriteSword', target: 1, rewardScore: 700, rewardSeconds: 65, craftKind: 'weapon', craftTier: 5 },
+  { id: 'netherite-arrows', titleKey: 'objectiveCraftNetheriteArrows', target: 1, rewardScore: 800, rewardSeconds: 75, craftRecipeKey: 'arrows_netherite' },
+  { id: 'fire-arrows', titleKey: 'objectiveCraftFireArrows', target: 1, rewardScore: 300, rewardSeconds: 35, craftRecipeKey: 'arrows_fire' },
+  { id: 'poison-arrows', titleKey: 'objectiveCraftPoisonArrows', target: 1, rewardScore: 320, rewardSeconds: 35, craftRecipeKey: 'arrows_poison' },
+  { id: 'freeze-arrows', titleKey: 'objectiveCraftFreezeArrows', target: 1, rewardScore: 340, rewardSeconds: 35, craftRecipeKey: 'arrows_freeze' },
+  { id: 'stun-arrows', titleKey: 'objectiveCraftStunArrows', target: 1, rewardScore: 360, rewardSeconds: 35, craftRecipeKey: 'arrows_stun' },
+  { id: 'secret-chest', titleKey: 'objectiveFindChest', target: 1, rewardScore: 220, rewardSeconds: 35, openChest: true },
+  { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
+  { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
+  { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
   { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
+  { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
+  { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
   { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
   { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
@@ -354,7 +379,9 @@ export type HudState = {
   score: number;
   timeLeft: number;
   health: number;
+  hunger: number;
   stamina: number;
+  arrowLoadout: number | null;
   airBubbles: number;
   inWater: boolean;
   breathVisible: boolean;
@@ -1333,6 +1360,14 @@ export class Engine {
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
   private health = 100;
+  private hunger = 100;
+  private hungerDamageTimer = 0;
+  private arrowLoadout: number | null = null;
+
+  equipArrow(id: number) {
+    this.arrowLoadout = this.arrowLoadout === id ? null : id;
+    this.syncHud(true);
+  }
   private combo = 0;
   private comboTimer = 0;
   private bestCombo = 0;
@@ -5840,6 +5875,12 @@ if (tpClipActive > 0.5) {
     this.stepSmooth = Math.max(0, this.stepSmooth - dt * 3.4);
     const sprinting = sprint && planar > 0.5;
     this.staminaState = stepStamina(this.staminaState, sprinting, dt);
+    // Hunger drains slowly while exploring; at zero it causes periodic starvation damage.
+    this.hunger = Math.max(0, this.hunger - dt * (sprinting ? 0.11 : 0.055));
+    if (this.hunger <= 0) {
+      this.hungerDamageTimer -= dt;
+      if (this.hungerDamageTimer <= 0) { this.hungerDamageTimer = 4; this.damage(2, 'mob'); }
+    } else this.hungerDamageTimer = 0;
     this.fovTarget = sprinting ? 82 : 72;
   }
 
@@ -7282,6 +7323,7 @@ if (tpClipActive > 0.5) {
 
   /** Open either a generated treasure cache or a reusable player-placed storage chest. */
   private openChestAt(x: number, y: number, z: number, id: number) {
+    this.recordExplorerChest();
     if (this.world.get(x, y, z) !== id || !isTreasureChest(id)) return false;
     const base = baseChestId(id);
     const key = Engine.chestCellKey(x, y, z);
@@ -8675,6 +8717,7 @@ if (tpClipActive > 0.5) {
       if (count > 0) {
         this.inventory.set(id, count - 1);
         this.health = Math.min(100, this.health + healAmount);
+        this.hunger = Math.min(100, this.hunger + Math.max(18, healAmount * 2));
         this.placeCooldown = 0.32;
         this.startSwing(0.45);
         sfx.pickup(4);
@@ -10379,14 +10422,21 @@ if (tpClipActive > 0.5) {
 
   private tryShoot() {
     if (this.attackCd > 0) return;
-    if ((this.inventory.get(ARROW_ITEM) ?? 0) <= 0) {
+    const arrowTypes = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
+    // The active hotbar is the player's arrow pool: when a bow is drawn, use the first
+    // loaded arrow stack in that row, rather than silently choosing a random inventory stack.
+    const arrowId = (this.arrowLoadout !== null && (this.inventory.get(this.arrowLoadout) ?? 0) > 0 ? this.arrowLoadout : null)
+      ?? this.hotbar.find((id) => id !== undefined && arrowTypes.includes(id) && (this.inventory.get(id) ?? 0) > 0)
+      ?? arrowTypes.find((id) => (this.inventory.get(id) ?? 0) > 0)
+      ?? ARROW_ITEM;
+    if ((this.inventory.get(arrowId) ?? 0) <= 0) {
       this.queueTutorialTip('mechanic:bow-ammo', t('tutorialBowTitle'), t('tutorialBowAmmo'), '#c7a879', 'bow');
       this.attackCd = 0.4;
       sfx.ui(false);
       return;
     }
     this.queueTutorialTip('mechanic:bow-fire', t('tutorialBowTitle'), t('tutorialBowFire'), '#c7a879', 'bow');
-    this.inventory.set(ARROW_ITEM, (this.inventory.get(ARROW_ITEM) ?? 0) - 1);
+    this.inventory.set(arrowId, (this.inventory.get(arrowId) ?? 0) - 1);
     const spec = getToolSpec(this.hotbar[this.selected] ?? TOOL_BOW);
     const tier = spec?.kind === 'bow' ? spec.tier : 0;
     // Early bows shoot more slowly and hit lightly; later materials trade resources for reach and power.
@@ -10409,7 +10459,8 @@ if (tpClipActive > 0.5) {
       vz: this.dirV.z * sp,
       life: 2.4,
       mesh,
-      damage: (spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35,
+      damage: ((spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35) * (arrowId === STONE_ARROW ? 1.2 : arrowId === IRON_ARROW ? 1.45 : arrowId === GOLD_ARROW ? 1.7 : arrowId === NETHERITE_ARROW ? 2.2 : 1),
+      arrowId,
       critChance: 0.14,
       critMultiplier: 1.55,
     };
@@ -10450,7 +10501,7 @@ if (tpClipActive > 0.5) {
                 a.x - (a.vx / speed) * 0.35,
                 a.y - (a.vy / speed) * 0.35 + 0.15,
                 a.z - (a.vz / speed) * 0.35,
-                ARROW_ITEM,
+                ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
               );
             }
             dead = true;
@@ -10468,6 +10519,12 @@ if (tpClipActive > 0.5) {
           this.mobSys.showHealthBar(hit);
           hit.vx += a.vx * 0.06;
           hit.vz += a.vz * 0.06;
+          // Elemental arrow payloads: fire and poison deal an immediate secondary tick;
+          // freeze and stun interrupt movement so the shot has a tactical effect.
+          if (a.arrowId === FIRE_ARROW) { hit.burn = 5; hit.burnTick = 0; hit.hp -= 0; hit.hurtFlash = 0.45; this.burst(a.x, a.y, a.z, [255, 90, 25], 8, 1.4); }
+          if (a.arrowId === POISON_ARROW) { hit.poison = 5; hit.poisonTick = 0; hit.hurtFlash = 0.5; this.burst(a.x, a.y, a.z, [120, 220, 70], 8, 1.1); }
+          if (a.arrowId === FREEZE_ARROW) { hit.vx *= 0.12; hit.vz *= 0.12; this.burst(a.x, a.y, a.z, [100, 220, 255], 10, 1.2); }
+          if (a.arrowId === STUN_ARROW) { hit.stun = 5; hit.vx = 0; hit.vz = 0; hit.hurtFlash = 0.65; this.burst(a.x, a.y, a.z, [250, 220, 80], 10, 1.2); }
           // the arrow lodges in the target — it drops back out on death
           hit.stuckArrows++;
           if (this.stats.fire > 0) hit.burn = Math.max(hit.burn, 3);
@@ -10902,7 +10959,7 @@ if (tpClipActive > 0.5) {
 
   private craftSignature() {
     let s = '';
-    for (const r of RECIPES) s += this.canCraft(r) ? '1' : '0';
+    for (const r of RECIPES) s += r ? (this.canCraft(r) ? '1' : '0') : 'x';
     return s;
   }
 
@@ -10925,6 +10982,7 @@ if (tpClipActive > 0.5) {
   }
 
   canCraft(r: Recipe) {
+    if (!r || !Array.isArray(r.inputs)) return false;
     // Any tool or item can be crafted at any time if you have the ingredients —
     // no prerequisite tier, no previous-recipe unlock, no duplicate limit.
     if (r.kind === 'cook' && !this.campfireNear()) return false;
@@ -10965,7 +11023,7 @@ if (tpClipActive > 0.5) {
       this.bagItems.push(ensureGearHid(makeItem(variant.slot, variant.material, variant.rarity, Math.random)));
     }
     for (const key of catalog.gearRecipeKeys) {
-      const recipe = RECIPES.find((entry) => entry.key === key);
+      const recipe = RECIPES.find((entry) => entry && entry.key === key);
       if (!recipe) continue;
       const item = this.craftedGearFromRecipe(recipe);
       if (!item) continue;
@@ -11472,12 +11530,19 @@ if (tpClipActive > 0.5) {
     this.advanceExplorerObjectives();
   }
 
+  private recordExplorerChest() {
+    for (const task of this.explorationObjectives) if (task.openChest) task.progress = Math.min(task.target, task.progress + 1);
+    this.advanceExplorerObjectives();
+  }
+
   private recordExplorerCraft(recipe: Recipe) {
     if (!this.explorationObjectives.length) return;
     for (const task of this.explorationObjectives) {
       const craftedPickaxe = task.craftPickaxeTier !== undefined && recipe.kind === 'pickaxe' && recipe.tier === task.craftPickaxeTier;
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
-      if (craftedPickaxe || craftedRecipe) task.progress = Math.min(task.target, task.progress + 1);
+      const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
+      const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
+      if (craftedPickaxe || craftedRecipe || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();
   }
@@ -11660,6 +11725,7 @@ if (tpClipActive > 0.5) {
       this.score,
       Math.ceil(this.timeLeft),
       Math.ceil(this.health),
+      Math.round(this.hunger),
       Math.round(this.staminaState.stamina),
       this.breathState.bubbles,
       this.inWater ? 1 : 0,
@@ -11716,7 +11782,9 @@ if (tpClipActive > 0.5) {
       score: this.score,
       timeLeft: this.timeLeft,
       health: Math.max(0, Math.ceil(this.health)),
+      hunger: Math.round(this.hunger),
       stamina: this.staminaState.stamina,
+      arrowLoadout: this.arrowLoadout,
       airBubbles: this.breathState.bubbles,
       inWater: this.inWater,
       breathVisible: this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6),
