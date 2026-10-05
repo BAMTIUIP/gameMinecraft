@@ -1870,6 +1870,11 @@ const LAYOUT_VIEWPORTS = [
   { name: 'ноутбук 1366×768', width: 1366, height: 768 },
   { name: 'монитор 1280×1024', width: 1280, height: 1024 },
   { name: 'телевизор 1920×1080', width: 1920, height: 1080 },
+  // the rest of the set the moderation page ships as PNG overlays (п. 1.10): the smallest phone in
+  // the list, an ultrawide and a 4K panel
+  { name: 'малый телефон 320×568', width: 320, height: 568 },
+  { name: 'ультраширокий 2560×1080', width: 2560, height: 1080 },
+  { name: '4K 3840×2160', width: 3840, height: 2160 },
 ];
 
 /**
