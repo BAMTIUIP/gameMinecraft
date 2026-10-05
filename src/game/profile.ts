@@ -37,6 +37,23 @@ const CLOUD_KEY = 'orerush.profile'; // single key: one getData/setData pair ins
 const LOCAL_STAMP_KEY = 'orerush.profile.savedAt';
 const NAME_KEY = 'orerush.playername.v1';
 
+/**
+ * Platform limits from the SDK docs (https://yandex.ru/dev/games/doc/ru/sdk/sdk-player#faq):
+ * `player.setData()` takes at most 200 KB per player, `setStats()`/`incrementStats()` 10 KB.
+ * The profile is deliberately compact (records, counters, receipts — never world data), so these
+ * are guards, not quotas: a runaway field must not silently fail every cloud write.
+ */
+const CLOUD_LIMIT_BYTES = 200 * 1024;
+const STATS_LIMIT_BYTES = 10 * 1024;
+
+function byteLength(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  } catch {
+    return 0;
+  }
+}
+
 /** compact enough for the 200 KB budget: profile + records, no world data */
 export type CloudProfile = {
   v: 1;
@@ -282,6 +299,10 @@ async function flushProfileOnce(immediate: boolean): Promise<boolean> {
   let saved = true;
 
   if (payload) {
+    const size = byteLength({ [CLOUD_KEY]: payload });
+    if (size > CLOUD_LIMIT_BYTES) {
+      console.warn(`[profile] cloud payload is ${size} bytes — over the 200 KB SDK limit, the write will be rejected`, payload);
+    }
     lastFlush = Date.now();
     storageSet(LOCAL_STAMP_KEY, String(payload.savedAt));
     saved = await yaCloudSet({ [CLOUD_KEY]: payload }, immediate);
@@ -301,6 +322,10 @@ async function flushStats(): Promise<boolean> {
   pendingStats = {};
   pendingPeaks = {};
   if (!Object.keys(stats).length && !Object.keys(peaks).length) return true;
+  const statsSize = byteLength(stats) + byteLength(peaks);
+  if (statsSize > STATS_LIMIT_BYTES) {
+    console.warn(`[profile] stats payload is ${statsSize} bytes — over the 10 KB SDK limit, the write will be rejected`);
+  }
   lastStatsFlush = Date.now();
   let ok2 = true;
 
