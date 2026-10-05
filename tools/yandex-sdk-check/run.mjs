@@ -1311,12 +1311,15 @@ async function scenarioShop() {
     10_000,
   );
   check(petTokenShown, 'После покупки и старта любого режима в инвентаре появляется жетон питомца и его отдельный слот');
+  // the picker only exists for a player who owns several pets; what matters before the wolf-only
+  // checks below is that the slot is showing the wolf
   const wolfSelected = await game.page.evaluate(() => {
     const selector = document.querySelector('[data-pet-select="wolf"]');
     selector?.click();
-    return Boolean(selector);
+    const slot = document.querySelector('[data-pet-slot]');
+    return slot?.getAttribute('data-pet-kind') === 'wolf';
   });
-  check(wolfSelected, 'Перед wolf-only проверкой явно выбран вид «волк»');
+  check(wolfSelected, 'Перед wolf-only проверкой на экране выбран вид «волк»');
   const petEquipClicked = await game.page.evaluate(() => {
     const token = document.querySelector('[data-pet-resource="wolf"]');
     token?.click();
@@ -1713,21 +1716,25 @@ async function scenarioDevice() {
     });
   const beforeRotate = await canvasOf();
   await mobile.page.setViewport({ width: 740, height: 360 }); // a rotation is a resize, not a reload
-  // the engine redraws on `resize`: wait for the canvas to actually take the new width
+  // the engine redraws on `resize`: wait for the canvas box to actually take the new width. The
+  // backing store is deliberately smaller than that box on phones — the renderer drops below the
+  // device pixel ratio to protect the frame time — so the box is what must follow the window.
   const resized = await mobile.waitFor(
     'canvas под новый размер',
     (target) => {
       const el = document.querySelector('canvas');
-      return !!el && Math.abs(el.width - target * (window.devicePixelRatio || 1)) <= 1;
+      return !!el && Math.abs(el.clientWidth - target) <= 1;
     },
     10_000,
     740,
   );
   const afterRotate = await canvasOf();
+  // the backing store must stay a uniform scale of the box, inside the range the engine allows
+  const renderScale = afterRotate && afterRotate.w ? afterRotate.attrW / afterRotate.w : 0;
   check(
-    resized && !!afterRotate && Math.abs(afterRotate.attrW - Math.round(afterRotate.w * afterRotate.dpr)) <= 1,
+    resized && !!afterRotate && renderScale > 0.4 && renderScale <= 1.35 && Math.abs(afterRotate.attrH / afterRotate.h - renderScale) <= 0.02,
     'Поворот экрана перестраивает canvas под новую ширину',
-    JSON.stringify({ beforeRotate, afterRotate }),
+    JSON.stringify({ renderScale: Number(renderScale.toFixed(3)), beforeRotate, afterRotate }),
   );
   check(!!afterRotate && !!beforeRotate && afterRotate.attrW < beforeRotate.attrW, 'После поворота картинка стала под новое, более узкое окно', `${beforeRotate?.attrW} → ${afterRotate?.attrW}`);
   const stillInRun = /ПАУЗА|PAUSED|ПРОДОЛЖИТЬ|RESUME/.test(afterRotate.text) || !/НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(afterRotate.text);
@@ -2011,6 +2018,27 @@ async function layoutReport(page) {
 }
 
 /**
+ * The FitBox re-measures itself on the next frame and once more after the layout dust settles
+ * (`src/ui/FitBox.tsx`); on a loaded machine that can take a few hundred milliseconds, and until it
+ * happens the reported scale is the stale one — which reads as «1», i.e. «nothing to shrink».
+ * Measuring then reports every row below the fold as cut off. Wait for the invariant the FitBox
+ * maintains instead of guessing a delay: the scaled content fits its box.
+ */
+async function settleFit(page) {
+  for (let i = 0; i < 60; i += 1) {
+    const fits = await page.evaluate(() => {
+      const outer = document.querySelector('[data-fit-outer]');
+      const inner = document.querySelector('[data-fit-inner]');
+      if (!outer || !inner) return true;
+      const scale = Number(outer.getAttribute('data-fit-scale') ?? 1);
+      return Math.ceil(inner.scrollHeight * scale) <= outer.clientHeight + 1;
+    });
+    if (fits) return;
+    await wait(100);
+  }
+}
+
+/**
  * Requirement 1.10: the game is resized along both axes, and at every size nothing important may be
  * cut off or overlapped, the page must not gain a scrollbar, and a swipe must not refresh it. The menu
  * is measured at every size; the in-run HUD — at the two smallest ones, where space is tightest.
@@ -2095,7 +2123,7 @@ async function scenarioLayout() {
   let swipeChecked = false;
   for (const vp of LAYOUT_VIEWPORTS) {
     await game.page.setViewport({ width: vp.width, height: vp.height });
-    await wait(400);
+    await settleFit(game.page);
     if (process.env.SDK_CHECK_DEBUG) {
       await game.page.evaluate(() => {
         window.__layoutDebug = true;
