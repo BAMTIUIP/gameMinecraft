@@ -570,23 +570,43 @@ function safeCall(label: string, run: () => void) {
   }
 }
 
+/**
+ * Requirement 2.14 (https://yandex.ru/dev/games/doc/ru/requirements/2/14): the platform language has
+ * to be known before the player sees the first screen, not after it — the 文 indicator on the debug
+ * panel must turn green during the load, not once the level has started. The engine's loading
+ * sequence therefore ends with a task that waits for this flag, so the menu never opens in the wrong
+ * language. `initYandex()` always settles (the SDK script has its own wait window and `init()` is
+ * wrapped in try/catch), so the loader cannot hang on it.
+ */
+let sdkSettled = false;
+
+/** True once `initYandex()` has settled — the platform language is known from that moment on. */
+export function yaReady(): boolean {
+  return sdkSettled;
+}
+
 export function initYandex(): Promise<YSDK | null> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    // Synchronous connection (the usual one): /sdk.js is a blocking <script> ahead of our module, so
-    // the global is already here. Asynchronous connection: wait for it, as sdk-example describes.
-    const YaGames = await waitForYaGames();
-    if (!YaGames) return null;
     try {
-      ysdk = await YaGames.init();
-    } catch (err) {
-      console.error('[Yandex SDK] YaGames.init() failed', err);
-      return null;
+      // Synchronous connection (the usual one): /sdk.js is a blocking <script> ahead of our module, so
+      // the global is already here. Asynchronous connection: wait for it, as sdk-example describes.
+      const YaGames = await waitForYaGames();
+      if (!YaGames) return null;
+      try {
+        ysdk = await YaGames.init();
+      } catch (err) {
+        console.error('[Yandex SDK] YaGames.init() failed', err);
+        return null;
+      }
+      subscribePauseResume(ysdk); // first thing after init: don't miss a platform pause
+      void applySafeStorage(ysdk); // iOS-safe localStorage, as early as possible
+      flush(); // replay what the game reported while the SDK was starting up
+      return ysdk;
+    } finally {
+      // the language and every other platform answer is now known — or known to be unavailable
+      sdkSettled = true;
     }
-    subscribePauseResume(ysdk); // first thing after init: don't miss a platform pause
-    void applySafeStorage(ysdk); // iOS-safe localStorage, as early as possible
-    flush(); // replay what the game reported while the SDK was starting up
-    return ysdk;
   })();
   return initPromise;
 }

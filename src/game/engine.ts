@@ -195,7 +195,7 @@ import {
   type Stats,
 } from './items';
 import { blockName, matName, pickaxeLabel, recipeText, toolLabelForId, t, type TKey } from './i18n';
-import { yaServerTime } from './yandex';
+import { yaReady, yaServerTime } from './yandex';
 import { deviceKind } from './params';
 import { isDeveloperShopEnabled } from './devShop';
 import { getDeveloperCatalog } from './devCatalog';
@@ -3425,6 +3425,13 @@ if (tpClipActive > 0.5) {
       const cz = c0z + dz;
       this.loadTasks.push(this.createChunkMeshTask(cx, cz));
     }
+    // Requirement 2.14: the platform language is read from the SDK at startup, so the first screen
+    // must not appear before the SDK has settled — otherwise the menu opens in the browser's language
+    // and then flips, which is exactly what the 文 indicator on the debug panel rejects. The SDK
+    // always settles; the deadline is only a belt against a pathological platform, and past it the
+    // documented «small delay while loading» applies.
+    const sdkWaitStarted = performance.now();
+    this.loadTasks.push(() => yaReady() || performance.now() - sdkWaitStarted > Engine.SDK_SETTLE_TIMEOUT_MS);
     this.loadTotal = this.loadTasks.length;
     this.menuWorldStreaming = true;
     this.phase = 'loading';
@@ -4493,6 +4500,13 @@ if (tpClipActive > 0.5) {
   sandbox = false;
   private endlessRun = false;
   private static SAVE_KEY = 'orerush.myworld.v1';
+  /**
+   * How long the loader waits for the SDK before showing the first screen anyway (requirement 2.14:
+   * the platform language must be known at startup). `YaGames.init()` answers in milliseconds; this
+   * only guards against a platform that never settles, where the documented «small delay while
+   * loading» is the better outcome than a loader that never ends.
+   */
+  private static SDK_SETTLE_TIMEOUT_MS = 4_000;
   /** How long after the last terrain edit the sandbox is written to storage (requirement 1.9). */
   private static WORLD_AUTOSAVE_DELAY = 1_500;
 
