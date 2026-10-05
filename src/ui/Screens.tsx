@@ -897,13 +897,15 @@ export function StartScreen({
                   <span aria-hidden="true" className="text-white/30">⊘</span>
                   <span>{adFreeBusy ? t('adFreeBuying') : t('adFreeCta')}</span>
                   <span aria-hidden="true" className="text-white/20">·</span>
-                  <img
-                    data-ad-free-currency="1"
-                    src={adFreePrice.currencyIcon}
-                    alt=""
-                    className="h-3.5 w-3.5"
-                    referrerPolicy="no-referrer"
-                  />
+                  {adFreePrice.currencyIcon && (
+                    <img
+                      data-ad-free-currency="1"
+                      src={adFreePrice.currencyIcon}
+                      alt=""
+                      className="h-3.5 w-3.5"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
                   <span>{adFreePrice.label}</span>
                 </button>
                 {adFreeNotice && <span data-ad-free-notice="1" role="status" className="text-[9px] text-white/40">{adFreeNotice}</span>}

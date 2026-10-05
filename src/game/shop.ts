@@ -65,14 +65,17 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
       const label = typeof product?.price === 'string' ? product.price.trim() : '';
       if (!product?.id || !label) continue;
 
-      let currencyIcon: string | null = null;
+      let currencyIcon = '';
       try {
         const image = product.getPriceCurrencyImage?.('small');
-        currencyIcon = typeof image === 'string' && image.trim() ? image.trim() : null;
+        currencyIcon = typeof image === 'string' ? image.trim() : '';
       } catch {
-        currencyIcon = null;
+        currencyIcon = '';
       }
-      if (!currencyIcon) continue;
+      // Requirement 1.13.6: an active Console SKU has to be in the game. A missing currency image is
+      // not a reason to drop the offer — the formatted price already names the currency (1.13.2), the
+      // icon is only decoration. Offers without a formatted price stay out: showing a guessed price
+      // would be worse than showing nothing.
       catalog.set(product.id, { label, currencyIcon, fromCatalog: true });
     }
 
