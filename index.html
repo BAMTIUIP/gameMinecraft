@@ -11,8 +11,19 @@
       name="description"
       content="ORE RUSH — a first-person voxel mining sprint. Break blocks, chase ore veins, beat the clock."
     />
+    <!-- Web fonts: Pixelify Sans (display) and Space Grotesk (body). Loaded as a non-blocking
+         stylesheet — a CSS `@import` would hold back the first paint until fonts.googleapis.com
+         answers, and requirement 1.14 rejects a game that does not load. Both hosts must be declared
+         on the CSP tab of the draft; if they are unreachable the game falls back to ui-monospace and
+         system-ui and stays playable. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Space+Grotesk:wght@400..700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
     <title>ORE RUSH · Voxel Mining Sprint</title>
     <!-- Yandex Games SDK: https://yandex.ru/dev/games/doc/ru/sdk/sdk-about#connect
          Relative path: the build is uploaded to Yandex as an archive. Keep it a plain synchronous

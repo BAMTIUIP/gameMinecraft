@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 
@@ -83,6 +84,40 @@ async function validateSdkTag(files, errors) {
   }
 }
 
+/**
+ * Requirement 1.14 («игра не содержит технических ошибок»): nothing on the way to the first frame may
+ * be able to stall it. A CSS `@import url("https://…")` inside the inlined stylesheet is
+ * render-blocking — the browser paints nothing until the imported sheet arrives — and an external
+ * `<link rel="stylesheet">` is too unless it is loaded with `media="print"` and flipped on load. The
+ * game's web fonts are exactly such a dependency, so both shapes are rejected here instead of being
+ * discovered on a slow connection.
+ */
+function validateRenderBlocking(files, errors) {
+  const indexFile = files.find((file) => file.relPath === 'index.html');
+  if (!indexFile) return;
+
+  const blockingImport = /@import\s+(?:url\()?["']https?:\/\//i;
+  if (blockingImport.test(readFileSync(indexFile.fullPath, 'utf8'))) {
+    errors.push(
+      'В сборке есть блокирующий @import внешнего стиля — браузер не нарисует первый кадр, пока тот не ответит (пункт 1.14). Грузите такой стиль через <link rel="stylesheet" media="print" onload="this.media=\'all\'">.',
+    );
+  }
+
+  const html = readFileSync(indexFile.fullPath, 'utf8');
+  const stylesheet = /<link\b[^>]*\brel=["']stylesheet["'][^>]*>/gi;
+  for (const tag of html.match(stylesheet) ?? []) {
+    const external = /\bhref=["']https?:\/\//i.test(tag);
+    if (!external) continue;
+    const media = /\bmedia=["']([^"']*)["']/i.exec(tag)?.[1]?.trim() ?? 'all';
+    const deferred = /\bonload=/i.test(tag) && media !== 'all' && media !== 'screen';
+    if (!deferred) {
+      errors.push(
+        `Внешний стиль блокирует отрисовку: ${tag.slice(0, 120)}… — загружайте его неблокирующе (media="print" + onload).`,
+      );
+    }
+  }
+}
+
 function validate(files) {
   const errors = [];
   const warnings = [];
@@ -112,6 +147,8 @@ function validate(files) {
       `dist укладывается в официальный лимит, но больше внутреннего безопасного бюджета ${formatBytes(SAFE_BUDGET)}: ${formatBytes(totalSize)}.`,
     );
   }
+
+  validateRenderBlocking(files, errors);
 
   return { totalSize, errors, warnings };
 }
