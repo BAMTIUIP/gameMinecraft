@@ -601,7 +601,6 @@ export function yaLang(): string | null {
   return ysdk?.environment?.i18n?.lang ?? null;
 }
 
-/** `?payload=...` from the game URL, if any */
 /**
  * `ysdk.environment.referrer` — the promo deep link (https://yandex.ru/dev/games/doc/ru/sdk/sdk-environment).
  * `type` is always `promo`; `promoId` identifies the campaign, `intent` hints at the screen to open and
