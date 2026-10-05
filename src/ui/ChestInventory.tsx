@@ -1,6 +1,6 @@
 import type { DragEvent } from 'react';
 import type { HudState } from '../game/engine';
-import { BLOCKS, CHEST_STORAGE } from '../game/blocks';
+import { BLOCKS, CHEST_STORAGE, isArrowId, isMeatItem } from '../game/blocks';
 import { blockName, t } from '../game/i18n';
 import { getBlockIcon } from '../game/textures';
 import { CloseIcon } from './icons';
@@ -64,7 +64,7 @@ function TransferStack({
 export default function ChestInventory({ hud, onTransfer, onTakeAll, onClose }: Props) {
   const chest = hud.chest;
   // Tools have individual durability/identity records and are not stackable storage items.
-  const playerItems = hud.inventory.filter((item) => item.id < 200 && !!BLOCKS[item.id] && item.count > 0);
+  const playerItems = hud.inventory.filter((item) => (item.id < 200 || isArrowId(item.id) || isMeatItem(item.id)) && !!BLOCKS[item.id] && item.count > 0);
   const chestItems = chest?.items ?? [];
 
   const handleDrop = (event: DragEvent<HTMLDivElement>, destination: Side) => {

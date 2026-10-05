@@ -81,15 +81,15 @@ export type MobDef = {
 
 export const MOBS: Record<MobId, MobDef> = {
   pig: { id: 'pig', nameKey: 'mob_pig', hostile: false, hp: 10, speed: 1.5, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.9, score: 18, level: 0, body: '#eaa0a8', accent: '#f4bcc2', legs: '#c9757f' },
-  sheep: { id: 'sheep', nameKey: 'mob_sheep', hostile: false, hp: 10, speed: 1.4, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.95, score: 20, level: 0, body: '#e9e6dd', accent: '#d8c8b4', legs: '#5a4c42' },
-  cow: { id: 'cow', nameKey: 'mob_cow', hostile: false, hp: 18, speed: 1.25, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.25, score: 26, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
+  sheep: { id: 'sheep', nameKey: 'mob_sheep', hostile: false, hp: 8, speed: 1.4, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.95, score: 20, level: 0, body: '#e9e6dd', accent: '#d8c8b4', legs: '#5a4c42' },
+  cow: { id: 'cow', nameKey: 'mob_cow', hostile: false, hp: 10, speed: 1.25, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 1.25, score: 26, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
   calf: { id: 'calf', nameKey: 'mob_calf', hostile: false, hp: 8, speed: 1.6, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.82, score: 14, level: 0, body: '#f4f5f8', accent: '#222226', legs: '#1c1c20' },
   fawn: { id: 'fawn', nameKey: 'mob_fawn', hostile: false, hp: 8, speed: 3.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.72, score: 18, level: 0, body: '#b9854f', accent: '#f2d8ae', legs: '#604230' },
   lizard: { id: 'lizard', nameKey: 'mob_lizard', hostile: false, hp: 4, speed: 3.8, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.65, score: 12, level: 0, body: '#74a95e', accent: '#b5cb7b', legs: '#4b7a43' },
   frog: { id: 'frog', nameKey: 'mob_frog', hostile: false, hp: 5, speed: 2.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.58, score: 14, level: 0, body: '#5f9c3f', accent: '#e5c878', legs: '#3d6c2e' },
-  chicken: { id: 'chicken', nameKey: 'mob_chicken', hostile: false, hp: 6, speed: 1.7, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.6, score: 12, level: 0, body: '#f2efe6', accent: '#e2483a', legs: '#f3b942' },
-  zombie: { id: 'zombie', nameKey: 'mob_zombie', hostile: true, hp: 22, speed: 2.25, damage: 7, cooldown: 1.1, reach: 1.5, burns: true, scale: 1, score: 120, level: 1, body: '#4a8a4a', accent: '#3d6fa8', legs: '#2f4f7a' },
-  skeleton: { id: 'skeleton', nameKey: 'mob_skeleton', hostile: true, hp: 18, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: true, scale: 1, score: 150, level: 2, body: '#d8d6cc', accent: '#b6b3a8', legs: '#c2bfb4' },
+  chicken: { id: 'chicken', nameKey: 'mob_chicken', hostile: false, hp: 4, speed: 1.7, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.6, score: 12, level: 0, body: '#f2efe6', accent: '#e2483a', legs: '#f3b942' },
+  zombie: { id: 'zombie', nameKey: 'mob_zombie', hostile: true, hp: 20, speed: 2.25, damage: 7, cooldown: 1.1, reach: 1.5, burns: true, scale: 1, score: 120, level: 1, body: '#4a8a4a', accent: '#3d6fa8', legs: '#2f4f7a' },
+  skeleton: { id: 'skeleton', nameKey: 'mob_skeleton', hostile: true, hp: 20, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: true, scale: 1, score: 150, level: 2, body: '#d8d6cc', accent: '#b6b3a8', legs: '#c2bfb4' },
   spider: { id: 'spider', nameKey: 'mob_spider', hostile: true, hp: 16, speed: 3.3, damage: 5, cooldown: 0.7, reach: 1.5, burns: true, scale: 0.95, score: 140, level: 2, body: '#3a2320', accent: '#c4342a', legs: '#2a1a17' },
   spiderling: { id: 'spiderling', nameKey: 'mob_spider', hostile: true, hp: 5, speed: 3.6, damage: 1, cooldown: 0.9, reach: 1.2, burns: true, scale: 0.4, score: 40, level: 0, body: '#3a2320', accent: '#c4342a', legs: '#2a1a17' },
   creeper: { id: 'creeper', nameKey: 'mob_creeper', hostile: true, hp: 20, speed: 2.45, damage: 26, cooldown: 3, reach: 2.2, burns: true, scale: 1, score: 220, level: 3, body: '#5ac45a', accent: '#2f6b2f', legs: '#4aa84a', explodes: true },
@@ -170,8 +170,9 @@ export type Mob = {
   fuse: number;
   alive: boolean;
   jumpCd: number;
-  /** arrows lodged in this mob — they drop back out when it dies */
+  /** arrows lodged in this mob — recovered in their original arrow type when it dies */
   stuckArrows: number;
+  stuckArrowIds: number[];
   /** seconds left until a baby reaches adult size (0 = grown) */
   grow: number;
   /** air supply for land animals caught in water */
@@ -1774,6 +1775,7 @@ export class MobSystem {
       alive: true,
       jumpCd: 0,
       stuckArrows: 0,
+      stuckArrowIds: [],
       grow: 0,
       drown: 0,
       hidden: false,

@@ -12,7 +12,7 @@ import {
 import { cookedMeatForRaw, cookedMeatHeal, foodHeal, meatDropForAnimal, meatItemLabel } from '../../src/game/food';
 import { gearRecipeInputs, ingredientSellValue } from '../../src/game/economy';
 import { MATERIALS, type Material, type Slot } from '../../src/game/items';
-import { HAND, getItemInvCategory, RECIPES } from '../../src/game/recipes';
+import { HAND, getItemInvCategory, isToolId, RECIPES } from '../../src/game/recipes';
 
 let passed = 0;
 const failures: string[] = [];
@@ -47,6 +47,8 @@ for (const family of MEAT_FAMILIES) {
     const pair = MEAT_ITEM_IDS[family][size];
     const recipe = RECIPES.find((entry) => entry.key === `cook_meat_${pair.raw}`);
     ok(isMeatItem(pair.raw) && isMeatItem(pair.cooked), `${family} ${size} raw/cooked ids are food items`);
+    ok(BLOCKS[pair.raw]?.id === pair.raw && BLOCKS[pair.cooked]?.id === pair.cooked, `${family} ${size} meat definitions are indexed by their unique IDs`);
+    ok(!isToolId(pair.raw) && !isToolId(pair.cooked), `${family} ${size} meat stacks are not misclassified as durable tools`);
     ok(cookedMeatForRaw(pair.raw) === pair.cooked, `${family} ${size} raw meat maps to its matching cooked dish`);
     ok(!!recipe && recipe.kind === 'cook' && recipe.out?.[0] === pair.cooked, `${family} ${size} has its own campfire cooking recipe`);
     ok(getItemInvCategory(pair.raw) === 'food' && getItemInvCategory(pair.cooked) === 'food', `${family} ${size} meat is in the food tab`);

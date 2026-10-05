@@ -22,6 +22,7 @@ import {
   CHEST_STORAGE_OPEN,
   isTreasureChest,
 } from './blocks';
+import { drawArrowIcon, isArrowId } from './arrowVisuals';
 
 export const TILE = 16;
 /** gutter of replicated edge pixels on every side — stops mipmap bleeding between tiles */
@@ -2004,6 +2005,13 @@ export function getBlockIcon(id: number): string {
   c.width = c.height = size;
   const ctx = c.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
+
+  if (isArrowId(id)) {
+    drawArrowIcon(ctx, id, size);
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
 
   if (isTreasureChest(id)) {
     const fill = (x: number, y: number, w: number, h: number, color: string) => {

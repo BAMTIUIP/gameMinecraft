@@ -37,6 +37,7 @@ export const GUNPOWDER = 32;
 export const ARROW_ITEM = 33;
 /** a dropped piece of gear waiting on the ground */
 export const LOOT_BAG = 34;
+/** Legacy upgraded-arrow IDs are reserved by the meat allocator below. */
 export const STONE_ARROW = 154;
 export const IRON_ARROW = 155;
 export const GOLD_ARROW = 156;
@@ -45,6 +46,20 @@ export const FIRE_ARROW = 158;
 export const POISON_ARROW = 159;
 export const FREEZE_ARROW = 160;
 export const STUN_ARROW = 161;
+/** Canonical ammunition catalogue shared by inventory, visuals and bow loading. */
+export const ARROW_IDS = [
+  ARROW_ITEM,
+  STONE_ARROW,
+  IRON_ARROW,
+  GOLD_ARROW,
+  NETHERITE_ARROW,
+  FIRE_ARROW,
+  POISON_ARROW,
+  FREEZE_ARROW,
+  STUN_ARROW,
+] as const;
+export type ArrowId = (typeof ARROW_IDS)[number];
+export const isArrowId = (id: number): id is ArrowId => ARROW_IDS.includes(id as ArrowId);
 export const BED = 35;
 export const WATER = 36;
 export const FLOWER_RED = 37;
@@ -273,11 +288,12 @@ export const isLeafId = (id: number) =>
   id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES ||
   id === JACARANDA_LEAVES;
 export const isResource = (id: number) =>
+  isArrowId(id) ||
   isMineralItem(id) ||
   (id >= RAW_MEAT && id <= LOOT_BAG) ||
   id === HONEY ||
   (id >= FEATHER && id <= CAT_CLAW) ||
-  id === APPLE || id === COCONUT || id === BANANA || id === WHEAT || id === WHEAT_SEEDS || (id >= 146 && id <= 199);
+  id === APPLE || id === COCONUT || id === BANANA || id === WHEAT || id === WHEAT_SEEDS || isMeatItem(id);
 
 /** rough material class — tools are specialised per class */
 export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
@@ -555,14 +571,20 @@ const COOKED_MEAT_TINTS: Record<MeatFamily, [number, number, number]> = {
 };
 
 let nextMeatId = 146;
+let nextRelocatedMeatId = 265;
+const allocateMeatId = () => {
+  const candidate = nextMeatId++;
+  // Preserve legacy arrow IDs; relocate only the eight meat entries that used to alias them.
+  return isArrowId(candidate) ? nextRelocatedMeatId++ : candidate;
+};
 export const MEAT_ITEM_IDS = {} as Record<MeatFamily, Record<MeatSize, { raw: number; cooked: number }>>;
 export const MEAT_ITEM_BY_ID: Record<number, MeatItemInfo> = {};
 const meatBlockDefs: BlockDef[] = [];
 for (const family of MEAT_FAMILIES) {
   MEAT_ITEM_IDS[family] = {} as Record<MeatSize, { raw: number; cooked: number }>;
   for (const size of MEAT_SIZES) {
-    const raw = nextMeatId++;
-    const cooked = nextMeatId++;
+    const raw = allocateMeatId();
+    const cooked = allocateMeatId();
     MEAT_ITEM_IDS[family][size] = { raw, cooked };
     MEAT_ITEM_BY_ID[raw] = { id: raw, family, size, cooked: false };
     MEAT_ITEM_BY_ID[cooked] = { id: cooked, family, size, cooked: true };
@@ -575,8 +597,8 @@ for (const family of MEAT_FAMILIES) {
   }
 }
 export const MEAT_ITEM_FIRST = 146;
-export const MEAT_ITEM_LAST = nextMeatId - 1;
-export const isMeatItem = (id: number) => id === RAW_MEAT || id === COOKED_MEAT || (id >= MEAT_ITEM_FIRST && id <= MEAT_ITEM_LAST);
+export const MEAT_ITEM_LAST = Math.max(nextMeatId - 1, nextRelocatedMeatId - 1);
+export const isMeatItem = (id: number) => id === RAW_MEAT || id === COOKED_MEAT || MEAT_ITEM_BY_ID[id] !== undefined;
 export const isRawMeatItem = (id: number) => id === RAW_MEAT || (MEAT_ITEM_BY_ID[id] !== undefined && !MEAT_ITEM_BY_ID[id].cooked);
 export const isCookedMeatItem = (id: number) => id === COOKED_MEAT || (MEAT_ITEM_BY_ID[id] !== undefined && MEAT_ITEM_BY_ID[id].cooked);
 export function cookedMeatId(rawId: number): number | null {
@@ -588,7 +610,7 @@ export function allRawMeatIds(): number[] {
   return [RAW_MEAT, ...Object.values(MEAT_ITEM_IDS).flatMap((sizes) => Object.values(sizes).map((pair) => pair.raw))];
 }
 
-export const BLOCKS: BlockDef[] = [
+const BLOCK_DEFS: BlockDef[] = [
   d({ id: AIR, name: 'Air', side: T.stone, solid: false, breakable: false, drop: 0, score: 0 }),
   d({
     id: GRASS,
@@ -1112,8 +1134,14 @@ export const BLOCKS: BlockDef[] = [
   d({ id: POISON_ARROW, name: 'Poison Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [150,220,80] }),
   d({ id: FREEZE_ARROW, name: 'Freeze Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [100,220,255] }),
   d({ id: STUN_ARROW, name: 'Stun Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [240,220,80] }),
-
 ];
+
+/** ID-indexed sparse table; item-only IDs can live beyond the tool range without shifting BLOCKS[id]. */
+export const BLOCKS: BlockDef[] = [];
+for (const def of BLOCK_DEFS) {
+  if (BLOCKS[def.id]) throw new Error(`Duplicate block/item ID ${def.id}: ${BLOCKS[def.id].name} and ${def.name}`);
+  BLOCKS[def.id] = def;
+}
 
 /** blocks rendered in the alpha-tested "cutout" pass (see-through gaps / fancy leaves) */
 export const isCutout = (id: number) =>

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { createBreathState, stepBreath, type BreathState } from './breath';
+import { ARROW_IDS, buildArrowModel, isArrowId } from './arrowVisuals';
+import { arrowBreaksOnBlock, bowArrowDamage, meleeAttackInterval, meleeDamage } from './combat';
 import { canSprint, createStaminaState, stepStamina } from './stamina';
 import { storageGet, storageSet } from './storage';
 import {
@@ -47,7 +49,7 @@ import {
   T,
   TORCH,
   WATER,
-  ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
+  ARROW_ITEM, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
   FLOWER_RED,
   FLOWER_YELLOW,
   FLOWER_BLUE,
@@ -102,6 +104,7 @@ import {
   isLadder,
   isBreakable,
   isInteractive,
+  isMeatItem,
   isResource,
   isSolid,
   isTreasureChest,
@@ -142,7 +145,7 @@ import {
   isDurabilityTool,
   normalizeToolDurability,
   toolRepairCost,
-  toolWearStage,
+  toolWearRatio,
 } from './tools';
 import { babyGrowthScale, buildMonkeyCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
@@ -481,6 +484,7 @@ export const SESSION_LENGTHS = [
 export type TradeOffer = { item: Item; cost: Array<[number, number]>; sold: boolean };
 const MAX_PARTICLES = 520;
 const MAX_DROPS = 44;
+const MAX_STUCK_ARROWS = 48;
 const CHEST_SLOT_LIMIT = 27;
 const CHEST_STACK_LIMIT = 999;
 const GRAVITY = 30;
@@ -530,6 +534,17 @@ type Popup = {
 type WeatherKind = 'clear' | 'rain' | 'snow';
 type Particle = { weather?: Exclude<WeatherKind, 'clear'>; smoke?: boolean; x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; r: number; g: number; b: number };
 type ToolInstance = { instanceId: number; id: number; durability: number };
+
+type StuckArrow = {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  blockX: number;
+  blockY: number;
+  blockZ: number;
+  mesh: THREE.Group;
+};
 
 type Drop = {
   active: boolean;
@@ -1293,6 +1308,7 @@ export class Engine {
   private pDummy = new THREE.Object3D();
   private pColor = new THREE.Color();
   private drops: Drop[] = [];
+  private stuckArrows: StuckArrow[] = [];
   private dropUVBase = new Float32Array(48);
   private motes!: THREE.Points;
   private clouds!: THREE.Mesh;
@@ -1480,6 +1496,8 @@ export class Engine {
   private avatarHeldHoe!: THREE.Group;
   private avatarHeldBow!: THREE.Group;
   private avatarHeldTorch!: THREE.Group;
+  private avatarHeldArrow!: THREE.Group;
+  private avatarHeldArrowKey = '';
   private avatarHeldBlock!: THREE.Mesh;
   private avatarHeldGear!: THREE.Group;
   private avatarHeldGearKey = '';
@@ -2544,6 +2562,9 @@ if (tpClipActive > 0.5) {
     addBox(0.09, 0.12, 0.09, new THREE.MeshBasicMaterial({ color: 0xffec8c, transparent: true, opacity: 0.9 }), 0, 0.42, 0, this.avatarHeldTorch);
     this.avatarHeldTorch.rotation.set(0.05, 0, 0.2);
 
+    this.avatarHeldArrow = makeHeldGroup();
+    this.avatarHeldArrow.scale.setScalar(0.72);
+
     this.avatarHeldBlockMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     this.avatarHeldBlock = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), this.avatarHeldBlockMat);
     this.avatarHeldBlock.position.set(0, 0.08, -0.02);
@@ -2977,11 +2998,12 @@ if (tpClipActive > 0.5) {
     const holdingCraftedTool = !!craftedSpec;
     if (craftedSpec && heldId !== undefined) {
       const durability = this.heldToolDurability(heldId);
-      const wear = toolWearStage(durability, craftedSpec.maxDurability);
-      const signature = `${heldId}:${wear}`;
+      const wear = toolWearRatio(durability, craftedSpec.maxDurability);
+      const wearStep = Math.round(wear * 24);
+      const signature = `${heldId}:${wearStep}`;
       if (signature !== this.craftedToolKey) {
         this.clearToolModel(this.toolCrafted);
-        this.toolCrafted.add(this.buildToolModel(heldId, wear));
+        this.toolCrafted.add(this.buildToolModel(heldId, wearStep / 24));
         this.craftedToolKey = signature;
       }
       // Lean the business end slightly away from the forearm and into the world;
@@ -3017,7 +3039,7 @@ if (tpClipActive > 0.5) {
       kind === 'block' && heldId !== undefined && !holdingLanternBlock && !BLOCKS[heldId]?.solid;
     if (isCandidateItem && heldId !== undefined && heldId !== this.itemShown) {
       this.itemShown = heldId;
-      this.toolItem.clear();
+      this.clearToolModel(this.toolItem);
       const fancy = this.buildFancyDrop(heldId);
       if (fancy) {
         this.toolItem.add(fancy);
@@ -3027,6 +3049,18 @@ if (tpClipActive > 0.5) {
       }
     }
     const holdingFancyItem = isCandidateItem && this.itemHasFancy;
+    if (holdingFancyItem && heldId !== undefined) {
+      if (isArrowId(heldId)) {
+        // The arrow crosses the hand diagonally, point forward and up instead of reading as a tiny cube.
+        this.toolItem.position.set(0.02, -0.02, 0.02);
+        this.toolItem.rotation.set(-0.65, 0.5, 0.15);
+        this.toolItem.scale.setScalar(0.9);
+      } else {
+        this.toolItem.position.set(0.02, 0.04, 0.02);
+        this.toolItem.rotation.set(0.18, 0.55, 0.08);
+        this.toolItem.scale.setScalar(1.38);
+      }
+    }
 
     this.toolCrafted.visible = holdingCraftedTool;
     this.toolPick.visible = kind === 'pick' && !holdingCraftedTool;
@@ -3163,6 +3197,7 @@ if (tpClipActive > 0.5) {
     ];
     for (const g of all) if (g) g.visible = false;
     if (this.avatarHeldTool) this.avatarHeldTool.visible = false;
+    if (this.avatarHeldArrow) this.avatarHeldArrow.visible = false;
     if (this.avatarHeldBlock) this.avatarHeldBlock.visible = false;
     if (this.avatarHeldGear) this.avatarHeldGear.visible = false;
     const kind = this.heldKind();
@@ -3170,11 +3205,12 @@ if (tpClipActive > 0.5) {
     const craftedSpec = heldId === undefined ? null : getToolSpec(heldId);
     if (craftedSpec && heldId !== undefined) {
       const durability = this.heldToolDurability(heldId);
-      const wear = toolWearStage(durability, craftedSpec.maxDurability);
-      const signature = `${heldId}:${wear}`;
+      const wear = toolWearRatio(durability, craftedSpec.maxDurability);
+      const wearStep = Math.round(wear * 24);
+      const signature = `${heldId}:${wearStep}`;
       if (signature !== this.avatarHeldToolKey) {
         this.clearToolModel(this.avatarHeldTool);
-        this.avatarHeldTool.add(this.buildToolModel(heldId, wear));
+        this.avatarHeldTool.add(this.buildToolModel(heldId, wearStep / 24));
         this.avatarHeldToolKey = signature;
       }
       this.avatarHeldTool.scale.setScalar(0.72);
@@ -3245,6 +3281,17 @@ if (tpClipActive > 0.5) {
     } else if (kind === 'torch' || heldId === TORCH) {
       this.positionAvatarHeldItemAtGrip(this.avatarHeldTorch, 0, 0, 0);
       this.avatarHeldTorch.visible = true;
+    } else if (kind === 'block' && heldId !== undefined && isArrowId(heldId)) {
+      const signature = String(heldId);
+      if (signature !== this.avatarHeldArrowKey) {
+        this.clearToolModel(this.avatarHeldArrow);
+        this.avatarHeldArrow.add(buildArrowModel(heldId));
+        this.avatarHeldArrowKey = signature;
+      }
+      this.avatarHeldArrow.scale.setScalar(0.72);
+      this.avatarHeldArrow.rotation.set(0.72, Math.PI, 0.04);
+      this.positionAvatarHeldItemAtGrip(this.avatarHeldArrow, 0, 0, 0);
+      this.avatarHeldArrow.visible = true;
     } else if (kind === 'gear' && heldId !== undefined) {
       const item = this.bagItems.find((gear) => gear.hid === heldId);
       if (!item) return;
@@ -5504,6 +5551,7 @@ if (tpClipActive > 0.5) {
     this.updateNature(dt);
     this.updateHiveFx(dt);
     this.updateArrows(dt);
+    this.updateStuckArrows();
     this.updateFallingTrees(dt);
     this.updateChestLids(dt);
     this.updateBlockGravity();
@@ -7440,7 +7488,7 @@ if (tpClipActive > 0.5) {
   /** Transfer a stack amount between the opened chest and the player's pack. */
   transferChestItem(id: number, amount: number, toChest: boolean): boolean {
     const chest = this.activeChestItems();
-    if (!chest || !Number.isInteger(id) || id <= AIR || id >= 200 || !BLOCKS[id] || getToolSpec(id)) {
+    if (!chest || !Number.isInteger(id) || id <= AIR || (id >= 200 && !isArrowId(id) && !isMeatItem(id)) || !BLOCKS[id] || getToolSpec(id)) {
       sfx.ui(false);
       return false;
     }
@@ -8920,11 +8968,12 @@ if (tpClipActive > 0.5) {
     g.add(m);
   }
 
-  private buildToolModel(id: number, wearStage = 0): THREE.Group {
+  private buildToolModel(id: number, wearRatio = 0): THREE.Group {
     const spec = getToolSpec(id);
     const group = new THREE.Group();
     if (!spec) return group;
 
+    const wear = Number.isFinite(wearRatio) ? Math.max(0, Math.min(1, wearRatio)) : 0;
     const materialCache = new Map<string, THREE.MeshLambertMaterial>();
     const outlineColor = spec.tier === 0 ? '#4b2a1c' : '#17171a';
     const material = (color: string, glow = false) => {
@@ -8942,49 +8991,98 @@ if (tpClipActive > 0.5) {
     };
     const addBox = (
       w: number, h: number, d: number, x: number, y: number, z: number,
-      color: string, outline = true, glow = false,
+      color: string, outline = true, glow = false, parent: THREE.Group = group,
     ) => {
+      // Keep each box's outline and colored face together so rotations and wear deformation
+      // affect the complete part instead of leaving the dark pixel shell behind.
+      const part = new THREE.Group();
+      part.position.set(x, y, z);
       if (outline) {
-        const shell = new THREE.Mesh(
+        part.add(new THREE.Mesh(
           new THREE.BoxGeometry(w * 1.14, h * 1.14, d * 1.14),
           material(outlineColor),
-        );
-        shell.position.set(x, y, z);
-        group.add(shell);
+        ));
       }
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color, glow));
-      mesh.position.set(x, y, z);
-      group.add(mesh);
-      return mesh;
+      part.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color, glow)));
+      parent.add(part);
+      return part;
     };
-    const addSegment = (x1: number, y1: number, x2: number, y2: number, width: number, color: string) => {
+    const addSegment = (
+      x1: number, y1: number, x2: number, y2: number, width: number, color: string,
+      parent: THREE.Group = group,
+    ) => {
       const dx = x2 - x1;
       const dy = y2 - y1;
       const length = Math.hypot(dx, dy);
-      const mesh = addBox(width, length, width, (x1 + x2) / 2, (y1 + y2) / 2, 0, color);
-      mesh.rotation.z = -Math.atan2(dx, dy);
-      return mesh;
+      const segment = addBox(width, length, width, (x1 + x2) / 2, (y1 + y2) / 2, 0, color, true, false, parent);
+      segment.rotation.z = -Math.atan2(dx, dy);
+      return segment;
     };
+    const pivot = (x: number, y: number, z = 0) => {
+      const part = new THREE.Group();
+      part.position.set(x, y, z);
+      group.add(part);
+      return part;
+    };
+    const addAt = (
+      parent: THREE.Group, w: number, h: number, d: number,
+      x: number, y: number, z: number, color: string, outline = true, glow = false,
+    ) => addBox(
+      w, h, d,
+      x - parent.position.x,
+      y - parent.position.y,
+      z - parent.position.z,
+      color, outline, glow, parent,
+    );
 
     if (spec.kind === 'bow') {
+      // The grip is the bow's pivot. Worn limbs contract around it and the chips remain
+      // on the curved wood instead of being emitted as unrelated floating cubes.
+      const bow = pivot(-0.2, 0.02);
       const curve: Array<[number, number]> = [
-        [-0.12, 0.48], [-0.23, 0.34], [-0.29, 0.12], [-0.26, -0.13], [-0.16, -0.38],
+        [0.08, 0.46], [-0.03, 0.32], [-0.09, 0.1], [-0.06, -0.15], [0.04, -0.4],
       ];
       for (let i = 0; i < curve.length - 1; i++) {
-        addSegment(...curve[i], ...curve[i + 1], 0.075, spec.handle);
+        addSegment(...curve[i], ...curve[i + 1], 0.075, spec.handle, bow);
       }
-      addSegment(-0.12, 0.48, -0.16, -0.38, 0.018, '#e4d9c7');
-      addBox(0.1, 0.2, 0.1, -0.2, 0.02, 0.02, spec.edge);
-      addBox(0.105, 0.05, 0.12, -0.2, 0.02, 0.025, spec.accent, false);
+      addSegment(0.08, 0.46, 0.04, -0.4, 0.018, '#e4d9c7', bow);
+      addBox(0.1, 0.2, 0.1, 0, 0, 0.02, spec.edge, true, false, bow);
+      addBox(0.105, 0.05, 0.12, 0, 0, 0.025, spec.accent, false, false, bow);
+      bow.scale.setScalar(1 - wear * 0.12);
+      if (wear >= 0.08) {
+        const chip = addBox(0.022, 0.065, 0.009, -0.057, 0.22, 0.043, '#342522', false, false, bow);
+        chip.rotation.z = -0.28;
+      }
+      if (wear >= 0.42) {
+        const chip = addBox(0.022, 0.07, 0.009, -0.005, -0.23, 0.043, '#342522', false, false, bow);
+        chip.rotation.z = 0.25;
+      }
+      if (wear >= 0.76) {
+        addBox(0.025, 0.035, 0.009, 0.052, 0.1, 0.017, '#b9a88d', false, false, bow);
+      }
     } else if (spec.kind === 'sword') {
-      addBox(0.13, 0.68, 0.08, 0, 0.35, 0, spec.head);
-      addBox(0.085, 0.57, 0.09, -0.016, 0.39, 0.045, spec.edge);
-      addBox(0.045, 0.38, 0.012, -0.016, 0.43, 0.093, spec.accent, false, spec.tier === 5);
-      addBox(0.18, 0.14, 0.11, 0, 0.79, 0, spec.head);
+      // Blade deformation is pivoted at the guard: it gets narrower and genuinely shorter
+      // as condition falls, while the grip, pommel and guard remain attached and intact.
+      const blade = new THREE.Group();
+      group.add(blade);
+      addBox(0.13, 0.68, 0.08, 0, 0.35, 0, spec.head, true, false, blade);
+      addBox(0.085, 0.57, 0.09, -0.016, 0.39, 0.045, spec.edge, true, false, blade);
+      addBox(0.045, 0.38, 0.012, -0.016, 0.43, 0.093, spec.accent, false, spec.tier === 5, blade);
+      addBox(0.18, 0.14, 0.11, 0, 0.79, 0, spec.head, true, false, blade);
       addBox(0.28, 0.085, 0.13, 0, -0.025, 0, spec.edge);
       addBox(0.095, 0.29, 0.105, 0, -0.22, 0, spec.handle);
       addBox(0.14, 0.07, 0.14, 0, -0.4, 0, spec.head);
       addBox(0.045, 0.055, 0.115, 0, -0.22, 0.06, spec.accent, false);
+      blade.scale.set(1 - wear * 0.15, 1 - wear * 0.42, 1 - wear * 0.08);
+      if (wear >= 0.08) {
+        addBox(0.022, 0.065, 0.009, 0.044, 0.53, 0.103, '#392b28', false, false, blade);
+      }
+      if (wear >= 0.42) {
+        addBox(0.02, 0.055, 0.009, -0.045, 0.31, 0.103, '#392b28', false, false, blade);
+      }
+      if (wear >= 0.76) {
+        addBox(0.025, 0.055, 0.009, 0.043, 0.19, 0.103, '#392b28', false, false, blade);
+      }
     } else {
       // Shared wrapped haft: diagonal leather bands make the silhouette read at small scale.
       const haft = addBox(0.095, 0.78, 0.095, -0.025, -0.17, 0, spec.handle);
@@ -8996,39 +9094,47 @@ if (tpClipActive > 0.5) {
       addBox(0.13, 0.1, 0.13, -0.025, -0.58, 0, spec.head);
 
       if (spec.kind === 'pickaxe') {
-        addBox(0.68, 0.15, 0.19, 0, 0.37, 0, spec.head);
-        addBox(0.23, 0.17, 0.2, -0.39, 0.33, 0, spec.head).rotation.z = -0.45;
-        addBox(0.23, 0.17, 0.2, 0.39, 0.33, 0, spec.head).rotation.z = 0.45;
-        addBox(0.42, 0.045, 0.205, 0, 0.415, 0.012, spec.edge, false);
-        addBox(0.1, 0.1, 0.205, 0, 0.36, 0.02, spec.accent, false, spec.tier === 5);
+        const head = pivot(0, 0.37);
+        addAt(head, 0.68, 0.15, 0.19, 0, 0.37, 0, spec.head);
+        addAt(head, 0.23, 0.17, 0.2, -0.39, 0.33, 0, spec.head).rotation.z = -0.45;
+        addAt(head, 0.23, 0.17, 0.2, 0.39, 0.33, 0, spec.head).rotation.z = 0.45;
+        addAt(head, 0.42, 0.045, 0.205, 0, 0.415, 0.012, spec.edge, false);
+        addAt(head, 0.1, 0.1, 0.205, 0, 0.36, 0.02, spec.accent, false, spec.tier === 5);
+        head.scale.set(1 - wear * 0.24, 1 - wear * 0.2, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.06, 0.025, 0.01, 0.45, 0.38, 0.109, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.055, 0.025, 0.01, -0.45, 0.38, 0.109, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.045, 0.022, 0.01, 0.39, 0.32, 0.11, '#332a29', false);
       } else if (spec.kind === 'axe') {
-        addBox(0.32, 0.28, 0.2, 0.17, 0.34, 0, spec.head);
-        addBox(0.15, 0.36, 0.21, 0.34, 0.32, 0, spec.edge);
-        addBox(0.06, 0.24, 0.22, 0.41, 0.32, 0, spec.accent, false, spec.tier === 5);
-        addBox(0.19, 0.08, 0.205, 0.12, 0.47, 0.01, spec.edge, false);
+        const head = pivot(0.14, 0.34);
+        addAt(head, 0.32, 0.28, 0.2, 0.17, 0.34, 0, spec.head);
+        addAt(head, 0.15, 0.36, 0.21, 0.34, 0.32, 0, spec.edge);
+        addAt(head, 0.06, 0.24, 0.22, 0.41, 0.32, 0, spec.accent, false, spec.tier === 5);
+        addAt(head, 0.19, 0.08, 0.205, 0.12, 0.47, 0.01, spec.edge, false);
+        head.scale.set(1 - wear * 0.26, 1 - wear * 0.18, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.024, 0.065, 0.01, 0.39, 0.35, 0.114, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.03, 0.06, 0.01, 0.37, 0.22, 0.114, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.026, 0.055, 0.01, 0.34, 0.43, 0.114, '#332a29', false);
       } else if (spec.kind === 'hoe') {
-        addBox(0.27, 0.13, 0.16, 0.11, 0.34, 0, spec.head);
-        addBox(0.1, 0.3, 0.18, 0.28, 0.22, 0, spec.edge);
-        addBox(0.05, 0.23, 0.19, 0.34, 0.22, 0, spec.accent, false, spec.tier === 5);
+        const head = pivot(0.11, 0.34);
+        addAt(head, 0.27, 0.13, 0.16, 0.11, 0.34, 0, spec.head);
+        addAt(head, 0.1, 0.3, 0.18, 0.28, 0.22, 0, spec.edge);
+        addAt(head, 0.05, 0.23, 0.19, 0.34, 0.22, 0, spec.accent, false, spec.tier === 5);
+        head.scale.set(1 - wear * 0.22, 1 - wear * 0.22, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.025, 0.055, 0.01, 0.35, 0.25, 0.103, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.025, 0.05, 0.01, 0.32, 0.17, 0.103, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.025, 0.05, 0.01, 0.28, 0.34, 0.103, '#332a29', false);
       } else {
-        addBox(0.3, 0.34, 0.2, 0.02, 0.43, 0, spec.head);
-        addBox(0.23, 0.11, 0.21, 0.02, 0.56, 0.01, spec.edge, false);
-        addBox(0.12, 0.08, 0.215, 0.02, 0.4, 0.015, spec.accent, false, spec.tier === 5);
+        const head = pivot(0.02, 0.43);
+        addAt(head, 0.3, 0.34, 0.2, 0.02, 0.43, 0, spec.head);
+        addAt(head, 0.23, 0.11, 0.21, 0.02, 0.56, 0.01, spec.edge, false);
+        addAt(head, 0.12, 0.08, 0.215, 0.02, 0.4, 0.015, spec.accent, false, spec.tier === 5);
+        head.scale.set(1 - wear * 0.2, 1 - wear * 0.25, 1 - wear * 0.08);
+        if (wear >= 0.08) addAt(head, 0.045, 0.022, 0.01, 0.09, 0.57, 0.12, '#332a29', false);
+        if (wear >= 0.42) addAt(head, 0.04, 0.022, 0.01, -0.04, 0.56, 0.12, '#332a29', false);
+        if (wear >= 0.76) addAt(head, 0.04, 0.022, 0.01, 0.02, 0.51, 0.12, '#332a29', false);
       }
     }
 
-    // Progressive chips and ember cracks are shared by held and dropped models.
-    if (wearStage >= 1) {
-      addBox(0.09, 0.07, 0.22, 0.32, 0.3, 0.08, '#292126', false);
-    }
-    if (wearStage >= 2) {
-      addBox(0.045, 0.2, 0.225, 0.23, 0.34, 0.09, '#211b20', false);
-      addBox(0.035, 0.09, 0.23, 0.25, 0.34, 0.11, spec.accent, false, spec.tier === 5);
-    }
-    if (wearStage >= 3) {
-      addBox(0.11, 0.11, 0.23, 0.34, 0.42, 0.1, '#17171a', false);
-      addBox(0.035, 0.12, 0.24, 0.26, 0.4, 0.12, '#ff7045', false, true);
-    }
     return group;
   }
 
@@ -9055,13 +9161,12 @@ if (tpClipActive > 0.5) {
   }
 
   private buildFancyDrop(id: number, durability?: number): THREE.Group | null {
+    if (isArrowId(id)) return buildArrowModel(id);
     const toolSpec = getToolSpec(id);
     if (toolSpec) {
-      const stage = toolSpec.maxDurability > 0
-        ? toolWearStage(durability ?? toolSpec.maxDurability, toolSpec.maxDurability)
-        : 0;
+      const wear = toolWearRatio(durability ?? toolSpec.maxDurability, toolSpec.maxDurability);
       const model = new THREE.Group();
-      model.add(this.buildToolModel(id, stage));
+      model.add(this.buildToolModel(id, wear));
       model.rotation.set(0.18, 0, -0.16);
       return model;
     }
@@ -9446,7 +9551,7 @@ if (tpClipActive > 0.5) {
       this.inventory.set(id, count - 1);
     }
 
-    if (id >= 200) {
+    if (id >= 200 && !isArrowId(id) && !isMeatItem(id)) {
       this.recalcOwnedToolTiers();
     }
 
@@ -9654,7 +9759,7 @@ if (tpClipActive > 0.5) {
     }
     const itemCount = Math.max(1, Math.floor(d.count ?? 1));
     // Picking up a dropped weapon or tool; durable items keep their exact wear/identity.
-    if (d.id >= 200) {
+    if (d.id >= 200 && !isArrowId(d.id) && !isMeatItem(d.id)) {
       if (isDurabilityTool(d.id)) {
         this.addToolInstance(d.id, carriedTool?.durability, carriedTool?.instanceId);
       } else {
@@ -10381,16 +10486,15 @@ if (tpClipActive > 0.5) {
     if (m.id === 'trader') return true; // he's a merchant, not target practice
 
     const swift = 1 - Math.min(0.4, this.stats.swift / 100);
-    const held = this.heldKind();
-    const cooldown = held === 'sword' ? 0.44 : held === 'axe' ? 0.68 : held === 'hoe' ? 0.56 : 0.58;
-    const weaponSpec = getToolSpec(this.hotbar[this.selected] ?? -1);
-    const materialTempo = weaponSpec?.key === 'gold' ? 0.8 : 1;
-    this.attackCd = cooldown * swift * materialTempo;
+    const heldId = this.hotbar[this.selected] ?? HAND;
+    const cooldown = meleeAttackInterval(heldId);
+    this.attackCd = cooldown * swift;
     this.startSwing(0.6);
 
     let dmg = this.attackDamage();
-    const crit = Math.random() < 0.18;
-    if (crit) dmg *= 1.8;
+    // Like Java combat, a melee critical is deliberate: the player must strike while falling.
+    const crit = !this.onGround && !this.inWater && this.vel.y < -0.25;
+    if (crit) dmg *= 1.5;
     m.hp -= dmg;
     m.hurtFlash = 0.18;
     this.mobSys.showHealthBar(m);
@@ -10436,17 +10540,7 @@ if (tpClipActive > 0.5) {
   }
 
   attackDamage() {
-    const held = this.heldKind();
-    const spec = getToolSpec(this.hotbar[this.selected] ?? -1);
-    const base = spec?.attackDamage ?? 3;
-    const mul =
-      held === 'sword' ? 1 :
-      held === 'axe' ? 1.05 :
-      held === 'pick' ? 0.62 :
-      held === 'shovel' ? 0.46 :
-      held === 'hoe' ? 0.4 :
-      held === 'fist' ? 0.38 : 0.3;
-    return (base * mul + this.stats.damage) * (1 + this.stats.swift / 500);
+    return meleeDamage(this.hotbar[this.selected] ?? HAND, this.stats.damage);
   }
 
   // ================= ARROWS =================
@@ -10458,23 +10552,19 @@ if (tpClipActive > 0.5) {
     vy: number;
     vz: number;
     life: number;
-    mesh: THREE.Mesh;
+    mesh: THREE.Group;
     /** Player arrow stats are captured at launch so switching bows cannot change an in-flight shot. */
     damage?: number;
-    critChance?: number;
-    critMultiplier?: number;
     /** true = shot by a skeleton archer, hurts the player */
     hostile?: boolean;
     /** which arrow item was spent on the shot (ARROW_ITEM when nothing was equipped) */
     arrowId?: number | null;
   }> = [];
-  private arrowGeo: THREE.BoxGeometry | null = null;
-  private arrowMat = new THREE.MeshBasicMaterial({ color: 0xd9cba8 });
 
-  /** skeleton archer fires an arrow at the player */
+  /** skeleton archer fires the standard arrow model at the player */
   private mobShoot(m: Mob) {
-    if (!this.arrowGeo) this.arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.52);
-    const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
+    const arrowId = ARROW_ITEM;
+    const mesh = buildArrowModel(arrowId);
     const ox = m.x;
     const oy = m.y + 1.4;
     const oz = m.z;
@@ -10487,21 +10577,20 @@ if (tpClipActive > 0.5) {
     dy = dy / len + (Math.random() - 0.5) * 0.06 + 0.03;
     dz = dz / len + (Math.random() - 0.5) * 0.08;
     const sp = 22;
-    const a = { x: ox + dx, y: oy, z: oz + dz, vx: dx * sp, vy: dy * sp, vz: dz * sp, life: 2.2, mesh, hostile: true };
+    const a = { x: ox + dx, y: oy, z: oz + dz, vx: dx * sp, vy: dy * sp, vz: dz * sp, life: 2.2, mesh, hostile: true, arrowId };
     mesh.position.set(a.x, a.y, a.z);
     this.scene.add(mesh);
-    this.arrows.push(a as (typeof this.arrows)[number]);
+    this.arrows.push(a);
     sfx.swing(3);
   }
 
   private tryShoot() {
     if (this.attackCd > 0) return;
-    const arrowTypes = [ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW];
     // The active hotbar is the player's arrow pool: when a bow is drawn, use the first
     // loaded arrow stack in that row, rather than silently choosing a random inventory stack.
-    const arrowId = (this.arrowLoadout !== null && (this.inventory.get(this.arrowLoadout) ?? 0) > 0 ? this.arrowLoadout : null)
-      ?? this.hotbar.find((id) => id !== undefined && arrowTypes.includes(id) && (this.inventory.get(id) ?? 0) > 0)
-      ?? arrowTypes.find((id) => (this.inventory.get(id) ?? 0) > 0)
+    const arrowId = (this.arrowLoadout !== null && isArrowId(this.arrowLoadout) && (this.inventory.get(this.arrowLoadout) ?? 0) > 0 ? this.arrowLoadout : null)
+      ?? this.hotbar.find((id): id is (typeof ARROW_IDS)[number] => id !== undefined && isArrowId(id) && (this.inventory.get(id) ?? 0) > 0)
+      ?? ARROW_IDS.find((id) => (this.inventory.get(id) ?? 0) > 0)
       ?? ARROW_ITEM;
     if ((this.inventory.get(arrowId) ?? 0) <= 0) {
       this.queueTutorialTip('mechanic:bow-ammo', t('tutorialBowTitle'), t('tutorialBowAmmo'), '#c7a879', 'bow');
@@ -10521,8 +10610,7 @@ if (tpClipActive > 0.5) {
     this.startSwing(0.4);
     sfx.swing(4);
     this.damageHeldTool(1);
-    if (!this.arrowGeo) this.arrowGeo = new THREE.BoxGeometry(0.06, 0.06, 0.52);
-    const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
+    const mesh = buildArrowModel(arrowId);
     const sp = speeds[tier];
     const a = {
       x: this.eyeV.x + this.dirV.x * 0.6,
@@ -10533,10 +10621,8 @@ if (tpClipActive > 0.5) {
       vz: this.dirV.z * sp,
       life: 2.4,
       mesh,
-      damage: ((spec?.kind === 'bow' ? spec.attackDamage : 5) + this.stats.damage * 0.35) * (arrowId === STONE_ARROW ? 1.2 : arrowId === IRON_ARROW ? 1.45 : arrowId === GOLD_ARROW ? 1.7 : arrowId === NETHERITE_ARROW ? 2.2 : 1),
+      damage: bowArrowDamage(spec?.id ?? TOOL_BOW, arrowId, this.stats.damage),
       arrowId,
-      critChance: 0.14,
-      critMultiplier: 1.55,
     };
     mesh.position.set(a.x, a.y, a.z);
     this.scene.add(mesh);
@@ -10568,17 +10654,7 @@ if (tpClipActive > 0.5) {
             break;
           }
           if (isSolid(this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)))) {
-            this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.2);
-            if (Math.random() < 0.8) {
-              const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
-              // the arrow falls back out of the block, so it can be picked up again
-              this.spawnDrop(
-                a.x - (a.vx / speed) * 0.35,
-                a.y - (a.vy / speed) * 0.35 + 0.15,
-                a.z - (a.vz / speed) * 0.35,
-                a.arrowId ?? ARROW_ITEM,
-              );
-            }
+            this.resolveArrowBlockImpact(a);
             dead = true;
             break;
           }
@@ -10587,8 +10663,7 @@ if (tpClipActive > 0.5) {
         // hit a mob?
         const hit = this.mobSys.inRadius(a.x, a.y, a.z, 0.75).filter((m) => m.id !== 'trader')[0];
         if (hit) {
-          const crit = Math.random() < (a.critChance ?? 0.18);
-          const dmg = (a.damage ?? 8) * (crit ? (a.critMultiplier ?? 1.6) : 1);
+          const dmg = a.damage ?? 6;
           hit.hp -= dmg;
           hit.hurtFlash = 0.18;
           this.mobSys.showHealthBar(hit);
@@ -10600,11 +10675,12 @@ if (tpClipActive > 0.5) {
           if (a.arrowId === POISON_ARROW) { hit.poison = 5; hit.poisonTick = 0; hit.hurtFlash = 0.5; this.burst(a.x, a.y, a.z, [120, 220, 70], 8, 1.1); }
           if (a.arrowId === FREEZE_ARROW) { hit.vx *= 0.12; hit.vz *= 0.12; this.burst(a.x, a.y, a.z, [100, 220, 255], 10, 1.2); }
           if (a.arrowId === STUN_ARROW) { hit.stun = 5; hit.vx = 0; hit.vz = 0; hit.hurtFlash = 0.65; this.burst(a.x, a.y, a.z, [250, 220, 80], 10, 1.2); }
-          // the arrow lodges in the target — it drops back out on death
+          // the arrow lodges in the target and recovers as the same ammunition when the mob dies
           hit.stuckArrows++;
+          hit.stuckArrowIds.push(a.arrowId ?? ARROW_ITEM);
           if (this.stats.fire > 0) hit.burn = Math.max(hit.burn, 3);
           if (this.stats.frost > 0) hit.slow = 2;
-          this.popup(hit.x, hit.y + 1.5, hit.z, `${Math.round(dmg)}`, crit ? '#ffd24a' : '#93c95d', crit);
+          this.popup(hit.x, hit.y + 1.5, hit.z, `${Math.round(dmg)}`, '#93c95d', false);
           this.burst(a.x, a.y, a.z, [220, 220, 200], 5, 2);
           sfx.crack(2);
           if (hit.hp <= 0) this.mobDied(hit, false);
@@ -10612,13 +10688,7 @@ if (tpClipActive > 0.5) {
           break;
         }
         if (isSolid(this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)))) {
-          // stick into the ground as a retrievable pickup (arrows survive ~80% of landings)
-          this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.4);
-          if (Math.random() < 0.8) {
-            // back out of the wall a touch so the drop doesn't spawn inside the block
-            const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
-            this.spawnDrop(a.x - (a.vx / speed) * 0.35, a.y - (a.vy / speed) * 0.35 + 0.15, a.z - (a.vz / speed) * 0.35, ARROW_ITEM);
-          }
+          this.resolveArrowBlockImpact(a);
           dead = true;
           break;
         }
@@ -10627,14 +10697,100 @@ if (tpClipActive > 0.5) {
       a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
       if (dead) {
         this.scene.remove(a.mesh);
+        disposeObject(a.mesh);
         this.arrows.splice(i, 1);
       }
     }
   }
 
+  private resolveArrowBlockImpact(a: { x: number; y: number; z: number; vx: number; vy: number; vz: number; arrowId?: number | null }) {
+    const blockId = this.world.get(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z));
+    if (arrowBreaksOnBlock(blockId)) {
+      this.burst(a.x, a.y, a.z, [207, 177, 139], 7, 1.1);
+      sfx.crack(2);
+      return;
+    }
+    this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.3);
+    this.stickArrowInBlock(a);
+  }
+
+  private stickArrowInBlock(a: { x: number; y: number; z: number; vx: number; vy: number; vz: number; arrowId?: number | null }) {
+    const candidateId = a.arrowId ?? ARROW_ITEM;
+    const id = isArrowId(candidateId) ? candidateId : ARROW_ITEM;
+    const direction = new THREE.Vector3(a.vx, a.vy, a.vz);
+    if (direction.lengthSq() < 1e-6) direction.set(0, 0, 1);
+    else direction.normalize();
+
+    // The model's point is on local +Z. Place it just through the block face, with
+    // most of the shaft and its fletching visible on the side the shot came from.
+    const center = new THREE.Vector3(a.x, a.y, a.z).addScaledVector(direction, -0.35);
+    const mesh = buildArrowModel(id);
+    mesh.scale.setScalar(0.82);
+    mesh.position.copy(center);
+    mesh.lookAt(center.clone().add(direction));
+    mesh.userData.stuckInBlock = true;
+    this.scene.add(mesh);
+
+    this.stuckArrows.push({
+      id,
+      x: center.x,
+      y: center.y,
+      z: center.z,
+      blockX: Math.floor(a.x),
+      blockY: Math.floor(a.y),
+      blockZ: Math.floor(a.z),
+      mesh,
+    });
+    // Bound scene/GPU memory in long-running games; the oldest embedded arrow
+    // falls free as a pickup rather than disappearing when the visual cap is hit.
+    if (this.stuckArrows.length > MAX_STUCK_ARROWS) this.removeStuckArrow(0, true);
+  }
+
+  private removeStuckArrow(index: number, returnToWorld: boolean) {
+    const [arrow] = this.stuckArrows.splice(index, 1);
+    if (!arrow) return;
+    this.scene.remove(arrow.mesh);
+    disposeObject(arrow.mesh);
+    if (returnToWorld) this.spawnDrop(arrow.x, arrow.y, arrow.z, arrow.id);
+  }
+
+  private updateStuckArrows() {
+    let collected = false;
+    const eyeX = this.pos.x;
+    const eyeY = this.pos.y + 1.1;
+    const eyeZ = this.pos.z;
+    for (let i = this.stuckArrows.length - 1; i >= 0; i--) {
+      const arrow = this.stuckArrows[i];
+      // Breaking/removing the supporting block releases the same arrow type as a pickup.
+      if (!isSolid(this.world.get(arrow.blockX, arrow.blockY, arrow.blockZ))) {
+        this.removeStuckArrow(i, true);
+        continue;
+      }
+      // An embedded arrow is an ordinary collectible: walk within 1.35 blocks to reclaim it.
+      if (Math.hypot(arrow.x - eyeX, arrow.y - eyeY, arrow.z - eyeZ) > 1.35) continue;
+      this.removeStuckArrow(i, false);
+      this.inventory.set(arrow.id, (this.inventory.get(arrow.id) ?? 0) + 1);
+      this.addToHotbar(arrow.id);
+      collected = true;
+    }
+    if (collected) {
+      sfx.pickup(1);
+      this.syncHotbar(true);
+      this.syncHud(true);
+    }
+  }
+
+  private clearStuckArrows() {
+    for (let i = this.stuckArrows.length - 1; i >= 0; i--) this.removeStuckArrow(i, false);
+  }
+
   private clearArrows() {
-    for (const a of this.arrows) this.scene.remove(a.mesh);
+    for (const a of this.arrows) {
+      this.scene.remove(a.mesh);
+      disposeObject(a.mesh);
+    }
     this.arrows.length = 0;
+    this.clearStuckArrows();
   }
 
   private mobDied(m: Mob, burned: boolean) {
@@ -10694,9 +10850,12 @@ if (tpClipActive > 0.5) {
         for (let i = 0; i < 3; i++) this.spawnDrop(m.x, m.y + 0.5, m.z, ARROW_ITEM);
       }
     }
-    // every arrow you shot into it clatters back out — walk over and re-collect
-    for (let i = 0; i < m.stuckArrows; i++) this.spawnDrop(m.x, m.y + 0.6, m.z, ARROW_ITEM);
+    // Every arrow you shot into it clatters back out with its original type.
+    for (let i = 0; i < m.stuckArrows; i++) {
+      this.spawnDrop(m.x, m.y + 0.6, m.z, m.stuckArrowIds[i] ?? ARROW_ITEM);
+    }
     m.stuckArrows = 0;
+    m.stuckArrowIds.length = 0;
     const gained = this.awardScore(Math.round(def.score * this.comboMult() * (1 + this.stats.greed / 100)));
     this.combo++;
     this.comboTimer = 3;
@@ -10831,7 +10990,7 @@ if (tpClipActive > 0.5) {
 
   /** sell a tool straight out of the hotbar or inventory */
   sellTool(id: number, instanceId?: number) {
-    if (id < 200) return;
+    if (id < 200 || isArrowId(id) || isMeatItem(id)) return;
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) return; // nothing owned — never sell an air slot
     let durability: number | undefined;
@@ -11929,7 +12088,7 @@ if (tpClipActive > 0.5) {
       stats: this.stats,
       killedBy: this.killedBy,
       offers: this.offers,
-      sellPrices: Object.fromEntries(BLOCKS.map((block) => [block.id, this.sellPrice(block.id)])),
+      sellPrices: Object.fromEntries(BLOCKS.filter((block) => block !== undefined).map((block) => [block.id, this.sellPrice(block.id)])),
       invTab: this.invTab,
       tradeNear: this.phase === 'playing' || this.inventoryOpen ? this.traderNear() !== null : false,
       anvilNear: this.phase === 'playing' || this.inventoryOpen ? this.anvilNear() : false,
@@ -12807,7 +12966,7 @@ if (tpClipActive > 0.5) {
   }
 
   private isWolfPetFetchDropCandidate(drop: Drop): boolean {
-    if (!drop.active || drop.petCarried || drop.thrown || drop.id === LOOT_BAG || drop.id <= AIR || drop.id >= 200 || !BLOCKS[drop.id]) return false;
+    if (!drop.active || drop.petCarried || drop.thrown || drop.id === LOOT_BAG || drop.id <= AIR || (drop.id >= 200 && !isArrowId(drop.id) && !isMeatItem(drop.id)) || !BLOCKS[drop.id]) return false;
     if (drop.age < (drop.pickupDelay ?? 0.22) + 0.18) return false;
     if ((drop.wolfPetIgnoreUntil ?? 0) > this.time) return false;
     const playerDistance = Math.hypot(drop.x - this.pos.x, drop.z - this.pos.z);
@@ -12835,7 +12994,7 @@ if (tpClipActive > 0.5) {
     const id = this.world.get(target.x, target.y, target.z);
     if (!isTreasureChest(id) || baseChestId(id) !== baseChestId(target.id)) return false;
     const chest = this.chestInventoryAt(target.x, target.y, target.z, id);
-    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && itemId < 200 && !!BLOCKS[itemId] && !getToolSpec(itemId));
+    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && (itemId < 200 || isArrowId(itemId) || isMeatItem(itemId)) && !!BLOCKS[itemId] && !getToolSpec(itemId));
   }
 
   /** Find a nearby stocked chest and one clear adjacent position the wolf can reach. */
@@ -12979,7 +13138,7 @@ if (tpClipActive > 0.5) {
     if (distance <= 0.48) {
       const currentId = this.world.get(target.x, target.y, target.z);
       const chest = this.chestInventoryAt(target.x, target.y, target.z, currentId);
-      const item = [...chest].find(([id, count]) => id > AIR && id < 200 && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
+      const item = [...chest].find(([id, count]) => id > AIR && (id < 200 || isArrowId(id) || isMeatItem(id)) && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
       if (!item) {
         this.setWolfPetChestLid(target, false);
         rig.chestTarget = null;
@@ -13765,6 +13924,7 @@ if (tpClipActive > 0.5) {
   }
 
   dispose() {
+    this.clearArrows();
     this.clearWolfPetRig();
     this.clearCompanions();
     this.disposed = true;

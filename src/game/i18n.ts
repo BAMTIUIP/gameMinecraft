@@ -3291,6 +3291,8 @@ const BLOCKS_RU: Record<number, string> = {
   133: 'Зелёная лестница', 134: 'Розовая лестница', 135: 'Фиолетовая лестница',
   136: 'Белая лестница', 137: 'Каменная лестница', 138: 'Железная лестница',
   139: 'Сундук для хранения', 140: 'Открытый сундук для хранения',
+  154: 'Каменная стрела', 155: 'Железная стрела', 156: 'Золотая стрела', 157: 'Незеритовая стрела',
+  158: 'Огненная стрела', 159: 'Ядовитая стрела', 160: 'Морозная стрела', 161: 'Оглушающая стрела',
 };
 
 const BLOCKS_FR: Record<number, string> = {
@@ -3327,6 +3329,8 @@ const BLOCKS_FR: Record<number, string> = {
   133: 'Échelle verte', 134: 'Échelle rose', 135: 'Échelle violette',
   136: 'Échelle blanche', 137: 'Échelle en pierre', 138: 'Échelle en fer',
   139: 'Coffre de rangement', 140: 'Coffre de rangement (ouvert)',
+  154: 'Flèche en pierre', 155: 'Flèche en fer', 156: 'Flèche dorée', 157: 'Flèche en netherite',
+  158: 'Flèche enflammée', 159: 'Flèche empoisonnée', 160: 'Flèche glacée', 161: 'Flèche étourdissante',
 };
 
 const BLOCKS_DE: Record<number, string> = {
@@ -3363,6 +3367,8 @@ const BLOCKS_DE: Record<number, string> = {
   133: 'Grüne Leiter', 134: 'Rosa Leiter', 135: 'Violette Leiter',
   136: 'Weiße Leiter', 137: 'Steinleiter', 138: 'Eisenleiter',
   139: 'Lagertruhe', 140: 'Lagertruhe (offen)',
+  154: 'Steinpfeil', 155: 'Eisenpfeil', 156: 'Goldpfeil', 157: 'Netheritpfeil',
+  158: 'Feuerpfeil', 159: 'Giftpfeil', 160: 'Frostpfeil', 161: 'Betäubungspfeil',
 };
 
 const MEAT_ANIMAL_NAMES: Record<'ru' | 'fr' | 'de', Record<string, string>> = {
