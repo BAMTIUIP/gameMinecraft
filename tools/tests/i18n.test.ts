@@ -158,6 +158,41 @@ for (const lang of LANGS_CHECKED) {
   ok(shellTitle.startsWith(`${GAME_NAME} `), 'index.html объявляет то же название игры', shellTitle);
 }
 
+/* --------- 1d. no English left in the Russian texts (8.2.3) --------- */
+
+/**
+ * Requirement 8.2.3: «двойной перевод недопустим» — the text in the game has to match the chosen
+ * language. The documentation lists what may stay untranslated: key names, abbreviations, proper
+ * names without an official translation, UI additions (AD / NEW) and the game's own name. Everything
+ * else that is written in Latin letters inside the Russian dictionary is an English label that a
+ * player would read instead of Russian.
+ *
+ * Placeholders are stripped first: `{count}` or `{time}` are variable names, not on-screen text.
+ */
+{
+  const ALLOWED = new Set([
+    // the game's own name (requirement 5.1.3) — it is never translated
+    'ORE', 'RUSH',
+    // key names — the documentation does not ask for them to be translated
+    'TAB', 'ESC', 'CTRL', 'ALT', 'SHIFT', 'ENTER', 'SPACE',
+    // abbreviations and UI additions
+    'DEV', 'AD', 'NEW', 'FPS', 'SDK', 'ID', 'OK',
+    // proper names
+    'YANDEX', 'GAMES',
+  ]);
+  const placeholders = /\{[a-zA-Z0-9_]+\}/g;
+  const ru = dictFor('ru');
+  const english: string[] = [];
+  // the dictionary's own keys, not the English ones: a label that exists only in Russian is still shown
+  for (const key of Object.keys(ru)) {
+    const value = String(ru[key] ?? '').replace(placeholders, ' ');
+    for (const match of value.matchAll(/[A-Za-z][A-Za-z'’-]{1,}/g)) {
+      if (!ALLOWED.has(match[0].toUpperCase())) english.push(`${key}: ${match[0]}`);
+    }
+  }
+  ok(english.length === 0, 'В русском словаре нет непереведённых английских надписей (п. 8.2.3)', english.slice(0, 12).join(', '));
+}
+
 /* ------------------------ 2. values and placeholders ----------------------- */
 
 const placeholders = (value: string) => [...value.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((m) => m[1]).sort().join(',');
