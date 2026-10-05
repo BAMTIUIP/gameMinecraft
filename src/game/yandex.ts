@@ -343,8 +343,9 @@ declare global {
   interface Window {
     YaGames?: {
       /**
-       * `signed: true` makes the purchase methods return encrypted data only, for server-side
-       * verification. The game has no purchases, so it keeps the default (`signed: false`).
+       * `signed: true` would make the purchase methods return encrypted `signature` data only,
+       * for server-side verification. The game checks payments on the client (there is no game
+       * server), so it keeps the documented default (`signed: false`) and reads plain data.
        */
       init: (options?: { signed?: boolean }) => Promise<YSDK>;
     };
