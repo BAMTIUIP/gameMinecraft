@@ -5911,24 +5911,29 @@ if (tpClipActive > 0.5) {
     return { blocked, top };
   }
 
-  private nearWaterExitLedge(dirX: number, dirZ: number) {
+  private nearWaterExitLedge(dirX: number, dirZ: number): boolean {
     const len = Math.hypot(dirX, dirZ);
     if (len < 0.05) return false;
     dirX /= len;
     dirZ /= len;
     const sideX = dirZ;
     const sideZ = -dirX;
-    const front = PLAYER_HALF + 0.52;
-    const baseY = Math.floor(this.pos.y + 0.08);
-    for (const side of [-0.24, 0, 0.24]) {
+    const front = PLAYER_HALF + 0.48;
+    const baseY = Math.floor(this.pos.y + 0.1);
+    for (const side of [-0.22, 0, 0.22]) {
       const x = Math.floor(this.pos.x + dirX * front + sideX * side);
       const z = Math.floor(this.pos.z + dirZ * front + sideZ * side);
-      // A shore block at the swimmer's chest/feet with free cells above: give
-      // a small mantle boost so holding forward + jump climbs out of water.
-      for (let y = baseY - 1; y <= baseY + 1; y++) {
+      // Check for a real solid bank block with dry open AIR above it (not water!)
+      // so holding forward + jump only mantles when actually climbing out onto dry land.
+      for (let y = baseY - 1; y <= baseY + 2; y++) {
         const solid = isSolid(this.world.get(x, y, z));
         if (!solid) continue;
-        if (!isSolid(this.world.get(x, y + 1, z)) && !isSolid(this.world.get(x, y + 2, z))) return true;
+        const above1 = this.world.get(x, y + 1, z);
+        const above2 = this.world.get(x, y + 2, z);
+        const isDryAirAbove = above1 !== WATER && !isSolid(above1) && above2 !== WATER && !isSolid(above2);
+        if (!isDryAirAbove) continue;
+        const stepHeight = (y + 1) - this.pos.y;
+        if (stepHeight >= -0.2 && stepHeight <= 1.85) return true;
       }
     }
     return false;
@@ -6029,9 +6034,9 @@ if (tpClipActive > 0.5) {
       this.burst(this.pos.x, this.pos.y + 0.05, this.pos.z, [210, 200, 180], 6, 1.6);
     }
 
-    // gravity (lighter while holding jump for variable height)
-    let g = GRAVITY;
-    if (this.vel.y > 0 && !jumpHeld) g *= 1.9;
+    // gravity (lighter while holding jump for variable height; in water buoyancy governs vertical motion)
+    let g = wasInWater ? 0 : GRAVITY;
+    if (!wasInWater && this.vel.y > 0 && !jumpHeld) g *= 1.9;
     this.vel.y -= g * dt;
     this.vel.y = Math.max(-52, this.vel.y);
     // Vines and crafted ladders share a gentle climb assist; W/Space climbs ladders, S descends.
@@ -6114,7 +6119,7 @@ if (tpClipActive > 0.5) {
     {
       const bx = Math.floor(this.pos.x);
       const bz = Math.floor(this.pos.z);
-      for (const probe of [0.25, 0.62, 1.02]) {
+      for (const probe of [0.08, 0.38, 0.75, 1.15]) {
         if (this.world.get(bx, Math.floor(this.pos.y + probe), bz) === WATER) {
           this.inWater = true;
           break;
@@ -6123,22 +6128,38 @@ if (tpClipActive > 0.5) {
     }
     if (this.inWater) {
       const forwardIntent = fz > 0.12;
+      const nearShore = jumpHeld && forwardIntent && this.nearWaterExitLedge(wx, wz);
+      const surfaceY = this.visualWaterSurfaceY();
       let targetVy = -0.55;
       if (forwardIntent && Math.abs(this.pitch) > 0.16) {
         // Looking down while swimming dives head-first; looking up rises without
         // turning the body into a standing/walking pose.
         targetVy = Math.max(-2.9, Math.min(2.55, Math.sin(this.pitch) * 3.9));
       }
-      // Space adds swim lift only; horizontal speed remains controlled by the movement/Shift input above.
-      if (jumpHeld) targetVy = Math.max(targetVy, SWIM_JUMP_UP);
-      const vyBlend = Math.min(1, dt * (jumpHeld ? 10 : 4.6));
+      if (nearShore) {
+        // True shore exit ledge detected: assist the player smoothly up onto the dry bank.
+        targetVy = Math.max(targetVy, 4.9);
+      } else if (jumpHeld) {
+        if (surfaceY !== null && this.pos.y + 0.72 >= surfaceY) {
+          // Open water surface: hold the swimmer smoothly at the surface cruising level,
+          // keeping the head in the air, legs in water, without leaping out or jittering.
+          const surfaceFloatY = surfaceY - 0.72;
+          const floatDiff = surfaceFloatY - this.pos.y;
+          targetVy = Math.max(-0.6, Math.min(1.4, floatDiff * 6.0));
+        } else {
+          // Submerged in water: Space provides smooth, continuous upward ascent.
+          targetVy = Math.max(targetVy, 2.75);
+        }
+      } else if (surfaceY !== null && this.pos.y + 0.8 >= surfaceY && (!forwardIntent || Math.abs(this.pitch) <= 0.16)) {
+        // Natural surface buoyancy when idle or swimming horizontally near the surface
+        const surfaceFloatY = surfaceY - 0.72;
+        const floatDiff = surfaceFloatY - this.pos.y;
+        targetVy = Math.max(-0.7, Math.min(1.0, floatDiff * 4.5));
+      }
+      const vyBlend = Math.min(1, dt * (nearShore ? 12 : jumpHeld ? 8.5 : 4.6));
       this.vel.y += (targetVy - this.vel.y) * vyBlend;
       this.vel.x *= Math.pow(0.38, dt);
       this.vel.z *= Math.pow(0.38, dt);
-      if (jumpHeld && forwardIntent && this.nearWaterExitLedge(wx, wz)) {
-        // Keep the shore-mantle assist vertical; jump must not add a forward burst while swimming.
-        this.vel.y = Math.max(this.vel.y, 5.15);
-      }
       this.fallStart = this.pos.y; // water breaks any fall
     }
 
