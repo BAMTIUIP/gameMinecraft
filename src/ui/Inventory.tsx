@@ -25,6 +25,8 @@ import { MONKEY_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { MonkeyIcon } from './MonkeyIcon';
 import { WolfIcon } from './WolfIcon';
 import { GearIcon } from './GearIcon';
+import ItemInfoPopup from './ItemInfoPopup';
+import { getGearDetails, getItemDetails, getPetDetails, type ItemDetails } from '../game/itemDetails';
 
 // ---------- helpers ----------
 
@@ -139,6 +141,22 @@ export default function Inventory({
   const [invCat, setInvCat] = useState<InvCategory>('all');
   const [gearTab, setGearTab] = useState<'all' | Slot>('all');
   const [wbTarget, setWbTarget] = useState<WorkbenchTarget>(null);
+  const [hoveredDetails, setHoveredDetails] = useState<ItemDetails | null>(null);
+  const [pinnedDetails, setPinnedDetails] = useState<ItemDetails | null>(null);
+  const activeDetails = hoveredDetails ?? pinnedDetails;
+  const detailsPinned = hoveredDetails === null && pinnedDetails !== null;
+  const itemDetails = (id: number, context: { count?: number; durability?: number; maxDurability?: number } = {}) =>
+    getItemDetails(id, { damage: st.damage, swift: st.swift, ...context });
+  const inspectProps = (details: ItemDetails) => ({
+    onMouseEnter: () => setHoveredDetails(details),
+    onMouseLeave: () => setHoveredDetails(null),
+    onFocus: () => setHoveredDetails(details),
+    onBlur: () => setHoveredDetails(null),
+  });
+  const pinDetails = (details: ItemDetails) => {
+    setHoveredDetails(null);
+    setPinnedDetails(details);
+  };
 
   const shownRecipes = RECIPES.filter((r) => r.group === tab);
 
@@ -272,6 +290,7 @@ export default function Inventory({
                 {filteredPets.map((kind) => {
                   const coatIndex = hud.petCoatIndices[kind];
                   const coats = kind === 'wolf' ? WOLF_COATS : MONKEY_COATS;
+                  const details = getPetDetails(kind);
                   const resourceKey = kind === 'wolf' ? 'petWolfResource' : 'petMonkeyResource';
                   return (
                     <button
@@ -279,13 +298,16 @@ export default function Inventory({
                       type="button"
                       data-pet-resource={kind}
                       aria-label={t(resourceKey)}
-                      onClick={() => onEquipPet(kind)}
+                      {...inspectProps(details)}
+                      onClick={() => {
+                        pinDetails(details);
+                        onEquipPet(kind);
+                      }}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `pet:${kind}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${t(resourceKey)} — ${t('petEquipHint')}`}
                       className="anim-pop notch group relative flex aspect-square cursor-grab flex-col items-center justify-center gap-0.5 transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         background: 'linear-gradient(180deg,#3a3026,#171a17)',
@@ -309,16 +331,21 @@ export default function Inventory({
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
+                  const details = itemDetails(it.id, { count: it.count, durability: it.durability, maxDurability: it.maxDurability });
                   return (
                     <button
                       key={`item-${it.id}-${it.instanceId ?? 'stack'}`}
-                      onClick={() => onPlaceItem(it.id, undefined, undefined, it.instanceId)}
+                      {...inspectProps(details)}
+                      onClick={() => {
+                        pinDetails(details);
+                        onPlaceItem(it.id, undefined, undefined, it.instanceId);
+                      }}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `item:${it.id}:${it.instanceId ?? ''}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      title={`${label}${condition ? ` · ${condition}` : ''}${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc ? ` · ${RECIPES.find((r) => r && ((spec && r.toolId === it.id) || r.out?.[0] === it.id))?.desc}` : ''} — ${t('dragHint')}`}
+                      aria-label={`${label}${condition ? ` · ${condition}` : ''}`}
                       className="anim-pop notch group relative flex aspect-square items-center justify-center transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:translate-y-0"
                       style={{
                         animationDelay: `${i * 18}ms`,
@@ -352,7 +379,7 @@ export default function Inventory({
                         {label}
                       </span>
                       {arrowIds.includes(it.id) && (
-                        <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
+                        <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
                       )}
                     </button>
                   );
@@ -365,16 +392,21 @@ export default function Inventory({
                   const armorTint = gearColor(it);
                   const inBar = hud.hotbar.some((h) => h !== null && h.id === it.hid);
                   const label = `${t(SLOT_KEY[it.slot])} · ${matName(mat.label)} (${rarName(it.rarity, rar.name)})`;
+                  const details = getGearDetails(it);
                   return (
                     <div
                       key={`gear-${it.uid}`}
+                      {...inspectProps(details)}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', `gear:${it.uid}:${it.hid}`);
                         e.dataTransfer.effectAllowed = 'move';
                       }}
-                      onClick={() => onPlaceItem(it.hid)}
-                      title={`${label} · ⛨${it.armor}${it.damage > 0 ? ` ⚔${it.damage}` : ''} — ${t('dragHint')}`}
+                      onClick={() => {
+                        pinDetails(details);
+                        onPlaceItem(it.hid);
+                      }}
+                      aria-label={`${label} · ⛨${it.armor}${it.damage > 0 ? ` ⚔${it.damage}` : ''}`}
                       className="anim-pop notch group relative flex aspect-square cursor-grab flex-col items-center justify-center p-1 transition-transform duration-100 hover:-translate-y-1 hover:brightness-125 active:cursor-grabbing"
                       style={{
                         animationDelay: `${(filteredStacks.length + i) * 18}ms`,
@@ -394,6 +426,7 @@ export default function Inventory({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          pinDetails(details);
                           onEquip(it.uid);
                         }}
                         className="absolute left-0.5 top-0.5 z-10 rounded bg-black/70 px-1 py-0.5 font-display text-[7px] leading-none text-moss hover:bg-moss hover:text-pit-950"
@@ -428,6 +461,7 @@ export default function Inventory({
                 {SLOTS.map((slot) => {
                   const it = hud.equipped[slot];
                   const rar = it ? RARITY[it.rarity] : null;
+                  const details = it ? getGearDetails(it) : null;
                   return (
                     <div
                       key={slot}
@@ -455,7 +489,12 @@ export default function Inventory({
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => it && onUnequip(slot)}
+                        {...(details ? inspectProps(details) : {})}
+                        onClick={() => {
+                          if (!it || !details) return;
+                          pinDetails(details);
+                          onUnequip(slot);
+                        }}
                         className="notch relative flex min-h-[72px] w-full flex-col justify-center px-1 py-1 text-left transition-transform duration-100 hover:-translate-y-0.5"
                         style={{
                           background: it ? `linear-gradient(180deg, ${rar!.color}22, rgba(10,14,12,.9))` : 'rgba(255,255,255,.02)',
@@ -479,7 +518,7 @@ export default function Inventory({
                             ))}
                           </div>
                         )}
-                        {it && <button onClick={(e) => { e.stopPropagation(); onUnequip(slot); }} className="btn-mc notch mt-auto w-full px-1 py-0.5 font-display text-[8px] leading-none" style={{ background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }} title={t('unequip')}>{t('unequip')}</button>}
+                        {it && details && <button onClick={(e) => { e.stopPropagation(); pinDetails(details); onUnequip(slot); }} className="btn-mc notch mt-auto w-full px-1 py-0.5 font-display text-[8px] leading-none" style={{ background: 'linear-gradient(180deg,#202923,#101713)', border: '2px solid #06090a', color: '#f2b3ae' }} title={t('unequip')}>{t('unequip')}</button>}
                       </div>
                     </div>
                   );
@@ -607,9 +646,15 @@ export default function Inventory({
                     const active = i === hud.selected;
                     const gearInSlot = slot && isGearHotbarId(slot.id) ? hud.bagItems.find((b) => b.hid === slot.id) : undefined;
                     const toolSpec = slot ? getToolSpec(slot.id) : null;
+                    const details = slot
+                      ? gearInSlot
+                        ? getGearDetails(gearInSlot)
+                        : itemDetails(slot.id, { count: slot.count, durability: slot.durability, maxDurability: slot.maxDurability })
+                      : null;
                     return (
                       <div
                         key={i}
+                        {...(details ? inspectProps(details) : {})}
                         onDragOver={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -645,6 +690,7 @@ export default function Inventory({
                       >
                         <button
                           onClick={() => {
+                            if (details) pinDetails(details);
                             if (onSelectSlot) onSelectSlot(i);
                           }}
                           draggable={!!slot}
@@ -654,17 +700,7 @@ export default function Inventory({
                             e.dataTransfer.effectAllowed = 'move';
                           }}
                           className="absolute inset-0 flex items-center justify-center cursor-grab active:cursor-grabbing"
-                          title={
-                            slot
-                              ? slot.id === HAND
-                                ? `${t('emptyHand')} — ${t('dragHint')}`
-                                : gearInSlot
-                                  ? `${t(SLOT_KEY[gearInSlot.slot])} · ${matName(MATERIALS[gearInSlot.material].label)}`
-                                  : isToolId(slot.id)
-                                    ? `${toolLabel(slot.id)}${toolSpec ? ` · ${slot.durability ?? toolSpec.maxDurability}/${toolSpec.maxDurability || '∞'}` : ''} — ${t('dragHint')}`
-                                    : `${blockName(slot.id, BLOCKS[slot.id]?.name ?? '')} ×${slot.count} — ${t('dragHint')}`
-                              : t('emptySlot')
-                          }
+                          aria-label={details?.name ?? t('emptySlot')}
                         >
                           {slot ? (
                             slot.id === HAND ? (
@@ -799,6 +835,16 @@ export default function Inventory({
             </>
           )}
         </div>
+        {activeDetails && (
+          <ItemInfoPopup
+            details={activeDetails}
+            pinned={detailsPinned}
+            onClose={() => {
+              setPinnedDetails(null);
+              setHoveredDetails(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );

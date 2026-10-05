@@ -28,7 +28,7 @@ import {
 import { gearColor, isGearHotbarId, RARITY } from '../game/items';
 import { t } from '../game/i18n';
 import { getToolSpec } from '../game/tools';
-import { ToolSprite } from './ToolSprite';
+import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { GearIcon } from './GearIcon';
 
 const RING = 2 * Math.PI * 22;
@@ -619,7 +619,10 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
     </div>
   );
 
-  function renderSlot(slot: { id: number; count: number }, i: number) {
+  function renderSlot(slot: { id: number; count: number; durability?: number; maxDurability?: number }, i: number) {
+    const toolSpec = getToolSpec(slot.id);
+    const durability = slot.durability ?? toolSpec?.maxDurability ?? 0;
+    const maxDurability = slot.maxDurability ?? toolSpec?.maxDurability ?? 0;
     return (
             <button
               key={slot.id}
@@ -661,18 +664,29 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                     </span>
                   );
                 })()
-              ) : (getToolSpec(slot.id) || slot.id === TOOL_TORCH) ? (
+              ) : (toolSpec || slot.id === TOOL_TORCH) ? (
                 <span className="flex h-6 w-6 items-center justify-center sm:h-9 sm:w-9">
                   {slot.id === TOOL_TORCH ? (
                     <span className="anim-flicker text-xl leading-none" style={{ color: '#ffb03a' }}>
                       ⨙
                     </span>
                   ) : (
-                    <ToolSprite id={slot.id} size={24} />
+                    <ToolSprite id={slot.id} size={24} durability={durability} />
                   )}
                 </span>
               ) : (
                 <img src={getBlockIcon(slot.id)} alt="" className="pixelated h-6 w-6 sm:h-9 sm:w-9" draggable={false} />
+              )}
+              {toolSpec && maxDurability > 0 && (
+                <DurabilityBar
+                  current={durability}
+                  max={maxDurability}
+                  className="absolute bottom-[2px] left-1 right-1 h-[2px]"
+                  title={`${durability}/${maxDurability}`}
+                />
+              )}
+              {toolSpec && maxDurability <= 0 && (
+                <span className="absolute bottom-0.5 left-1 font-display text-[8px] leading-none text-[#ff8a5a]">∞</span>
               )}
               <span className="absolute bottom-0 right-0.5 font-display text-[11px] leading-none text-white text-shadow-hard sm:text-xs">
                 {slot.id === HAND || slot.id >= TOOL_PICK ? '' : slot.count}
