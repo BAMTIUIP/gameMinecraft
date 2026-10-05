@@ -506,7 +506,7 @@ export default function Inventory({
                   }}
                   className="notch flex min-w-0 flex-col gap-1 p-1"
                 >
-                  {false && (
+                  {hud.petOwnedKinds.length > 1 && (
                     <div className="flex items-center justify-center gap-1 border-b border-white/10 pb-0.5">
                       {hud.petOwnedKinds.map((kind) => (
                         <button

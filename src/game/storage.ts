@@ -40,6 +40,15 @@ function nativeStore(): Store | null {
 let backend: Store = nativeStore() ?? memoryStore;
 let sdkStorageInstalled = false;
 
+/**
+ * Writes made before `installSafeStorage()` had a chance to run. The SDK docs warn about exactly
+ * this window: "make sure `localStorage` is not used before it is overridden"
+ * (https://yandex.ru/dev/games/doc/ru/sdk/sdk-player#progress-loss). `YaGames.init()` is async, so
+ * the game boots — and saves — while it is still in flight; on a custom domain those writes land in
+ * the native `localStorage` that iOS may wipe. They are replayed into safeStorage once it arrives.
+ */
+const preSdkWrites = new Map<string, string | null>();
+
 /** true when the SDK's safeStorage (or another injected store) is in use */
 export function hasSafeStorage() {
   return sdkStorageInstalled;
@@ -54,6 +63,7 @@ export function storageGet(key: string): string | null {
 }
 
 export function storageSet(key: string, value: string): boolean {
+  if (!sdkStorageInstalled) preSdkWrites.set(key, String(value));
   try {
     backend.setItem(key, value);
     return true;
@@ -64,6 +74,7 @@ export function storageSet(key: string, value: string): boolean {
 }
 
 export function storageRemove(key: string) {
+  if (!sdkStorageInstalled) preSdkWrites.set(key, null);
   try {
     backend.removeItem(key);
   } catch {
@@ -83,10 +94,34 @@ export function storageHas(key: string): boolean {
 export function installSafeStorage(storage: Store) {
   backend = storage;
   sdkStorageInstalled = true;
+  replayPreSdkWrites();
   try {
     Object.defineProperty(window, 'localStorage', { get: () => storage, configurable: true });
   } catch {
     // some browsers make the property non-configurable: the facade still uses safeStorage,
     // only third-party code keeps the native one
+  }
+}
+
+/**
+ * Move what the game wrote before safeStorage existed into it. A key that safeStorage already
+ * knows wins: inside an uploaded archive the SDK wraps the very same `localStorage`, so replaying
+ * our value would only undo work the platform already persisted.
+ */
+function replayPreSdkWrites() {
+  if (preSdkWrites.size === 0) return;
+  for (const [key, value] of [...preSdkWrites]) {
+    preSdkWrites.delete(key);
+    let existing: string | null = null;
+    try {
+      existing = backend.getItem(key);
+    } catch {
+      existing = null;
+    }
+    if (value === null) {
+      if (existing !== null) storageRemove(key);
+      continue;
+    }
+    if (existing === null) storageSet(key, value);
   }
 }

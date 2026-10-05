@@ -102,6 +102,12 @@ export type YaPurchase = {
   productID: string;
   purchaseToken: string;
   developerPayload?: string;
+  /**
+   * Only present when the SDK was initialised with `signed: true` — then every purchase answer is
+   * `{ signature }` instead of readable data. This game handles payments on the client, so a
+   * signature-only answer means the payment happened but the reward cannot be granted from here.
+   */
+  signature?: string;
 };
 
 /** An item of the Yandex Console catalogue: the price (and its currency icon) comes from here. */
@@ -343,8 +349,9 @@ declare global {
   interface Window {
     YaGames?: {
       /**
-       * `signed: true` makes the purchase methods return encrypted data only, for server-side
-       * verification. The game has no purchases, so it keeps the default (`signed: false`).
+       * `signed: true` would make the purchase methods return encrypted `signature` data only,
+       * for server-side verification. The game checks payments on the client (there is no game
+       * server), so it keeps the documented default (`signed: false`) and reads plain data.
        */
       init: (options?: { signed?: boolean }) => Promise<YSDK>;
     };
@@ -563,23 +570,43 @@ function safeCall(label: string, run: () => void) {
   }
 }
 
+/**
+ * Requirement 2.14 (https://yandex.ru/dev/games/doc/ru/requirements/2/14): the platform language has
+ * to be known before the player sees the first screen, not after it — the 文 indicator on the debug
+ * panel must turn green during the load, not once the level has started. The engine's loading
+ * sequence therefore ends with a task that waits for this flag, so the menu never opens in the wrong
+ * language. `initYandex()` always settles (the SDK script has its own wait window and `init()` is
+ * wrapped in try/catch), so the loader cannot hang on it.
+ */
+let sdkSettled = false;
+
+/** True once `initYandex()` has settled — the platform language is known from that moment on. */
+export function yaReady(): boolean {
+  return sdkSettled;
+}
+
 export function initYandex(): Promise<YSDK | null> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    // Synchronous connection (the usual one): /sdk.js is a blocking <script> ahead of our module, so
-    // the global is already here. Asynchronous connection: wait for it, as sdk-example describes.
-    const YaGames = await waitForYaGames();
-    if (!YaGames) return null;
     try {
-      ysdk = await YaGames.init();
-    } catch (err) {
-      console.error('[Yandex SDK] YaGames.init() failed', err);
-      return null;
+      // Synchronous connection (the usual one): /sdk.js is a blocking <script> ahead of our module, so
+      // the global is already here. Asynchronous connection: wait for it, as sdk-example describes.
+      const YaGames = await waitForYaGames();
+      if (!YaGames) return null;
+      try {
+        ysdk = await YaGames.init();
+      } catch (err) {
+        console.error('[Yandex SDK] YaGames.init() failed', err);
+        return null;
+      }
+      subscribePauseResume(ysdk); // first thing after init: don't miss a platform pause
+      void applySafeStorage(ysdk); // iOS-safe localStorage, as early as possible
+      flush(); // replay what the game reported while the SDK was starting up
+      return ysdk;
+    } finally {
+      // the language and every other platform answer is now known — or known to be unavailable
+      sdkSettled = true;
     }
-    subscribePauseResume(ysdk); // first thing after init: don't miss a platform pause
-    void applySafeStorage(ysdk); // iOS-safe localStorage, as early as possible
-    flush(); // replay what the game reported while the SDK was starting up
-    return ysdk;
   })();
   return initPromise;
 }
@@ -594,7 +621,6 @@ export function yaLang(): string | null {
   return ysdk?.environment?.i18n?.lang ?? null;
 }
 
-/** `?payload=...` from the game URL, if any */
 /**
  * `ysdk.environment.referrer` — the promo deep link (https://yandex.ru/dev/games/doc/ru/sdk/sdk-environment).
  * `type` is always `promo`; `promoId` identifies the campaign, `intent` hints at the screen to open and
@@ -713,14 +739,40 @@ export async function yaExitFullscreen(): Promise<boolean> {
 /** `ysdk.clipboard.writeText(text)` (sdk-params). Returns false when the platform has no clipboard. */
 export async function yaCopyText(text: string): Promise<boolean> {
   try {
-    const write = ysdk?.clipboard?.writeText;
+    const clipboard = ysdk?.clipboard;
+    const write = clipboard?.writeText;
     if (!write) return false;
-    await write(text);
+    // called on the object, exactly as the documentation's `ysdk.clipboard.writeText(text)`
+    await write.call(clipboard, text);
     return true;
   } catch (err) {
     console.warn('[Yandex SDK] clipboard.writeText failed', err);
     return false;
   }
+}
+
+/**
+ * The engine phases the platform has to be told about. Kept as a plain union so this module does not
+ * have to import the engine (which imports this module back).
+ */
+export type YaPhase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
+
+/**
+ * Requirement 1.19: what the platform must hear for a given phase.
+ *
+ * - `ready` — `LoadingAPI.ready()`, the purple Game Ready indicator on the debug panel. It fires the
+ *   moment the player can actually do something (the menu is up), never on a timer, and never again.
+ * - `gameplay` — the green/red gamepad indicator. Green only while a run is really going.
+ *
+ * The scenarios moderation watches ([1.19.3](https://yandex.ru/dev/games/doc/ru/requirements/1/19)):
+ * level start/end, game menu open/close, purchase menu open/close, ad start/close and focus
+ * loss/return. The last three arrive as `game_api_pause` / `game_api_resume` and land on the
+ * `paused` phase, so they are covered by the same table. The inventory is deliberately *not* a stop:
+ * it is a live overlay over a running world, so the world keeps going and the indicator stays green.
+ */
+export function yaMarkupForPhase(phase: YaPhase): { ready: boolean; gameplay: boolean } {
+  if (phase === 'loading') return { ready: false, gameplay: false };
+  return { ready: true, gameplay: phase === 'playing' };
 }
 
 /**
@@ -1112,7 +1164,16 @@ export async function yaPurchase(id: string, developerPayload?: string): Promise
   if (!payments?.purchase) return null;
   try {
     const purchase = await payments.purchase(developerPayload === undefined ? { id } : { id, developerPayload });
-    if (!purchase?.purchaseToken) return null;
+    if (!purchase) return null;
+    if (!purchase.purchaseToken && typeof purchase.signature === 'string') {
+      // `signed: true`: the player has paid, but the receipt is encrypted for a server this game does
+      // not have. Never report it as a cancellation — the shop would say "отменено" about real money.
+      console.error(
+        '[Yandex SDK] purchase() answered with a signature only — payments must be initialised with `signed: false` for client-side processing',
+      );
+      throw new Error('purchase-signature-not-supported');
+    }
+    if (!purchase.purchaseToken) return null;
     return purchase;
   } catch (err) {
     // a cancelled purchase is a normal outcome, not an error state

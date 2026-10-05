@@ -178,7 +178,9 @@ ok(catalog.get(AD_FREE_PRODUCT_ID)?.label === '59 TST', 'The separate ad-free en
 ok(catalog.get('pet-wolf')?.label === '199 TST' && catalog.get('pet-wolf')?.currencyIcon === 'icon-small.png', 'The wolf price and currency icon come directly from the Yandex catalogue');
 ok(catalog.get('pet-monkey')?.label === '229 TST' && catalog.get('pet-monkey')?.currencyIcon === 'icon-small.png', 'The monkey price and currency icon also come directly from the Yandex catalogue');
 ok(!catalog.has('raw-price-only'), 'A row without the formatted SDK price is omitted');
-ok(!catalog.has('no-currency-image'), 'A row without the SDK currency image is omitted');
+// Requirement 1.13.6: an active Console SKU must be present in the game. A missing currency image is
+// decoration, not a price, so the offer stays — without it — instead of disappearing from the shop.
+ok(catalog.has('no-currency-image') && catalog.get('no-currency-image')?.currencyIcon === '', 'Товар без иконки валюты остаётся в магазине (п. 1.13.6)');
 await loadShopCatalog();
 ok(catalogCalls === 1, 'A successful catalogue response is cached');
 

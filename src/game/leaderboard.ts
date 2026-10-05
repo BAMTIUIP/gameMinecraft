@@ -17,6 +17,7 @@
 
 import { getLang, resolveLang } from './i18n';
 import {
+  yaGetLeaderboardDescription,
   yaGetLeaderboardEntries,
   yaGetLeaderboardPlayerEntry,
   yaIsAvailableMethod,
@@ -80,6 +81,8 @@ let pendingScore = 0;
 let scoreTimer: number | null = null;
 /** Shared promise: concurrent submissions must all wait for the availability check before scoring. */
 let scoreMethodAvailability: Promise<boolean> | null = null;
+/** The board's own description, fetched once. `undefined` = not asked yet, `null` = unavailable. */
+let descriptionCache: YaLeaderboardDescription | null | undefined;
 
 export function leaderboardAvailable(): boolean {
   return yaLeaderboardAvailable();
@@ -106,6 +109,24 @@ export function resetLeaderboardState() {
   lastScoreAt = 0;
   pendingScore = 0;
   scoreMethodAvailability = null;
+  descriptionCache = undefined;
+}
+
+/**
+ * The board's description from the Console, fetched at most once per session. It carries
+ * `invert_sort_order`, and that decides which result is the *better* one: the game's board is DESC
+ * (the biggest score wins), but a board configured ASC — a time, for instance — must keep the
+ * smallest value. Submitting the maximum to an ASC board would publish the player's worst run.
+ */
+async function boardDescription(): Promise<YaLeaderboardDescription | null> {
+  if (descriptionCache !== undefined) return descriptionCache;
+  descriptionCache = null;
+  try {
+    descriptionCache = await yaGetLeaderboardDescription(LEADERBOARD_NAME);
+  } catch {
+    descriptionCache = null;
+  }
+  return descriptionCache;
 }
 
 /** Leaderboard title from the Console in the player's language, with an in-game fallback. */
@@ -236,9 +257,10 @@ export async function submitLeaderboardScore(score: number, extraData?: string):
   }
   if (!(await scoreMethodAvailability)) return 'skipped';
 
+  const better = (await boardDescription())?.description?.invert_sort_order ? Math.min : Math.max;
   const wait = SCORE_INTERVAL_MS - (Date.now() - lastScoreAt);
   if (wait > 0) {
-    pendingScore = Math.max(pendingScore, rounded);
+    pendingScore = pendingScore ? better(pendingScore, rounded) : rounded;
     if (scoreTimer === null) {
       scoreTimer = window.setTimeout(() => {
         scoreTimer = null;

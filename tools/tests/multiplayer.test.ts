@@ -277,14 +277,17 @@ ok((last('multiplayer.push') as { meta1?: number })?.meta1 === 9999, 'Повто
 
 /* ------------------------------ session cap ------------------------------ */
 
-// 1501 spaced-out poses: the recorder must stop at its own cap (≈100 KB, far below the 200 KB limit)
+// 1505 spaced-out poses: the recorder must stop on its own budget. The documented ceiling for one
+// recorded session is 200 KB, and the SDK adds its own fields to every payload on top of it, so the
+// budget is checked in bytes rather than trusting a fixed number of transactions.
 for (let i = 0; i < 1_505; i++) {
   fakeNow += 2_100;
   recordPose({ x: 40 + i, y: 20, z: 30, yaw: 0, health: 90, blocks: i });
 }
 const totalCommits = count('multiplayer.commit');
-ok(totalCommits <= 1_505, 'Запись останавливается на безопасном размере сессии', `транзакций: ${totalCommits}`);
-ok(totalCommits >= 1_500, 'До лимита сессия записывается полностью', `транзакций: ${totalCommits}`);
+const payloadBytes = JSON.stringify({ x: 1, y: 1, z: 1, yaw: 1, health: 1, blocks: 1 }).length + 96;
+ok(totalCommits * payloadBytes <= 200 * 1024, 'Запись останавливается на безопасном размере сессии', `≈${Math.round((totalCommits * payloadBytes) / 1024)} КБ`);
+ok(totalCommits >= 900, 'До лимита сессия записывается полностью', `транзакций: ${totalCommits}`);
 
 /* ------------------------------- finishing ------------------------------- */
 

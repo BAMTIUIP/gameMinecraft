@@ -27,6 +27,7 @@ import {
   yaLang,
   yaMultiplayerAvailable,
   yaLoadingReady,
+  yaMarkupForPhase,
   yaOnPause,
   yaOnResume,
   yaPlatformPaused,
@@ -63,10 +64,23 @@ import { getCharacterCustomization, saveCharacterCustomization, type CharacterCu
 /** rewarded-video revive: how much breathing room it buys, and how often per run */
 const REVIVE_SECONDS = 60;
 const MAX_REVIVES_PER_RUN = 2;
-/** Temporary QA controls are deliberately visible on the test server; rendering still excludes TV devices. */
+/** Temporary QA controls (developer shop, developer kit) exist in the dev build only. */
 const SHOP_SCREENS_ENABLED = true;
-const DEVELOPER_TOOLS_ENABLED = true;
-const DEVELOPER_FPS_ENABLED = import.meta.env.DEV || new URLSearchParams(window.location.search).get('devtools') === '1';
+/**
+ * The developer shop and the developer kit are QA instruments: a grant button that hands out goods
+ * without a payment and a «выдать всё» button in the inventory. Requirement 1.14 forbids developer
+ * information on screen, and the published archive is exactly where moderation looks for it — the
+ * draft on the Console runs this same production build, so `import.meta.env.DEV` is the only gate
+ * that keeps them out of it (`npm run dev` still has them).
+ */
+const DEVELOPER_TOOLS_ENABLED = import.meta.env.DEV;
+/**
+ * The FPS overlay is a development instrument and exists in the dev build only (requirement 1.14:
+ * «игра не содержит технических надписей»). It used to be switchable on with `?devtools=1`, which
+ * also worked in the published archive — any link carrying that parameter, a moderation tool or a
+ * curious player would get a debug panel over the game.
+ */
+const DEVELOPER_FPS_ENABLED = import.meta.env.DEV;
 setDeveloperShopEnabled(DEVELOPER_TOOLS_ENABLED && !tvMode());
 
 /** Adapter from the co-op module to the running engine: three.js stays inside the engine. */
@@ -538,8 +552,10 @@ export default function App() {
   // so opening/crafting/closing it must not stop the session; changing camera perspective is phase-neutral too.
   // Platform/system pauses still switch the phase to 'paused' and stop gameplay until the platform resumes.
   useEffect(() => {
-    if (hud.phase !== 'loading') yaLoadingReady();
-    if (hud.phase === 'playing') yaGameplayStart();
+    // Requirement 1.19: Game Ready follows real readiness, the gamepad indicator follows the phase.
+    const markup = yaMarkupForPhase(hud.phase);
+    if (markup.ready) yaLoadingReady();
+    if (markup.gameplay) yaGameplayStart();
     else yaGameplayStop();
   }, [hud.phase]);
 

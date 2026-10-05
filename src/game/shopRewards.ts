@@ -3,6 +3,7 @@
 import { markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
 import { storageGet, storageSet } from './storage';
 import { MONKEY_PET_PRODUCT_ID, WOLF_PET_PRODUCT_ID } from './pets';
+import { yaServerTime } from './yandex';
 
 /** Paid catalogue SKUs; pets are permanent entitlements, the remaining products are consumable rewards. */
 const CONSUMABLE_SHOP_PRODUCT_IDS = [
@@ -95,7 +96,9 @@ export function queueShopReward(productId: string): string | null {
   let id: string;
   do {
     receiptSequence += 1;
-    id = `${Date.now().toString(36)}-${receiptSequence.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    // Trusted time, not the device clock: the id is persisted to the cloud and merged between
+    // devices, and a skewed local clock would stamp the receipt with a moment that never happened.
+    id = `${yaServerTime().toString(36)}-${receiptSequence.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   } while (current.pending.some((entry) => entry.id === id) || current.delivered.includes(id));
   const next: ShopRewardState = {
     pending: [...current.pending, { id, productId }],

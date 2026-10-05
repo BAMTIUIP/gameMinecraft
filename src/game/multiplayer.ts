@@ -14,7 +14,7 @@
  *    without them the SDK is initialised "for recording only";
  *  - `push()` needs at least one meta parameter, so the finished shift publishes score, depth and blocks;
  *  - one recorded session is limited to **200 KB**, so commits are sparse (≥2 s apart, and stops at
- *    MAX_COMMITS) — a 20-minute shift stays around 60 KB;
+ *    MAX_SESSION_BYTES) — a 20-minute shift stays around 160 KB, under the documented 200 KB;
  *  - start / pause of the replay follow `GameplayAPI.start()/stop()`, which the game already drives.
  *
  * Outside Yandex Games there is nobody to replay, so the squad is filled with local teammates. On
@@ -43,8 +43,15 @@ export const MAX_SQUAD = 5;
 const RECORD_INTERVAL_MS = 2_000;
 /** ...but a big change (blocks mined, a long fall) is worth a transaction sooner than that. */
 const MIN_RECORD_GAP_MS = 800;
-/** ~70 bytes per transaction → 1500 commits stay far below the documented 200 KB per session. */
 const MAX_COMMITS = 1_500;
+/**
+ * The documented ceiling for one recorded session is 200 KB. Every transaction also carries the
+ * `id` and `time` the SDK adds on top of the payload, so the budget is measured in real bytes with
+ * headroom for that overhead instead of trusting a fixed commit count.
+ */
+const MAX_SESSION_BYTES = 160 * 1024;
+/** Bytes the SDK itself adds per transaction (id, time, framing). */
+const TRANSACTION_OVERHEAD_BYTES = 96;
 /** A shift this short is not worth replaying for anyone else. */
 const MIN_COMMITS_TO_PUSH = 2;
 
@@ -89,6 +96,8 @@ type ActiveRound = {
   bots: BotState[];
   online: boolean;
   commits: number;
+  /** approximate size of the recorded timeline, including SDK overhead */
+  bytes: number;
   lastCommitAt: number;
   lastPayloadKey: string;
   pushedCommits: number;
@@ -150,6 +159,7 @@ export async function startCoopRound(sink: CoopSink): Promise<SquadMember[]> {
     bots: [],
     online: false,
     commits: 0,
+    bytes: 0,
     lastCommitAt: 0,
     lastPayloadKey: '',
     pushedCommits: 0,
@@ -268,6 +278,15 @@ type TimelinePayload = { x: number; y: number; z: number; yaw: number; health: n
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
+/** Size one committed transaction adds to the timeline (payload plus the SDK's own fields). */
+function approxTransactionBytes(payload: TimelinePayload): number {
+  try {
+    return JSON.stringify(payload).length + TRANSACTION_OVERHEAD_BYTES;
+  } catch {
+    return TRANSACTION_OVERHEAD_BYTES;
+  }
+}
+
 function posePayload(pose: PlayerPose): TimelinePayload {
   return {
     x: round2(pose.x),
@@ -293,15 +312,16 @@ export function recordPose(pose: PlayerPose) {
   const elapsed = now - round.lastCommitAt;
   if (!changed && elapsed < RECORD_INTERVAL_MS) return;
   if (elapsed < (changed ? MIN_RECORD_GAP_MS : RECORD_INTERVAL_MS)) return;
-  if (round.commits >= MAX_COMMITS) {
+  if (round.commits >= MAX_COMMITS || round.bytes >= MAX_SESSION_BYTES) {
     if (!round.warnedFull) {
       round.warnedFull = true;
-      console.warn('[multiplayer] timeline is full, the rest of the shift is not recorded');
+      console.warn('[multiplayer] timeline reached the documented session limit, the rest of the shift is not recorded');
     }
     return;
   }
   if (!yaMultiplayerCommit(payload)) return;
   round.commits += 1;
+  round.bytes += approxTransactionBytes(payload);
   round.lastCommitAt = now;
   round.lastPayloadKey = key;
 }

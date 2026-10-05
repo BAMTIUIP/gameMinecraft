@@ -1,4 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Space+Grotesk:wght@400..700&display=swap');
+/*
+ * Web fonts are loaded from index.html as a non-blocking stylesheet, not with `@import` here.
+ *
+ * A CSS `@import` is render-blocking: the browser will not paint anything until the imported
+ * stylesheet arrives, so a slow or unreachable fonts.googleapis.com delays the first frame of the
+ * game — requirement 1.14 rejects a game that «does not load» or «loads only after a click». Loaded
+ * from `<link media="print" onload="this.media='all'">` the sheet never blocks the paint, and the
+ * fallback stack below (ui-monospace / system-ui) covers the game until it arrives or if it never
+ * does. Both hosts still have to be declared on the CSP tab of the draft.
+ */
 @import 'tailwindcss';
 
 @theme {

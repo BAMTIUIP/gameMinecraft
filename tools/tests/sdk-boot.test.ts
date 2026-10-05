@@ -113,7 +113,7 @@ function ok(condition: boolean, label: string, detail = '') {
   else failures.push(detail ? `${label} → ${detail}` : label);
 }
 
-const { initYandex, yaOnMultiplayer } = await import('../../src/game/yandex');
+const { initYandex, yaOnMultiplayer, yaReady } = await import('../../src/game/yandex');
 const { showFullscreenAd, showRewardedAd } = await import('../../src/game/ads');
 const { loadFlags } = await import('../../src/game/flags');
 const { getTotals } = await import('../../src/game/profile');
@@ -122,7 +122,10 @@ const { getTotals } = await import('../../src/game/profile');
 sdkDelayMs = 400;
 setTimeout(installSdk, sdkDelayMs);
 const startedAt = Date.now();
+ok(yaReady() === false, 'Дораждения SDK игра ещё не считает платформу готовой (2.14)');
 const sdk = await initYandex();
+ok(yaReady() === true, 'После init() флаг yaReady() поднят — язык платформы известен (2.14)');
+ok(yaReady() === true, 'Повторный initYandex() не сбрасывает флаг готовности');
 const waited = Date.now() - startedAt;
 ok(!!sdk, 'Асинхронное подключение: игра дождалась SDK, появившегося позже', String(waited));
 ok(waited >= 300, 'Ожидание действительно было (не мгновенный отказ)', `${waited} ms`);

@@ -524,6 +524,22 @@ async function scenarioProgress() {
 
   // ===================== 8. restart from the results screen → fullscreen ad =====================
   const gameplayStartsBeforeRestart = game.count(await game.calls(), 'GameplayAPI.start');
+  // Requirement 4.4: the gap between the action that causes an ad and the ad itself may not exceed two
+  // seconds. Record the click in the page's own clock so it can be compared with the timestamp the
+  // mock puts on every SDK call.
+  await game.page.evaluate(() => {
+    window.__adTriggerAt = null;
+    document.addEventListener(
+      'click',
+      (e) => {
+        const button = (e.target)?.closest('button');
+        if (button && /ЕЩЁ РАЗ|MINE AGAIN|NOCHMAL|REJOUER/i.test(button.textContent ?? '')) {
+          window.__adTriggerAt = performance.now();
+        }
+      },
+      { once: true, capture: true },
+    );
+  });
   const restartClicked = await game.clickByText(/ЕЩЁ РАЗ|MINE AGAIN|NOCHMAL|REJOUER/);
   const fullscreenCall = (await game.calls()).filter((c) => c.name === 'adv.showFullscreenAdv').at(-1)?.arg;
   check(
@@ -539,6 +555,16 @@ async function scenarioProgress() {
     10_000,
   );
   check(restartClicked && fullscreenShown, 'Полноэкранная реклама вызвана действием игрока (кнопка «Заново»)');
+  const adDelayMs = await game.page.evaluate(() => {
+    const trigger = window.__adTriggerAt;
+    const call = (window.__yaCalls ?? []).filter((c) => c.name === 'adv.showFullscreenAdv').at(-1);
+    return trigger !== null && call ? call.t - trigger : null;
+  });
+  check(
+    adDelayMs !== null && adDelayMs >= 0 && adDelayMs <= 2000,
+    'Реклама начинается не позже 2 секунд после действия игрока (пункт 4.4)',
+    adDelayMs === null ? 'нет данных о клике или о вызове' : `${Math.round(adDelayMs)} мс`,
+  );
   const restarted = await game.waitFor(
     'Новый забег начался после рекламы',
     (before) => (window.__yaCalls ?? []).filter((c) => c.name === 'GameplayAPI.start').length > before
@@ -1311,12 +1337,15 @@ async function scenarioShop() {
     10_000,
   );
   check(petTokenShown, 'После покупки и старта любого режима в инвентаре появляется жетон питомца и его отдельный слот');
+  // the picker only exists for a player who owns several pets; what matters before the wolf-only
+  // checks below is that the slot is showing the wolf
   const wolfSelected = await game.page.evaluate(() => {
     const selector = document.querySelector('[data-pet-select="wolf"]');
     selector?.click();
-    return Boolean(selector);
+    const slot = document.querySelector('[data-pet-slot]');
+    return slot?.getAttribute('data-pet-kind') === 'wolf';
   });
-  check(wolfSelected, 'Перед wolf-only проверкой явно выбран вид «волк»');
+  check(wolfSelected, 'Перед wolf-only проверкой на экране выбран вид «волк»');
   const petEquipClicked = await game.page.evaluate(() => {
     const token = document.querySelector('[data-pet-resource="wolf"]');
     token?.click();
@@ -1713,21 +1742,25 @@ async function scenarioDevice() {
     });
   const beforeRotate = await canvasOf();
   await mobile.page.setViewport({ width: 740, height: 360 }); // a rotation is a resize, not a reload
-  // the engine redraws on `resize`: wait for the canvas to actually take the new width
+  // the engine redraws on `resize`: wait for the canvas box to actually take the new width. The
+  // backing store is deliberately smaller than that box on phones — the renderer drops below the
+  // device pixel ratio to protect the frame time — so the box is what must follow the window.
   const resized = await mobile.waitFor(
     'canvas под новый размер',
     (target) => {
       const el = document.querySelector('canvas');
-      return !!el && Math.abs(el.width - target * (window.devicePixelRatio || 1)) <= 1;
+      return !!el && Math.abs(el.clientWidth - target) <= 1;
     },
     10_000,
     740,
   );
   const afterRotate = await canvasOf();
+  // the backing store must stay a uniform scale of the box, inside the range the engine allows
+  const renderScale = afterRotate && afterRotate.w ? afterRotate.attrW / afterRotate.w : 0;
   check(
-    resized && !!afterRotate && Math.abs(afterRotate.attrW - Math.round(afterRotate.w * afterRotate.dpr)) <= 1,
+    resized && !!afterRotate && renderScale > 0.4 && renderScale <= 1.35 && Math.abs(afterRotate.attrH / afterRotate.h - renderScale) <= 0.02,
     'Поворот экрана перестраивает canvas под новую ширину',
-    JSON.stringify({ beforeRotate, afterRotate }),
+    JSON.stringify({ renderScale: Number(renderScale.toFixed(3)), beforeRotate, afterRotate }),
   );
   check(!!afterRotate && !!beforeRotate && afterRotate.attrW < beforeRotate.attrW, 'После поворота картинка стала под новое, более узкое окно', `${beforeRotate?.attrW} → ${afterRotate?.attrW}`);
   const stillInRun = /ПАУЗА|PAUSED|ПРОДОЛЖИТЬ|RESUME/.test(afterRotate.text) || !/НАЧАТЬ ДОБЫЧУ|MINE NOW/.test(afterRotate.text);
@@ -1870,6 +1903,11 @@ const LAYOUT_VIEWPORTS = [
   { name: 'ноутбук 1366×768', width: 1366, height: 768 },
   { name: 'монитор 1280×1024', width: 1280, height: 1024 },
   { name: 'телевизор 1920×1080', width: 1920, height: 1080 },
+  // the rest of the set the moderation page ships as PNG overlays (п. 1.10): the smallest phone in
+  // the list, an ultrawide and a 4K panel
+  { name: 'малый телефон 320×568', width: 320, height: 568 },
+  { name: 'ультраширокий 2560×1080', width: 2560, height: 1080 },
+  { name: '4K 3840×2160', width: 3840, height: 2160 },
 ];
 
 /**
@@ -2006,6 +2044,27 @@ async function layoutReport(page) {
 }
 
 /**
+ * The FitBox re-measures itself on the next frame and once more after the layout dust settles
+ * (`src/ui/FitBox.tsx`); on a loaded machine that can take a few hundred milliseconds, and until it
+ * happens the reported scale is the stale one — which reads as «1», i.e. «nothing to shrink».
+ * Measuring then reports every row below the fold as cut off. Wait for the invariant the FitBox
+ * maintains instead of guessing a delay: the scaled content fits its box.
+ */
+async function settleFit(page) {
+  for (let i = 0; i < 60; i += 1) {
+    const fits = await page.evaluate(() => {
+      const outer = document.querySelector('[data-fit-outer]');
+      const inner = document.querySelector('[data-fit-inner]');
+      if (!outer || !inner) return true;
+      const scale = Number(outer.getAttribute('data-fit-scale') ?? 1);
+      return Math.ceil(inner.scrollHeight * scale) <= outer.clientHeight + 1;
+    });
+    if (fits) return;
+    await wait(100);
+  }
+}
+
+/**
  * Requirement 1.10: the game is resized along both axes, and at every size nothing important may be
  * cut off or overlapped, the page must not gain a scrollbar, and a swipe must not refresh it. The menu
  * is measured at every size; the in-run HUD — at the two smallest ones, where space is tightest.
@@ -2090,7 +2149,7 @@ async function scenarioLayout() {
   let swipeChecked = false;
   for (const vp of LAYOUT_VIEWPORTS) {
     await game.page.setViewport({ width: vp.width, height: vp.height });
-    await wait(400);
+    await settleFit(game.page);
     if (process.env.SDK_CHECK_DEBUG) {
       await game.page.evaluate(() => {
         window.__layoutDebug = true;
@@ -2255,6 +2314,64 @@ async function scenarioAsyncSdk() {
  *
  * `SHOTS_LANG=ru|en|fr|de` and `SHOTS_DIR` override the interface language and the output folder.
  */
+/**
+ * Requirement 5.1.1.2 is about the pictures that go to the Console: the real gameplay must occupy at
+ * least 70% of a promo image, and the rest has to be filled with things that belong to the game. Those
+ * images are chosen by hand in the Console, so what is verified here is the part that can be measured
+ * on the files this repo produces — that a frame is a real capture and not a blank one.
+ *
+ * A sampled pixel counts as «flat» only when the whole 6×6 block around it is *exactly* its colour.
+ * A tolerance of even two steps stops measuring «empty background» and starts measuring the game's own
+ * smooth gradients — the pause overlay alone is 80% gradient, and calling that a violation would say
+ * nothing about the material. With no tolerance at all, a black screen, a half-loaded frame or a
+ * placeholder shows up immediately (they are nearly 100% flat) while a live frame stays in single digits.
+ */
+async function backgroundShare(page, file) {
+  const base64 = readFileSync(file).toString('base64');
+  return page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(image, 0, 0);
+    const { data: pixels, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const at = (x, y) => (y * width + x) * 4;
+    const step = 3;
+    const radius = 3;
+    const tolerance = 0; // exactly one colour: a blank frame, not the game's own gradients
+    let sampled = 0;
+    let background = 0;
+    for (let y = radius; y < height - radius; y += step) {
+      for (let x = radius; x < width - radius; x += step) {
+        const i = at(x, y);
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        let flat = true;
+        for (let dy = -radius; dy <= radius && flat; dy += 1) {
+          for (let dx = -radius; dx <= radius; dx += 1) {
+            const j = at(x + dx, y + dy);
+            if (
+              Math.abs(pixels[j] - r) > tolerance ||
+              Math.abs(pixels[j + 1] - g) > tolerance ||
+              Math.abs(pixels[j + 2] - b) > tolerance
+            ) {
+              flat = false;
+              break;
+            }
+          }
+        }
+        sampled += 1;
+        if (flat) background += 1;
+      }
+    }
+    return { width, height, share: background / Math.max(1, sampled) };
+  }, base64);
+}
+
 async function scenarioScreenshots() {
   const outDir = process.env.SHOTS_DIR ?? path.join(process.cwd(), 'docs', 'shots');
   mkdirSync(outDir, { recursive: true });
@@ -2263,6 +2380,16 @@ async function scenarioScreenshots() {
     await game.page.screenshot({ path: file });
     const size = existsSync(file) ? statSync(file).size : 0;
     check(size > 20_000, label, `${name}.png ${Math.round(size / 1024)} КБ`);
+    // Requirement 5.1.1.2 is about what the picture is made of, so measure the produced file rather
+    // than trusting that a full-window capture is automatically «70% gameplay».
+    if (size > 0) {
+      const measured = await backgroundShare(game.page, file);
+      check(
+        measured.share <= 0.3,
+        `Кадр ${name} — живой кадр, а не пустая заливка (пункт 5.1.1.2)`,
+        `ровный фон ${Math.round(measured.share * 100)}% из ${measured.width}×${measured.height}`,
+      );
+    }
   };
 
   const game = await openGame({
@@ -2278,6 +2405,21 @@ async function scenarioScreenshots() {
 
   const menu = await game.waitFor('Меню для скриншотов', (label) => (document.body.innerText ?? '').includes(label), 60_000, play);
   check(menu, 'Игра открылась для съёмки скриншотов');
+  // Requirement 8.3.4: a media material may not carry the system interface or the Yandex Games
+  // interface — the header, badges, the rating, the debug panel. A frame captured in a headless browser
+  // from dist/ with a mocked SDK has none of that by construction; this pins it down, so that turning
+  // on the visual ad-preview mock (which draws a fake ad card over the game) or adding a debug overlay
+  // cannot quietly end up inside a promo image.
+  const chromeFree = await game.page.evaluate(() => ({
+    outside: [...document.body.children].filter((el) => el.id !== 'root').map((el) => el.tagName + (el.id ? `#${el.id}` : '')),
+    adPreview: document.querySelectorAll('[data-yandex-ad-preview]').length,
+    visualMock: window.__yaVisualAdMock === true,
+  }));
+  check(
+    chromeFree.outside.length === 0 && chromeFree.adPreview === 0 && !chromeFree.visualMock,
+    'Кадры снимаются с чистой страницы: никакого интерфейса платформы и отладочной панели (пункт 8.3.4)',
+    JSON.stringify(chromeFree),
+  );
   await wait(800);
   await shot('01-menu', 'Скриншот главного меню сохранён');
 

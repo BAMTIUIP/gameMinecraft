@@ -1,5 +1,5 @@
 /** Incremental world/chunk work must produce the same deterministic result as the sync helpers. */
-import { SEA, SURFACE_MESH_MIN_Y, World } from '../../src/game/world';
+import { SEA, SURFACE_MESH_MIN_Y, World, WY } from '../../src/game/world';
 import { buildChunkGeometry, buildChunkGeometrySteps } from '../../src/game/mesher';
 
 let passed = 0;
@@ -73,7 +73,11 @@ for (let i = 0; i < upgraded.blocks.length; i++) {
 }
 ok(sameUpgradedTerrain, 'Preview-to-full upgrade produces the same complete deterministic terrain');
 
-const sliced = buildChunkGeometrySteps(stepped, 0, 0, 1024, 240, 360);
+// A vertical band inside the world: half the height up to the ceiling. (The band used to be
+// 240..360, which stopped covering anything once the world height became 210 — the generator then
+// produced no work at all and this suite failed.)
+const bandMinY = Math.floor(WY / 2);
+const sliced = buildChunkGeometrySteps(stepped, 0, 0, 1024, bandMinY, WY);
 let sliceCount = 0;
 let meshResult = sliced.next();
 while (!meshResult.done && sliceCount < 1000) {

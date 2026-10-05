@@ -18,7 +18,7 @@ import {
 } from './shopRewards';
 import { tvDevice } from './params';
 import { hasPet, MONKEY_PET_PRODUCT_ID, unlockPet, WOLF_PET_PRODUCT_ID } from './pets';
-import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase } from './yandex';
+import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase, type YaPurchase } from './yandex';
 
 export { AD_FREE_PRODUCT_ID, SHOP_PRODUCT_IDS };
 
@@ -65,14 +65,17 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
       const label = typeof product?.price === 'string' ? product.price.trim() : '';
       if (!product?.id || !label) continue;
 
-      let currencyIcon: string | null = null;
+      let currencyIcon = '';
       try {
         const image = product.getPriceCurrencyImage?.('small');
-        currencyIcon = typeof image === 'string' && image.trim() ? image.trim() : null;
+        currencyIcon = typeof image === 'string' ? image.trim() : '';
       } catch {
-        currencyIcon = null;
+        currencyIcon = '';
       }
-      if (!currencyIcon) continue;
+      // Requirement 1.13.6: an active Console SKU has to be in the game. A missing currency image is
+      // not a reason to drop the offer — the formatted price already names the currency (1.13.2), the
+      // icon is only decoration. Offers without a formatted price stay out: showing a guessed price
+      // would be worse than showing nothing.
       catalog.set(product.id, { label, currencyIcon, fromCatalog: true });
     }
 
@@ -94,6 +97,21 @@ export async function loadShopCatalog(): Promise<ShopCatalog> {
 export function resetShopCatalog() {
   catalogCache = null;
   catalogPromise = null;
+}
+
+/**
+ * `payments.purchase()` resolves for a cancelled payment too, so it never throws on its own. The one
+ * case where it must throw is a signature-only answer (`signed: true`): the player has paid, but the
+ * encrypted receipt can only be processed on a server this game does not have. Reported as `failed`
+ * — never as `cancelled`, which would call a real payment a cancellation.
+ */
+async function purchaseOrFail(id: string, developerPayload: string): Promise<YaPurchase | null> {
+  try {
+    return await yaPurchase(id, developerPayload);
+  } catch (err) {
+    console.error('[shop] purchase could not be processed on the client', err);
+    return null;
+  }
 }
 
 type SettlementResult = {
@@ -180,7 +198,7 @@ export async function buyShopProduct(productId: string): Promise<ShopItemBuyResu
   const catalog = await loadShopCatalog();
   if (!catalog.has(productId)) return { ok: false, productId, reason: 'unavailable' };
 
-  const purchase = await yaPurchase(productId, JSON.stringify({ source: 'shop-item', v: 2 }));
+  const purchase = await purchaseOrFail(productId, JSON.stringify({ source: 'shop-item', v: 2 }));
   if (!purchase) return { ok: false, productId, reason: 'cancelled' };
   if (purchase.productID !== productId) {
     // Do not consume an unexpected receipt. If it is a supported SKU, the startup restore path will
@@ -210,7 +228,7 @@ export async function buyAdFree(): Promise<AdFreeBuyResult> {
   const catalog = await loadShopCatalog();
   if (!catalog.has(AD_FREE_PRODUCT_ID)) return { ok: false, reason: 'unavailable' };
 
-  const purchase = await yaPurchase(AD_FREE_PRODUCT_ID, JSON.stringify({ source: 'ad-free', v: 1 }));
+  const purchase = await purchaseOrFail(AD_FREE_PRODUCT_ID, JSON.stringify({ source: 'ad-free', v: 1 }));
   if (!purchase) return { ok: false, reason: 'cancelled' };
   if (purchase.productID !== AD_FREE_PRODUCT_ID) {
     console.warn('[shop] ad-free purchase returned a different product id', purchase.productID);

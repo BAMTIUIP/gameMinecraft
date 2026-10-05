@@ -18,7 +18,7 @@
  */
 
 import { SHOP_PRODUCT_IDS } from './shopRewards';
-import { yaReferrer } from './yandex';
+import { yaPayload, yaReferrer } from './yandex';
 
 export type PromoEntry = {
   promoId: string;
@@ -79,4 +79,17 @@ export function promoClientFeature(): { name: string; value: string } | null {
   const entry = promoEntry();
   if (!entry) return null;
   return { name: 'promoId', value: entry.promoId };
+}
+
+/**
+ * `clientFeatures` entry for `ysdk.environment.payload` — the free-form `?payload=` parameter of a
+ * hand-made campaign link. The documentation describes it as the manual counterpart of the promo
+ * deeplink, so it reaches the remote config the same way and the Console can target flags at it.
+ * A very long value is dropped: it would only bloat the request.
+ */
+export function payloadClientFeature(): { name: string; value: string } | null {
+  const payload = yaPayload();
+  if (!payload) return null;
+  const value = payload.trim().slice(0, 64);
+  return value ? { name: 'payload', value } : null;
 }

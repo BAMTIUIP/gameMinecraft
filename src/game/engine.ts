@@ -195,7 +195,7 @@ import {
   type Stats,
 } from './items';
 import { blockName, matName, pickaxeLabel, recipeText, toolLabelForId, t, type TKey } from './i18n';
-import { yaServerTime } from './yandex';
+import { yaReady, yaServerTime } from './yandex';
 import { deviceKind } from './params';
 import { isDeveloperShopEnabled } from './devShop';
 import { getDeveloperCatalog } from './devCatalog';
@@ -1640,8 +1640,7 @@ export class Engine {
 
   // ================= SETUP =================
   mount() {
-    const w = this.container.clientWidth || window.innerWidth;
-    const h = this.container.clientHeight || window.innerHeight;
+    const { w, h } = this.viewportSize();
     const coarseDevice = this.isCoarse();
     // Rendering at DPR 2 costs roughly four times as many pixels as DPR 1; favour frame time on phones.
     // Start near native resolution instead of a costly 1.5x supersample; quality rises only after
@@ -3425,6 +3424,13 @@ if (tpClipActive > 0.5) {
       const cz = c0z + dz;
       this.loadTasks.push(this.createChunkMeshTask(cx, cz));
     }
+    // Requirement 2.14: the platform language is read from the SDK at startup, so the first screen
+    // must not appear before the SDK has settled — otherwise the menu opens in the browser's language
+    // and then flips, which is exactly what the 文 indicator on the debug panel rejects. The SDK
+    // always settles; the deadline is only a belt against a pathological platform, and past it the
+    // documented «small delay while loading» applies.
+    const sdkWaitStarted = performance.now();
+    this.loadTasks.push(() => yaReady() || performance.now() - sdkWaitStarted > Engine.SDK_SETTLE_TIMEOUT_MS);
     this.loadTotal = this.loadTasks.length;
     this.menuWorldStreaming = true;
     this.phase = 'loading';
@@ -3640,6 +3646,7 @@ if (tpClipActive > 0.5) {
   private activeStreamKey: number | null = null;
 
   private markDirtyAt(x: number, z: number) {
+    this.worldChangedAt = performance.now();
     const cx = Math.floor(x / CHUNK);
     const cz = Math.floor(z / CHUNK);
     const lx = x - cx * CHUNK;
@@ -4132,6 +4139,30 @@ if (tpClipActive > 0.5) {
     return this.collides(x, this.pos.y, z, this.crawling, this.yaw) && !this.collides(x, this.pos.y + 1.05, z, this.crawling, this.yaw);
   }
 
+  /**
+   * Is the way ahead too tall for a single jump, but the player's own column free to rise?
+   * That is the two-block-deep pit: without an automatic jump the remote has no key for it at all,
+   * and the run would be over (requirement 1.6.3 — arrows alone must be enough to finish the game).
+   * A ceiling right above the head still stops the jump, so the player never bonks into stone.
+   */
+  private tvClimbAhead(): boolean {
+    const dirX = -Math.sin(this.yaw);
+    const dirZ = -Math.cos(this.yaw);
+    const x = this.pos.x + dirX * 0.6;
+    const z = this.pos.z + dirZ * 0.6;
+    const ahead = this.collides(x, this.pos.y, z, this.crawling, this.yaw) || this.collides(x, this.pos.y + 1.05, z, this.crawling, this.yaw);
+    if (!ahead) return false;
+    return !this.collides(this.pos.x, this.pos.y + 2.05, this.pos.z, this.crawling, this.yaw);
+  }
+
+  /**
+   * On a TV the remote sends one press at a time, so the game jumps by itself while the player
+   * walks forward: over a one-block step, and out of a pit whose walls leave room to rise.
+   */
+  private tvAutoJump(): boolean {
+    return this.tvStepAhead() || this.tvClimbAhead();
+  }
+
   private onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.mining = false;
     if (e.button === 2 || e.button === 1) this.placing = false;
@@ -4200,9 +4231,24 @@ if (tpClipActive > 0.5) {
     this.selectSlot((this.selected + dir + 10) % 10);
   };
   private onContext = (e: Event) => e.preventDefault();
+  /**
+   * A usable pixel size for the renderer.
+   *
+   * Requirement 1.14 lists «перестаёт отвечать после сворачивания браузера» and «при изменении
+   * размера» among the reasons a game is taken down. A minimised window, a hidden tab or a container
+   * collapsed by an overlay reports `clientWidth === 0`, and `0 || window.innerWidth` used to fall
+   * through to `0` as well — then `aspect = 0 / 0` is `NaN`, `updateProjectionMatrix()` writes it into
+   * the projection matrix and the frame renders nothing at all. The next real resize fixed it, but a
+   * player who came back to a black canvas had already reloaded the game. One pixel is enough to keep
+   * the matrix finite; the following resize restores the true size.
+   */
+  private viewportSize(): { w: number; h: number } {
+    const w = Math.max(1, this.container.clientWidth || window.innerWidth || 1);
+    const h = Math.max(1, this.container.clientHeight || window.innerHeight || 1);
+    return { w, h };
+  }
   private onResize = () => {
-    const w = this.container.clientWidth || window.innerWidth;
-    const h = this.container.clientHeight || window.innerHeight;
+    const { w, h } = this.viewportSize();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.hudCamera.aspect = w / h;
@@ -4468,6 +4514,15 @@ if (tpClipActive > 0.5) {
   sandbox = false;
   private endlessRun = false;
   private static SAVE_KEY = 'orerush.myworld.v1';
+  /**
+   * How long the loader waits for the SDK before showing the first screen anyway (requirement 2.14:
+   * the platform language must be known at startup). `YaGames.init()` answers in milliseconds; this
+   * only guards against a platform that never settles, where the documented «small delay while
+   * loading» is the better outcome than a loader that never ends.
+   */
+  private static SDK_SETTLE_TIMEOUT_MS = 4_000;
+  /** How long after the last terrain edit the sandbox is written to storage (requirement 1.9). */
+  private static WORLD_AUTOSAVE_DELAY = 1_500;
 
   static hasSavedWorld(): boolean {
     try {
@@ -4504,7 +4559,20 @@ if (tpClipActive > 0.5) {
    * automatic save taken when the page is being hidden or left (requirement 1.9: a refresh must not
    * lose the built world) — it keeps quiet, because the player is no longer looking at the game.
    */
+  /**
+   * Requirement 1.9: «прогресс сохраняется сразу после действия игрока». Mining and building are the
+   * player's actions in a sandbox, so the world is stored a moment after the last edit instead of
+   * waiting for the page to be hidden — a killed tab or a crashed browser must not undo the shift.
+   */
+  private worldChangedAt = 0;
+
+  /** Is the sandbox due for its delayed autosave? (requirement 1.9) */
+  private worldAutosaveDue(now: number): boolean {
+    return this.sandbox === true && this.worldChangedAt > 0 && now - this.worldChangedAt > Engine.WORLD_AUTOSAVE_DELAY;
+  }
+
   saveWorld(silent = false): boolean {
+    this.worldChangedAt = 0;
     try {
       const chunks: Array<[number, number, number[], number[]]> = [];
       for (const [key, ch] of this.world.chunks) {
@@ -5234,6 +5302,10 @@ if (tpClipActive > 0.5) {
     this.time += dt;
     this.frameNo++;
 
+    // Store the sandbox shortly after the player stops editing it (requirement 1.9). Silent: the
+    // player is still building, and a banner over the crosshair would only be in the way.
+    if (this.worldAutosaveDue(t)) this.saveWorld(true);
+
     // Track real frame gaps for quality decisions; keep simulation dt capped after stalls.
     this.fpsAcc += Math.min(elapsed, 0.5);
     this.fpsFrames++;
@@ -5689,7 +5761,7 @@ if (tpClipActive > 0.5) {
     // jump — with coyote time so edge-of-a-ledge jumps still feel fair. On a TV a single-block step
     // is climbed automatically while walking forward: a remote sends one press at a time and the
     // player should not have to fight the terrain with it.
-    const autoStep = this.tv && fz > 0.1 && this.onGround && this.tvStepAhead();
+    const autoStep = this.tv && fz > 0.1 && this.onGround && this.tvAutoJump();
     const jumpHeld = (k['Space'] || this.touchJump || autoStep) && !this.crouching && !this.crawling;
     if (jumpHeld && !wasInWater && (this.onGround || this.coyote > 0)) {
       this.vel.y = JUMP_V;
@@ -10393,6 +10465,8 @@ if (tpClipActive > 0.5) {
     critMultiplier?: number;
     /** true = shot by a skeleton archer, hurts the player */
     hostile?: boolean;
+    /** which arrow item was spent on the shot (ARROW_ITEM when nothing was equipped) */
+    arrowId?: number | null;
   }> = [];
   private arrowGeo: THREE.BoxGeometry | null = null;
   private arrowMat = new THREE.MeshBasicMaterial({ color: 0xd9cba8 });
@@ -10497,11 +10571,12 @@ if (tpClipActive > 0.5) {
             this.burst(a.x, a.y, a.z, [200, 190, 160], 3, 1.2);
             if (Math.random() < 0.8) {
               const speed = Math.hypot(a.vx, a.vy, a.vz) || 1;
+              // the arrow falls back out of the block, so it can be picked up again
               this.spawnDrop(
                 a.x - (a.vx / speed) * 0.35,
                 a.y - (a.vy / speed) * 0.35 + 0.15,
                 a.z - (a.vz / speed) * 0.35,
-                ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW,
+                a.arrowId ?? ARROW_ITEM,
               );
             }
             dead = true;
@@ -11542,7 +11617,7 @@ if (tpClipActive > 0.5) {
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
       const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
       const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
-      if (craftedPickaxe || craftedRecipe || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
+      if (craftedPickaxe || craftedRecipe || craftedRecipeVariant || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();
   }

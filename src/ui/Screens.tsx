@@ -8,6 +8,7 @@ import type { YaProfile } from '../game/yandex';
 import type { LeaderboardView } from '../game/leaderboard';
 
 import { FitBox } from './FitBox';
+import { GAME_NAME_LINES } from '../game/brand';
 import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
 import { developerShopClaims } from '../game/devShop';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
@@ -731,16 +732,22 @@ export function StartScreen({
               <span className="h-px w-7 bg-torch/60 sm:w-10" />
             </div>
 
+            {/* The name itself comes from GAME_NAME (requirement 5.1.3): it is never translated and
+                never typed twice, so it cannot drift from the draft's name field. */}
             <h1 className="menu-title font-display leading-[0.8]">
-              <span className="block text-[clamp(3.4rem,10vw,7.5rem)] text-transparent" style={{ WebkitTextStroke: '3px #f4b942' }}>
-                ORE
-              </span>
-              <span
-                className="anim-flicker -mt-1 block text-[clamp(3.4rem,10vw,7.5rem)] text-torch sm:-mt-3"
-                style={{ textShadow: '0 0 44px rgba(244,185,66,.42), 5px 5px 0 #05080a' }}
-              >
-                RUSH
-              </span>
+              {GAME_NAME_LINES.map((part, index) => (
+                <span
+                  key={part}
+                  className={`block text-[clamp(3.4rem,10vw,7.5rem)] ${index === 0 ? 'text-transparent' : 'anim-flicker text-torch'} ${index === 0 ? '' : index === 1 ? '-mt-1 sm:-mt-3' : ''}`}
+                  style={
+                    index === 0
+                      ? { WebkitTextStroke: '3px #f4b942' }
+                      : { textShadow: '0 0 44px rgba(244,185,66,.42), 5px 5px 0 #05080a' }
+                  }
+                >
+                  {part}
+                </span>
+              ))}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/75 sm:mt-4 sm:text-base lg:text-lg">{t('intro')}</p>
 
@@ -897,13 +904,15 @@ export function StartScreen({
                   <span aria-hidden="true" className="text-white/30">⊘</span>
                   <span>{adFreeBusy ? t('adFreeBuying') : t('adFreeCta')}</span>
                   <span aria-hidden="true" className="text-white/20">·</span>
-                  <img
-                    data-ad-free-currency="1"
-                    src={adFreePrice.currencyIcon}
-                    alt=""
-                    className="h-3.5 w-3.5"
-                    referrerPolicy="no-referrer"
-                  />
+                  {adFreePrice.currencyIcon && (
+                    <img
+                      data-ad-free-currency="1"
+                      src={adFreePrice.currencyIcon}
+                      alt=""
+                      className="h-3.5 w-3.5"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
                   <span>{adFreePrice.label}</span>
                 </button>
                 {adFreeNotice && <span data-ad-free-notice="1" role="status" className="text-[9px] text-white/40">{adFreeNotice}</span>}
