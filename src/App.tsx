@@ -168,7 +168,7 @@ const INITIAL_HUD: HudState = {
   petEquipped: false,
   petEquippedKind: null,
   petSelectedKind: 'wolf',
-  petCoatIndices: { wolf: 0, monkey: 0, parrot: 0, owl: 0 },
+  petCoatIndices: { wolf: 0, cat: 0, monkey: 0, parrot: 0, owl: 0 },
   petCoatIndex: 0,
   petInteractNear: false,
   stats: EMPTY_STATS,
@@ -227,11 +227,13 @@ export default function App() {
   const [canPay, setCanPay] = useState(false);
   const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
   const [wolfPetOwned, setWolfPetOwned] = useState(() => hasWolfPet());
+  const [catPetOwned, setCatPetOwned] = useState(() => hasCatPet());
   const [monkeyPetOwned, setMonkeyPetOwned] = useState(() => hasMonkeyPet());
   const [parrotPetOwned, setParrotPetOwned] = useState(() => hasParrotPet());
   const [owlPetOwned, setOwlPetOwned] = useState(() => hasOwlPet());
   const refreshPetOwnership = useCallback(() => {
     setWolfPetOwned(hasWolfPet());
+    setCatPetOwned(hasCatPet());
     setMonkeyPetOwned(hasMonkeyPet());
     setParrotPetOwned(hasParrotPet());
     setOwlPetOwned(hasOwlPet());

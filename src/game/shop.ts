@@ -17,7 +17,7 @@ import {
   type ShopProductId,
 } from './shopRewards';
 import { tvDevice } from './params';
-import { hasPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, unlockPet, WOLF_PET_PRODUCT_ID } from './pets';
+import { CAT_PET_PRODUCT_ID, hasPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, unlockPet, WOLF_PET_PRODUCT_ID } from './pets';
 import { yaConsumePurchase, yaGetCatalog, yaGetPurchases, yaPaymentsAvailable, yaPurchase, type YaPurchase } from './yandex';
 
 export { AD_FREE_PRODUCT_ID, SHOP_PRODUCT_IDS };
@@ -131,8 +131,8 @@ async function settleShopPurchase(productId: string, purchaseToken: string): Pro
 
   // Pets are permanent account entitlements: keep each Yandex receipt so getPurchases() restores
   // ownership, and never pass the receipt to consumePurchase().
-  if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) {
-    const kind = productId === WOLF_PET_PRODUCT_ID ? 'wolf' : productId === MONKEY_PET_PRODUCT_ID ? 'monkey' : productId === PARROT_PET_PRODUCT_ID ? 'parrot' : 'owl';
+  if (productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) {
+    const kind = productId === WOLF_PET_PRODUCT_ID ? 'wolf' : productId === CAT_PET_PRODUCT_ID ? 'cat' : productId === MONKEY_PET_PRODUCT_ID ? 'monkey' : productId === PARROT_PET_PRODUCT_ID ? 'parrot' : 'owl';
     const newlyOwned = !hasPet(kind);
     if (!unlockPet(kind)) return { recognized: true, queued: false, saved: false };
     const saved = await flushProfile(true);

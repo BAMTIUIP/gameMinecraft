@@ -64,6 +64,7 @@ ok(SHOP_PRODUCT_IDS.includes('pet-monkey') && isShopProductId('pet-monkey'), 'Th
 ok(SHOP_PRODUCT_IDS.includes('pet-parrot') && isShopProductId('pet-parrot'), 'The permanent parrot is also a direct catalogue SKU');
 ok(SHOP_PRODUCT_IDS.includes('pet-owl') && isShopProductId('pet-owl'), 'The permanent eagle owl is also a direct catalogue SKU');
 ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-wolf') && !isShopRewardProduct('pet-wolf'), 'The permanent wolf is excluded from consumable reward receipts');
+ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-cat') && !isShopRewardProduct('pet-cat'), 'The permanent cat is excluded from consumable reward receipts');
 ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-monkey') && !isShopRewardProduct('pet-monkey'), 'The permanent monkey is excluded from consumable reward receipts');
 ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-parrot') && !isShopRewardProduct('pet-parrot'), 'The permanent parrot is excluded from consumable reward receipts');
 ok(!(SHOP_REWARD_PRODUCT_IDS as readonly string[]).includes('pet-owl') && !isShopRewardProduct('pet-owl'), 'The permanent eagle owl is excluded from consumable reward receipts');

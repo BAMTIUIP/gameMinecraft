@@ -150,23 +150,27 @@ import {
   toolRepairCost,
   toolWearRatio,
 } from './tools';
-import { babyGrowthScale, buildMonkeyCompanionBody, buildOwlCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, buildCatCompanionBody, buildMonkeyCompanionBody, buildOwlCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
 import {
+  CAT_COATS,
   MONKEY_COATS,
   OWL_COATS,
   PARROT_COATS,
   WOLF_COATS,
+  getCatCoatIndex,
   getMonkeyCoatIndex,
   getOwlCoatIndex,
   getParrotCoatIndex,
   getWolfCoatIndex,
+  hasCatPet,
   hasMonkeyPet,
   hasOwlPet,
   hasParrotPet,
   hasWolfPet,
   refreshPetStateFromStorage,
+  setCatCoatIndex,
   setMonkeyCoatIndex,
   setOwlCoatIndex,
   setParrotCoatIndex,
@@ -600,7 +604,7 @@ type AvatarFadeMaterial = {
   depthWrite: boolean;
 };
 
-type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
+type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'cat-purr' | 'cat-meow' | 'cat-circle' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
 type ParrotPetMode = 'shoulder' | 'hand' | 'follow' | 'fetch' | 'delivery' | 'attack';
 type ParrotAttackStage = 'approach' | 'dive' | 'soar';
 type WolfChestTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number; swimming: boolean };
@@ -808,6 +812,74 @@ function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
     jaw,
     tail,
     legs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: true,
+    attackTimer: 0.35,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
+  };
+}
+
+/** Use the ordinary domestic cat mesh, with one of the fixed saved coat variants. */
+function buildCatPetRig(variantIndex: number): WolfPetRig {
+  const cat = buildCatCompanionBody(variantIndex);
+  const group = new THREE.Group();
+  group.name = 'equipped-cat-pet';
+  group.userData.companion = 'cat-pet';
+  const model = cat.group;
+  model.scale.setScalar(0.94);
+  group.add(model);
+  return {
+    kind: 'cat',
+    group,
+    model,
+    pose: model,
+    body: model.children.find((part) => part instanceof THREE.Mesh && Math.abs(part.position.y - 0.5) < 0.01) ?? null,
+    head: cat.head,
+    jaw: null,
+    tail: cat.tail,
+    legs: cat.legs,
     target: new THREE.Vector3(),
     navWaypoint: new THREE.Vector3(),
     navGoal: new THREE.Vector3(),
@@ -1626,7 +1698,7 @@ export class Engine {
   private petEquipped = false;
   private petEquippedKind: PetKind | null = null;
   private petSelectedKind: PetKind = 'wolf';
-  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0, parrot: 0, owl: 0 };
+  private petCoatIndices: Record<PetKind, number> = { wolf: 0, cat: 0, monkey: 0, parrot: 0, owl: 0 };
   private petCoatIndex = 0;
   private stats: Stats = { ...EMPTY_STATS };
   private attackCd = 0;
@@ -5080,6 +5152,7 @@ if (tpClipActive > 0.5) {
     refreshPetStateFromStorage();
     this.petOwnedKinds = [];
     if (hasWolfPet()) this.petOwnedKinds.push('wolf');
+    if (hasCatPet()) this.petOwnedKinds.push('cat');
     if (hasMonkeyPet()) this.petOwnedKinds.push('monkey');
     if (hasParrotPet()) this.petOwnedKinds.push('parrot');
     if (hasOwlPet()) this.petOwnedKinds.push('owl');
@@ -5089,7 +5162,7 @@ if (tpClipActive > 0.5) {
     this.petEquippedKind = null;
     this.playerSprinting = false;
     this.petSelectedKind = this.petOwnedKinds[0] ?? 'wolf';
-    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex(), owl: getOwlCoatIndex() };
+    this.petCoatIndices = { wolf: getWolfCoatIndex(), cat: getCatCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex(), owl: getOwlCoatIndex() };
     this.petCoatIndex = this.petCoatIndices[this.petSelectedKind];
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
@@ -11758,12 +11831,13 @@ if (tpClipActive > 0.5) {
   private ensurePetRuntimeState(kind: PetKind) {
     if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
     if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
-    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey' || owned === 'parrot' || owned === 'owl'))];
-    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0, parrot: 0, owl: 0 };
+    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'cat' || owned === 'monkey' || owned === 'parrot' || owned === 'owl'))];
+    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, cat: 0, monkey: 0, parrot: 0, owl: 0 };
+    if (!Number.isFinite(this.petCoatIndices.cat)) this.petCoatIndices.cat = getCatCoatIndex();
     if (!Number.isFinite(this.petCoatIndices.parrot)) this.petCoatIndices.parrot = getParrotCoatIndex();
     if (!Number.isFinite(this.petCoatIndices.owl)) this.petCoatIndices.owl = getOwlCoatIndex();
     if (this.petEquippedKind === undefined) this.petEquippedKind = null;
-    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot' && this.petSelectedKind !== 'owl') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'cat' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot' && this.petSelectedKind !== 'owl') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null).length > 0;
   }
@@ -11810,6 +11884,10 @@ if (tpClipActive > 0.5) {
     return this.setPetEquipped('wolf', equipped);
   }
 
+  setCatPetEquipped(equipped: boolean): boolean {
+    return this.setPetEquipped('cat', equipped);
+  }
+
   setMonkeyPetEquipped(equipped: boolean): boolean {
     return this.setPetEquipped('monkey', equipped);
   }
@@ -11838,17 +11916,19 @@ if (tpClipActive > 0.5) {
   cyclePetCoat(kind: PetKind, direction = 1): boolean {
     this.ensurePetRuntimeState(kind);
     if (!this.petOwnedKinds.includes(kind) || !Number.isFinite(direction) || direction === 0) return false;
-    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
+    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'cat' ? CAT_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
     const current = this.petCoatIndices[kind];
     const delta = direction < 0 ? -1 : 1;
     const requested = (current + delta + coats.length) % coats.length;
     const saved = kind === 'wolf'
       ? setWolfCoatIndex(requested)
-      : kind === 'monkey'
-        ? setMonkeyCoatIndex(requested)
-        : kind === 'parrot'
-          ? setParrotCoatIndex(requested)
-          : setOwlCoatIndex(requested);
+      : kind === 'cat'
+        ? setCatCoatIndex(requested)
+        : kind === 'monkey'
+          ? setMonkeyCoatIndex(requested)
+          : kind === 'parrot'
+            ? setParrotCoatIndex(requested)
+            : setOwlCoatIndex(requested);
     if (saved === current) return false;
     this.petCoatIndices[kind] = saved;
     if (kind === this.petSelectedKind || kind === this.petEquippedKind) this.petCoatIndex = saved;
@@ -12388,6 +12468,7 @@ if (tpClipActive > 0.5) {
       this.petEquippedKind ?? '-',
       this.petSelectedKind,
       this.petCoatIndices.wolf,
+      this.petCoatIndices.cat,
       this.petCoatIndices.monkey,
       this.petCoatIndices.parrot,
       this.petCoatIndices.owl,
@@ -12733,8 +12814,8 @@ if (tpClipActive > 0.5) {
   }
 
   private petFootprintExtents(angle: number, kind: PetKind = this.wolfPetRig?.kind ?? 'wolf') {
-    const halfWidth = kind === 'wolf' ? 0.43 : 0.34;
-    const halfLength = kind === 'wolf' ? 1.05 : 0.84;
+    const halfWidth = kind === 'wolf' ? 0.43 : kind === 'cat' ? 0.34 : 0.34;
+    const halfLength = kind === 'wolf' ? 1.05 : kind === 'cat' ? 0.92 : 0.84;
     const sin = Math.abs(Math.sin(angle));
     const cos = Math.abs(Math.cos(angle));
     return {
@@ -12788,11 +12869,13 @@ if (tpClipActive > 0.5) {
   private buildPetRig(kind: PetKind): WolfPetRig {
     return kind === 'wolf'
       ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
-      : kind === 'monkey'
-        ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
-        : kind === 'parrot'
-          ? buildParrotPetRig(this.petCoatIndices.parrot)
-          : buildOwlPetRig(this.petCoatIndices.owl);
+      : kind === 'cat'
+        ? buildCatPetRig(this.petCoatIndices.cat)
+        : kind === 'monkey'
+          ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
+          : kind === 'parrot'
+            ? buildParrotPetRig(this.petCoatIndices.parrot)
+            : buildOwlPetRig(this.petCoatIndices.owl);
   }
 
   private createWolfPetRig(kind: PetKind) {
@@ -12980,6 +13063,10 @@ if (tpClipActive > 0.5) {
       const reactions = ['wag', 'bark', 'spin'] as const;
       rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
       rig.reactionTimer = rig.reaction === 'spin' ? 1.05 : 1.45;
+    } else if (rig.kind === 'cat') {
+      const reactions = ['cat-purr', 'cat-meow', 'cat-circle'] as const;
+      rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
+      rig.reactionTimer = rig.reaction === 'cat-circle' ? 1.05 : 1.45;
     } else {
       const reactions = ['monkey-flop', 'monkey-hops', 'monkey-scratch', 'monkey-spin'] as const;
       rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
@@ -12990,7 +13077,7 @@ if (tpClipActive > 0.5) {
     }
     rig.reactionAge = 0;
     rig.reactionSoundTimer = 0.48;
-    rig.reactionLookTimer = rig.reaction === 'spin' || rig.reaction === 'monkey-spin' ? 0.42 : rig.reactionTimer;
+    rig.reactionLookTimer = rig.reaction === 'spin' || rig.reaction === 'cat-circle' || rig.reaction === 'monkey-spin' ? 0.42 : rig.reactionTimer;
     const lookX = this.pos.x - rig.group.position.x;
     const lookZ = this.pos.z - rig.group.position.z;
     if (Math.hypot(lookX, lookZ) > 0.001) rig.yawTarget = Math.atan2(-lookX, -lookZ);
@@ -12998,6 +13085,9 @@ if (tpClipActive > 0.5) {
       wag: 'petReactionWag',
       bark: 'petReactionBark',
       spin: 'petReactionSpin',
+      'cat-purr': 'petCatReactionPurr',
+      'cat-meow': 'petCatReactionMeow',
+      'cat-circle': 'petCatReactionCircle',
       'monkey-flop': 'petMonkeyReactionFlop',
       'monkey-hops': 'petMonkeyReactionHops',
       'monkey-scratch': 'petMonkeyReactionScratch',
@@ -13005,10 +13095,10 @@ if (tpClipActive > 0.5) {
     };
     if (rig.kind === 'monkey') {
       sfx.creature('monkey', { state: 'idle', volume: 0.86, pitch: 0.96 + Math.random() * 0.16 });
-    } else if (rig.reaction === 'bark') {
-      sfx.creature('wolf', { state: 'idle', volume: 0.8, pitch: 1 + Math.random() * 0.12 });
+    } else if (rig.kind === 'cat') {
+      sfx.creature('cat', { state: 'idle', volume: 0.82, pitch: 1.05 + Math.random() * 0.18 });
     } else {
-      sfx.ui(true);
+      sfx.creature('wolf', { state: 'idle', volume: 0.8, pitch: 1 + Math.random() * 0.12 });
     }
     this.popup(this.pos.x, this.pos.y + 2.1, this.pos.z, t(messageByReaction[rig.reaction!]), '#f3d49a', false, { duration: 1.5 });
     this.syncHud(true);
@@ -13095,7 +13185,8 @@ if (tpClipActive > 0.5) {
 
   /** Swimming uses a 3D body sweep; water is passable, but the wolf still never enters solid blocks. */
   private wolfPetSwimClear(x: number, y: number, z: number, yaw: number): boolean {
-    if (y < 0 || y + (this.wolfPetRig?.kind === 'monkey' ? 1.28 : 1.55) >= WY) return false;
+    const petHeight = this.wolfPetRig?.kind === 'monkey' ? 1.28 : this.wolfPetRig?.kind === 'cat' ? 1.42 : 1.55;
+    if (y < 0 || y + petHeight >= WY) return false;
     const kind = this.wolfPetRig?.kind ?? 'wolf';
     const desired = this.petFootprintExtents(yaw, kind);
     const current = this.petFootprintExtents(this.wolfPetRig?.group.rotation.y ?? yaw, kind);
@@ -13731,7 +13822,7 @@ if (tpClipActive > 0.5) {
     target.vz += (target.z - rig.group.position.z) / distance * 1.7;
     if (target.onGround) target.vy = Math.max(target.vy, 1.6);
     this.burst(target.x, target.y + 0.42, target.z, [206, 178, 128], 4, 1.25, 0.62);
-    sfx.creature(rig.kind === 'wolf' ? 'wolf' : 'monkey', { state: 'attack', volume: 0.34, pitch: 0.88 + Math.random() * 0.12 });
+    sfx.creature(rig.kind === 'cat' ? 'cat' : 'wolf', { state: 'attack', volume: rig.kind === 'cat' ? 0.32 : 0.34, pitch: rig.kind === 'cat' ? 1.04 + Math.random() * 0.16 : 0.88 + Math.random() * 0.12 });
     if (target.hp <= 0) this.mobDied(target, false);
   }
 
@@ -13891,7 +13982,7 @@ if (tpClipActive > 0.5) {
       this.collect(drop);
       if (rig.chestTarget) this.setWolfPetChestLid(rig.chestTarget, false);
       rig.chestTarget = null;
-      rig.reaction = 'wag';
+      rig.reaction = rig.kind === 'cat' ? 'cat-purr' : 'wag';
       rig.reactionTimer = 0.75;
       return;
     }
@@ -14558,13 +14649,13 @@ if (tpClipActive > 0.5) {
         rig.stillTimer = 0;
         rig.moveStartTimer = 0;
         rig.teleportRevealTimer = WOLF_PET_TELEPORT_REVEAL_SECONDS;
-        rig.reaction = 'wag';
+        rig.reaction = rig.kind === 'cat' ? 'cat-purr' : 'wag';
         rig.reactionTimer = WOLF_PET_TELEPORT_REVEAL_SECONDS;
       }
     }
 
     // Only the wolf fights; the monkey is a peaceful helper and never attacks monsters.
-    const threat = rig.kind === 'wolf' ? this.nearestWolfThreat() : null;
+    const threat = (rig.kind === 'wolf' || rig.kind === 'cat') ? this.nearestWolfThreat() : null;
     if (threat && !rig.carrying) {
       rig.teleportRevealTimer = 0;
       rig.restAnchorValid = false;
@@ -14623,34 +14714,37 @@ if (tpClipActive > 0.5) {
       ? rig.underwater ? Math.max(-0.28, Math.min(0.28, this.pitch * 0.24)) : 0.08
       : 0;
 
-    if (rig.kind === 'wolf') {
+    if (rig.kind === 'wolf' || rig.kind === 'cat') {
+      const cat = rig.kind === 'cat';
       if (rig.body) {
-        rig.body.position.y = rig.sitting ? 0.5 : 0.58;
-        rig.body.rotation.x = rig.sitting ? 0.12 : 0;
+        rig.body.position.y = rig.sitting ? (cat ? 0.46 : 0.5) : (cat ? 0.54 : 0.58);
+        rig.body.rotation.x = rig.sitting ? (cat ? 0.18 : 0.12) : 0;
       }
       if (rig.swimming) {
-        const paddle = Math.sin(rig.phase * 2.5) * 0.48;
+        const paddle = Math.sin(rig.phase * 2.5) * (cat ? 0.4 : 0.48);
         rig.legs.forEach((leg, index) => {
           leg.rotation.x = paddle * (index < 2 ? 1 : -1);
         });
       } else if (walking || !rig.sitting) {
-        const swing = walking ? Math.sin(rig.phase * 2.3) * 0.56 : 0;
+        const swing = walking ? Math.sin(rig.phase * 2.3) * (cat ? 0.64 : 0.56) : 0;
         rig.legs.forEach((leg, index) => {
           const frontBack = index < 2 ? 1 : -1;
           leg.rotation.x = swing * frontBack;
         });
       } else {
         rig.legs.forEach((leg, index) => {
-          leg.rotation.x = index < 2 ? 0 : -1.02;
+          leg.rotation.x = index < 2 ? 0 : (cat ? -0.88 : -1.02);
         });
       }
-      const wag = rig.reaction === 'wag' ? 0.8 : rig.sitting ? 0.19 : 0.08;
+      const wagReaction = cat ? rig.reaction === 'cat-purr' : rig.reaction === 'wag';
+      const vocalReaction = cat ? rig.reaction === 'cat-meow' : rig.reaction === 'bark';
+      const wag = wagReaction ? (cat ? 0.52 : 0.8) : rig.sitting ? (cat ? 0.27 : 0.19) : (cat ? 0.18 : 0.08);
       if (rig.tail) {
-        rig.tail.rotation.y = Math.sin(this.time * (rig.reaction === 'wag' ? 16 : 7)) * wag;
-        rig.tail.rotation.x = rig.swimming ? -0.3 : rig.reaction === 'wag' ? -0.24 : -0.08;
+        rig.tail.rotation.y = Math.sin(this.time * (wagReaction ? (cat ? 11 : 16) : (cat ? 5.5 : 7))) * wag;
+        rig.tail.rotation.x = rig.swimming ? (cat ? -0.18 : -0.3) : wagReaction ? (cat ? -0.55 : -0.24) : (cat ? -0.35 : -0.08);
       }
-      if (rig.head) rig.head.rotation.x = rig.reaction === 'bark' ? Math.sin(this.time * 18) * 0.16 : 0;
-      if (rig.jaw) rig.jaw.rotation.x = rig.reaction === 'bark' ? Math.abs(Math.sin(this.time * 18)) * 0.42 : 0;
+      if (rig.head) rig.head.rotation.x = vocalReaction ? Math.sin(this.time * 18) * (cat ? 0.2 : 0.16) : 0;
+      if (rig.jaw) rig.jaw.rotation.x = vocalReaction ? Math.abs(Math.sin(this.time * 18)) * 0.42 : 0;
     } else {
       const leftArm = rig.legs[0];
       const leftFoot = rig.legs[1];
@@ -14721,8 +14815,8 @@ if (tpClipActive > 0.5) {
       const faceZ = this.pos.z - rig.group.position.z;
       if (Math.hypot(faceX, faceZ) > 0.001) rig.yawTarget = Math.atan2(-faceX, -faceZ);
     }
-    if ((rig.reaction === 'spin' || rig.reaction === 'monkey-spin') && rig.reactionLookTimer <= 0) {
-      rig.group.rotation.y += dt * (rig.kind === 'monkey' ? 8.5 : 7.5);
+    if ((rig.reaction === 'spin' || rig.reaction === 'cat-circle' || rig.reaction === 'monkey-spin') && rig.reactionLookTimer <= 0) {
+      rig.group.rotation.y += dt * (rig.kind === 'monkey' ? 8.5 : rig.kind === 'cat' ? 9 : 7.5);
     } else {
       let dy = rig.yawTarget - rig.group.rotation.y;
       while (dy > Math.PI) dy -= Math.PI * 2;

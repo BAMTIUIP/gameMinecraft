@@ -167,6 +167,7 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
+  { id: 'pet-cat', category: 'pets', titleKey: 'shopPetCatTitle', descriptionKey: 'shopPetCatDesc', icon: '🐱', accent: '#d98a57', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#4bc7a2', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '🦉', accent: '#d9a74a', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
@@ -493,6 +494,7 @@ export function StartScreen({
   developerShopEnabled,
   shopPrices,
   wolfPetOwned,
+  catPetOwned,
   monkeyPetOwned,
   parrotPetOwned,
   owlPetOwned,
@@ -1083,11 +1085,13 @@ export function StartScreen({
                   const devAlreadyClaimed = devClaims.includes(product.id);
                   const alreadyOwned = product.id === 'pet-wolf'
                     ? wolfPetOwned
-                    : product.id === 'pet-monkey'
-                      ? monkeyPetOwned
-                      : product.id === 'pet-parrot'
-                        ? parrotPetOwned
-                        : product.id === 'pet-owl' && owlPetOwned;
+                    : product.id === 'pet-cat'
+                      ? catPetOwned
+                      : product.id === 'pet-monkey'
+                        ? monkeyPetOwned
+                        : product.id === 'pet-parrot'
+                          ? parrotPetOwned
+                          : product.id === 'pet-owl' && owlPetOwned;
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
@@ -1224,7 +1228,7 @@ export function StartScreen({
                             if (result.ok) {
                               setShopNotice(result.syncPending
                                 ? t('shopPurchasePending')
-                                : product.id === 'pet-wolf' || product.id === 'pet-monkey' || product.id === 'pet-parrot' || product.id === 'pet-owl'
+                                : product.id === 'pet-wolf' || product.id === 'pet-cat' || product.id === 'pet-monkey' || product.id === 'pet-parrot' || product.id === 'pet-owl'
                                   ? t('shopPetPurchaseDone')
                                   : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
                             } else {

@@ -55,6 +55,7 @@ const CATALOG = [
   product('chest-common', '29 TST'),
   product('netherite-pickaxe', '149 TST'),
   product('pet-wolf', '199 TST'),
+  product('pet-cat', '189 TST'),
   product('pet-monkey', '229 TST'),
   product('pet-parrot', '179 TST'),
   product('disable_ads', '59 TST'),
@@ -160,7 +161,7 @@ const {
   resetShopCatalog,
 } = await import('../../src/game/shop');
 const { pendingShopProductRewards } = await import('../../src/game/shopRewards');
-const { hasMonkeyPet, hasParrotPet, hasWolfPet, resetPetsForTests } = await import('../../src/game/pets');
+const { hasCatPet, hasMonkeyPet, hasParrotPet, hasWolfPet, resetPetsForTests } = await import('../../src/game/pets');
 
 await initYandex();
 await startProfileSync();
@@ -177,6 +178,7 @@ ok(chestPrice?.label === '29 TST', 'The displayed price is exactly the formatted
 ok(chestPrice?.currencyIcon === 'icon-small.png' && chestPrice.fromCatalog, 'The platform currency icon and provenance come from the SDK');
 ok(catalog.get(AD_FREE_PRODUCT_ID)?.label === '59 TST', 'The separate ad-free entitlement also uses the catalogue price');
 ok(catalog.get('pet-wolf')?.label === '199 TST' && catalog.get('pet-wolf')?.currencyIcon === 'icon-small.png', 'The wolf price and currency icon come directly from the Yandex catalogue');
+ok(catalog.get('pet-cat')?.label === '189 TST' && catalog.get('pet-cat')?.currencyIcon === 'icon-small.png', 'The cat price and currency icon also come directly from the Yandex catalogue');
 ok(catalog.get('pet-monkey')?.label === '229 TST' && catalog.get('pet-monkey')?.currencyIcon === 'icon-small.png', 'The monkey price and currency icon also come directly from the Yandex catalogue');
 ok(catalog.get('pet-parrot')?.label === '179 TST' && catalog.get('pet-parrot')?.currencyIcon === 'icon-small.png', 'The parrot price and currency icon come directly from the Yandex catalogue');
 ok(!catalog.has('raw-price-only'), 'A row without the formatted SDK price is omitted');
@@ -221,6 +223,15 @@ ok(wolfBought.ok && wolfBought.productId === 'pet-wolf' && hasWolfPet(), 'Buying
 ok(count('payments.purchase') === wolfPurchaseBefore + 1 && (lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === 'pet-wolf', 'The wolf is purchased through its own Yandex SKU');
 ok(count('payments.consumePurchase') === wolfConsumeBefore && unprocessed.some((purchase) => purchase.productID === 'pet-wolf'), 'The permanent wolf receipt is not consumed');
 ok(!((pendingShopProductRewards()?.products as readonly string[] | undefined)?.includes('pet-wolf')), 'The permanent wolf never enters the consumable delivery queue');
+
+// The cat uses the same direct catalogue checkout while retaining an independent permanent entitlement.
+const catConsumeBefore = count('payments.consumePurchase');
+const catPurchaseBefore = count('payments.purchase');
+const catBought = await buyShopProduct('pet-cat');
+ok(catBought.ok && catBought.productId === 'pet-cat' && hasCatPet(), 'Buying the cat permanently unlocks its local entitlement');
+ok(count('payments.purchase') === catPurchaseBefore + 1 && (lastCall('payments.purchase')?.arg as { id?: string } | undefined)?.id === 'pet-cat', 'The cat is purchased through its own Yandex SKU');
+ok(count('payments.consumePurchase') === catConsumeBefore && unprocessed.some((purchase) => purchase.productID === 'pet-cat'), 'The permanent cat receipt is kept unconsumed for account restoration');
+ok(!((pendingShopProductRewards()?.products as readonly string[] | undefined)?.includes('pet-cat')), 'The permanent cat never enters the consumable delivery queue');
 
 // The monkey uses the same direct catalogue checkout while retaining an independent permanent entitlement.
 const monkeyConsumeBefore = count('payments.consumePurchase');

@@ -1446,6 +1446,82 @@ export function buildMonkeyCompanionBody(palette: { body: string; face: string; 
   return { group: model.group, head: model.head, limbs: model.legs, tail: model.tail ?? null, materials: model.mats };
 }
 
+/** The cat companion reuses the domestic cat silhouette and exposes fixed coat variants instead of randomizing them. */
+export function buildCatCompanionBody(variantIndex?: number) {
+  const CAT_VARIANTS = [
+    { body: '#c99556', accent: '#f3dcc0', legs: '#855931', patch: '#3a2a20' },
+    { body: '#1d1d22', accent: '#f4efe4', legs: '#121216', patch: '#f4efe4' },
+    { body: '#f0e8d8', accent: '#efe3d0', legs: '#d0b58c', patch: '#c58b45' },
+    { body: '#d09a5a', accent: '#f2e0bb', legs: '#9b6f3a', patch: '#6c4d2e' },
+    { body: '#b8a08a', accent: '#f4eadb', legs: '#5c4638', patch: '#3f3026' },
+    { body: '#d86d34', accent: '#f6e4ce', legs: '#944425', patch: '#f3f0e4' },
+  ] as const;
+  const vi = Number.isInteger(variantIndex)
+    ? Math.max(0, Math.min(CAT_VARIANTS.length - 1, Math.trunc(variantIndex as number)))
+    : Math.floor(Math.random() * CAT_VARIANTS.length);
+  const variant = CAT_VARIANTS[vi] ?? CAT_VARIANTS[0];
+  const g = new THREE.Group();
+  const mats: THREE.MeshLambertMaterial[] = [];
+  const legs: THREE.Object3D[] = [];
+
+  const body = box(0.4, 0.36, 0.86, variant.body, mats);
+  body.position.y = 0.5;
+  g.add(body);
+
+  const head = new THREE.Group();
+  head.position.set(0, 0.74, -0.52);
+  const skull = box(0.36, 0.32, 0.34, variant.body, mats);
+  head.add(skull);
+  for (const s of [-1, 1]) {
+    const ear = box(0.1, 0.14, 0.06, variant.body, mats);
+    ear.position.set(s * 0.11, 0.22, 0.02);
+    head.add(ear);
+    const tuft = box(0.04, 0.08, 0.04, variant.legs, mats);
+    tuft.position.set(s * 0.11, 0.32, 0.02);
+    head.add(tuft);
+    px2(head, mats, s * 0.1, 0.04, -0.18, '#3a5a2a');
+  }
+  const muzzle = box(0.18, 0.12, 0.08, variant.accent, mats);
+  muzzle.position.set(0, -0.06, -0.18);
+  head.add(muzzle);
+  g.add(head);
+
+  const tail = new THREE.Group();
+  tail.position.set(0, 0.54, 0.6);
+  const tailRoot = box(0.12, 0.12, 0.48, variant.body, mats);
+  tailRoot.position.set(0, 0, 0);
+  tail.add(tailRoot);
+  const tailBend = box(0.12, 0.12, 0.34, variant.body, mats);
+  tailBend.position.set(0, 0.09, 0.25);
+  tailBend.rotation.x = -0.8;
+  tail.add(tailBend);
+  const tailTip = box(0.12, 0.12, 0.2, variant.patch === '#f4efe4' ? variant.patch : variant.legs, mats);
+  tailTip.position.set(0, 0.22, 0.35);
+  tailTip.rotation.x = -0.8;
+  tail.add(tailTip);
+  g.add(tail);
+
+  coatPatch(g, mats, 'right', 0.205, 0.58, -0.12, 0.24, 0.18, variant.patch, 'catPatch');
+  coatPatch(g, mats, 'left', -0.205, 0.55, 0.16, 0.28, 0.16, variant.patch, 'catPatch');
+  coatPatch(g, mats, 'top', 0.04, 0.685, 0.22, 0.18, 0.24, variant.patch, 'catPatch');
+  coatPatch(g, mats, 'front', 0.1, 0.82, -0.69, 0.09, 0.1, variant.patch, 'catPatch');
+
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Group();
+      leg.position.set(sx * 0.14, 0.36, sz * 0.3);
+      const limb = box(0.13, 0.36, 0.13, variant.legs, mats);
+      limb.position.set(0, -0.18, 0);
+      leg.add(limb);
+      g.add(leg);
+      legs.push(leg);
+    }
+  }
+
+  g.userData.variant = vi;
+  return { group: g, head, legs, tail, variantIndex: vi, materials: mats };
+}
+
 /** Rotate the whole face (eyes, muzzle and ears included), not just the head
  * cube. The neck is included on camels so they can reach down to eat. */
 function makeFeedingHead(group: THREE.Group, head: THREE.Object3D, mats: THREE.MeshLambertMaterial[], id: MobId): { pivot: THREE.Group; mouth: THREE.Object3D | null } {

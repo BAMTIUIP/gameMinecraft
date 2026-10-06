@@ -78,6 +78,40 @@ function WolfArtwork() {
   );
 }
 
+/** Sunset alley cat with alert ears, ringed tail, bright eyes and a warm terracotta glow. */
+function CatArtwork() {
+  return (
+    <svg className="h-[72px] w-full" viewBox="0 0 160 86" aria-hidden="true" focusable="false" shapeRendering="crispEdges">
+      <defs>
+        <linearGradient id="cat-bg" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#4f2d24" /><stop offset=".55" stopColor="#201418" /><stop offset="1" stopColor="#0d1017" /></linearGradient>
+        <radialGradient id="cat-glow" cx="58%" cy="42%" r="60%"><stop stopColor="#ffad63" stopOpacity=".35" /><stop offset="1" stopColor="#1a0e14" stopOpacity="0" /></radialGradient>
+        <linearGradient id="cat-fur" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#f2c08d" /><stop offset=".52" stopColor="#d48853" /><stop offset="1" stopColor="#714431" /></linearGradient>
+      </defs>
+      <rect width="160" height="86" fill="url(#cat-bg)" /><rect width="160" height="86" fill="url(#cat-glow)" />
+      <path d="M0 0h17v12h9v12h-8v11H8v12H0zM142 0h18v46h-9V31h-8v-9h7V11h-8z" fill="#22131a" />
+      <path d="M0 66h160v20H0z" fill="#2a2328" /><path d="M0 72h160v4H0z" fill="#6a4f39" opacity=".72" />
+      <path d="M18 74h11v3H18zM57 70h8v3h-8zM130 72h9v4h-9z" fill="#ffbf73" opacity=".55" />
+      {/* Upright curved tail. */}
+      <path d="M115 57h8V42h-5V28h5V17h7v10h4v18h-4v16h-9v7h-6z" fill="#6a3d2d" stroke="#2f1a17" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M123 20h7v4h-7zM123 32h7v4h-7zM123 44h7v4h-7z" fill="#f3d1aa" opacity=".8" />
+      {/* Compact body with tucked paws. */}
+      <path d="M68 39h42v6h9v17h-8v7H70v-5h-8V50h6z" fill="url(#cat-fur)" stroke="#4a291f" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M76 47h27v6H76zM72 56h32v7H72z" fill="#f6d2ab" opacity=".5" />
+      <path d="M76 65h9v6h-9zM97 64h8v7h-8z" fill="#4f2c20" />
+      {/* Big ears, square muzzle and bright eyes. */}
+      <path d="M48 35 46 16l13 10 7-8 7 13zM76 30l6-16 10 9 10-5 2 14z" fill="#c1754a" stroke="#48271d" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M50 32 49 24l8 6zM83 27l2-7 6 5z" fill="#82462e" />
+      <path d="M49 31h28l8 6h7v11h-7v7h-10v4H57v-5h-8v-7h-6V38h6z" fill="url(#cat-fur)" stroke="#4a291f" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M50 42h20v7h13v6H64v-4h-14z" fill="#f8ddc2" />
+      <path d="M55 36h7v3h-7zM68 35h7v3h-7z" fill="#8c5539" />
+      <path d="M56 39h6v7h-6zM70 39h6v7h-6z" fill="#8de06d" /><path d="M58 40h3v6h-3zM72 40h3v6h-3z" fill="#171717" />
+      <path d="M48 42h7v5h-7z" fill="#2a2020" /><path d="M63 48h6l-3 4z" fill="#cc6b77" />
+      <path d="M60 52h13" fill="none" stroke="#6a493d" strokeWidth="1.2" />
+      <path d="M56 49h-8M76 49h8" fill="none" stroke="#f7e9db" strokeWidth="1.1" strokeLinecap="square" />
+    </svg>
+  );
+}
+
 /** Violet forest owl with ear tufts, layered folded wings, and bright golden eyes. */
 function OwlArtwork() {
   return (
@@ -620,6 +654,7 @@ export function ShopArtwork({ productId, accent }: ShopArtworkProps) {
           {productId === 'pet-owl' && <path d="M56 28V18h15v8h18v-8h15v10h7v28h-8v9h-9v-8H62v8h-9v-9h-8V35h11z" fill={accent} />}
           {productId === 'pet-parrot' && <path d="M64 20h22v8h13v13h-9v9h-9v18H65V57h-9V39h8z" fill={accent} />}
           {productId === 'pet-monkey' && <path d="M54 30V20h15v7h21v-7h15v14h7v23h-9v9H61v-9h-9V37h5z" fill={accent} />}
+          {productId === 'pet-cat' && <path d="M51 31h12V19h10v10h18v-8h10v16h8v20h-11v8H66v-8H53V48h-6z" fill={accent} />}
           {productId === 'pet-capybara' && <path d="M48 39h9V28h37v8h14v25H96v8H59v-7h-11z" fill={accent} />}
           {productId === 'pet-wolf' && <path d="M48 33h14V21h10v10h23v-8h11v17h9v19h-12v8H67v-8H51V48h-7z" fill={accent} />}
           <path d="M68 37h5v5h-5zM87 37h5v5h-5z" fill="#f4eee2" stroke="none" />

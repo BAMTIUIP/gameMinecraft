@@ -57,6 +57,7 @@ const gearDetails = getGearDetails(gear);
 ok(valueFor('ARMOR', gearDetails.stats) === '7' && valueFor('DAMAGE', gearDetails.stats) === '2', 'Armor popup shows both protection and offhand damage');
 ok(gearDetails.stats.some((stat) => stat.label === 'FLAME' && stat.value.includes('3')), 'Armor popup lists its rolled affix and value');
 ok(getPetDetails('wolf').stats.length > 0, 'Companion popup includes its type and equip status');
+ok(getPetDetails('cat').name === 'Cat companion' && getPetDetails('cat').stats.length === 2, 'The cat companion token has a descriptive, stat-bearing inventory popup');
 ok(getPetDetails('parrot').name === 'Parrot companion' && getPetDetails('parrot').stats.length === 2, 'The parrot companion token has a descriptive, stat-bearing inventory popup');
 ok(getPetDetails('owl').name === 'Eagle owl companion' && getPetDetails('owl').stats.length === 2, 'The eagle owl companion token has a descriptive, stat-bearing inventory popup');
 
