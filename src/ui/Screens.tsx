@@ -167,6 +167,7 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
+  { id: 'pet-cat', category: 'pets', titleKey: 'shopPetCatTitle', descriptionKey: 'shopPetCatDesc', icon: '🐱', accent: '#d98a57', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#4bc7a2', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '🦉', accent: '#d9a74a', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
@@ -493,6 +494,7 @@ export function StartScreen({
   developerShopEnabled,
   shopPrices,
   wolfPetOwned,
+  catPetOwned,
   monkeyPetOwned,
   parrotPetOwned,
   owlPetOwned,
@@ -628,6 +630,7 @@ export function StartScreen({
   }, [promo, shopEnabled, onOpenShop]);
   const [buying, setBuying] = useState<string | null>(null);
   const [shopNotice, setShopNotice] = useState<string | null>(null);
+  const [rewardedPopup, setRewardedPopup] = useState<{ title: string; message: string; sub?: string } | null>(null);
   const [clockNow, setClockNow] = useState(() => yaServerTime());
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(yaServerTime()), 1000);
@@ -1082,11 +1085,13 @@ export function StartScreen({
                   const devAlreadyClaimed = devClaims.includes(product.id);
                   const alreadyOwned = product.id === 'pet-wolf'
                     ? wolfPetOwned
-                    : product.id === 'pet-monkey'
-                      ? monkeyPetOwned
-                      : product.id === 'pet-parrot'
-                        ? parrotPetOwned
-                        : product.id === 'pet-owl' && owlPetOwned;
+                    : product.id === 'pet-cat'
+                      ? catPetOwned
+                      : product.id === 'pet-monkey'
+                        ? monkeyPetOwned
+                        : product.id === 'pet-parrot'
+                          ? parrotPetOwned
+                          : product.id === 'pet-owl' && owlPetOwned;
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
@@ -1197,8 +1202,18 @@ export function StartScreen({
                               if (result.ok) {
                                 const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
                                 const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                                const deliveryNote = result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
-                                setShopNotice(`${notice} · ${deliveryNote}`);
+                                const deliveryNote = result.delivery === 'account'
+                                  ? t('shopDropAccountBound')
+                                  : result.delivery === 'own-world'
+                                    ? t('shopDropOwnWorld')
+                                    : t('shopDropNextRun');
+                                const popupMessage = `${notice} · ${deliveryNote}`;
+                                setShopNotice(popupMessage);
+                                setRewardedPopup({
+                                  title: t('rewardPackReadyTitle'),
+                                  message: notice,
+                                  sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote,
+                                });
                               } else if (result.reason === 'ad') {
                                 setShopNotice(t('shopDropAdFailed'));
                               } else if (result.reason === 'claimed') {
@@ -1213,7 +1228,7 @@ export function StartScreen({
                             if (result.ok) {
                               setShopNotice(result.syncPending
                                 ? t('shopPurchasePending')
-                                : product.id === 'pet-wolf' || product.id === 'pet-monkey' || product.id === 'pet-parrot' || product.id === 'pet-owl'
+                                : product.id === 'pet-wolf' || product.id === 'pet-cat' || product.id === 'pet-monkey' || product.id === 'pet-parrot' || product.id === 'pet-owl'
                                   ? t('shopPetPurchaseDone')
                                   : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
                             } else {
@@ -1321,6 +1336,26 @@ export function StartScreen({
                   : rewardedAdsEnabled ? t('shopRewardedNotice') : t('shopMockNotice'))}
             </footer>
           </section>
+        </div>
+      )}
+
+      {rewardedPopup && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-2xl border border-lime-300/35 bg-[#101a14] p-5 text-center shadow-[0_0_40px_rgba(147,201,93,0.18)]">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-lime-300/40 bg-lime-300/10 text-2xl">
+              🎁
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-[0.35em] text-lime-200/80">{rewardedPopup.title}</div>
+            <div className="mt-3 text-base font-black uppercase leading-tight text-white">{rewardedPopup.message}</div>
+            {rewardedPopup.sub && <div className="mt-2 text-[11px] leading-snug text-white/70">{rewardedPopup.sub}</div>}
+            <button
+              type="button"
+              onClick={() => setRewardedPopup(null)}
+              className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-xl border border-white/15 bg-white/8 px-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/14"
+            >
+              {t('close')}
+            </button>
+          </div>
         </div>
       )}
 

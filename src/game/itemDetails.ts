@@ -1,6 +1,9 @@
 import {
   ARROW_ITEM,
   BLOCKS,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_MONTHLY,
+  REWARD_PACK_WEEKLY,
   isArrowId,
   isCookedMeatItem,
   isMeatItem,
@@ -159,8 +162,8 @@ export function getGearDetails(item: Item): ItemDetails {
   };
 }
 
-export function getPetDetails(kind: PetKind | 'wolf' | 'monkey' | 'parrot' | 'owl'): ItemDetails {
-  const name = t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : kind === 'parrot' ? 'petParrotResource' : 'petOwlResource');
+export function getPetDetails(kind: PetKind | 'wolf' | 'cat' | 'monkey' | 'parrot' | 'owl'): ItemDetails {
+  const name = t(kind === 'wolf' ? 'petWolfResource' : kind === 'cat' ? 'petCatResource' : kind === 'monkey' ? 'petMonkeyResource' : kind === 'parrot' ? 'petParrotResource' : 'petOwlResource');
   return {
     name,
     description: t('itemDescPet'),

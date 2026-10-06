@@ -22,7 +22,7 @@ const ok = (condition: boolean, label: string, detail = '') => {
 };
 
 const THREE = await import('three');
-const { AIR, FERN, FLOWER_RED, PLANKS, STONE, TALL_GRASS, WATER } = await import('../../src/game/blocks');
+const { AIR, FERN, FLOWER_RED, LEAVES, LOG, PLANKS, STONE, TALL_GRASS, WATER } = await import('../../src/game/blocks');
 const { Engine } = await import('../../src/game/engine');
 const { sfx } = await import('../../src/game/audio');
 
@@ -43,6 +43,8 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
     petCoatIndex: 0,
     wolfPetRig: null,
     wolfPetLayer: new THREE.Group(),
+    scene: new THREE.Group(),
+    monkeyProjectiles: [],
     pos: new THREE.Vector3(0, 6.001, 0),
     vel: new THREE.Vector3(),
     yaw: 0,
@@ -72,6 +74,9 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
 // Equip, greet and remove the pet.
 {
   const { engine, popups } = makeEngine();
+  const voiceCalls: Array<{ voice: string; state?: string }> = [];
+  const originalCreature = sfx.creature;
+  (sfx as any).creature = (voice: string, opts?: { state?: string }) => voiceCalls.push({ voice, state: opts?.state });
   ok(engine.setWolfPetEquipped(true) && engine.petEquipped && !engine.petTokenAvailable, 'Installing the token equips the wolf for this run');
   ok(engine.wolfPetRig !== null && engine.wolfPetLayer.children.length === 1, 'Equipping creates exactly one voxel wolf');
   ok(engine.interact() && ['wag', 'bark', 'spin'].includes(engine.wolfPetRig.reaction), 'E-interaction chooses a random pet reaction');
@@ -80,10 +85,12 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   const facingPlayerYaw = Math.atan2(-playerDx, -playerDz);
   ok(Math.abs(engine.wolfPetRig.yawTarget - facingPlayerYaw) < 1e-9 && engine.wolfPetRig.reactionLookTimer > 0, 'The wolf turns to face the player while showing its random reaction');
   ok(popups.length === 1 && /tail|barks|spins/.test(popups[0]), 'The E-reaction shows its matching translated feedback');
+  ok(voiceCalls.some((call) => call.voice === 'wolf' && (call.state ?? 'idle') === 'idle'), 'Petting the wolf uses the wolf idle voice');
   const reaction = engine.wolfPetRig.reaction;
   ok(engine.interact(true) === false && engine.wolfPetRig.reaction === reaction, 'The touch PLACE action does not accidentally pet the wolf');
   ok(engine.setWolfPetEquipped(false) && !engine.petEquipped && engine.petTokenAvailable, 'Removing the pet returns its token to inventory');
   ok(engine.wolfPetRig === null && engine.wolfPetLayer.children.length === 0, 'Unequipping removes the wolf from the world');
+  (sfx as any).creature = originalCreature;
 }
 
 // The monkey shares the equipment slot, uses its own voice and has four monkey-only petting reactions.
@@ -122,6 +129,102 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   ok(engine.setPetEquipped('wolf', true), 'A second pet token can replace the active species');
   ok(engine.wolfPetRig?.kind === 'wolf' && engine.wolfPetLayer.children.length === 1 && engine.petInventoryKinds().join(',') === 'monkey', 'Replacing a pet removes its world rig and returns its token to the inventory');
   ok(engine.setPetEquipped('monkey', true) && engine.wolfPetRig?.kind === 'monkey' && engine.wolfPetLayer.children.length === 1, 'The returned pet token can immediately replace the active companion again');
+}
+
+// The monkey prefers nearby tree canopies while following, and attacks with thrown fruit that can stun.
+{
+  const { engine } = makeEngine();
+  engine.petOwnedKinds = ['monkey'];
+  engine.petCoatIndices = { wolf: 0, monkey: 0 };
+  engine.petSelectedKind = 'monkey';
+  engine.world = {
+    hasColumn: () => true,
+    topSolidY: (x: number, z: number) => (x === 2 && (z === 0 || z === 1)) ? 8 : (x === 2 && z === -1) ? 7 : 5,
+    get: (x: number, y: number, z: number) => {
+      if (x === 2 && z === 0) return y >= 6 && y <= 7 ? LOG : y === 8 ? LEAVES : y === 5 ? STONE : AIR;
+      if (x === 2 && z === 1) return y === 8 ? LEAVES : y === 5 ? STONE : AIR;
+      if (x === 2 && z === -1) return y === 7 ? LEAVES : y === 5 ? STONE : AIR;
+      return y === 5 ? STONE : AIR;
+    },
+  };
+  ok(engine.setPetEquipped('monkey', true), 'An owned monkey equips for tree-follow and ranged-combat checks');
+  ok(engine.setWolfPetFollowTarget(engine.wolfPetRig, false), 'The monkey can choose a normal follow target');
+  ok(engine.wolfPetRig.target.y > 8.5, 'When a nearby tree is available, the monkey prefers a canopy perch over the ground', engine.wolfPetRig.target.y.toFixed(2));
+  const startY = engine.wolfPetRig.group.position.y;
+  const startX = engine.wolfPetRig.group.position.x;
+  for (let i = 0; i < 6; i++) engine.updateWolfPet(0.12);
+  ok(engine.wolfPetRig.group.position.y < 8.2 && Math.abs(engine.wolfPetRig.group.position.x - startX) > 0.08, 'The monkey starts approaching the tree smoothly instead of snapping to the top immediately', `${engine.wolfPetRig.group.position.x.toFixed(2)},${engine.wolfPetRig.group.position.y.toFixed(2)}`);
+  for (let i = 0; i < 18; i++) engine.updateWolfPet(0.12);
+  ok(engine.wolfPetRig.group.position.y > 7.5 && engine.wolfPetRig.group.position.y > startY, 'The monkey reaches the elevated tree route instead of staying on the ground', engine.wolfPetRig.group.position.y.toFixed(2));
+  engine.wolfPetRig.group.position.set(2.2, 6.001, 0.4);
+  engine.wolfPetRig.attackTimer = 0;
+
+  const hostile = {
+    x: 6.7, y: 6.001, z: 0.4, hp: 20, hurtFlash: 0, stun: 0,
+    vx: 0, vy: 0, vz: 0, onGround: true,
+    alive: true, hidden: false, def: { hostile: true },
+  };
+  engine.mobSys.mobs.push(hostile);
+  const voiceCalls: Array<{ voice: string; state?: string }> = [];
+  const originalCreature = sfx.creature;
+  const originalRandom = Math.random;
+  const randomValues = [0.75, 0.5, 0.5, 0.5, 0];
+  let randomIndex = 0;
+  (sfx as any).creature = (voice: string, opts?: { state?: string }) => voiceCalls.push({ voice, state: opts?.state });
+  Math.random = () => randomValues[Math.min(randomIndex++, randomValues.length - 1)];
+  try {
+    (engine as any).launchMonkeyProjectile(engine.wolfPetRig, hostile);
+    for (let i = 0; i < 28; i++) (engine as any).updateMonkeyProjectiles(0.05);
+  } finally {
+    Math.random = originalRandom;
+    (sfx as any).creature = originalCreature;
+  }
+  ok(hostile.hp < 20, 'The monkey attacks nearby monsters with low-damage thrown fruit', String(hostile.hp));
+  ok(hostile.stun > 4.5, 'A lucky monkey hit can stun a monster for five seconds', String(hostile.stun));
+  ok(voiceCalls.some((call) => call.voice === 'monkey' && call.state === 'attack'), 'Monkey combat uses the monkey attack voice');
+  ok(engine.monkeyProjectiles.length === 0, 'Thrown monkey fruit is consumed on impact instead of becoming a collectible resource');
+}
+
+// The cat shares the wolf runtime, but uses cat-only reactions, UI messages and combat sounds.
+{
+  const { engine, popups } = makeEngine();
+  engine.petOwnedKinds = ['wolf', 'cat'];
+  engine.petCoatIndices = { wolf: 0, cat: 0 };
+  engine.petSelectedKind = 'cat';
+  ok(engine.setPetEquipped('cat', true), 'An owned cat token equips into the shared pet slot');
+  ok(engine.petInventoryKinds().join(',') === 'wolf' && engine.petTokenAvailable, 'Equipping the cat hides only its own species token while preserving the wolf token');
+  ok(engine.wolfPetRig?.kind === 'cat' && engine.wolfPetRig.group.userData.companion === 'cat-pet', 'The companion cat model is used for the shared ground-pet rig');
+  const voiceCalls: Array<{ voice: string; state?: string }> = [];
+  const originalCreature = sfx.creature;
+  const originalRandom = Math.random;
+  (sfx as any).creature = (voice: string, opts?: { state?: string }) => voiceCalls.push({ voice, state: opts?.state });
+  const reactions = [
+    ['cat-purr', 0],
+    ['cat-meow', 0.4],
+    ['cat-circle', 0.8],
+  ] as const;
+  try {
+    for (const [expected, randomValue] of reactions) {
+      Math.random = () => randomValue;
+      ok(engine.petWolf(), `Petting triggers the ${expected} cat response`);
+      ok(engine.wolfPetRig.reaction === expected, `The ${expected} response is selected independently of wolf reactions`);
+    }
+    const hostile = {
+      x: 2.1, y: 6.001, z: 0, hp: 20, hurtFlash: 0,
+      vx: 0, vy: 0, vz: 0, onGround: true,
+      alive: true, hidden: false, def: { hostile: true },
+    };
+    engine.mobSys.mobs.push(hostile);
+    engine.updateWolfPet(1.1);
+    ok(hostile.hp < 20, 'The cat also damages a hostile monster near the player', String(hostile.hp));
+  } finally {
+    Math.random = originalRandom;
+    (sfx as any).creature = originalCreature;
+  }
+  ok(popups.length === 3 && popups.every((message) => /purrs|meows|circles/.test(message)), 'Each cat response displays matching translated feedback');
+  ok(voiceCalls.filter((call) => call.voice === 'cat' && (call.state ?? 'idle') === 'idle').length === 3, 'Every cat petting response uses the cat voice');
+  ok(voiceCalls.some((call) => call.voice === 'cat' && call.state === 'attack'), 'The cat also uses its own attack voice when fighting monsters');
+  ok(engine.setPetEquipped('cat', false) && engine.petTokenAvailable, 'Unequipping the cat returns the shared pet token');
 }
 
 // Ferns, tall grass and flowers do not count as support: the companion stands on the real block below them.
@@ -353,6 +456,9 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
 {
   const { engine, collected } = makeEngine();
   engine.setWolfPetEquipped(true);
+  const voiceCalls: Array<{ voice: string; state?: string }> = [];
+  const originalCreature = sfx.creature;
+  (sfx as any).creature = (voice: string, opts?: { state?: string }) => voiceCalls.push({ voice, state: opts?.state });
   const hostile = {
     x: 2.1, y: 6.001, z: 0, hp: 20, hurtFlash: 0,
     vx: 0, vy: 0, vz: 0, onGround: true,
@@ -361,6 +467,7 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   engine.mobSys.mobs.push(hostile);
   engine.updateWolfPet(1.1);
   ok(hostile.hp < 20, 'The wolf damages a hostile monster near the player', String(hostile.hp));
+  ok(voiceCalls.some((call) => call.voice === 'wolf' && call.state === 'attack'), 'The wolf uses its own attack voice when fighting monsters');
 
   engine.mobSys.mobs.length = 0;
   engine.wolfPetRig.group.position.set(1.3, 6.001, 0);
@@ -375,6 +482,7 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   ok(engine.wolfPetRig.carrying === drop && drop.petCarried, 'With no nearby monsters, the wolf picks up an ignored resource drop');
   engine.updateWolfPet(0.05);
   ok(collected.length === 1 && collected[0] === drop && !drop.active, 'The wolf delivers the resource to the player one item at a time');
+  (sfx as any).creature = originalCreature;
 }
 
 export { passed, failures };

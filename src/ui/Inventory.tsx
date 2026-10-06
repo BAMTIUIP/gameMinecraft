@@ -21,7 +21,9 @@ import { blockName, matName, rarName, recipeText, toolLabelForId, t } from '../g
 import { meatItemLabel } from '../game/food';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
-import { MONKEY_COATS, OWL_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
+import { CAT_COATS, MONKEY_COATS, OWL_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
+import { isRewardedDropChestItem } from '../game/adDrops';
+import { CatIcon } from './CatIcon';
 import { MonkeyIcon } from './MonkeyIcon';
 import { OwlIcon } from './OwlIcon';
 import { ParrotIcon } from './ParrotIcon';
@@ -42,6 +44,34 @@ function toolIcon(id: number, size = 24, durability?: number): { el: React.React
 
 function toolLabel(id: number): string {
   return getToolSpec(id) ? toolLabelForId(id) : toolIcon(id, 0).label;
+}
+
+function petCoats(kind: PetKind) {
+  return kind === 'wolf' ? WOLF_COATS : kind === 'cat' ? CAT_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
+}
+
+function petResourceKey(kind: PetKind) {
+  return kind === 'wolf' ? 'petWolfResource' : kind === 'cat' ? 'petCatResource' : kind === 'monkey' ? 'petMonkeyResource' : kind === 'parrot' ? 'petParrotResource' : 'petOwlResource';
+}
+
+function petPrevCoatKey(kind: PetKind) {
+  return kind === 'wolf' ? 'petCoatPrevious' : kind === 'cat' ? 'petCatCoatPrevious' : kind === 'monkey' ? 'petMonkeyCoatPrevious' : kind === 'parrot' ? 'petParrotCoatPrevious' : 'petOwlCoatPrevious';
+}
+
+function petNextCoatKey(kind: PetKind) {
+  return kind === 'wolf' ? 'petCoatNext' : kind === 'cat' ? 'petCatCoatNext' : kind === 'monkey' ? 'petMonkeyCoatNext' : kind === 'parrot' ? 'petParrotCoatNext' : 'petOwlCoatNext';
+}
+
+function petIcon(kind: PetKind, coatIndex: number, size: number) {
+  return kind === 'wolf'
+    ? <WolfIcon coatIndex={coatIndex} size={size} />
+    : kind === 'cat'
+      ? <CatIcon coatIndex={coatIndex} size={size} />
+      : kind === 'monkey'
+        ? <MonkeyIcon coatIndex={coatIndex} size={size} />
+        : kind === 'parrot'
+          ? <ParrotIcon coatIndex={coatIndex} size={size} />
+          : <OwlIcon coatIndex={coatIndex} size={size} />;
 }
 
 // ---------- types ----------
@@ -126,6 +156,7 @@ export default function Inventory({
   onRepairTool,
   onSellTool,
   onSellGear,
+  onOpenRewardPack,
   onSalvageGear,
   onSalvageItem,
   developerKitEnabled = false,
@@ -291,9 +322,9 @@ export default function Inventory({
               <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8 md:grid-cols-10">
                 {filteredPets.map((kind) => {
                   const coatIndex = hud.petCoatIndices[kind];
-                  const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
+                  const coats = petCoats(kind);
                   const details = getPetDetails(kind);
-                  const resourceKey = kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : kind === 'parrot' ? 'petParrotResource' : 'petOwlResource';
+                  const resourceKey = petResourceKey(kind);
                   return (
                     <button
                       key={`pet-${kind}-token`}
@@ -317,13 +348,7 @@ export default function Inventory({
                         boxShadow: 'inset 2px 2px 0 rgba(255,255,255,.08), 0 0 10px rgba(197,155,102,.18)',
                       }}
                     >
-                      {kind === 'wolf'
-                        ? <WolfIcon coatIndex={coatIndex} size={42} />
-                        : kind === 'monkey'
-                          ? <MonkeyIcon coatIndex={coatIndex} size={39} />
-                          : kind === 'parrot'
-                            ? <ParrotIcon coatIndex={coatIndex} size={39} />
-                            : <OwlIcon coatIndex={coatIndex} size={39} />}
+                      {petIcon(kind, coatIndex, kind === 'wolf' ? 42 : 39)}
                       <span className="max-w-full truncate px-1 font-display text-[8px] leading-none text-[#e8d5b4]">
                         {t(resourceKey)}
                       </span>
@@ -339,6 +364,7 @@ export default function Inventory({
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
+                  const rewardPack = isRewardedDropChestItem(it.id);
                   const details = itemDetails(it.id, { count: it.count, durability: it.durability, maxDurability: it.maxDurability });
                   return (
                     <button
@@ -388,6 +414,27 @@ export default function Inventory({
                       </span>
                       {arrowIds.includes(it.id) && (
                         <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
+                      )}
+                      {rewardPack && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            pinDetails(details);
+                            onOpenRewardPack?.(it.id);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.stopPropagation();
+                              pinDetails(details);
+                              onOpenRewardPack?.(it.id);
+                            }
+                          }}
+                          className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#62e8dc] px-1 py-0.5 text-center font-display text-[8px] text-pit-950"
+                        >
+                          {t('openRewardPack')}
+                        </span>
                       )}
                     </button>
                   );
@@ -546,7 +593,7 @@ export default function Inventory({
                   onDrop={(e) => {
                     const data = e.dataTransfer.getData('text/plain');
                     const kind = data.startsWith('pet:') ? data.slice(4) : '';
-                    if ((kind !== 'wolf' && kind !== 'monkey' && kind !== 'parrot' && kind !== 'owl') || !hud.petInventoryKinds.includes(kind as PetKind)) return;
+                    if ((kind !== 'wolf' && kind !== 'cat' && kind !== 'monkey' && kind !== 'parrot' && kind !== 'owl') || !hud.petInventoryKinds.includes(kind as PetKind)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     onEquipPet(kind as PetKind);
@@ -560,7 +607,7 @@ export default function Inventory({
                           key={`pet-select-${kind}`}
                           type="button"
                           data-pet-select={kind}
-                          aria-label={t(kind === 'wolf' ? 'petWolfResource' : kind === 'monkey' ? 'petMonkeyResource' : kind === 'parrot' ? 'petParrotResource' : 'petOwlResource')}
+                          aria-label={t(petResourceKey(kind))}
                           onClick={() => onSelectPetKind(kind)}
                           className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
                           style={{
@@ -569,13 +616,7 @@ export default function Inventory({
                             opacity: hud.petEquipped && hud.petEquippedKind !== kind ? 0.4 : 1,
                           }}
                         >
-                          {kind === 'wolf'
-                            ? <WolfIcon coatIndex={hud.petCoatIndices.wolf} size={23} />
-                            : kind === 'monkey'
-                              ? <MonkeyIcon coatIndex={hud.petCoatIndices.monkey} size={21} />
-                              : kind === 'parrot'
-                                ? <ParrotIcon coatIndex={hud.petCoatIndices.parrot} size={21} />
-                                : <OwlIcon coatIndex={hud.petCoatIndices.owl} size={21} />}
+                          {petIcon(kind, hud.petCoatIndices[kind], kind === 'wolf' ? 23 : 21)}
                         </button>
                       ))}
                     </div>
@@ -597,13 +638,7 @@ export default function Inventory({
                   >
                     <span className="font-display text-[9px] tracking-wider text-white/40">{t('petSlot')}</span>
                     {petDisplayOwned
-                      ? petDisplayKind === 'wolf'
-                        ? <WolfIcon coatIndex={petDisplayCoatIndex} size={31} />
-                        : petDisplayKind === 'monkey'
-                          ? <MonkeyIcon coatIndex={petDisplayCoatIndex} size={29} />
-                          : petDisplayKind === 'parrot'
-                            ? <ParrotIcon coatIndex={petDisplayCoatIndex} size={29} />
-                            : <OwlIcon coatIndex={petDisplayCoatIndex} size={29} />
+                      ? petIcon(petDisplayKind, petDisplayCoatIndex, petDisplayKind === 'wolf' ? 31 : 29)
                       : <span className="text-2xl leading-none text-white/25">🐾</span>}
                     <span className="max-w-full truncate font-display text-[8px] leading-none text-[#e8d5b4]">
                       {hud.petEquipped ? 'ДОМОЙ' : hud.petTokenAvailable ? 'В ПУТЬ' : t('petNotOwned')}
@@ -614,20 +649,19 @@ export default function Inventory({
                       <button
                         type="button"
                         data-pet-coat-prev
-                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatPrevious' : petDisplayKind === 'monkey' ? 'petMonkeyCoatPrevious' : petDisplayKind === 'parrot' ? 'petParrotCoatPrevious' : 'petOwlCoatPrevious')}
+                        aria-label={t(petPrevCoatKey(petDisplayKind))}
                         onClick={() => onCyclePetCoat(petDisplayKind, -1)}
                         className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
                       >
                         ‹
                       </button>
                       <span className="min-w-0 truncate text-center font-display text-[8px] text-torch">
-                        {t((petDisplayKind === 'wolf' ? WOLF_COATS : petDisplayKind === 'monkey' ? MONKEY_COATS : petDisplayKind === 'parrot' ? PARROT_COATS : OWL_COATS)[petDisplayCoatIndex]?.nameKey
-                          ?? (petDisplayKind === 'wolf' ? WOLF_COATS : petDisplayKind === 'monkey' ? MONKEY_COATS : petDisplayKind === 'parrot' ? PARROT_COATS : OWL_COATS)[0].nameKey)}
+                        {t(petCoats(petDisplayKind)[petDisplayCoatIndex]?.nameKey ?? petCoats(petDisplayKind)[0].nameKey)}
                       </span>
                       <button
                         type="button"
                         data-pet-coat-next
-                        aria-label={t(petDisplayKind === 'wolf' ? 'petCoatNext' : petDisplayKind === 'monkey' ? 'petMonkeyCoatNext' : petDisplayKind === 'parrot' ? 'petParrotCoatNext' : 'petOwlCoatNext')}
+                        aria-label={t(petNextCoatKey(petDisplayKind))}
                         onClick={() => onCyclePetCoat(petDisplayKind, 1)}
                         className="h-5 w-5 shrink-0 font-display text-sm leading-none text-white/60 hover:text-torch"
                       >
@@ -1280,7 +1314,7 @@ function TradePanel({
   onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0 && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
+  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
   const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">

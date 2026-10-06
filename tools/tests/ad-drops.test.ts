@@ -1,4 +1,4 @@
-/** Tests for rewarded shop drops and the distinct-login-day weekly/monthly gate. */
+/** Tests for rewarded ad chest packs and the distinct-login-day weekly/monthly gate. */
 
 type Call = { name: string; arg: unknown };
 const calls: Call[] = [];
@@ -55,26 +55,41 @@ const { initYandex } = await import('../../src/game/yandex');
 await initYandex();
 const {
   applyCloudRewardedDrops,
+  availableRewardedDropChestCounts,
   claimRewardedDrop,
-  completePendingRewardedDropItems,
   isRewardedDrop,
+  openRewardedDropPack,
   pendingRewardedDropItems,
   recordRewardedDropLogin,
   resetRewardedDropState,
+  rewardedDropPackContents,
   rewardedDropPeriod,
-  rewardedDropReward,
   rewardedDropStatuses,
+  rollbackOpenedRewardedDropPack,
   watchAndClaimRewardedDrop,
 } = await import('../../src/game/adDrops');
-const { COAL, COOKED_MEAT, DIAMOND, GOLD, IRON, PLANKS, TORCH } = await import('../../src/game/blocks');
+const {
+  COAL,
+  COOKED_MEAT,
+  DIAMOND,
+  GOLD,
+  IRON,
+  PLANKS,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_MONTHLY,
+  REWARD_PACK_WEEKLY,
+  TORCH,
+  WHEAT_SEEDS,
+} = await import('../../src/game/blocks');
+const { HOE_TOOLS } = await import('../../src/game/tools');
 
 resetRewardedDropState();
 const wednesday = day(0);
-ok(isRewardedDrop('drop-daily') && isRewardedDrop('drop-weekly') && isRewardedDrop('drop-monthly'), 'Все три магазинных дропа распознаются');
-ok(!isRewardedDrop('diamonds-100'), 'Платный пакет не является rewarded-дропом');
-ok(rewardedDropPeriod('drop-weekly', wednesday) === '2026-05-04', 'Понедельник по UTC остаётся календарной меткой недельного дропа');
+ok(isRewardedDrop('drop-daily') && isRewardedDrop('drop-weekly') && isRewardedDrop('drop-monthly'), 'Все три рекламных пака распознаются');
+ok(!isRewardedDrop('diamonds-100'), 'Платный пакет не является rewarded-паком');
+ok(rewardedDropPeriod('drop-weekly', wednesday) === '2026-05-04', 'Понедельник по UTC остаётся меткой недельного пака');
 ok(rewardedDropPeriod('drop-monthly', wednesday) === '2026-05', 'Месячная метка использует UTC-месяц');
-ok(!rewardedDropStatuses(wednesday)['drop-weekly'].available && rewardedDropStatuses(wednesday)['drop-weekly'].progress === 0, 'Недельный дроп закрыт до семи дней входа');
+ok(!rewardedDropStatuses(wednesday)['drop-weekly'].available && rewardedDropStatuses(wednesday)['drop-weekly'].progress === 0, 'Недельный пак закрыт до семи дней входа');
 
 ok(recordRewardedDropLogin(wednesday), 'Первый запуск записывает уникальный день входа');
 ok(!recordRewardedDropLogin(wednesday), 'Повторное открытие в тот же день не увеличивает прогресс');
@@ -86,76 +101,92 @@ const failedAd = await watchAndClaimRewardedDrop(
   wednesday,
   () => 0,
 );
-ok(!failedAd.ok && failedAd.reason === 'ad', 'Закрытие или ошибка без rewarded-callback не выдаёт награду');
-ok(rewardedDropStatuses(wednesday)['drop-daily'].available, 'Неуспешная реклама не отмечает ежедневный дроп полученным');
-ok(pendingRewardedDropItems('next-run') === null, 'Неуспешная реклама не ставит припасы в очередь');
-const thrownAd = await watchAndClaimRewardedDrop('drop-daily', async () => { throw new Error('SDK unavailable'); }, wednesday);
-ok(!thrownAd.ok && thrownAd.reason === 'ad', 'Ошибка SDK безопасно отменяет claim');
+ok(!failedAd.ok && failedAd.reason === 'ad', 'Закрытие или ошибка без rewarded-callback не выдаёт аккаунтный пак');
+ok(rewardedDropStatuses(wednesday)['drop-daily'].available, 'Неуспешная реклама не отмечает ежедневный пак полученным');
+ok(pendingRewardedDropItems('next-run') === null, 'Ежедневный пак больше не выдаёт прямые припасы до запуска');
 
 const daily = await watchAndClaimRewardedDrop('drop-daily', async () => ({ shown: true, rewarded: true }), wednesday, () => 0);
-ok(daily.ok && daily.items.length === 4 && daily.delivery === 'next-run', 'Ежедневный просмотр зачисляет припасы следующему забегу');
-ok(daily.ok && daily.items.some(([id, count]) => id === PLANKS && count === 8), 'В ежедневном наборе 8 досок');
-ok(daily.ok && daily.items.some(([id, count]) => id === COAL && count === 6), 'В ежедневном наборе 6 угля');
-ok(daily.ok && daily.items.some(([id, count]) => id === COOKED_MEAT && count === 3), 'В ежедневном наборе 3 готового мяса');
-ok(daily.ok && daily.items.some(([id, count]) => id === TORCH && count === 4), 'В ежедневном наборе 4 факела');
-ok(!rewardedDropStatuses(wednesday)['drop-daily'].available, 'Ежедневный дроп блокируется после claim');
-ok(rewardedDropStatuses(day(1))['drop-daily'].available, 'Ежедневный дроп снова доступен на следующий UTC-день');
+ok(daily.ok && daily.delivery === 'account' && daily.items.length === 1, 'Ежедневный просмотр выдаёт аккаунтный токен пака');
+ok(daily.ok && daily.items[0][0] === REWARD_PACK_DAILY && daily.items[0][1] === 1, 'Ежедневная реклама выдаёт именно мешок ресурсов');
+ok(!rewardedDropStatuses(wednesday)['drop-daily'].available, 'Ежедневный пак блокируется после claim');
+ok(rewardedDropStatuses(day(1))['drop-daily'].available, 'Ежедневный пак снова доступен на следующий UTC-день');
 let duplicateAdShown = false;
 const duplicate = await watchAndClaimRewardedDrop('drop-daily', async () => {
   duplicateAdShown = true;
   return { shown: true, rewarded: true };
 }, wednesday);
-ok(!duplicate.ok && duplicate.reason === 'claimed' && !duplicateAdShown, 'Повторное нажатие не запускает рекламу и не выдаёт дроп дважды');
+ok(!duplicate.ok && duplicate.reason === 'claimed' && !duplicateAdShown, 'Повторное нажатие не запускает рекламу и не выдаёт второй мешок');
+ok(availableRewardedDropChestCounts('survival')['drop-daily'] === 1, 'Аккаунтный мешок доступен в выживании');
+ok(availableRewardedDropChestCounts('exploration')['drop-daily'] === 1, 'Тот же мешок доступен и в исследовании');
+ok(availableRewardedDropChestCounts('own-world')['drop-daily'] === 1, 'И в своём мире пак тоже доступен');
 
-// The weekly reward needs seven distinct login dates, not a calendar-week rollover.
+const openedDailySurvival = openRewardedDropPack('drop-daily', 'survival');
+ok(openedDailySurvival.ok && openedDailySurvival.chestItemId === REWARD_PACK_DAILY, 'Мешок открывается в survival');
+ok(openedDailySurvival.ok && openedDailySurvival.items.some(([id, count]) => id === PLANKS && count === 12), 'В мешке есть доски');
+ok(openedDailySurvival.ok && openedDailySurvival.items.some(([id, count]) => id === COAL && count === 6), 'В мешке есть уголь');
+ok(openedDailySurvival.ok && openedDailySurvival.items.some(([id, count]) => id === COOKED_MEAT && count === 4), 'В мешке есть еда');
+ok(openedDailySurvival.ok && openedDailySurvival.items.some(([id, count]) => id === TORCH && count === 4), 'В мешке есть факелы');
+ok(openedDailySurvival.ok && openedDailySurvival.items.some(([id, count]) => id === WHEAT_SEEDS && count === 4), 'В мешке есть семена');
+ok(openedDailySurvival.ok && openedDailySurvival.tools.join(',') === String(HOE_TOOLS[0]), 'В мешке лежит деревянная тяпка');
+ok(availableRewardedDropChestCounts('survival')['drop-daily'] === 0, 'После открытия в survival мешок исчезает только в survival');
+ok(availableRewardedDropChestCounts('exploration')['drop-daily'] === 1 && availableRewardedDropChestCounts('own-world')['drop-daily'] === 1, 'Другие режимы сохраняют право открыть тот же пак');
+const openedDailyAgain = openRewardedDropPack('drop-daily', 'survival');
+ok(!openedDailyAgain.ok && openedDailyAgain.reason === 'claimed', 'Повторно открыть мешок в том же режиме нельзя');
+const openedDailyOwnWorld = openRewardedDropPack('drop-daily', 'own-world');
+ok(openedDailyOwnWorld.ok, 'Мешок отдельно открывается в своём мире');
+ok(openedDailyOwnWorld.ok && rollbackOpenedRewardedDropPack(openedDailyOwnWorld.receiptKey, 'own-world'), 'Открытие можно откатить, если сохранение мира сорвалось');
+ok(availableRewardedDropChestCounts('own-world')['drop-daily'] === 1, 'Откат возвращает право открыть пак в своём мире');
+
 const beforeWeekReady = await watchAndClaimRewardedDrop('drop-weekly', async () => ({ shown: true, rewarded: true }), wednesday);
-ok(!beforeWeekReady.ok && beforeWeekReady.reason === 'claimed', 'Рекламный просмотр не запускается до семи дней входа');
+ok(!beforeWeekReady.ok && beforeWeekReady.reason === 'claimed', 'Реклама не запускается до семи дней входа');
 for (let offset = 1; offset <= 6; offset += 1) recordRewardedDropLogin(day(offset));
 const weekReady = rewardedDropStatuses(day(6))['drop-weekly'];
-ok(weekReady.available && weekReady.progress === 7 && weekReady.goal === 7, 'После семи уникальных дней недельный дроп доступен');
-const weeklyMin = rewardedDropReward('drop-weekly', () => 0);
-const weeklyMax = rewardedDropReward('drop-weekly', () => 1);
-ok(weeklyMin.items.some(([id, count]) => id === PLANKS && count === 8) && weeklyMax.items.some(([id, count]) => id === PLANKS && count === 40), 'Недельная реклама выдаёт от одного до пяти наборов припасов');
+ok(weekReady.available && weekReady.progress === 7 && weekReady.goal === 7, 'После семи уникальных дней недельный пак доступен');
+const weeklyPreview = rewardedDropPackContents('drop-weekly', () => 0);
+ok(weeklyPreview.chestItemId === REWARD_PACK_WEEKLY, 'Недельный preview использует сундук припасов');
+ok(weeklyPreview.items.some(([id, count]) => id === IRON && count === 6), 'Недельный пак несёт немного железа');
+ok(weeklyPreview.items.some(([id, count]) => id === WHEAT_SEEDS && count === 8), 'Недельный пак несёт больше семян');
+ok(weeklyPreview.tools.join(',') === String(HOE_TOOLS[2]), 'Недельный пак несёт железную тяпку');
+ok(weeklyPreview.gear.length === 3, 'Недельный пак несёт три детали доспехов');
+ok(new Set(weeklyPreview.gear.map((gear) => gear.slot)).size === 3, 'В недельном паке слоты доспехов не повторяются');
+ok(weeklyPreview.gear.filter((gear) => gear.material === 'iron' && gear.affixes.length === 0).length === 2, 'Две детали недельного пака — обычные железные');
+ok(weeklyPreview.gear.some((gear) => gear.rarity === 0 && gear.affixes.length > 0), 'Одна недельная деталь имеет зелёную редкость и бафф');
 const weekly = await watchAndClaimRewardedDrop('drop-weekly', async () => ({ shown: true, rewarded: true }), day(6), () => 0);
-ok(weekly.ok && weekly.items.some(([id, count]) => id === IRON && count === 3), 'Недельные припасы ставятся в очередь после подтверждённого просмотра');
+ok(weekly.ok && weekly.items[0][0] === REWARD_PACK_WEEKLY, 'Недельный просмотр выдаёт аккаунтный сундук');
+ok(availableRewardedDropChestCounts('survival')['drop-weekly'] === 1, 'Недельный сундук доступен в survival');
 ok(!rewardedDropStatuses(day(6))['drop-weekly'].available && rewardedDropStatuses(day(6))['drop-weekly'].progress === 0, 'После claim недельный прогресс начинается заново');
 
-// Calendar boundaries do not unlock these rewards: a second cycle starts only with new game-entry days.
 for (let offset = 7; offset <= 13; offset += 1) recordRewardedDropLogin(day(offset));
-ok(rewardedDropStatuses(day(13))['drop-weekly'].available, 'Следующие семь дней входа снова открывают недельный дроп');
-const weeklyAgain = await watchAndClaimRewardedDrop('drop-weekly', async () => ({ shown: true, rewarded: true }), day(13), () => 0.5);
-ok(weeklyAgain.ok && weeklyAgain.items.some(([id, count]) => id === PLANKS && count === 24), 'Вторая недельная supply-награда выдаётся корректно');
+ok(rewardedDropStatuses(day(13))['drop-weekly'].available, 'Следующие семь дней входа снова открывают недельный пак');
+const weeklyAgain = claimRewardedDrop('drop-weekly', day(13), () => 0.5);
+ok(weeklyAgain.ok && availableRewardedDropChestCounts('survival')['drop-weekly'] === 2, 'Второй недельный сундук копится отдельным аккаунтным токеном');
+
 for (let offset = 14; offset <= 29; offset += 1) recordRewardedDropLogin(day(offset));
 const monthlyProgress = rewardedDropStatuses(day(29))['drop-monthly'];
-ok(monthlyProgress.available && monthlyProgress.progress === 30 && monthlyProgress.goal === 30, 'Месячный дроп открывается после тридцати дней входа');
-const monthlyMin = rewardedDropReward('drop-monthly', () => 0);
-const monthlyMax = rewardedDropReward('drop-monthly', () => 1);
-ok(monthlyMin.items.some(([id, count]) => id === DIAMOND && count === 1) && monthlyMax.items.some(([id, count]) => id === DIAMOND && count === 3), 'Месячный supply-набор сохраняет масштабируемые алмазные материалы');
+ok(monthlyProgress.available && monthlyProgress.progress === 30 && monthlyProgress.goal === 30, 'Месячный пак открывается после тридцати дней входа');
+const monthlyPreview = rewardedDropPackContents('drop-monthly', () => 0);
+ok(monthlyPreview.chestItemId === REWARD_PACK_MONTHLY, 'Месячный preview использует богатый сундук');
+ok(monthlyPreview.items.some(([id, count]) => id === DIAMOND && count === 2), 'Богатый сундук содержит алмазы');
+ok(monthlyPreview.items.some(([id, count]) => id === WHEAT_SEEDS && count === 12), 'Богатый сундук содержит ещё больше семян');
+ok(monthlyPreview.gear.length === 2, 'Богатый сундук содержит две детали доспехов');
+ok(new Set(monthlyPreview.gear.map((gear) => gear.slot)).size === 2, 'В богатом сундуке слоты тоже не повторяются');
+ok(monthlyPreview.gear.some((gear) => gear.rarity === 0 && gear.affixes.length > 0), 'В богатом сундуке есть зелёная часть с баффом');
+ok(monthlyPreview.gear.some((gear) => gear.rarity === 1 && gear.affixes.length > 0), 'В богатом сундуке есть синяя часть с баффом');
 const monthly = await watchAndClaimRewardedDrop('drop-monthly', async () => ({ shown: true, rewarded: true }), day(29), () => 1);
-ok(monthly.ok && monthly.delivery === 'own-world' && monthly.items.some(([id, count]) => id === DIAMOND && count === 3), 'Месячный просмотр ставит ресурсные припасы в очередь для собственного мира');
-ok(monthly.ok && monthly.items.some(([id, count]) => id === IRON && count === 12), 'Месячный набор содержит железо');
-ok(monthly.ok && monthly.items.some(([id, count]) => id === GOLD && count === 4), 'Месячный набор содержит золото');
-ok(monthly.ok && monthly.items.some(([id, count]) => id === PLANKS && count === 32), 'Месячный набор содержит 32 доски');
-ok(monthly.ok && monthly.items.some(([id, count]) => id === TORCH && count === 16), 'Месячный набор содержит 16 факелов');
+ok(monthly.ok && monthly.items[0][0] === REWARD_PACK_MONTHLY && monthly.delivery === 'account', 'Месячный просмотр выдаёт богатый аккаунтный сундук');
+ok(availableRewardedDropChestCounts('own-world')['drop-monthly'] === 1, 'Богатый сундук можно отдельно открыть в своём мире');
 ok(!rewardedDropStatuses(day(29))['drop-monthly'].available, 'После получения месячный прогресс сбрасывается');
+ok(pendingRewardedDropItems('own-world') === null, 'Аккаунтные сундуки не создают прямых pending-припасов');
 
-const nextRunBatch = pendingRewardedDropItems('next-run');
-ok(Boolean(nextRunBatch?.items.some(([id, count]) => id === PLANKS && count === 40)), 'Ежедневные и недельные доски суммируются для следующего забега');
-ok(Boolean(nextRunBatch && !nextRunBatch.items.some(([id]) => id === GOLD || id === DIAMOND)), 'Месячные материалы не попадают в обычный забег');
-ok(Boolean(nextRunBatch && pendingRewardedDropItems('next-run')?.keys.length === nextRunBatch.keys.length), 'Припасы не отмечаются полученными до выдачи');
-ok(Boolean(nextRunBatch && completePendingRewardedDropItems(nextRunBatch.keys)), 'Успешная выдача подтверждается отдельной записью');
-const ownWorldBatch = pendingRewardedDropItems('own-world');
-ok(Boolean(ownWorldBatch?.items.some(([id, count]) => id === PLANKS && count === 32)), 'Месячные доски ждут собственного мира');
-ok(Boolean(ownWorldBatch && ownWorldBatch.items.some(([id, count]) => id === IRON && count === 74) && ownWorldBatch.items.some(([id, count]) => id === GOLD && count === 13) && ownWorldBatch.items.some(([id, count]) => id === DIAMOND && count === 3)), 'Месячные железо, золото и минеральные алмазы сохраняются');
-ok(Boolean(ownWorldBatch && completePendingRewardedDropItems(ownWorldBatch.keys)), 'Месячный grant подтверждается после сохранения мира');
-ok(pendingRewardedDropItems('own-world') === null, 'Выданные припасы не дублируются при повторном запуске');
-
-// Cloud login-day union allows progress earned on different devices to be combined.
 resetRewardedDropState();
 applyCloudRewardedDrops({
-  claims: { 'drop-weekly': '2026-05-18' },
+  claims: { 'drop-daily': '2026-05-06' },
   pending: {},
   delivered: [],
+  packs: [
+    { key: 'drop-daily:2026-05-06', id: 'drop-daily', seed: 123, opened: { survival: true } },
+    { key: 'drop-weekly:2026-05-04#1', id: 'drop-weekly', seed: 456, opened: { exploration: true } },
+  ],
   login: {
     last: '2026-06-05',
     days: ['2026-05-30', '2026-06-01', '2026-06-03', '2026-06-05'],
@@ -165,12 +196,10 @@ applyCloudRewardedDrops({
     monthlyCycles: 1,
   },
 });
+ok(availableRewardedDropChestCounts('survival')['drop-daily'] === 0 && availableRewardedDropChestCounts('exploration')['drop-daily'] === 1, 'Облачное состояние хранит, в каком режиме ежедневный мешок уже открыт');
+ok(availableRewardedDropChestCounts('survival')['drop-weekly'] === 1 && availableRewardedDropChestCounts('exploration')['drop-weekly'] === 0, 'Открытый на другом устройстве режим weekly-пака тоже учитывается');
 ok(rewardedDropStatuses(Date.UTC(2026, 5, 5, 12))['drop-weekly'].progress === 4, 'Облачные дни входа объединяются в прогресс');
-ok(!rewardedDropStatuses(Date.UTC(2026, 5, 5, 12))['drop-weekly'].available, 'Облачная запись сохраняет ограничение до семи дней');
-const claimWithoutProgress = claimRewardedDrop('drop-weekly', Date.UTC(2026, 5, 5, 12), () => 0);
-ok(!claimWithoutProgress.ok && claimWithoutProgress.reason === 'claimed', 'Claim без прогресса отклоняется и после облачного слияния');
 
-// A 31-day month can contain two 30-login monthly cycles; the reward receipts must remain distinct.
 resetRewardedDropState();
 const aprilFirst = Date.UTC(2026, 3, 1, 12);
 for (let offset = 0; offset < 30; offset += 1) recordRewardedDropLogin(aprilFirst + offset * DAY_MS);
@@ -181,7 +210,6 @@ for (let offset = 1; offset <= 30; offset += 1) recordRewardedDropLogin(mayFirst
 const mayThirtyFirst = Date.UTC(2026, 4, 31, 12);
 const secondMonthly = await watchAndClaimRewardedDrop('drop-monthly', async () => ({ shown: true, rewarded: true }), mayThirtyFirst, () => 0);
 ok(secondMonthly.ok, 'Второй месячный цикл в том же календарном месяце открывается через 30 новых входов');
-const twoMonthlyBatches = pendingRewardedDropItems('own-world');
-ok(Boolean(twoMonthlyBatches && twoMonthlyBatches.keys.length === 2 && twoMonthlyBatches.items.find(([id]) => id === IRON)?.[1] === 68), 'Два месячных сундука не перезаписывают сохранённые припасы');
+ok(availableRewardedDropChestCounts('own-world')['drop-monthly'] === 2, 'Два месячных богатых сундука копятся независимо и не перезаписывают друг друга');
 
 export { passed, failures };

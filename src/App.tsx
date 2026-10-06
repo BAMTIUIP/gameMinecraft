@@ -43,12 +43,19 @@ import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformE
 import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
 import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
 import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
-import { completePendingRewardedDropItems, pendingRewardedDropItems, recordRewardedDropLogin, watchAndClaimRewardedDrop, type RewardedDropId } from './game/adDrops';
+import {
+  availableRewardedDropChestItems,
+  completePendingRewardedDropItems,
+  pendingRewardedDropItems,
+  recordRewardedDropLogin,
+  watchAndClaimRewardedDrop,
+  type RewardedDropId,
+} from './game/adDrops';
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
-import { hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
+import { hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -161,7 +168,7 @@ const INITIAL_HUD: HudState = {
   petEquipped: false,
   petEquippedKind: null,
   petSelectedKind: 'wolf',
-  petCoatIndices: { wolf: 0, monkey: 0, parrot: 0, owl: 0 },
+  petCoatIndices: { wolf: 0, cat: 0, monkey: 0, parrot: 0, owl: 0 },
   petCoatIndex: 0,
   petInteractNear: false,
   stats: EMPTY_STATS,
@@ -220,11 +227,13 @@ export default function App() {
   const [canPay, setCanPay] = useState(false);
   const [adFreeOwned, setAdFreeOwned] = useState(() => hasAdFreeEntitlement());
   const [wolfPetOwned, setWolfPetOwned] = useState(() => hasWolfPet());
+  const [catPetOwned, setCatPetOwned] = useState(() => hasCatPet());
   const [monkeyPetOwned, setMonkeyPetOwned] = useState(() => hasMonkeyPet());
   const [parrotPetOwned, setParrotPetOwned] = useState(() => hasParrotPet());
   const [owlPetOwned, setOwlPetOwned] = useState(() => hasOwlPet());
   const refreshPetOwnership = useCallback(() => {
     setWolfPetOwned(hasWolfPet());
+    setCatPetOwned(hasCatPet());
     setMonkeyPetOwned(hasMonkeyPet());
     setParrotPetOwned(hasParrotPet());
     setOwlPetOwned(hasOwlPet());
@@ -545,6 +554,7 @@ export default function App() {
   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
   const salvageItem = useCallback((id: number, instanceId?: number) => engineRef.current?.salvageItem(id, instanceId), []);
   const repairTool = useCallback((instanceId: number) => engineRef.current?.repairTool(instanceId), []);
+  const openRewardPack = useCallback((id: number) => engineRef.current?.openRewardedPack(id) ?? false, []);
 
   const toggleFreeLook = useCallback(() => {
     const next = !(engineRef.current?.freeLookEnabled ?? true);

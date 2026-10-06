@@ -37,6 +37,9 @@ import {
   LAPIS,
   EMERALD,
   QUARTZ,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_MONTHLY,
+  REWARD_PACK_WEEKLY,
   GRASS,
   LAVA,
   LEAVES,
@@ -147,23 +150,27 @@ import {
   toolRepairCost,
   toolWearRatio,
 } from './tools';
-import { babyGrowthScale, buildMonkeyCompanionBody, buildOwlCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
+import { babyGrowthScale, buildCatCompanionBody, buildMonkeyCompanionBody, buildOwlCompanionBody, buildParrotCompanionBody, MobSystem, type Mob, type MobId, type MobThreatTarget } from './mobs';
 import { CHARACTER_HAIRSTYLES, DEFAULT_CHARACTER_CUSTOMIZATION, randomCharacterCustomization, sanitizeCharacterCustomization, type CharacterCustomization, type CharacterHairstyle, type CharacterShoeType } from './character';
 import { drawCharacterFace } from './characterVisuals';
 import {
+  CAT_COATS,
   MONKEY_COATS,
   OWL_COATS,
   PARROT_COATS,
   WOLF_COATS,
+  getCatCoatIndex,
   getMonkeyCoatIndex,
   getOwlCoatIndex,
   getParrotCoatIndex,
   getWolfCoatIndex,
+  hasCatPet,
   hasMonkeyPet,
   hasOwlPet,
   hasParrotPet,
   hasWolfPet,
   refreshPetStateFromStorage,
+  setCatCoatIndex,
   setMonkeyCoatIndex,
   setOwlCoatIndex,
   setParrotCoatIndex,
@@ -597,7 +604,7 @@ type AvatarFadeMaterial = {
   depthWrite: boolean;
 };
 
-type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
+type WolfPetReaction = 'wag' | 'bark' | 'spin' | 'cat-purr' | 'cat-meow' | 'cat-circle' | 'monkey-flop' | 'monkey-hops' | 'monkey-scratch' | 'monkey-spin' | null;
 type ParrotPetMode = 'shoulder' | 'hand' | 'follow' | 'fetch' | 'delivery' | 'attack';
 type ParrotAttackStage = 'approach' | 'dive' | 'soar';
 type WolfChestTarget = { x: number; y: number; z: number; id: number; standX: number; standY: number; standZ: number; swimming: boolean };
@@ -655,6 +662,10 @@ type WolfPetRig = {
   swimming: boolean;
   underwater: boolean;
   reactionLookTimer: number;
+  /** Monkey-only elevated follow/combat anchor chosen from nearby logs/leaves. */
+  monkeyTreeAnchor: THREE.Vector3;
+  monkeyTreeAnchorValid: boolean;
+  monkeyAmmoCooldown: number;
   /** Bird-only flight, call, feeding and repeat-dive state. */
   parrotMode: ParrotPetMode;
   parrotCalled: boolean;
@@ -667,6 +678,20 @@ type WolfPetRig = {
   parrotSoundTimer: number;
   parrotFollowAnchor: THREE.Vector3;
   parrotFollowAnchorValid: boolean;
+};
+
+type MonkeyPetProjectile = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  life: number;
+  mesh: THREE.Group;
+  itemId: typeof BANANA | typeof COCONUT;
+  damage: number;
+  stunChance: number;
 };
 
 /* =========================== co-op rig helpers =========================== */
@@ -840,6 +865,80 @@ function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
+    parrotMode: 'shoulder',
+    parrotCalled: false,
+    parrotIdleTimer: 0,
+    parrotAttackTarget: null,
+    parrotAttackStage: 'approach',
+    parrotStageTimer: 0,
+    parrotHappyTimer: 0,
+    parrotEatTimer: 0,
+    parrotSoundTimer: 0,
+    parrotFollowAnchor: new THREE.Vector3(),
+    parrotFollowAnchorValid: false,
+  };
+}
+
+/** Use the ordinary domestic cat mesh, with one of the fixed saved coat variants. */
+function buildCatPetRig(variantIndex: number): WolfPetRig {
+  const cat = buildCatCompanionBody(variantIndex);
+  const group = new THREE.Group();
+  group.name = 'equipped-cat-pet';
+  group.userData.companion = 'cat-pet';
+  const model = cat.group;
+  model.scale.setScalar(0.94);
+  group.add(model);
+  return {
+    kind: 'cat',
+    group,
+    model,
+    pose: model,
+    body: model.children.find((part) => part instanceof THREE.Mesh && Math.abs(part.position.y - 0.5) < 0.01) ?? null,
+    head: cat.head,
+    jaw: null,
+    tail: cat.tail,
+    legs: cat.legs,
+    target: new THREE.Vector3(),
+    navWaypoint: new THREE.Vector3(),
+    navGoal: new THREE.Vector3(),
+    navTimer: 0,
+    restAnchor: new THREE.Vector3(),
+    restYaw: 0,
+    restAnchorValid: false,
+    stillTimer: 0,
+    moveStartTimer: 0,
+    teleportRevealTimer: 0,
+    yawTarget: 0,
+    phase: 0,
+    hopTimer: 0,
+    moving: false,
+    sitting: true,
+    attackTimer: 0.35,
+    attackPoseTimer: 0,
+    reaction: null,
+    reactionTimer: 0,
+    reactionAge: 0,
+    reactionSoundTimer: 0,
+    fetchTarget: null,
+    chestTarget: null,
+    chestScanTimer: 0,
+    chestBlockedTimer: 0,
+    chestIgnoredKey: '',
+    chestIgnoreUntil: 0,
+    fetchBlockedDrop: null,
+    fetchBlockedTimer: 0,
+    fetchNoProgressTimer: 0,
+    fetchNoPath: false,
+    carrying: null,
+    swimming: false,
+    underwater: false,
+    reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -912,6 +1011,9 @@ function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -987,6 +1089,9 @@ function buildOwlPetRig(variantIndex: number): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -1058,6 +1163,9 @@ function buildParrotPetRig(variantIndex: number): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -1623,7 +1731,7 @@ export class Engine {
   private petEquipped = false;
   private petEquippedKind: PetKind | null = null;
   private petSelectedKind: PetKind = 'wolf';
-  private petCoatIndices: Record<PetKind, number> = { wolf: 0, monkey: 0, parrot: 0, owl: 0 };
+  private petCoatIndices: Record<PetKind, number> = { wolf: 0, cat: 0, monkey: 0, parrot: 0, owl: 0 };
   private petCoatIndex = 0;
   private stats: Stats = { ...EMPTY_STATS };
   private attackCd = 0;
@@ -5077,6 +5185,7 @@ if (tpClipActive > 0.5) {
     refreshPetStateFromStorage();
     this.petOwnedKinds = [];
     if (hasWolfPet()) this.petOwnedKinds.push('wolf');
+    if (hasCatPet()) this.petOwnedKinds.push('cat');
     if (hasMonkeyPet()) this.petOwnedKinds.push('monkey');
     if (hasParrotPet()) this.petOwnedKinds.push('parrot');
     if (hasOwlPet()) this.petOwnedKinds.push('owl');
@@ -5086,7 +5195,7 @@ if (tpClipActive > 0.5) {
     this.petEquippedKind = null;
     this.playerSprinting = false;
     this.petSelectedKind = this.petOwnedKinds[0] ?? 'wolf';
-    this.petCoatIndices = { wolf: getWolfCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex(), owl: getOwlCoatIndex() };
+    this.petCoatIndices = { wolf: getWolfCoatIndex(), cat: getCatCoatIndex(), monkey: getMonkeyCoatIndex(), parrot: getParrotCoatIndex(), owl: getOwlCoatIndex() };
     this.petCoatIndex = this.petCoatIndices[this.petSelectedKind];
     this.sandbox = sandbox;
     this.endlessRun = sandbox || survivalRun;
@@ -5267,6 +5376,31 @@ if (tpClipActive > 0.5) {
     return true;
   }
 
+  rewardedDropMode(): RewardedDropMode {
+    return this.sandbox ? 'own-world' : this.survival ? 'survival' : 'exploration';
+  }
+
+  inventoryCount(id: number): number {
+    return Math.max(0, this.inventory.get(id) ?? 0);
+  }
+
+  /** Account-bound reward chests/bags are re-injected when a mode starts until that mode opens them. */
+  grantRewardedPackTokens(items: Array<readonly [number, number]>): boolean {
+    let added = 0;
+    for (const [id, rawCount] of items) {
+      if (!isRewardedDropChestItem(id)) continue;
+      const count = Math.max(0, Math.floor(rawCount));
+      if (count <= 0) continue;
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+      added += count;
+    }
+    if (!added) return false;
+    this.pushBanner(t('rewardPackReadyTitle'), t('rewardPackReadySub'), '#f4b942');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
   /** Apply paid shop products after a run/world has loaded; the receipts stay queued on save failure. */
   grantShopProductRewards(products: readonly string[]): boolean {
     const inventoryBefore = new Map(this.inventory);
@@ -5365,6 +5499,79 @@ if (tpClipActive > 0.5) {
     }
 
     this.pushBanner(t('shopItemBannerTitle'), t('shopItemBannerSub'), '#f4b942');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
+  openRewardedPack(itemId: number): boolean {
+    const dropId = rewardedDropIdFromChestItem(itemId);
+    if (this.phase !== 'playing' || !dropId) {
+      sfx.ui(false);
+      return false;
+    }
+    const owned = this.inventory.get(itemId) ?? 0;
+    if (owned <= 0) {
+      sfx.ui(false);
+      return false;
+    }
+
+    const mode = this.rewardedDropMode();
+    const opened = openRewardedDropPack(dropId, mode);
+    if (!opened.ok) {
+      if (opened.reason === 'storage') this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      else sfx.ui(false);
+      return false;
+    }
+
+    const inventoryBefore = new Map(this.inventory);
+    const hotbarBefore = this.hotbar.slice();
+    const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+    const toolsBefore = new Map(this.toolInstances);
+    const bagBefore = this.bagItems.slice();
+    const nextToolIdBefore = this.nextToolInstanceId;
+    const tierBefore = this.tier;
+    const swordTierBefore = this.swordTier;
+
+    for (const [id, count] of opened.items) {
+      if (!BLOCKS[id] || !Number.isInteger(count) || count <= 0) continue;
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+      this.addToHotbar(id);
+    }
+    for (const toolId of opened.tools) this.addToolInstance(toolId);
+    for (const gear of opened.gear) this.bagItems.push(ensureGearHid(gear));
+
+    if (owned - 1 > 0) this.inventory.set(itemId, owned - 1);
+    else this.inventory.delete(itemId);
+    if ((this.inventory.get(itemId) ?? 0) <= 0) {
+      for (let i = 0; i < this.hotbar.length; i += 1) {
+        if (this.hotbar[i] === itemId) {
+          this.hotbar[i] = undefined;
+          this.hotbarInstanceIds[i] = undefined;
+        }
+      }
+    }
+    this.recalcOwnedToolTiers();
+
+    if (this.sandbox && !this.saveWorld(true)) {
+      this.inventory = inventoryBefore;
+      this.hotbar = hotbarBefore;
+      this.hotbarInstanceIds = hotbarInstancesBefore;
+      this.toolInstances = toolsBefore;
+      this.bagItems = bagBefore;
+      this.nextToolInstanceId = nextToolIdBefore;
+      this.tier = tierBefore;
+      this.swordTier = swordTierBefore;
+      rollbackOpenedRewardedDropPack(opened.receiptKey, mode);
+      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return false;
+    }
+
+    const accent = itemId === REWARD_PACK_DAILY ? '#f4b942' : itemId === REWARD_PACK_WEEKLY ? '#62e8dc' : '#8fb8ff';
+    this.pushBanner(t('rewardPackOpenedTitle'), blockName(itemId, BLOCKS[itemId]?.name ?? ''), accent);
+    this.popup(this.pos.x, this.pos.y + 1.45, this.pos.z, t('rewardPackOpenedPopup'), accent, true);
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -9738,7 +9945,7 @@ if (tpClipActive > 0.5) {
   dropHeldItem() {
     if (this.phase !== 'playing') return;
     const id = this.hotbar[this.selected];
-    if (id === undefined || id === HAND) {
+    if (id === undefined || id === HAND || isRewardedDropChestItem(id)) {
       sfx.ui(false);
       return;
     }
@@ -10834,6 +11041,7 @@ if (tpClipActive > 0.5) {
     /** which arrow item was spent on the shot (ARROW_ITEM when nothing was equipped) */
     arrowId?: number | null;
   }> = [];
+  private monkeyProjectiles: MonkeyPetProjectile[] = [];
 
   /** skeleton archer fires the standard arrow model at the player */
   private mobShoot(m: Mob) {
@@ -11051,6 +11259,83 @@ if (tpClipActive > 0.5) {
       sfx.pickup(1);
       this.syncHotbar(true);
       this.syncHud(true);
+    }
+  }
+
+  private launchMonkeyProjectile(rig: WolfPetRig, target: Mob) {
+    const itemId = Math.random() < 0.5 ? BANANA : COCONUT;
+    const mesh = this.buildFancyDrop(itemId) ?? new THREE.Group();
+    mesh.scale.setScalar(itemId === COCONUT ? 0.84 : 0.9);
+    const ox = rig.group.position.x;
+    const oy = rig.group.position.y + 0.96;
+    const oz = rig.group.position.z;
+    let dx = target.x - ox;
+    let dz = target.z - oz;
+    const horizontalDistance = Math.hypot(dx, dz) || 1;
+    dx = dx / horizontalDistance + (Math.random() - 0.5) * 0.035;
+    dz = dz / horizontalDistance + (Math.random() - 0.5) * 0.035;
+    const speed = itemId === COCONUT ? 16.8 : 15.5;
+    const gravity = itemId === COCONUT ? 10.5 : 9.3;
+    const travelTime = Math.max(0.14, horizontalDistance / speed);
+    const targetY = target.y + 0.92;
+    const vy = Math.max(-1.1, Math.min(4.2, (targetY - oy + 0.5 * gravity * travelTime * travelTime) / travelTime + (Math.random() - 0.5) * 0.12));
+    const projectile: MonkeyPetProjectile = {
+      x: ox + dx * 0.34,
+      y: oy,
+      z: oz + dz * 0.34,
+      vx: dx * speed,
+      vy,
+      vz: dz * speed,
+      life: itemId === COCONUT ? 1.6 : 1.45,
+      mesh,
+      itemId,
+      damage: itemId === COCONUT ? 1.8 : 1.2,
+      stunChance: itemId === COCONUT ? 0.26 : 0.16,
+    };
+    if (target.alive && !target.hidden && target.def.hostile) {
+      target.hp -= projectile.damage;
+      target.hurtFlash = 0.18;
+      target.vx += dx * 0.45;
+      target.vz += dz * 0.45;
+      if (Math.random() < projectile.stunChance) {
+        target.stun = Math.max(target.stun, 5);
+        target.vx = 0;
+        target.vz = 0;
+      }
+      this.mobSys.showHealthBar(target);
+      if (target.hp <= 0) this.mobDied(target, false);
+    }
+    mesh.position.set(projectile.x, projectile.y, projectile.z);
+    mesh.lookAt(projectile.x + projectile.vx, projectile.y + projectile.vy, projectile.z + projectile.vz);
+    this.scene.add(mesh);
+    this.monkeyProjectiles.push(projectile);
+    sfx.creature('monkey', { state: 'attack', volume: 0.3, pitch: 0.98 + Math.random() * 0.18 });
+  }
+
+  private updateMonkeyProjectiles(dt: number) {
+    if (this.phase !== 'playing') return;
+    for (let i = this.monkeyProjectiles.length - 1; i >= 0; i--) {
+      const projectile = this.monkeyProjectiles[i];
+      projectile.life -= dt;
+      projectile.vy -= (projectile.itemId === COCONUT ? 10.5 : 9.3) * dt;
+      let dead = projectile.life <= 0;
+      for (let step = 0; step < 2 && !dead; step++) {
+        projectile.x += (projectile.vx * dt) / 2;
+        projectile.y += (projectile.vy * dt) / 2;
+        projectile.z += (projectile.vz * dt) / 2;
+        if (isSolid(this.world.get(Math.floor(projectile.x), Math.floor(projectile.y), Math.floor(projectile.z)))) {
+          this.burst(projectile.x, projectile.y, projectile.z, projectile.itemId === COCONUT ? [146, 98, 58] : [242, 207, 86], 5, 1.0);
+          dead = true;
+          break;
+        }
+      }
+      projectile.mesh.position.set(projectile.x, projectile.y, projectile.z);
+      projectile.mesh.lookAt(projectile.x + projectile.vx, projectile.y + projectile.vy, projectile.z + projectile.vz);
+      if (dead) {
+        this.scene.remove(projectile.mesh);
+        disposeObject(projectile.mesh);
+        this.monkeyProjectiles.splice(i, 1);
+      }
     }
   }
 
@@ -11657,12 +11942,13 @@ if (tpClipActive > 0.5) {
   private ensurePetRuntimeState(kind: PetKind) {
     if (!Array.isArray(this.petOwnedKinds)) this.petOwnedKinds = [];
     if (this.petOwned && this.petOwnedKinds.length === 0) this.petOwnedKinds.push(kind);
-    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'monkey' || owned === 'parrot' || owned === 'owl'))];
-    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, monkey: 0, parrot: 0, owl: 0 };
+    this.petOwnedKinds = [...new Set(this.petOwnedKinds.filter((owned): owned is PetKind => owned === 'wolf' || owned === 'cat' || owned === 'monkey' || owned === 'parrot' || owned === 'owl'))];
+    if (!this.petCoatIndices) this.petCoatIndices = { wolf: this.petCoatIndex ?? 0, cat: 0, monkey: 0, parrot: 0, owl: 0 };
+    if (!Number.isFinite(this.petCoatIndices.cat)) this.petCoatIndices.cat = getCatCoatIndex();
     if (!Number.isFinite(this.petCoatIndices.parrot)) this.petCoatIndices.parrot = getParrotCoatIndex();
     if (!Number.isFinite(this.petCoatIndices.owl)) this.petCoatIndices.owl = getOwlCoatIndex();
     if (this.petEquippedKind === undefined) this.petEquippedKind = null;
-    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot' && this.petSelectedKind !== 'owl') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
+    if (this.petSelectedKind !== 'wolf' && this.petSelectedKind !== 'cat' && this.petSelectedKind !== 'monkey' && this.petSelectedKind !== 'parrot' && this.petSelectedKind !== 'owl') this.petSelectedKind = this.petOwnedKinds[0] ?? kind;
     this.petOwned = this.petOwnedKinds.length > 0;
     this.petTokenAvailable = getPetInventoryKinds(this.petOwnedKinds, this.petEquipped ? this.petEquippedKind : null).length > 0;
   }
@@ -11709,6 +11995,10 @@ if (tpClipActive > 0.5) {
     return this.setPetEquipped('wolf', equipped);
   }
 
+  setCatPetEquipped(equipped: boolean): boolean {
+    return this.setPetEquipped('cat', equipped);
+  }
+
   setMonkeyPetEquipped(equipped: boolean): boolean {
     return this.setPetEquipped('monkey', equipped);
   }
@@ -11737,17 +12027,19 @@ if (tpClipActive > 0.5) {
   cyclePetCoat(kind: PetKind, direction = 1): boolean {
     this.ensurePetRuntimeState(kind);
     if (!this.petOwnedKinds.includes(kind) || !Number.isFinite(direction) || direction === 0) return false;
-    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
+    const coats = kind === 'wolf' ? WOLF_COATS : kind === 'cat' ? CAT_COATS : kind === 'monkey' ? MONKEY_COATS : kind === 'parrot' ? PARROT_COATS : OWL_COATS;
     const current = this.petCoatIndices[kind];
     const delta = direction < 0 ? -1 : 1;
     const requested = (current + delta + coats.length) % coats.length;
     const saved = kind === 'wolf'
       ? setWolfCoatIndex(requested)
-      : kind === 'monkey'
-        ? setMonkeyCoatIndex(requested)
-        : kind === 'parrot'
-          ? setParrotCoatIndex(requested)
-          : setOwlCoatIndex(requested);
+      : kind === 'cat'
+        ? setCatCoatIndex(requested)
+        : kind === 'monkey'
+          ? setMonkeyCoatIndex(requested)
+          : kind === 'parrot'
+            ? setParrotCoatIndex(requested)
+            : setOwlCoatIndex(requested);
     if (saved === current) return false;
     this.petCoatIndices[kind] = saved;
     if (kind === this.petSelectedKind || kind === this.petEquippedKind) this.petCoatIndex = saved;
@@ -12287,6 +12579,7 @@ if (tpClipActive > 0.5) {
       this.petEquippedKind ?? '-',
       this.petSelectedKind,
       this.petCoatIndices.wolf,
+      this.petCoatIndices.cat,
       this.petCoatIndices.monkey,
       this.petCoatIndices.parrot,
       this.petCoatIndices.owl,
@@ -12632,8 +12925,8 @@ if (tpClipActive > 0.5) {
   }
 
   private petFootprintExtents(angle: number, kind: PetKind = this.wolfPetRig?.kind ?? 'wolf') {
-    const halfWidth = kind === 'wolf' ? 0.43 : 0.34;
-    const halfLength = kind === 'wolf' ? 1.05 : 0.84;
+    const halfWidth = kind === 'wolf' ? 0.43 : kind === 'cat' ? 0.34 : 0.34;
+    const halfLength = kind === 'wolf' ? 1.05 : kind === 'cat' ? 0.92 : 0.84;
     const sin = Math.abs(Math.sin(angle));
     const cos = Math.abs(Math.cos(angle));
     return {
@@ -12684,14 +12977,94 @@ if (tpClipActive > 0.5) {
     return groundY;
   }
 
+  private monkeyTreePerchY(
+    x: number,
+    z: number,
+    referenceY: number | null,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    maxDelta = 5.2,
+  ): number | null {
+    let best: { y: number; score: number } | null = null;
+    const candidates: Array<[number, number]> = [
+      [0, 0],
+      [0.72, 0], [-0.72, 0], [0, 0.72], [0, -0.72],
+      [1.08, 0], [-1.08, 0], [0, 1.08], [0, -1.08],
+      [0.72, 0.72], [0.72, -0.72], [-0.72, 0.72], [-0.72, -0.72],
+      [1.45, 0], [-1.45, 0], [0, 1.45], [0, -1.45],
+    ];
+    for (const [ox, oz] of candidates) {
+      const tx = x + ox;
+      const tz = z + oz;
+      const cx = Math.floor(tx);
+      const cz = Math.floor(tz);
+      if (!this.world.hasColumn(cx, cz)) continue;
+      const supportY = this.petGroundSurfaceY(cx, cz);
+      if (supportY === null) continue;
+      const support = this.world.get(cx, supportY, cz);
+      if (!isLogId(support) && !isLeafId(support) && support !== VINE) continue;
+      const standY = this.wolfPetGroundY(tx, tz, referenceY, maxDelta, yaw, 'monkey');
+      if (standY === null) continue;
+      const distance = Math.hypot(ox, oz);
+      const elevationBonus = Math.max(0, standY - (referenceY ?? standY));
+      const score = distance * 1.35 - elevationBonus * 0.12 - (support === VINE ? 0.22 : isLeafId(support) ? 0.08 : 0);
+      if (!best || score < best.score) best = { y: standY, score };
+    }
+    return best?.y ?? null;
+  }
+
+  private monkeyPreferredGroundY(
+    x: number,
+    z: number,
+    referenceY: number | null,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    maxDelta = 5.2,
+  ): number | null {
+    return this.monkeyTreePerchY(x, z, referenceY, yaw, maxDelta)
+      ?? this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, 'monkey');
+  }
+
+  private petFollowGroundY(
+    kind: PetKind,
+    x: number,
+    z: number,
+    referenceY: number | null,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    maxDelta = WOLF_PET_INTERACTION_RANGE,
+  ): number | null {
+    return kind === 'monkey'
+      ? this.monkeyPreferredGroundY(x, z, referenceY, yaw, Math.max(maxDelta, 5.2))
+      : this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, kind);
+  }
+
+  private petStepLimits(kind: PetKind) {
+    return kind === 'monkey'
+      ? { rise: 4.25, drop: -4.6, groundDelta: 5.2 }
+      : { rise: 1.05, drop: -2.65, groundDelta: 3.3 };
+  }
+
+  private monkeyNearClimbSurface(x: number, y: number, z: number): boolean {
+    for (let cy = Math.max(0, Math.floor(y - 0.2)); cy <= Math.min(WY - 1, Math.floor(y + 1.6)); cy++) {
+      for (let cz = Math.floor(z - 1); cz <= Math.floor(z + 1); cz++) {
+        for (let cx = Math.floor(x - 1); cx <= Math.floor(x + 1); cx++) {
+          if (!this.world.hasColumn(cx, cz)) continue;
+          const block = this.world.get(cx, cy, cz);
+          if (block === VINE || isLogId(block) || isLeafId(block)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   private buildPetRig(kind: PetKind): WolfPetRig {
     return kind === 'wolf'
       ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
-      : kind === 'monkey'
-        ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
-        : kind === 'parrot'
-          ? buildParrotPetRig(this.petCoatIndices.parrot)
-          : buildOwlPetRig(this.petCoatIndices.owl);
+      : kind === 'cat'
+        ? buildCatPetRig(this.petCoatIndices.cat)
+        : kind === 'monkey'
+          ? buildMonkeyPetRig(MONKEY_COATS[this.petCoatIndices.monkey] ?? MONKEY_COATS[0])
+          : kind === 'parrot'
+            ? buildParrotPetRig(this.petCoatIndices.parrot)
+            : buildOwlPetRig(this.petCoatIndices.owl);
   }
 
   private createWolfPetRig(kind: PetKind) {
@@ -12716,7 +13089,9 @@ if (tpClipActive > 0.5) {
     for (const [behind, side] of candidates) {
       const x = this.pos.x - forwardX * behind + sideX * side;
       const z = this.pos.z - forwardZ * behind + sideZ * side;
-      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, kind);
+      const y = kind === 'monkey'
+        ? this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, 'monkey')
+        : this.petFollowGroundY(kind, x, z, this.pos.y, this.yaw, WOLF_PET_INTERACTION_RANGE);
       if (y === null || Math.hypot(x - this.pos.x, z - this.pos.z) < 1.35) continue;
       spawn = [x, y, z];
       break;
@@ -12727,7 +13102,9 @@ if (tpClipActive > 0.5) {
           const angle = this.yaw + (spoke / 12) * Math.PI * 2;
           const x = this.pos.x + Math.cos(angle) * radius;
           const z = this.pos.z + Math.sin(angle) * radius;
-          const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, kind);
+          const y = kind === 'monkey'
+            ? this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, 'monkey')
+            : this.petFollowGroundY(kind, x, z, this.pos.y, this.yaw, WOLF_PET_INTERACTION_RANGE);
           if (y === null) continue;
           spawn = [x, y, z];
           break;
@@ -12797,6 +13174,9 @@ if (tpClipActive > 0.5) {
     next.swimming = current.swimming;
     next.underwater = current.underwater;
     next.reactionLookTimer = current.reactionLookTimer;
+    next.monkeyTreeAnchor.copy(current.monkeyTreeAnchor);
+    next.monkeyTreeAnchorValid = current.monkeyTreeAnchorValid;
+    next.monkeyAmmoCooldown = current.monkeyAmmoCooldown;
     next.parrotMode = current.parrotMode;
     next.parrotCalled = current.parrotCalled;
     next.parrotIdleTimer = current.parrotIdleTimer;
@@ -12879,6 +13259,10 @@ if (tpClipActive > 0.5) {
       const reactions = ['wag', 'bark', 'spin'] as const;
       rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
       rig.reactionTimer = rig.reaction === 'spin' ? 1.05 : 1.45;
+    } else if (rig.kind === 'cat') {
+      const reactions = ['cat-purr', 'cat-meow', 'cat-circle'] as const;
+      rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
+      rig.reactionTimer = rig.reaction === 'cat-circle' ? 1.05 : 1.45;
     } else {
       const reactions = ['monkey-flop', 'monkey-hops', 'monkey-scratch', 'monkey-spin'] as const;
       rig.reaction = reactions[Math.floor(Math.random() * reactions.length)];
@@ -12889,7 +13273,7 @@ if (tpClipActive > 0.5) {
     }
     rig.reactionAge = 0;
     rig.reactionSoundTimer = 0.48;
-    rig.reactionLookTimer = rig.reaction === 'spin' || rig.reaction === 'monkey-spin' ? 0.42 : rig.reactionTimer;
+    rig.reactionLookTimer = rig.reaction === 'spin' || rig.reaction === 'cat-circle' || rig.reaction === 'monkey-spin' ? 0.42 : rig.reactionTimer;
     const lookX = this.pos.x - rig.group.position.x;
     const lookZ = this.pos.z - rig.group.position.z;
     if (Math.hypot(lookX, lookZ) > 0.001) rig.yawTarget = Math.atan2(-lookX, -lookZ);
@@ -12897,6 +13281,9 @@ if (tpClipActive > 0.5) {
       wag: 'petReactionWag',
       bark: 'petReactionBark',
       spin: 'petReactionSpin',
+      'cat-purr': 'petCatReactionPurr',
+      'cat-meow': 'petCatReactionMeow',
+      'cat-circle': 'petCatReactionCircle',
       'monkey-flop': 'petMonkeyReactionFlop',
       'monkey-hops': 'petMonkeyReactionHops',
       'monkey-scratch': 'petMonkeyReactionScratch',
@@ -12904,10 +13291,10 @@ if (tpClipActive > 0.5) {
     };
     if (rig.kind === 'monkey') {
       sfx.creature('monkey', { state: 'idle', volume: 0.86, pitch: 0.96 + Math.random() * 0.16 });
-    } else if (rig.reaction === 'bark') {
-      sfx.creature('wolf', { state: 'idle', volume: 0.8, pitch: 1 + Math.random() * 0.12 });
+    } else if (rig.kind === 'cat') {
+      sfx.creature('cat', { state: 'idle', volume: 0.82, pitch: 1.05 + Math.random() * 0.18 });
     } else {
-      sfx.ui(true);
+      sfx.creature('wolf', { state: 'idle', volume: 0.8, pitch: 1 + Math.random() * 0.12 });
     }
     this.popup(this.pos.x, this.pos.y + 2.1, this.pos.z, t(messageByReaction[rig.reaction!]), '#f3d49a', false, { duration: 1.5 });
     this.syncHud(true);
@@ -12935,7 +13322,7 @@ if (tpClipActive > 0.5) {
       const x = this.pos.x - forwardX * behind + sideX * lateral;
       const z = this.pos.z - forwardZ * behind + sideZ * lateral;
       if (Math.hypot(x - this.pos.x, z - this.pos.z) < WOLF_PET_PLAYER_GAP) continue;
-      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, targetYaw);
+      const y = this.petFollowGroundY(rig.kind, x, z, this.pos.y, targetYaw, WOLF_PET_INTERACTION_RANGE);
       if (y === null) continue;
       rig.target.set(x, y, z);
       return true;
@@ -12946,7 +13333,7 @@ if (tpClipActive > 0.5) {
         const angle = targetYaw + (spoke / 12) * Math.PI * 2;
         const x = this.pos.x + Math.cos(angle) * radius;
         const z = this.pos.z + Math.sin(angle) * radius;
-        const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, targetYaw);
+        const y = this.petFollowGroundY(rig.kind, x, z, this.pos.y, targetYaw, WOLF_PET_INTERACTION_RANGE);
         if (y === null) continue;
         rig.target.set(x, y, z);
         return true;
@@ -12971,7 +13358,9 @@ if (tpClipActive > 0.5) {
       const z = this.pos.z + forwardZ * ahead + sideZ * lateral;
       if (Math.hypot(x - this.pos.x, z - this.pos.z) < 1.5) continue;
       const facePlayerYaw = Math.atan2(-(this.pos.x - x), -(this.pos.z - z));
-      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, facePlayerYaw);
+      const y = rig.kind === 'monkey'
+        ? this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, facePlayerYaw, 'monkey')
+        : this.petFollowGroundY(rig.kind, x, z, this.pos.y, facePlayerYaw, WOLF_PET_INTERACTION_RANGE);
       if (y === null) continue;
       rig.target.set(x, y, z);
       rig.yawTarget = facePlayerYaw;
@@ -12994,7 +13383,8 @@ if (tpClipActive > 0.5) {
 
   /** Swimming uses a 3D body sweep; water is passable, but the wolf still never enters solid blocks. */
   private wolfPetSwimClear(x: number, y: number, z: number, yaw: number): boolean {
-    if (y < 0 || y + (this.wolfPetRig?.kind === 'monkey' ? 1.28 : 1.55) >= WY) return false;
+    const petHeight = this.wolfPetRig?.kind === 'monkey' ? 1.28 : this.wolfPetRig?.kind === 'cat' ? 1.42 : 1.55;
+    if (y < 0 || y + petHeight >= WY) return false;
     const kind = this.wolfPetRig?.kind ?? 'wolf';
     const desired = this.petFootprintExtents(yaw, kind);
     const current = this.petFootprintExtents(this.wolfPetRig?.group.rotation.y ?? yaw, kind);
@@ -13207,6 +13597,7 @@ if (tpClipActive > 0.5) {
     const startZ = Math.floor(rig.group.position.z);
     const goalCellX = Math.floor(goalX);
     const goalCellZ = Math.floor(goalZ);
+    const limits = this.petStepLimits(rig.kind);
     const key = (x: number, z: number) => `${x},${z}`;
     const startKey = key(startX, startZ);
     const goalKey = key(goalCellX, goalCellZ);
@@ -13244,12 +13635,14 @@ if (tpClipActive > 0.5) {
         const centerZ = z + 0.5;
         const playerDistance = Math.hypot(centerX - this.pos.x, centerZ - this.pos.z);
         if (playerDistance < WOLF_PET_PLAYER_GAP && nextKey !== startKey) continue;
-        const groundY = this.wolfPetGroundY(centerX, centerZ, current.y, 3.3, Math.atan2(-dx, -dz));
+        const groundY = rig.kind === 'monkey'
+          ? this.monkeyPreferredGroundY(centerX, centerZ, current.y, Math.atan2(-dx, -dz), limits.groundDelta)
+          : this.wolfPetGroundY(centerX, centerZ, current.y, limits.groundDelta, Math.atan2(-dx, -dz), rig.kind);
         if (groundY === null) continue;
         const rise = groundY - current.y;
-        // The player can step/jump one block; larger drops are safe to descend but not to climb.
-        if (rise > 1.05 || rise < -2.65) continue;
-        const cost = current.g + 1 + Math.max(0, rise) * 0.35 + Math.max(0, -rise) * 0.12;
+        // Monkeys can leap between trunks and canopy blocks; wolves/cats keep ordinary one-block climbs.
+        if (rise > limits.rise || rise < limits.drop) continue;
+        const cost = current.g + 1 + Math.max(0, rise) * (rig.kind === 'monkey' ? 0.12 : 0.35) + Math.max(0, -rise) * 0.12;
         if (cost >= (bestCost.get(nextKey) ?? Infinity)) continue;
         const next: Node = { x, z, y: groundY, g: cost, f: cost + heuristic(x, z) };
         bestCost.set(nextKey, cost);
@@ -13273,6 +13666,7 @@ if (tpClipActive > 0.5) {
   private moveWolfPet(rig: WolfPetRig, dt: number, speed: number) {
     rig.moving = false;
     const pos = rig.group.position;
+    const limits = this.petStepLimits(rig.kind);
     rig.navTimer = Math.max(0, rig.navTimer - dt);
     const navGoalShift = Math.hypot(rig.navGoal.x - rig.target.x, rig.navGoal.z - rig.target.z);
     const navDistance = Math.hypot(rig.navWaypoint.x - pos.x, rig.navWaypoint.z - pos.z);
@@ -13307,13 +13701,16 @@ if (tpClipActive > 0.5) {
             clear = false;
             break;
           }
-          const groundY = this.wolfPetGroundY(x, z, lastGroundY, 3.3, Math.atan2(-stepX, -stepZ));
+          const stepYaw = Math.atan2(-stepX, -stepZ);
+          const groundY = rig.kind === 'monkey'
+            ? this.monkeyPreferredGroundY(x, z, lastGroundY, stepYaw, limits.groundDelta)
+            : this.wolfPetGroundY(x, z, lastGroundY, limits.groundDelta, stepYaw, rig.kind);
           if (groundY === null) {
             clear = false;
             break;
           }
           const rise = groundY - lastGroundY;
-          if (rise > 1.05 || rise < -2.65) {
+          if (rise > limits.rise || rise < limits.drop) {
             clear = false;
             break;
           }
@@ -13321,8 +13718,19 @@ if (tpClipActive > 0.5) {
           lastGroundY = groundY;
         }
         if (!clear) continue;
-        pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
-        if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, 0.28);
+        const riseAmount = Math.max(0, lastGroundY - pos.y);
+        if (rig.kind === 'monkey' && riseAmount > 1.05) {
+          const nearClimbSurface = this.monkeyNearClimbSurface(pos.x + stepX * 0.5, pos.y + 0.8, pos.z + stepZ * 0.5)
+            || this.monkeyNearClimbSurface(pos.x, pos.y + 0.8, pos.z);
+          const climbSpeed = nearClimbSurface ? 3.25 : 2.45;
+          const climbStep = Math.min(riseAmount, climbSpeed * dt);
+          const horizontalBlend = nearClimbSurface ? 0.28 : 0.42;
+          pos.set(pos.x + stepX * horizontalBlend, pos.y + climbStep, pos.z + stepZ * horizontalBlend);
+          rig.hopTimer = Math.max(rig.hopTimer, 0.24);
+        } else {
+          pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
+          if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, rig.kind === 'monkey' ? Math.min(0.52, 0.18 + riseAmount * 0.08) : 0.28);
+        }
         rig.yawTarget = Math.atan2(-stepX, -stepZ);
         rig.moving = true;
         return true;
@@ -13630,8 +14038,51 @@ if (tpClipActive > 0.5) {
     target.vz += (target.z - rig.group.position.z) / distance * 1.7;
     if (target.onGround) target.vy = Math.max(target.vy, 1.6);
     this.burst(target.x, target.y + 0.42, target.z, [206, 178, 128], 4, 1.25, 0.62);
-    sfx.creature(rig.kind === 'wolf' ? 'wolf' : 'monkey', { state: 'attack', volume: 0.34, pitch: 0.88 + Math.random() * 0.12 });
+    sfx.creature(rig.kind === 'cat' ? 'cat' : 'wolf', { state: 'attack', volume: rig.kind === 'cat' ? 0.32 : 0.34, pitch: rig.kind === 'cat' ? 1.04 + Math.random() * 0.16 : 0.88 + Math.random() * 0.12 });
     if (target.hp <= 0) this.mobDied(target, false);
+  }
+
+  private updateMonkeyPetCombat(rig: WolfPetRig, dt: number, target: Mob) {
+    const dx = target.x - rig.group.position.x;
+    const dz = target.z - rig.group.position.z;
+    const distance = Math.hypot(dx, dz) || 1;
+    rig.sitting = false;
+    rig.monkeyTreeAnchorValid = false;
+    const desiredRange = 4.8;
+    if (distance < 2.8) {
+      const retreatX = rig.group.position.x - dx / distance * 1.85;
+      const retreatZ = rig.group.position.z - dz / distance * 1.85;
+      const retreatYaw = Math.atan2(dx, dz);
+      const retreatY = this.monkeyPreferredGroundY(retreatX, retreatZ, rig.group.position.y, retreatYaw, 5.2);
+      if (retreatY !== null) rig.target.set(retreatX, retreatY, retreatZ);
+      this.moveWolfPet(rig, dt, 8.9);
+      return;
+    }
+    if (distance > 6.8 || distance < 3.9) {
+      const standX = target.x - (dx / distance) * desiredRange;
+      const standZ = target.z - (dz / distance) * desiredRange;
+      const targetYaw = Math.atan2(-dx, -dz);
+      const perchY = this.monkeyPreferredGroundY(standX, standZ, rig.group.position.y, targetYaw, 5.2);
+      if (perchY !== null) {
+        rig.target.set(standX, perchY, standZ);
+        rig.monkeyTreeAnchor.copy(rig.target);
+        rig.monkeyTreeAnchorValid = true;
+      }
+      this.moveWolfPet(rig, dt, 8.2);
+      rig.yawTarget = Math.atan2(-dx, -dz);
+      return;
+    }
+
+    rig.target.copy(rig.group.position);
+    rig.moving = false;
+    rig.yawTarget = Math.atan2(-dx, -dz);
+    rig.attackTimer -= dt;
+    rig.monkeyAmmoCooldown = Math.max(0, rig.monkeyAmmoCooldown - dt);
+    if (rig.attackTimer > 0 || rig.monkeyAmmoCooldown > 0) return;
+    rig.attackTimer = 1.34;
+    rig.monkeyAmmoCooldown = 0.22;
+    rig.attackPoseTimer = 0.34;
+    this.launchMonkeyProjectile(rig, target);
   }
 
   private updateWolfPetFetch(rig: WolfPetRig, dt: number, movingPlayer: boolean) {
@@ -13790,7 +14241,7 @@ if (tpClipActive > 0.5) {
       this.collect(drop);
       if (rig.chestTarget) this.setWolfPetChestLid(rig.chestTarget, false);
       rig.chestTarget = null;
-      rig.reaction = 'wag';
+      rig.reaction = rig.kind === 'cat' ? 'cat-purr' : 'wag';
       rig.reactionTimer = 0.75;
       return;
     }
@@ -14421,6 +14872,7 @@ if (tpClipActive > 0.5) {
   }
 
   private updateWolfPet(dt: number) {
+    this.updateMonkeyProjectiles(dt);
     const rig = this.wolfPetRig;
     if (!rig) return;
     if (!this.petEquipped) {
@@ -14457,19 +14909,19 @@ if (tpClipActive > 0.5) {
         rig.stillTimer = 0;
         rig.moveStartTimer = 0;
         rig.teleportRevealTimer = WOLF_PET_TELEPORT_REVEAL_SECONDS;
-        rig.reaction = 'wag';
+        rig.reaction = rig.kind === 'cat' ? 'cat-purr' : 'wag';
         rig.reactionTimer = WOLF_PET_TELEPORT_REVEAL_SECONDS;
       }
     }
 
-    // Only the wolf fights; the monkey is a peaceful helper and never attacks monsters.
-    const threat = rig.kind === 'wolf' ? this.nearestWolfThreat() : null;
+    const threat = (rig.kind === 'wolf' || rig.kind === 'cat' || rig.kind === 'monkey') ? this.nearestWolfThreat() : null;
     if (threat && !rig.carrying) {
       rig.teleportRevealTimer = 0;
       rig.restAnchorValid = false;
       rig.moveStartTimer = 0;
       rig.fetchTarget = null;
-      this.updateWolfPetCombat(rig, dt, threat);
+      if (rig.kind === 'monkey') this.updateMonkeyPetCombat(rig, dt, threat);
+      else this.updateWolfPetCombat(rig, dt, threat);
     } else if (rig.carrying) {
       this.updateWolfPetDelivery(rig, dt, movingPlayer);
     } else if (rig.teleportRevealTimer > 0) {
@@ -14522,34 +14974,37 @@ if (tpClipActive > 0.5) {
       ? rig.underwater ? Math.max(-0.28, Math.min(0.28, this.pitch * 0.24)) : 0.08
       : 0;
 
-    if (rig.kind === 'wolf') {
+    if (rig.kind === 'wolf' || rig.kind === 'cat') {
+      const cat = rig.kind === 'cat';
       if (rig.body) {
-        rig.body.position.y = rig.sitting ? 0.5 : 0.58;
-        rig.body.rotation.x = rig.sitting ? 0.12 : 0;
+        rig.body.position.y = rig.sitting ? (cat ? 0.46 : 0.5) : (cat ? 0.54 : 0.58);
+        rig.body.rotation.x = rig.sitting ? (cat ? 0.18 : 0.12) : 0;
       }
       if (rig.swimming) {
-        const paddle = Math.sin(rig.phase * 2.5) * 0.48;
+        const paddle = Math.sin(rig.phase * 2.5) * (cat ? 0.4 : 0.48);
         rig.legs.forEach((leg, index) => {
           leg.rotation.x = paddle * (index < 2 ? 1 : -1);
         });
       } else if (walking || !rig.sitting) {
-        const swing = walking ? Math.sin(rig.phase * 2.3) * 0.56 : 0;
+        const swing = walking ? Math.sin(rig.phase * 2.3) * (cat ? 0.64 : 0.56) : 0;
         rig.legs.forEach((leg, index) => {
           const frontBack = index < 2 ? 1 : -1;
           leg.rotation.x = swing * frontBack;
         });
       } else {
         rig.legs.forEach((leg, index) => {
-          leg.rotation.x = index < 2 ? 0 : -1.02;
+          leg.rotation.x = index < 2 ? 0 : (cat ? -0.88 : -1.02);
         });
       }
-      const wag = rig.reaction === 'wag' ? 0.8 : rig.sitting ? 0.19 : 0.08;
+      const wagReaction = cat ? rig.reaction === 'cat-purr' : rig.reaction === 'wag';
+      const vocalReaction = cat ? rig.reaction === 'cat-meow' : rig.reaction === 'bark';
+      const wag = wagReaction ? (cat ? 0.52 : 0.8) : rig.sitting ? (cat ? 0.27 : 0.19) : (cat ? 0.18 : 0.08);
       if (rig.tail) {
-        rig.tail.rotation.y = Math.sin(this.time * (rig.reaction === 'wag' ? 16 : 7)) * wag;
-        rig.tail.rotation.x = rig.swimming ? -0.3 : rig.reaction === 'wag' ? -0.24 : -0.08;
+        rig.tail.rotation.y = Math.sin(this.time * (wagReaction ? (cat ? 11 : 16) : (cat ? 5.5 : 7))) * wag;
+        rig.tail.rotation.x = rig.swimming ? (cat ? -0.18 : -0.3) : wagReaction ? (cat ? -0.55 : -0.24) : (cat ? -0.35 : -0.08);
       }
-      if (rig.head) rig.head.rotation.x = rig.reaction === 'bark' ? Math.sin(this.time * 18) * 0.16 : 0;
-      if (rig.jaw) rig.jaw.rotation.x = rig.reaction === 'bark' ? Math.abs(Math.sin(this.time * 18)) * 0.42 : 0;
+      if (rig.head) rig.head.rotation.x = vocalReaction ? Math.sin(this.time * 18) * (cat ? 0.2 : 0.16) : 0;
+      if (rig.jaw) rig.jaw.rotation.x = vocalReaction ? Math.abs(Math.sin(this.time * 18)) * 0.42 : 0;
     } else {
       const leftArm = rig.legs[0];
       const leftFoot = rig.legs[1];
@@ -14620,8 +15075,8 @@ if (tpClipActive > 0.5) {
       const faceZ = this.pos.z - rig.group.position.z;
       if (Math.hypot(faceX, faceZ) > 0.001) rig.yawTarget = Math.atan2(-faceX, -faceZ);
     }
-    if ((rig.reaction === 'spin' || rig.reaction === 'monkey-spin') && rig.reactionLookTimer <= 0) {
-      rig.group.rotation.y += dt * (rig.kind === 'monkey' ? 8.5 : 7.5);
+    if ((rig.reaction === 'spin' || rig.reaction === 'cat-circle' || rig.reaction === 'monkey-spin') && rig.reactionLookTimer <= 0) {
+      rig.group.rotation.y += dt * (rig.kind === 'monkey' ? 8.5 : rig.kind === 'cat' ? 9 : 7.5);
     } else {
       let dy = rig.yawTarget - rig.group.rotation.y;
       while (dy > Math.PI) dy -= Math.PI * 2;
