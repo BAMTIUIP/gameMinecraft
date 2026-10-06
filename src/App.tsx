@@ -55,7 +55,7 @@ import { completePendingShopRewards, pendingShopProductRewards } from './game/sh
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
-import { hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
+import { hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
