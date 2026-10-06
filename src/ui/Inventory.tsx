@@ -22,6 +22,7 @@ import { meatItemLabel } from '../game/food';
 import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { MONKEY_COATS, OWL_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
+import { isRewardedDropChestItem } from '../game/adDrops';
 import { MonkeyIcon } from './MonkeyIcon';
 import { OwlIcon } from './OwlIcon';
 import { ParrotIcon } from './ParrotIcon';
@@ -126,6 +127,7 @@ export default function Inventory({
   onRepairTool,
   onSellTool,
   onSellGear,
+  onOpenRewardPack,
   onSalvageGear,
   onSalvageItem,
   developerKitEnabled = false,
@@ -339,6 +341,7 @@ export default function Inventory({
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
+                  const rewardPack = isRewardedDropChestItem(it.id);
                   const details = itemDetails(it.id, { count: it.count, durability: it.durability, maxDurability: it.maxDurability });
                   return (
                     <button
@@ -388,6 +391,27 @@ export default function Inventory({
                       </span>
                       {arrowIds.includes(it.id) && (
                         <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); pinDetails(details); onEquipArrow?.(it.id); } }} className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#b98a35] px-1 py-0.5 text-center font-display text-[8px] text-pit-950">ЭКИПИРОВАТЬ</span>
+                      )}
+                      {rewardPack && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            pinDetails(details);
+                            onOpenRewardPack?.(it.id);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.stopPropagation();
+                              pinDetails(details);
+                              onOpenRewardPack?.(it.id);
+                            }
+                          }}
+                          className="absolute bottom-1 left-1 right-1 z-30 rounded bg-[#62e8dc] px-1 py-0.5 text-center font-display text-[8px] text-pit-950"
+                        >
+                          {t('openRewardPack')}
+                        </span>
                       )}
                     </button>
                   );
@@ -1280,7 +1304,7 @@ function TradePanel({
   onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0 && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
+  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
   const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">

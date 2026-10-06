@@ -43,7 +43,14 @@ import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformE
 import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
 import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
 import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
-import { completePendingRewardedDropItems, pendingRewardedDropItems, recordRewardedDropLogin, watchAndClaimRewardedDrop, type RewardedDropId } from './game/adDrops';
+import {
+  availableRewardedDropChestItems,
+  completePendingRewardedDropItems,
+  pendingRewardedDropItems,
+  recordRewardedDropLogin,
+  watchAndClaimRewardedDrop,
+  type RewardedDropId,
+} from './game/adDrops';
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
@@ -545,6 +552,7 @@ export default function App() {
   const salvageGear = useCallback((uid: string) => engineRef.current?.salvageGear(uid), []);
   const salvageItem = useCallback((id: number, instanceId?: number) => engineRef.current?.salvageItem(id, instanceId), []);
   const repairTool = useCallback((instanceId: number) => engineRef.current?.repairTool(instanceId), []);
+  const openRewardPack = useCallback((id: number) => engineRef.current?.openRewardedPack(id) ?? false, []);
 
   const toggleFreeLook = useCallback(() => {
     const next = !(engineRef.current?.freeLookEnabled ?? true);

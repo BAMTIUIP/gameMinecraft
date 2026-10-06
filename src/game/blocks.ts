@@ -149,6 +149,10 @@ export const WHEAT_CROP_1 = 143;
 export const WHEAT_CROP_2 = 144;
 export const WHEAT_CROP_3 = 145;
 export const WHEAT_CROP_IDS = [WHEAT_CROP_1, WHEAT_CROP_2, WHEAT_CROP_3] as const;
+/** Account-bound rewarded-ad packs: daily bag, weekly chest, monthly ornate chest. */
+export const REWARD_PACK_DAILY = 273;
+export const REWARD_PACK_WEEKLY = 274;
+export const REWARD_PACK_MONTHLY = 275;
 /** tilled soil created by a hoe; it drops dirt when broken */
 export const FARMLAND = 126;
 
@@ -510,6 +514,9 @@ export const T = {
   jacarandaLeaves: 121,
   netheriteIngot: 122,
   farmland: 123,
+  rewardBag: 124,
+  rewardChest: 125,
+  rewardChestOrnate: 126,
 };
 
 export type BlockDef = {
@@ -1125,6 +1132,9 @@ const BLOCK_DEFS: BlockDef[] = [
   d({ id: WHEAT_CROP_1, name: 'Wheat Crop (young)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [132, 174, 75] }),
   d({ id: WHEAT_CROP_2, name: 'Wheat Crop (growing)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [178, 172, 64] }),
   d({ id: WHEAT_CROP_3, name: 'Wheat Crop (ripe)', side: T.tallGrass, hardness: 0.08, score: 0, solid: false, breakable: true, drop: 0, tint: [226, 191, 76] }),
+  d({ id: REWARD_PACK_DAILY, name: 'Daily Resource Bag', side: T.rewardBag, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [214, 165, 95] }),
+  d({ id: REWARD_PACK_WEEKLY, name: 'Weekly Supply Chest', side: T.rewardChest, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [167, 120, 74] }),
+  d({ id: REWARD_PACK_MONTHLY, name: 'Monthly Rich Chest', side: T.rewardChestOrnate, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [126, 154, 198] }),
   ...meatBlockDefs,
   d({ id: STONE_ARROW, name: 'Stone Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [170,180,190] }),
   d({ id: IRON_ARROW, name: 'Iron Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [210,225,230] }),

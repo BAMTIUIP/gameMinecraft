@@ -29,7 +29,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 31; // 124 tiles
+export const ATLAS_ROWS = 32; // 128 tiles
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 

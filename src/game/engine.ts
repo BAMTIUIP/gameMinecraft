@@ -37,6 +37,9 @@ import {
   LAPIS,
   EMERALD,
   QUARTZ,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_MONTHLY,
+  REWARD_PACK_WEEKLY,
   GRASS,
   LAVA,
   LEAVES,
@@ -5267,6 +5270,31 @@ if (tpClipActive > 0.5) {
     return true;
   }
 
+  rewardedDropMode(): RewardedDropMode {
+    return this.sandbox ? 'own-world' : this.survival ? 'survival' : 'exploration';
+  }
+
+  inventoryCount(id: number): number {
+    return Math.max(0, this.inventory.get(id) ?? 0);
+  }
+
+  /** Account-bound reward chests/bags are re-injected when a mode starts until that mode opens them. */
+  grantRewardedPackTokens(items: Array<readonly [number, number]>): boolean {
+    let added = 0;
+    for (const [id, rawCount] of items) {
+      if (!isRewardedDropChestItem(id)) continue;
+      const count = Math.max(0, Math.floor(rawCount));
+      if (count <= 0) continue;
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+      added += count;
+    }
+    if (!added) return false;
+    this.pushBanner(t('rewardPackReadyTitle'), t('rewardPackReadySub'), '#f4b942');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
   /** Apply paid shop products after a run/world has loaded; the receipts stay queued on save failure. */
   grantShopProductRewards(products: readonly string[]): boolean {
     const inventoryBefore = new Map(this.inventory);
@@ -5365,6 +5393,79 @@ if (tpClipActive > 0.5) {
     }
 
     this.pushBanner(t('shopItemBannerTitle'), t('shopItemBannerSub'), '#f4b942');
+    this.syncHotbar(true);
+    this.syncHud(true);
+    return true;
+  }
+
+  openRewardedPack(itemId: number): boolean {
+    const dropId = rewardedDropIdFromChestItem(itemId);
+    if (this.phase !== 'playing' || !dropId) {
+      sfx.ui(false);
+      return false;
+    }
+    const owned = this.inventory.get(itemId) ?? 0;
+    if (owned <= 0) {
+      sfx.ui(false);
+      return false;
+    }
+
+    const mode = this.rewardedDropMode();
+    const opened = openRewardedDropPack(dropId, mode);
+    if (!opened.ok) {
+      if (opened.reason === 'storage') this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      else sfx.ui(false);
+      return false;
+    }
+
+    const inventoryBefore = new Map(this.inventory);
+    const hotbarBefore = this.hotbar.slice();
+    const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+    const toolsBefore = new Map(this.toolInstances);
+    const bagBefore = this.bagItems.slice();
+    const nextToolIdBefore = this.nextToolInstanceId;
+    const tierBefore = this.tier;
+    const swordTierBefore = this.swordTier;
+
+    for (const [id, count] of opened.items) {
+      if (!BLOCKS[id] || !Number.isInteger(count) || count <= 0) continue;
+      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+      this.addToHotbar(id);
+    }
+    for (const toolId of opened.tools) this.addToolInstance(toolId);
+    for (const gear of opened.gear) this.bagItems.push(ensureGearHid(gear));
+
+    if (owned - 1 > 0) this.inventory.set(itemId, owned - 1);
+    else this.inventory.delete(itemId);
+    if ((this.inventory.get(itemId) ?? 0) <= 0) {
+      for (let i = 0; i < this.hotbar.length; i += 1) {
+        if (this.hotbar[i] === itemId) {
+          this.hotbar[i] = undefined;
+          this.hotbarInstanceIds[i] = undefined;
+        }
+      }
+    }
+    this.recalcOwnedToolTiers();
+
+    if (this.sandbox && !this.saveWorld(true)) {
+      this.inventory = inventoryBefore;
+      this.hotbar = hotbarBefore;
+      this.hotbarInstanceIds = hotbarInstancesBefore;
+      this.toolInstances = toolsBefore;
+      this.bagItems = bagBefore;
+      this.nextToolInstanceId = nextToolIdBefore;
+      this.tier = tierBefore;
+      this.swordTier = swordTierBefore;
+      rollbackOpenedRewardedDropPack(opened.receiptKey, mode);
+      this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return false;
+    }
+
+    const accent = itemId === REWARD_PACK_DAILY ? '#f4b942' : itemId === REWARD_PACK_WEEKLY ? '#62e8dc' : '#8fb8ff';
+    this.pushBanner(t('rewardPackOpenedTitle'), blockName(itemId, BLOCKS[itemId]?.name ?? ''), accent);
+    this.popup(this.pos.x, this.pos.y + 1.45, this.pos.z, t('rewardPackOpenedPopup'), accent, true);
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -9738,7 +9839,7 @@ if (tpClipActive > 0.5) {
   dropHeldItem() {
     if (this.phase !== 'playing') return;
     const id = this.hotbar[this.selected];
-    if (id === undefined || id === HAND) {
+    if (id === undefined || id === HAND || isRewardedDropChestItem(id)) {
       sfx.ui(false);
       return;
     }

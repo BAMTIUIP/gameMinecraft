@@ -1,19 +1,72 @@
 /**
- * Rewarded shop drops. Nothing is committed unless the ad layer reports `rewarded: true`.
- * Login-day progress is measured in distinct trusted UTC dates (missed days do not erase it), so the
- * weekly and monthly drops cannot be farmed by moving the device clock or opening several tabs.
+ * Rewarded ad packs. A successful view grants an account-bound bag/chest token that can be opened
+ * once in each game mode (Survival, Exploration, My World). The actual contents are delivered only
+ * when that token is opened inside the mode, so the reward behaves like pet ownership rather than a
+ * one-time anonymous stack of resources.
+ *
+ * The file still keeps the older pending direct-item receipts used by the separate daily shortcut /
+ * menu bonuses. Weekly/monthly login progress remains based on distinct trusted UTC days.
  */
 
-import { COAL, COOKED_MEAT, DIAMOND, GOLD, IRON, PLANKS, TORCH, BLOCKS } from './blocks';
+import {
+  BLOCKS,
+  COAL,
+  COOKED_MEAT,
+  DIAMOND,
+  GOLD,
+  IRON,
+  PLANKS,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_MONTHLY,
+  REWARD_PACK_WEEKLY,
+  TORCH,
+  WHEAT_SEEDS,
+} from './blocks';
 import { showRewardedAd, type AdOutcome } from './ads';
 import { markProfileDirty, registerCloudPart, saveProgressNow } from './profile';
 import { storageGet, storageSet } from './storage';
 import { yaServerTime } from './yandex';
+import { mulberry32 } from './noise';
+import { makeItem, SLOTS, type Item, type Material, type Rarity, type Slot } from './items';
+import { HOE_TOOLS } from './tools';
 
 export const REWARDED_DROP_IDS = ['drop-daily', 'drop-weekly', 'drop-monthly'] as const;
 export type RewardedDropId = (typeof REWARDED_DROP_IDS)[number];
 export type RewardedDropItem = [blockId: number, count: number];
 export type RewardedDropItemTarget = 'next-run' | 'own-world';
+export type RewardedDropDelivery = RewardedDropItemTarget | 'account';
+export type RewardedDropMode = 'survival' | 'exploration' | 'own-world';
+export const REWARDED_DROP_MODES: readonly RewardedDropMode[] = ['survival', 'exploration', 'own-world'] as const;
+
+export type RewardedDropReward = {
+  /** Claiming an ad reward gives a chest token, not the final resources yet. */
+  items: RewardedDropItem[];
+  delivery?: RewardedDropDelivery;
+};
+
+export type RewardedDropPackContents = {
+  chestItemId: number;
+  items: RewardedDropItem[];
+  tools: number[];
+  gear: Item[];
+};
+
+export type RewardedDropOpenResult =
+  | ({ ok: true; receiptKey: string } & RewardedDropPackContents)
+  | { ok: false; reason: 'claimed' | 'storage' };
+
+export type RewardedDropStatus = {
+  available: boolean;
+  /** Current UTC period key: YYYY-MM-DD for daily/weekly, YYYY-MM for monthly. */
+  period: string;
+  /** Distinct game-entry days counted toward this drop since its previous claim. */
+  progress: number;
+  goal: number;
+};
+
+export type RewardedDropClaimResult =
+  | ({ ok: true } & RewardedDropReward)
+  | { ok: false; reason: 'ad' | 'claimed' | 'storage' };
 
 type PendingDropGrant = {
   target: RewardedDropItemTarget;
@@ -32,31 +85,21 @@ type LoginProgress = {
   monthlyCycles: number;
 };
 
-export type RewardedDropReward = {
-  items: RewardedDropItem[];
-  /** Daily supplies go to the next run; monthly materials wait for the saved sandbox world. */
-  delivery?: RewardedDropItemTarget;
+type RewardedPackReceipt = {
+  key: string;
+  id: RewardedDropId;
+  seed: number;
+  opened: Partial<Record<RewardedDropMode, true>>;
 };
-
-export type RewardedDropStatus = {
-  available: boolean;
-  /** Current UTC period key: YYYY-MM-DD for daily/weekly, YYYY-MM for monthly. */
-  period: string;
-  /** Distinct game-entry days counted toward this drop since its previous claim. */
-  progress: number;
-  goal: number;
-};
-
-export type RewardedDropClaimResult =
-  | ({ ok: true } & RewardedDropReward)
-  | { ok: false; reason: 'ad' | 'claimed' | 'storage' };
 
 type RewardedDropState = {
   claims: Partial<Record<RewardedDropId, string>>;
-  /** Claim key → unconsumed items and their delivery target. */
+  /** Claim key → unconsumed items and their delivery target. Legacy direct grants still use this. */
   pending: Record<string, PendingDropGrant>;
   /** Claim keys already moved into an engine inventory. */
   delivered: string[];
+  /** Account-bound ad chests that can be opened once in each mode. */
+  packs: RewardedPackReceipt[];
   login: LoginProgress;
 };
 
@@ -64,24 +107,14 @@ type CloudDropState = {
   claims?: Record<string, unknown>;
   pending?: Record<string, unknown>;
   delivered?: unknown[];
+  packs?: unknown[];
   login?: unknown;
 };
 
 const STORAGE_KEY = 'orerush.rewarded-drops.v1';
 const DELIVERED_LIMIT = 1024;
 const LOGIN_DAY_LIMIT = 90;
-const DAILY_ITEMS: readonly RewardedDropItem[] = [
-  [PLANKS, 8],
-  [COAL, 6],
-  [COOKED_MEAT, 3],
-  [TORCH, 4],
-];
-const MONTHLY_ITEMS: readonly RewardedDropItem[] = [
-  [IRON, 12],
-  [GOLD, 4],
-  [PLANKS, 32],
-  [TORCH, 16],
-];
+const PACK_LIMIT = 512;
 const LOGIN_GOALS: Record<RewardedDropId, number> = {
   'drop-daily': 1,
   'drop-weekly': 7,
@@ -98,10 +131,32 @@ const emptyLogin = (): LoginProgress => ({
   weeklyCycles: 0,
   monthlyCycles: 0,
 });
-const emptyState = (): RewardedDropState => ({ claims: {}, pending: {}, delivered: [], login: emptyLogin() });
+const emptyState = (): RewardedDropState => ({ claims: {}, pending: {}, delivered: [], packs: [], login: emptyLogin() });
 
 export function isRewardedDrop(id: string): id is RewardedDropId {
   return (REWARDED_DROP_IDS as readonly string[]).includes(id);
+}
+
+export function rewardedDropChestItemId(id: RewardedDropId): number {
+  return id === 'drop-daily'
+    ? REWARD_PACK_DAILY
+    : id === 'drop-weekly'
+      ? REWARD_PACK_WEEKLY
+      : REWARD_PACK_MONTHLY;
+}
+
+export function rewardedDropIdFromChestItem(id: number): RewardedDropId | null {
+  return id === REWARD_PACK_DAILY
+    ? 'drop-daily'
+    : id === REWARD_PACK_WEEKLY
+      ? 'drop-weekly'
+      : id === REWARD_PACK_MONTHLY
+        ? 'drop-monthly'
+        : null;
+}
+
+export function isRewardedDropChestItem(id: number): boolean {
+  return rewardedDropIdFromChestItem(id) !== null;
 }
 
 function validDay(value: unknown): value is string {
@@ -158,10 +213,62 @@ function parsePendingKey(key: string): ParsedPendingKey | null {
   const period = cycleSeparator < 0 ? suffix : suffix.slice(0, cycleSeparator);
   const cycle = cycleSeparator < 0 ? null : suffix.slice(cycleSeparator + 1);
   if (!isRewardedDrop(id) || !validPeriod(id, period)) return null;
-  // Version-one claims used only the calendar period. New weekly/monthly receipts include a cycle
-  // number so two monthly rewards in one long calendar month cannot overwrite one another.
   if (cycle !== null && (!/^[1-9]\d*$/.test(cycle) || id === 'drop-daily')) return null;
   return { id, period };
+}
+
+function normalizePackReceipt(value: unknown): RewardedPackReceipt | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as { key?: unknown; id?: unknown; seed?: unknown; opened?: unknown };
+  if (typeof raw.key !== 'string' || raw.key.length > 96 || !isRewardedDrop(String(raw.id))) return null;
+  const seed = Number(raw.seed);
+  if (!Number.isFinite(seed)) return null;
+  const opened: Partial<Record<RewardedDropMode, true>> = {};
+  if (raw.opened && typeof raw.opened === 'object') {
+    for (const mode of REWARDED_DROP_MODES) {
+      if ((raw.opened as Record<string, unknown>)[mode] === true) opened[mode] = true;
+    }
+  }
+  return {
+    key: raw.key,
+    id: raw.id as RewardedDropId,
+    seed: Math.max(0, Math.floor(seed)) >>> 0,
+    opened,
+  };
+}
+
+function prunePackReceipts(receipts: RewardedPackReceipt[]): RewardedPackReceipt[] {
+  const sorted = receipts.slice().sort((a, b) => a.key.localeCompare(b.key));
+  if (sorted.length <= PACK_LIMIT) return sorted;
+  const removable = sorted.filter((receipt) => REWARDED_DROP_MODES.every((mode) => receipt.opened[mode] === true));
+  const removableKeys = new Set(removable.slice(0, Math.max(0, sorted.length - PACK_LIMIT)).map((receipt) => receipt.key));
+  const trimmed = sorted.filter((receipt) => !removableKeys.has(receipt.key));
+  return trimmed.slice(-PACK_LIMIT);
+}
+
+function normalizePacks(value: unknown): RewardedPackReceipt[] {
+  if (!Array.isArray(value)) return [];
+  const byKey = new Map<string, RewardedPackReceipt>();
+  for (const entry of value) {
+    const receipt = normalizePackReceipt(entry);
+    if (!receipt) continue;
+    const existing = byKey.get(receipt.key);
+    if (!existing) {
+      byKey.set(receipt.key, receipt);
+      continue;
+    }
+    byKey.set(receipt.key, {
+      key: existing.key,
+      id: existing.id,
+      seed: existing.seed,
+      opened: {
+        survival: existing.opened.survival || receipt.opened.survival ? true : undefined,
+        exploration: existing.opened.exploration || receipt.opened.exploration ? true : undefined,
+        'own-world': existing.opened['own-world'] || receipt.opened['own-world'] ? true : undefined,
+      },
+    });
+  }
+  return prunePackReceipts([...byKey.values()]);
 }
 
 function normalizeState(value: unknown): RewardedDropState {
@@ -178,7 +285,6 @@ function normalizeState(value: unknown): RewardedDropState {
     for (const [key, rawGrant] of Object.entries(raw.pending)) {
       const claim = parsePendingKey(key);
       if (!claim) continue;
-      // Accept the earlier array-only local shape too; infer the correct target from its product id.
       const structured = !Array.isArray(rawGrant) && rawGrant && typeof rawGrant === 'object'
         ? rawGrant as { target?: unknown; items?: unknown }
         : null;
@@ -197,7 +303,13 @@ function normalizeState(value: unknown): RewardedDropState {
     ? [...new Set(raw.delivered.filter((key): key is string => typeof key === 'string' && Boolean(parsePendingKey(key))))].slice(-DELIVERED_LIMIT)
     : [];
   for (const key of delivered) delete pending[key];
-  return { claims, pending, delivered, login: normalizeLogin(raw.login) };
+  return {
+    claims,
+    pending,
+    delivered,
+    packs: normalizePacks(raw.packs),
+    login: normalizeLogin(raw.login),
+  };
 }
 
 function state(): RewardedDropState {
@@ -219,6 +331,12 @@ function copyState(source: RewardedDropState): RewardedDropState {
       items: grant.items.map(([id, count]) => [id, count] as RewardedDropItem),
     }])),
     delivered: source.delivered.slice(),
+    packs: source.packs.map((receipt) => ({
+      key: receipt.key,
+      id: receipt.id,
+      seed: receipt.seed,
+      opened: { ...receipt.opened },
+    })),
     login: {
       ...source.login,
       days: source.login.days.slice(),
@@ -234,6 +352,12 @@ function cloudState(source: RewardedDropState) {
       items: grant.items.map(([id, count]) => [id, count]),
     }])),
     delivered: source.delivered.slice(),
+    packs: source.packs.map((receipt) => ({
+      key: receipt.key,
+      id: receipt.id,
+      seed: receipt.seed,
+      opened: { ...receipt.opened },
+    })),
     login: {
       ...source.login,
       days: source.login.days.slice(),
@@ -346,30 +470,169 @@ export function rewardedDropStatuses(now = yaServerTime()): Record<RewardedDropI
   };
 }
 
-/** Pure reward roll, with injectable randomness for deterministic boundary tests. */
-export function rewardedDropReward(id: RewardedDropId, random: () => number = Math.random): RewardedDropReward {
-  const roll = Math.max(0, Math.min(0.999999999, random()));
-  if (id === 'drop-daily') {
-    return { items: DAILY_ITEMS.map(([blockId, count]) => [blockId, count]), delivery: 'next-run' };
+/** Claiming a rewarded drop grants an account-bound chest token. */
+export function rewardedDropReward(id: RewardedDropId): RewardedDropReward {
+  return {
+    items: [[rewardedDropChestItemId(id), 1]],
+    delivery: 'account',
+  };
+}
+
+function pickUniqueSlots(count: number, random: () => number): Slot[] {
+  const pool = SLOTS.slice();
+  const out: Slot[] = [];
+  while (out.length < count && pool.length) {
+    const index = Math.max(0, Math.min(pool.length - 1, Math.floor(random() * pool.length)));
+    out.push(pool.splice(index, 1)[0]);
   }
-  if (id === 'drop-weekly') {
-    const bundles = 1 + Math.floor(roll * 5);
+  return out;
+}
+
+function weeklyBonusMaterial(random: () => number): Material {
+  return random() < 0.72 ? 'iron' : random() < 0.88 ? 'gold' : 'diamond';
+}
+
+function monthlyUncommonMaterial(random: () => number): Material {
+  return random() < 0.6 ? 'iron' : random() < 0.9 ? 'gold' : 'diamond';
+}
+
+function monthlyRareMaterial(random: () => number): Material {
+  return random() < 0.58 ? 'gold' : 'diamond';
+}
+
+function makeBuffedItem(slot: Slot, material: Material, rarity: Rarity, random: () => number): Item {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const item = makeItem(slot, material, rarity, random);
+    if (item.affixes.length > 0) return item;
+  }
+  // Very unlikely safety net for the uncommon tier's 40% affix roll.
+  return makeItem(slot, material, (Math.min(4, rarity + 1) as Rarity), random);
+}
+
+/** Deterministic contents of the chest when it is actually opened inside a mode. */
+export function rewardedDropPackContents(
+  id: RewardedDropId,
+  random: () => number = Math.random,
+): RewardedDropPackContents {
+  const chestItemId = rewardedDropChestItemId(id);
+  if (id === 'drop-daily') {
     return {
-      items: [[PLANKS, 8 * bundles], [COAL, 6 * bundles], [IRON, 3 * bundles]],
-      delivery: 'next-run',
+      chestItemId,
+      items: [
+        [PLANKS, 12],
+        [COAL, 6],
+        [COOKED_MEAT, 4],
+        [TORCH, 4],
+        [WHEAT_SEEDS, 4],
+      ],
+      tools: [HOE_TOOLS[0]],
+      gear: [],
     };
   }
 
-  const iron = 10 + Math.floor(roll * 41);
+  if (id === 'drop-weekly') {
+    const [slotA, slotB, buffedSlot] = pickUniqueSlots(3, random);
+    return {
+      chestItemId,
+      items: [
+        [PLANKS, 24],
+        [COAL, 10],
+        [COOKED_MEAT, 6],
+        [TORCH, 8],
+        [IRON, 6],
+        [WHEAT_SEEDS, 8],
+      ],
+      tools: [HOE_TOOLS[2]],
+      gear: [
+        makeItem(slotA, 'iron', 0, random, true),
+        makeItem(slotB, 'iron', 0, random, true),
+        makeBuffedItem(buffedSlot, weeklyBonusMaterial(random), 0, random),
+      ],
+    };
+  }
+
+  const [greenSlot, blueSlot] = pickUniqueSlots(2, random);
   return {
+    chestItemId,
     items: [
-      ...MONTHLY_ITEMS.map(([blockId, count]) => [blockId, count] as RewardedDropItem),
-      [IRON, iron + 12],
-      [GOLD, 4 + Math.ceil(iron / 10)],
-      [DIAMOND, 1 + Math.floor(iron / 25)],
+      [PLANKS, 40],
+      [COAL, 14],
+      [COOKED_MEAT, 10],
+      [TORCH, 14],
+      [IRON, 12],
+      [GOLD, 5],
+      [DIAMOND, 2],
+      [WHEAT_SEEDS, 12],
     ],
-    delivery: 'own-world',
+    tools: [],
+    gear: [
+      makeBuffedItem(greenSlot, monthlyUncommonMaterial(random), 0, random),
+      makeBuffedItem(blueSlot, monthlyRareMaterial(random), 1, random),
+    ],
   };
+}
+
+function receiptSeed(now: number, random: () => number): number {
+  const time = Math.max(0, Math.floor(safeTime(now)) >>> 0);
+  const extra = Math.max(0, Math.min(0xffff_ffff, Math.floor(random() * 0xffff_ffff))) >>> 0;
+  return (time ^ extra ^ 0x7f4a7c15) >>> 0;
+}
+
+function receiptForOpen(current: RewardedDropState, id: RewardedDropId, mode: RewardedDropMode): RewardedPackReceipt | null {
+  return current.packs.find((receipt) => receipt.id === id && receipt.opened[mode] !== true) ?? null;
+}
+
+function modeSalt(mode: RewardedDropMode): number {
+  return mode === 'survival' ? 0x13579bdf : mode === 'exploration' ? 0x2468ace1 : 0x55aa10ef;
+}
+
+export function availableRewardedDropChestCounts(mode: RewardedDropMode): Record<RewardedDropId, number> {
+  const counts: Record<RewardedDropId, number> = {
+    'drop-daily': 0,
+    'drop-weekly': 0,
+    'drop-monthly': 0,
+  };
+  for (const receipt of state().packs) {
+    if (receipt.opened[mode] === true) continue;
+    counts[receipt.id] += 1;
+  }
+  return counts;
+}
+
+export function availableRewardedDropChestItems(mode: RewardedDropMode): RewardedDropItem[] {
+  const counts = availableRewardedDropChestCounts(mode);
+  return REWARDED_DROP_IDS.flatMap((id) => counts[id] > 0 ? [[rewardedDropChestItemId(id), counts[id]] as RewardedDropItem] : []);
+}
+
+/** Open one bound chest inside one specific mode. */
+export function openRewardedDropPack(id: RewardedDropId, mode: RewardedDropMode): RewardedDropOpenResult {
+  const current = state();
+  const receipt = receiptForOpen(current, id, mode);
+  if (!receipt) return { ok: false, reason: 'claimed' };
+
+  const next = copyState(current);
+  const target = next.packs.find((entry) => entry.key === receipt.key && entry.id === id);
+  if (!target) return { ok: false, reason: 'claimed' };
+  target.opened[mode] = true;
+  if (!writeState(next)) return { ok: false, reason: 'storage' };
+  saveProgressNow();
+
+  const contents = rewardedDropPackContents(id, mulberry32((receipt.seed ^ modeSalt(mode)) >>> 0));
+  return { ok: true, receiptKey: receipt.key, ...contents };
+}
+
+/** Undo an immediately-failed chest open (for example when the sandbox world could not be saved). */
+export function rollbackOpenedRewardedDropPack(key: string, mode: RewardedDropMode): boolean {
+  const current = state();
+  const receipt = current.packs.find((entry) => entry.key === key);
+  if (!receipt || receipt.opened[mode] !== true) return false;
+  const next = copyState(current);
+  const target = next.packs.find((entry) => entry.key === key);
+  if (!target) return false;
+  delete target.opened[mode];
+  const written = writeState(next);
+  if (written) saveProgressNow();
+  return written;
 }
 
 /** Commit a drop only after the caller verified the rewarded-ad callback. */
@@ -382,7 +645,7 @@ export function claimRewardedDrop(
   const status = rewardedDropStatuses(now)[id];
   if (!status.available) return { ok: false, reason: 'claimed' };
 
-  const reward = rewardedDropReward(id, random);
+  const reward = rewardedDropReward(id);
   const today = utcDay(now);
   const next = copyState(current);
   next.claims[id] = status.period;
@@ -396,11 +659,9 @@ export function claimRewardedDrop(
     next.login.monthlyCycles += 1;
     key = `${id}:${status.period}#${next.login.monthlyCycles}`;
   }
-  if (reward.items.length) {
-    next.pending[key] = {
-      target: reward.delivery ?? (id === 'drop-monthly' ? 'own-world' : 'next-run'),
-      items: reward.items.map(([blockId, count]) => [blockId, count]),
-    };
+  if (!next.packs.some((receipt) => receipt.key === key)) {
+    next.packs.push({ key, id, seed: receiptSeed(now, random), opened: {} });
+    next.packs = prunePackReceipts(next.packs);
   }
   if (!writeState(next)) return { ok: false, reason: 'storage' };
   saveProgressNow();
@@ -422,7 +683,6 @@ export async function watchAndClaimRewardedDrop(
     return { ok: false, reason: 'ad' };
   }
   if (!outcome?.rewarded) return { ok: false, reason: 'ad' };
-  // Re-read trusted time after the video closes in case it crossed the daily reset boundary.
   return claimRewardedDrop(id, now ?? yaServerTime(), random);
 }
 
@@ -439,7 +699,7 @@ export function pendingRewardedDropItems(target: RewardedDropItemTarget): { keys
   for (const key of keys) {
     for (const [id, count] of current.pending[key]?.items ?? []) totals.set(id, (totals.get(id) ?? 0) + count);
   }
-  return { keys, items: [...totals.entries()].map(([id, count]) => [id, count] as RewardedDropItem) };
+  return { keys, items: [...totals.entries()].map(([blockId, count]) => [blockId, count] as RewardedDropItem) };
 }
 
 /** Mark a batch delivered after its inventory grant (and sandbox save, when applicable) succeeded. */
@@ -468,7 +728,34 @@ function mergeLogin(a: LoginProgress, b: LoginProgress): LoginProgress {
   };
 }
 
-/** Cloud merge: claims/login dates and consumed-grant tokens only move forward; pending grants union once. */
+function mergePacks(a: RewardedPackReceipt[], b: RewardedPackReceipt[]): RewardedPackReceipt[] {
+  const merged = new Map<string, RewardedPackReceipt>();
+  for (const receipt of [...a, ...b]) {
+    const existing = merged.get(receipt.key);
+    if (!existing) {
+      merged.set(receipt.key, {
+        key: receipt.key,
+        id: receipt.id,
+        seed: receipt.seed,
+        opened: { ...receipt.opened },
+      });
+      continue;
+    }
+    merged.set(receipt.key, {
+      key: existing.key,
+      id: existing.id,
+      seed: existing.seed,
+      opened: {
+        survival: existing.opened.survival || receipt.opened.survival ? true : undefined,
+        exploration: existing.opened.exploration || receipt.opened.exploration ? true : undefined,
+        'own-world': existing.opened['own-world'] || receipt.opened['own-world'] ? true : undefined,
+      },
+    });
+  }
+  return prunePackReceipts([...merged.values()]);
+}
+
+/** Cloud merge: claims/login dates and consumed-grant tokens only move forward; bound packs union by key and opened modes. */
 export function applyCloudRewardedDrops(remote: unknown) {
   if (!remote || typeof remote !== 'object') return;
   const local = state();
@@ -487,11 +774,11 @@ export function applyCloudRewardedDrops(remote: unknown) {
     if (!merged.pending[key]) merged.pending[key] = items;
   }
   for (const key of merged.delivered) delete merged.pending[key];
-  cached = merged;
-  storageSet(STORAGE_KEY, JSON.stringify(merged));
-  // If this device had newer login/claim or delivery markers, send the safe union back to the account.
-  if (JSON.stringify(cloudState(merged)) !== JSON.stringify(cloudState(incoming))) {
-    markProfileDirty({ adDrops: cloudState(merged) });
+  merged.packs = mergePacks(local.packs, incoming.packs);
+  cached = normalizeState(merged);
+  storageSet(STORAGE_KEY, JSON.stringify(cached));
+  if (JSON.stringify(cloudState(cached)) !== JSON.stringify(cloudState(incoming))) {
+    markProfileDirty({ adDrops: cloudState(cached) });
   }
 }
 

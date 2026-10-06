@@ -628,6 +628,7 @@ export function StartScreen({
   }, [promo, shopEnabled, onOpenShop]);
   const [buying, setBuying] = useState<string | null>(null);
   const [shopNotice, setShopNotice] = useState<string | null>(null);
+  const [rewardedPopup, setRewardedPopup] = useState<{ title: string; message: string; sub?: string } | null>(null);
   const [clockNow, setClockNow] = useState(() => yaServerTime());
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(yaServerTime()), 1000);
@@ -1197,8 +1198,18 @@ export function StartScreen({
                               if (result.ok) {
                                 const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
                                 const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                                const deliveryNote = result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
-                                setShopNotice(`${notice} · ${deliveryNote}`);
+                                const deliveryNote = result.delivery === 'account'
+                                  ? t('shopDropAccountBound')
+                                  : result.delivery === 'own-world'
+                                    ? t('shopDropOwnWorld')
+                                    : t('shopDropNextRun');
+                                const popupMessage = `${notice} · ${deliveryNote}`;
+                                setShopNotice(popupMessage);
+                                setRewardedPopup({
+                                  title: t('rewardPackReadyTitle'),
+                                  message: notice,
+                                  sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote,
+                                });
                               } else if (result.reason === 'ad') {
                                 setShopNotice(t('shopDropAdFailed'));
                               } else if (result.reason === 'claimed') {
@@ -1321,6 +1332,26 @@ export function StartScreen({
                   : rewardedAdsEnabled ? t('shopRewardedNotice') : t('shopMockNotice'))}
             </footer>
           </section>
+        </div>
+      )}
+
+      {rewardedPopup && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-2xl border border-lime-300/35 bg-[#101a14] p-5 text-center shadow-[0_0_40px_rgba(147,201,93,0.18)]">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-lime-300/40 bg-lime-300/10 text-2xl">
+              🎁
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-[0.35em] text-lime-200/80">{rewardedPopup.title}</div>
+            <div className="mt-3 text-base font-black uppercase leading-tight text-white">{rewardedPopup.message}</div>
+            {rewardedPopup.sub && <div className="mt-2 text-[11px] leading-snug text-white/70">{rewardedPopup.sub}</div>}
+            <button
+              type="button"
+              onClick={() => setRewardedPopup(null)}
+              className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-xl border border-white/15 bg-white/8 px-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/14"
+            >
+              {t('close')}
+            </button>
+          </div>
         </div>
       )}
 
