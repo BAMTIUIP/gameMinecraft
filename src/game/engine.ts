@@ -662,6 +662,10 @@ type WolfPetRig = {
   swimming: boolean;
   underwater: boolean;
   reactionLookTimer: number;
+  /** Monkey-only elevated follow/combat anchor chosen from nearby logs/leaves. */
+  monkeyTreeAnchor: THREE.Vector3;
+  monkeyTreeAnchorValid: boolean;
+  monkeyAmmoCooldown: number;
   /** Bird-only flight, call, feeding and repeat-dive state. */
   parrotMode: ParrotPetMode;
   parrotCalled: boolean;
@@ -674,6 +678,20 @@ type WolfPetRig = {
   parrotSoundTimer: number;
   parrotFollowAnchor: THREE.Vector3;
   parrotFollowAnchorValid: boolean;
+};
+
+type MonkeyPetProjectile = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  life: number;
+  mesh: THREE.Group;
+  itemId: typeof BANANA | typeof COCONUT;
+  damage: number;
+  stunChance: number;
 };
 
 /* =========================== co-op rig helpers =========================== */
@@ -847,6 +865,9 @@ function buildWolfPetRig(coat: WolfCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -915,6 +936,9 @@ function buildCatPetRig(variantIndex: number): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -987,6 +1011,9 @@ function buildMonkeyPetRig(coat: MonkeyCoat): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -1062,6 +1089,9 @@ function buildOwlPetRig(variantIndex: number): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -1133,6 +1163,9 @@ function buildParrotPetRig(variantIndex: number): WolfPetRig {
     swimming: false,
     underwater: false,
     reactionLookTimer: 0,
+    monkeyTreeAnchor: new THREE.Vector3(),
+    monkeyTreeAnchorValid: false,
+    monkeyAmmoCooldown: 0,
     parrotMode: 'shoulder',
     parrotCalled: false,
     parrotIdleTimer: 0,
@@ -11008,6 +11041,7 @@ if (tpClipActive > 0.5) {
     /** which arrow item was spent on the shot (ARROW_ITEM when nothing was equipped) */
     arrowId?: number | null;
   }> = [];
+  private monkeyProjectiles: MonkeyPetProjectile[] = [];
 
   /** skeleton archer fires the standard arrow model at the player */
   private mobShoot(m: Mob) {
@@ -11225,6 +11259,83 @@ if (tpClipActive > 0.5) {
       sfx.pickup(1);
       this.syncHotbar(true);
       this.syncHud(true);
+    }
+  }
+
+  private launchMonkeyProjectile(rig: WolfPetRig, target: Mob) {
+    const itemId = Math.random() < 0.5 ? BANANA : COCONUT;
+    const mesh = this.buildFancyDrop(itemId) ?? new THREE.Group();
+    mesh.scale.setScalar(itemId === COCONUT ? 0.84 : 0.9);
+    const ox = rig.group.position.x;
+    const oy = rig.group.position.y + 0.96;
+    const oz = rig.group.position.z;
+    let dx = target.x - ox;
+    let dz = target.z - oz;
+    const horizontalDistance = Math.hypot(dx, dz) || 1;
+    dx = dx / horizontalDistance + (Math.random() - 0.5) * 0.035;
+    dz = dz / horizontalDistance + (Math.random() - 0.5) * 0.035;
+    const speed = itemId === COCONUT ? 16.8 : 15.5;
+    const gravity = itemId === COCONUT ? 10.5 : 9.3;
+    const travelTime = Math.max(0.14, horizontalDistance / speed);
+    const targetY = target.y + 0.92;
+    const vy = Math.max(-1.1, Math.min(4.2, (targetY - oy + 0.5 * gravity * travelTime * travelTime) / travelTime + (Math.random() - 0.5) * 0.12));
+    const projectile: MonkeyPetProjectile = {
+      x: ox + dx * 0.34,
+      y: oy,
+      z: oz + dz * 0.34,
+      vx: dx * speed,
+      vy,
+      vz: dz * speed,
+      life: itemId === COCONUT ? 1.6 : 1.45,
+      mesh,
+      itemId,
+      damage: itemId === COCONUT ? 1.8 : 1.2,
+      stunChance: itemId === COCONUT ? 0.26 : 0.16,
+    };
+    if (target.alive && !target.hidden && target.def.hostile) {
+      target.hp -= projectile.damage;
+      target.hurtFlash = 0.18;
+      target.vx += dx * 0.45;
+      target.vz += dz * 0.45;
+      if (Math.random() < projectile.stunChance) {
+        target.stun = Math.max(target.stun, 5);
+        target.vx = 0;
+        target.vz = 0;
+      }
+      this.mobSys.showHealthBar(target);
+      if (target.hp <= 0) this.mobDied(target, false);
+    }
+    mesh.position.set(projectile.x, projectile.y, projectile.z);
+    mesh.lookAt(projectile.x + projectile.vx, projectile.y + projectile.vy, projectile.z + projectile.vz);
+    this.scene.add(mesh);
+    this.monkeyProjectiles.push(projectile);
+    sfx.creature('monkey', { state: 'attack', volume: 0.3, pitch: 0.98 + Math.random() * 0.18 });
+  }
+
+  private updateMonkeyProjectiles(dt: number) {
+    if (this.phase !== 'playing') return;
+    for (let i = this.monkeyProjectiles.length - 1; i >= 0; i--) {
+      const projectile = this.monkeyProjectiles[i];
+      projectile.life -= dt;
+      projectile.vy -= (projectile.itemId === COCONUT ? 10.5 : 9.3) * dt;
+      let dead = projectile.life <= 0;
+      for (let step = 0; step < 2 && !dead; step++) {
+        projectile.x += (projectile.vx * dt) / 2;
+        projectile.y += (projectile.vy * dt) / 2;
+        projectile.z += (projectile.vz * dt) / 2;
+        if (isSolid(this.world.get(Math.floor(projectile.x), Math.floor(projectile.y), Math.floor(projectile.z)))) {
+          this.burst(projectile.x, projectile.y, projectile.z, projectile.itemId === COCONUT ? [146, 98, 58] : [242, 207, 86], 5, 1.0);
+          dead = true;
+          break;
+        }
+      }
+      projectile.mesh.position.set(projectile.x, projectile.y, projectile.z);
+      projectile.mesh.lookAt(projectile.x + projectile.vx, projectile.y + projectile.vy, projectile.z + projectile.vz);
+      if (dead) {
+        this.scene.remove(projectile.mesh);
+        disposeObject(projectile.mesh);
+        this.monkeyProjectiles.splice(i, 1);
+      }
     }
   }
 
@@ -12866,6 +12977,84 @@ if (tpClipActive > 0.5) {
     return groundY;
   }
 
+  private monkeyTreePerchY(
+    x: number,
+    z: number,
+    referenceY: number | null,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    maxDelta = 5.2,
+  ): number | null {
+    let best: { y: number; score: number } | null = null;
+    const candidates: Array<[number, number]> = [
+      [0, 0],
+      [0.72, 0], [-0.72, 0], [0, 0.72], [0, -0.72],
+      [1.08, 0], [-1.08, 0], [0, 1.08], [0, -1.08],
+      [0.72, 0.72], [0.72, -0.72], [-0.72, 0.72], [-0.72, -0.72],
+      [1.45, 0], [-1.45, 0], [0, 1.45], [0, -1.45],
+    ];
+    for (const [ox, oz] of candidates) {
+      const tx = x + ox;
+      const tz = z + oz;
+      const cx = Math.floor(tx);
+      const cz = Math.floor(tz);
+      if (!this.world.hasColumn(cx, cz)) continue;
+      const supportY = this.petGroundSurfaceY(cx, cz);
+      if (supportY === null) continue;
+      const support = this.world.get(cx, supportY, cz);
+      if (!isLogId(support) && !isLeafId(support) && support !== VINE) continue;
+      const standY = this.wolfPetGroundY(tx, tz, referenceY, maxDelta, yaw, 'monkey');
+      if (standY === null) continue;
+      const distance = Math.hypot(ox, oz);
+      const elevationBonus = Math.max(0, standY - (referenceY ?? standY));
+      const score = distance * 1.35 - elevationBonus * 0.12 - (support === VINE ? 0.22 : isLeafId(support) ? 0.08 : 0);
+      if (!best || score < best.score) best = { y: standY, score };
+    }
+    return best?.y ?? null;
+  }
+
+  private monkeyPreferredGroundY(
+    x: number,
+    z: number,
+    referenceY: number | null,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    maxDelta = 5.2,
+  ): number | null {
+    return this.monkeyTreePerchY(x, z, referenceY, yaw, maxDelta)
+      ?? this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, 'monkey');
+  }
+
+  private petFollowGroundY(
+    kind: PetKind,
+    x: number,
+    z: number,
+    referenceY: number | null,
+    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
+    maxDelta = WOLF_PET_INTERACTION_RANGE,
+  ): number | null {
+    return kind === 'monkey'
+      ? this.monkeyPreferredGroundY(x, z, referenceY, yaw, Math.max(maxDelta, 5.2))
+      : this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, kind);
+  }
+
+  private petStepLimits(kind: PetKind) {
+    return kind === 'monkey'
+      ? { rise: 4.25, drop: -4.6, groundDelta: 5.2 }
+      : { rise: 1.05, drop: -2.65, groundDelta: 3.3 };
+  }
+
+  private monkeyNearClimbSurface(x: number, y: number, z: number): boolean {
+    for (let cy = Math.max(0, Math.floor(y - 0.2)); cy <= Math.min(WY - 1, Math.floor(y + 1.6)); cy++) {
+      for (let cz = Math.floor(z - 1); cz <= Math.floor(z + 1); cz++) {
+        for (let cx = Math.floor(x - 1); cx <= Math.floor(x + 1); cx++) {
+          if (!this.world.hasColumn(cx, cz)) continue;
+          const block = this.world.get(cx, cy, cz);
+          if (block === VINE || isLogId(block) || isLeafId(block)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   private buildPetRig(kind: PetKind): WolfPetRig {
     return kind === 'wolf'
       ? buildWolfPetRig(WOLF_COATS[this.petCoatIndices.wolf] ?? WOLF_COATS[0])
@@ -12900,7 +13089,9 @@ if (tpClipActive > 0.5) {
     for (const [behind, side] of candidates) {
       const x = this.pos.x - forwardX * behind + sideX * side;
       const z = this.pos.z - forwardZ * behind + sideZ * side;
-      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, kind);
+      const y = kind === 'monkey'
+        ? this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, 'monkey')
+        : this.petFollowGroundY(kind, x, z, this.pos.y, this.yaw, WOLF_PET_INTERACTION_RANGE);
       if (y === null || Math.hypot(x - this.pos.x, z - this.pos.z) < 1.35) continue;
       spawn = [x, y, z];
       break;
@@ -12911,7 +13102,9 @@ if (tpClipActive > 0.5) {
           const angle = this.yaw + (spoke / 12) * Math.PI * 2;
           const x = this.pos.x + Math.cos(angle) * radius;
           const z = this.pos.z + Math.sin(angle) * radius;
-          const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, kind);
+          const y = kind === 'monkey'
+            ? this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, this.yaw, 'monkey')
+            : this.petFollowGroundY(kind, x, z, this.pos.y, this.yaw, WOLF_PET_INTERACTION_RANGE);
           if (y === null) continue;
           spawn = [x, y, z];
           break;
@@ -12981,6 +13174,9 @@ if (tpClipActive > 0.5) {
     next.swimming = current.swimming;
     next.underwater = current.underwater;
     next.reactionLookTimer = current.reactionLookTimer;
+    next.monkeyTreeAnchor.copy(current.monkeyTreeAnchor);
+    next.monkeyTreeAnchorValid = current.monkeyTreeAnchorValid;
+    next.monkeyAmmoCooldown = current.monkeyAmmoCooldown;
     next.parrotMode = current.parrotMode;
     next.parrotCalled = current.parrotCalled;
     next.parrotIdleTimer = current.parrotIdleTimer;
@@ -13126,7 +13322,7 @@ if (tpClipActive > 0.5) {
       const x = this.pos.x - forwardX * behind + sideX * lateral;
       const z = this.pos.z - forwardZ * behind + sideZ * lateral;
       if (Math.hypot(x - this.pos.x, z - this.pos.z) < WOLF_PET_PLAYER_GAP) continue;
-      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, targetYaw);
+      const y = this.petFollowGroundY(rig.kind, x, z, this.pos.y, targetYaw, WOLF_PET_INTERACTION_RANGE);
       if (y === null) continue;
       rig.target.set(x, y, z);
       return true;
@@ -13137,7 +13333,7 @@ if (tpClipActive > 0.5) {
         const angle = targetYaw + (spoke / 12) * Math.PI * 2;
         const x = this.pos.x + Math.cos(angle) * radius;
         const z = this.pos.z + Math.sin(angle) * radius;
-        const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, targetYaw);
+        const y = this.petFollowGroundY(rig.kind, x, z, this.pos.y, targetYaw, WOLF_PET_INTERACTION_RANGE);
         if (y === null) continue;
         rig.target.set(x, y, z);
         return true;
@@ -13162,7 +13358,9 @@ if (tpClipActive > 0.5) {
       const z = this.pos.z + forwardZ * ahead + sideZ * lateral;
       if (Math.hypot(x - this.pos.x, z - this.pos.z) < 1.5) continue;
       const facePlayerYaw = Math.atan2(-(this.pos.x - x), -(this.pos.z - z));
-      const y = this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, facePlayerYaw);
+      const y = rig.kind === 'monkey'
+        ? this.wolfPetGroundY(x, z, this.pos.y, WOLF_PET_INTERACTION_RANGE, facePlayerYaw, 'monkey')
+        : this.petFollowGroundY(rig.kind, x, z, this.pos.y, facePlayerYaw, WOLF_PET_INTERACTION_RANGE);
       if (y === null) continue;
       rig.target.set(x, y, z);
       rig.yawTarget = facePlayerYaw;
@@ -13399,6 +13597,7 @@ if (tpClipActive > 0.5) {
     const startZ = Math.floor(rig.group.position.z);
     const goalCellX = Math.floor(goalX);
     const goalCellZ = Math.floor(goalZ);
+    const limits = this.petStepLimits(rig.kind);
     const key = (x: number, z: number) => `${x},${z}`;
     const startKey = key(startX, startZ);
     const goalKey = key(goalCellX, goalCellZ);
@@ -13436,12 +13635,14 @@ if (tpClipActive > 0.5) {
         const centerZ = z + 0.5;
         const playerDistance = Math.hypot(centerX - this.pos.x, centerZ - this.pos.z);
         if (playerDistance < WOLF_PET_PLAYER_GAP && nextKey !== startKey) continue;
-        const groundY = this.wolfPetGroundY(centerX, centerZ, current.y, 3.3, Math.atan2(-dx, -dz));
+        const groundY = rig.kind === 'monkey'
+          ? this.monkeyPreferredGroundY(centerX, centerZ, current.y, Math.atan2(-dx, -dz), limits.groundDelta)
+          : this.wolfPetGroundY(centerX, centerZ, current.y, limits.groundDelta, Math.atan2(-dx, -dz), rig.kind);
         if (groundY === null) continue;
         const rise = groundY - current.y;
-        // The player can step/jump one block; larger drops are safe to descend but not to climb.
-        if (rise > 1.05 || rise < -2.65) continue;
-        const cost = current.g + 1 + Math.max(0, rise) * 0.35 + Math.max(0, -rise) * 0.12;
+        // Monkeys can leap between trunks and canopy blocks; wolves/cats keep ordinary one-block climbs.
+        if (rise > limits.rise || rise < limits.drop) continue;
+        const cost = current.g + 1 + Math.max(0, rise) * (rig.kind === 'monkey' ? 0.12 : 0.35) + Math.max(0, -rise) * 0.12;
         if (cost >= (bestCost.get(nextKey) ?? Infinity)) continue;
         const next: Node = { x, z, y: groundY, g: cost, f: cost + heuristic(x, z) };
         bestCost.set(nextKey, cost);
@@ -13465,6 +13666,7 @@ if (tpClipActive > 0.5) {
   private moveWolfPet(rig: WolfPetRig, dt: number, speed: number) {
     rig.moving = false;
     const pos = rig.group.position;
+    const limits = this.petStepLimits(rig.kind);
     rig.navTimer = Math.max(0, rig.navTimer - dt);
     const navGoalShift = Math.hypot(rig.navGoal.x - rig.target.x, rig.navGoal.z - rig.target.z);
     const navDistance = Math.hypot(rig.navWaypoint.x - pos.x, rig.navWaypoint.z - pos.z);
@@ -13499,13 +13701,16 @@ if (tpClipActive > 0.5) {
             clear = false;
             break;
           }
-          const groundY = this.wolfPetGroundY(x, z, lastGroundY, 3.3, Math.atan2(-stepX, -stepZ));
+          const stepYaw = Math.atan2(-stepX, -stepZ);
+          const groundY = rig.kind === 'monkey'
+            ? this.monkeyPreferredGroundY(x, z, lastGroundY, stepYaw, limits.groundDelta)
+            : this.wolfPetGroundY(x, z, lastGroundY, limits.groundDelta, stepYaw, rig.kind);
           if (groundY === null) {
             clear = false;
             break;
           }
           const rise = groundY - lastGroundY;
-          if (rise > 1.05 || rise < -2.65) {
+          if (rise > limits.rise || rise < limits.drop) {
             clear = false;
             break;
           }
@@ -13513,8 +13718,19 @@ if (tpClipActive > 0.5) {
           lastGroundY = groundY;
         }
         if (!clear) continue;
-        pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
-        if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, 0.28);
+        const riseAmount = Math.max(0, lastGroundY - pos.y);
+        if (rig.kind === 'monkey' && riseAmount > 1.05) {
+          const nearClimbSurface = this.monkeyNearClimbSurface(pos.x + stepX * 0.5, pos.y + 0.8, pos.z + stepZ * 0.5)
+            || this.monkeyNearClimbSurface(pos.x, pos.y + 0.8, pos.z);
+          const climbSpeed = nearClimbSurface ? 3.25 : 2.45;
+          const climbStep = Math.min(riseAmount, climbSpeed * dt);
+          const horizontalBlend = nearClimbSurface ? 0.28 : 0.42;
+          pos.set(pos.x + stepX * horizontalBlend, pos.y + climbStep, pos.z + stepZ * horizontalBlend);
+          rig.hopTimer = Math.max(rig.hopTimer, 0.24);
+        } else {
+          pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
+          if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, rig.kind === 'monkey' ? Math.min(0.52, 0.18 + riseAmount * 0.08) : 0.28);
+        }
         rig.yawTarget = Math.atan2(-stepX, -stepZ);
         rig.moving = true;
         return true;
@@ -13824,6 +14040,49 @@ if (tpClipActive > 0.5) {
     this.burst(target.x, target.y + 0.42, target.z, [206, 178, 128], 4, 1.25, 0.62);
     sfx.creature(rig.kind === 'cat' ? 'cat' : 'wolf', { state: 'attack', volume: rig.kind === 'cat' ? 0.32 : 0.34, pitch: rig.kind === 'cat' ? 1.04 + Math.random() * 0.16 : 0.88 + Math.random() * 0.12 });
     if (target.hp <= 0) this.mobDied(target, false);
+  }
+
+  private updateMonkeyPetCombat(rig: WolfPetRig, dt: number, target: Mob) {
+    const dx = target.x - rig.group.position.x;
+    const dz = target.z - rig.group.position.z;
+    const distance = Math.hypot(dx, dz) || 1;
+    rig.sitting = false;
+    rig.monkeyTreeAnchorValid = false;
+    const desiredRange = 4.8;
+    if (distance < 2.8) {
+      const retreatX = rig.group.position.x - dx / distance * 1.85;
+      const retreatZ = rig.group.position.z - dz / distance * 1.85;
+      const retreatYaw = Math.atan2(dx, dz);
+      const retreatY = this.monkeyPreferredGroundY(retreatX, retreatZ, rig.group.position.y, retreatYaw, 5.2);
+      if (retreatY !== null) rig.target.set(retreatX, retreatY, retreatZ);
+      this.moveWolfPet(rig, dt, 8.9);
+      return;
+    }
+    if (distance > 6.8 || distance < 3.9) {
+      const standX = target.x - (dx / distance) * desiredRange;
+      const standZ = target.z - (dz / distance) * desiredRange;
+      const targetYaw = Math.atan2(-dx, -dz);
+      const perchY = this.monkeyPreferredGroundY(standX, standZ, rig.group.position.y, targetYaw, 5.2);
+      if (perchY !== null) {
+        rig.target.set(standX, perchY, standZ);
+        rig.monkeyTreeAnchor.copy(rig.target);
+        rig.monkeyTreeAnchorValid = true;
+      }
+      this.moveWolfPet(rig, dt, 8.2);
+      rig.yawTarget = Math.atan2(-dx, -dz);
+      return;
+    }
+
+    rig.target.copy(rig.group.position);
+    rig.moving = false;
+    rig.yawTarget = Math.atan2(-dx, -dz);
+    rig.attackTimer -= dt;
+    rig.monkeyAmmoCooldown = Math.max(0, rig.monkeyAmmoCooldown - dt);
+    if (rig.attackTimer > 0 || rig.monkeyAmmoCooldown > 0) return;
+    rig.attackTimer = 1.34;
+    rig.monkeyAmmoCooldown = 0.22;
+    rig.attackPoseTimer = 0.34;
+    this.launchMonkeyProjectile(rig, target);
   }
 
   private updateWolfPetFetch(rig: WolfPetRig, dt: number, movingPlayer: boolean) {
@@ -14613,6 +14872,7 @@ if (tpClipActive > 0.5) {
   }
 
   private updateWolfPet(dt: number) {
+    this.updateMonkeyProjectiles(dt);
     const rig = this.wolfPetRig;
     if (!rig) return;
     if (!this.petEquipped) {
@@ -14654,14 +14914,14 @@ if (tpClipActive > 0.5) {
       }
     }
 
-    // Only the wolf fights; the monkey is a peaceful helper and never attacks monsters.
-    const threat = (rig.kind === 'wolf' || rig.kind === 'cat') ? this.nearestWolfThreat() : null;
+    const threat = (rig.kind === 'wolf' || rig.kind === 'cat' || rig.kind === 'monkey') ? this.nearestWolfThreat() : null;
     if (threat && !rig.carrying) {
       rig.teleportRevealTimer = 0;
       rig.restAnchorValid = false;
       rig.moveStartTimer = 0;
       rig.fetchTarget = null;
-      this.updateWolfPetCombat(rig, dt, threat);
+      if (rig.kind === 'monkey') this.updateMonkeyPetCombat(rig, dt, threat);
+      else this.updateWolfPetCombat(rig, dt, threat);
     } else if (rig.carrying) {
       this.updateWolfPetDelivery(rig, dt, movingPlayer);
     } else if (rig.teleportRevealTimer > 0) {
