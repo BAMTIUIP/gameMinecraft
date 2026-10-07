@@ -13009,7 +13009,8 @@ if (tpClipActive > 0.5) {
   private createWolfPetRig(kind: PetKind) {
     const rig = this.buildPetRig(kind);
     if (isBirdCompanion(kind)) {
-      rig.group.position.copy(this.parrotShoulderPoint());
+      const shoulderPoint = kind === 'owl' ? this.owlShoulderPoint() : this.parrotShoulderPoint();
+      rig.group.position.copy(shoulderPoint);
       rig.group.rotation.y = this.yaw;
       rig.yawTarget = this.yaw;
       rig.target.copy(rig.group.position);
@@ -14279,6 +14280,24 @@ if (tpClipActive > 0.5) {
     );
   }
 
+  /** The eagle owl perches slightly higher due to its larger body structure. */
+  private owlShoulderPoint(): THREE.Vector3 {
+    if (this.thirdPerson && this.playerAvatar && this.avatarLeftArm) {
+      this.playerAvatar.updateMatrixWorld(true);
+      return this.playerAvatar.localToWorld(this.avatarLeftArm.position.clone().add(new THREE.Vector3(0, 0.02, -0.035)));
+    }
+    const sideX = Math.cos(this.yaw);
+    const sideZ = -Math.sin(this.yaw);
+    const forwardX = -Math.sin(this.yaw);
+    const forwardZ = -Math.cos(this.yaw);
+    const shoulderOffset = this.characterCustomization.gender === 'girl' ? 0.37 : 0.43;
+    return new THREE.Vector3(
+      this.pos.x - sideX * shoulderOffset + forwardX * 0.035,
+      this.pos.y + 1.34,
+      this.pos.z - sideZ * shoulderOffset + forwardZ * 0.035,
+    );
+  }
+
   /** The whistle pose extends the left arm forward; land just above the fingertips, not the torso. */
   private parrotHandPoint(): THREE.Vector3 {
     if (this.playerAvatar && this.avatarLeftArm && this.parrotHandArmBlend > 0.05) {
@@ -14394,7 +14413,7 @@ if (tpClipActive > 0.5) {
 
   /** Approach the shoulder through clear air; do not lerp the pet through a wall or roof. */
   private moveParrotToShoulder(rig: WolfPetRig, dt: number, speed: number): boolean {
-    const shoulder = this.parrotShoulderPoint();
+    const shoulder = rig.kind === 'owl' ? this.owlShoulderPoint() : this.parrotShoulderPoint();
     const distance = rig.group.position.distanceTo(shoulder);
     if (distance > 0.22 && this.parrotFlightClear(shoulder.x, shoulder.y, shoulder.z)) {
       this.moveParrotFlight(rig, shoulder, dt, speed);
