@@ -10600,6 +10600,69 @@ if (tpClipActive > 0.5) {
     }
   }
 
+  /** Pick a hostile mob based on threat level and random roll. */
+  private pickSurvivalHostile(roll: number, threat: number): MobId {
+    // Early game (threat 0-2): basic hostiles
+    if (threat < 3) {
+      if (roll < 0.30) return 'zombie';
+      if (roll < 0.50) return 'skeleton';
+      if (roll < 0.65) return 'spider';
+      if (roll < 0.80) return 'archer';
+      if (roll < 0.90) return 'husk';
+      return 'creeper';
+    }
+    
+    // Mid game (threat 3-5): add medium-tier hostiles
+    if (threat < 6) {
+      if (roll < 0.20) return 'zombie';
+      if (roll < 0.35) return 'skeleton';
+      if (roll < 0.48) return 'spider';
+      if (roll < 0.58) return 'archer';
+      if (roll < 0.68) return 'creeper';
+      if (roll < 0.76) return 'husk';
+      if (roll < 0.84) return 'stray';
+      if (roll < 0.92) return 'slime';
+      return 'cave_spider';
+    }
+    
+    // Late game (threat 6-8): add high-tier hostiles
+    if (threat < 9) {
+      if (roll < 0.15) return 'zombie';
+      if (roll < 0.25) return 'skeleton';
+      if (roll < 0.35) return 'spider';
+      if (roll < 0.43) return 'archer';
+      if (roll < 0.51) return 'creeper';
+      if (roll < 0.58) return 'husk';
+      if (roll < 0.65) return 'stray';
+      if (roll < 0.72) return 'slime';
+      if (roll < 0.79) return 'cave_spider';
+      if (roll < 0.86) return 'witch';
+      if (roll < 0.93) return 'phantom';
+      return 'drowned';
+    }
+    
+    // End game (threat 9+): elite hostiles
+    if (roll < 0.10) return 'zombie';
+    if (roll < 0.18) return 'skeleton';
+    if (roll < 0.26) return 'spider';
+    if (roll < 0.32) return 'archer';
+    if (roll < 0.38) return 'creeper';
+    if (roll < 0.44) return 'husk';
+    if (roll < 0.50) return 'stray';
+    if (roll < 0.56) return 'slime';
+    if (roll < 0.62) return 'cave_spider';
+    if (roll < 0.68) return 'witch';
+    if (roll < 0.74) return 'phantom';
+    if (roll < 0.80) return 'drowned';
+    if (roll < 0.85) return 'silverfish';
+    if (roll < 0.89) return 'enderman';
+    if (roll < 0.93) return 'blaze';
+    if (roll < 0.96) return 'guardian';
+    if (roll < 0.98) return 'wither_skeleton';
+    if (roll < 0.99) return 'magma_cube';
+    return 'ghast';
+  }
+
   /** is the listener's head under water right now? */
   private headUnderwater() {
     return this.world.get(Math.floor(this.pos.x), Math.floor(this.pos.y + EYE), Math.floor(this.pos.z)) === WATER;
@@ -10717,8 +10780,7 @@ if (tpClipActive > 0.5) {
         if (spawnAllowed && this.mobSys.count(true) < cap) {
           // Choose first so both the surface and cave searches use the exact hostile's footprint.
           const roll = Math.random();
-          const id: MobId =
-            roll < 0.26 ? 'zombie' : roll < 0.44 ? 'spider' : roll < 0.66 ? 'skeleton' : roll < 0.84 ? 'archer' : 'creeper';
+          const id: MobId = this.pickSurvivalHostile(roll, threat);
           const p = underground
             ? this.findCaveSpawn(id)
             : this.mobSys.findSpawnPoint(this.pos.x, this.pos.z, 16, 38, null, undefined, id);
