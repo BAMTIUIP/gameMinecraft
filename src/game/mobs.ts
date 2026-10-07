@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { World } from './world';
 import { WY } from './world';
-import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid } from './blocks';
+import { GRASS, VINE, DIRT, VOLCANIC_STONE, CACTUS, CACTUS_PALE, SAND, STONE, SNOW_GRASS, WATER, TALL_GRASS, FERN, DRY_BLOOM, DESERT_THISTLE, isFlower, isLeafId, isLogId, isSolid, BEDROCK, WOOD, LEAVES, PLANKS, DOOR, COBBLESTONE, COAL_ORE, IRON_ORE, GOLD_ORE, DIAMOND_ORE, GRAVEL, SNOW } from './blocks';
 import type { TKey } from './i18n';
 import { shouldDieInDaylight } from './survival';
 import { PARROT_VARIANTS } from './parrotVariants';
@@ -243,6 +243,8 @@ export type Mob = {
   feedJaw: THREE.Object3D | null;
   /** torso pivot animated with the feeding reach */
   feedBody: THREE.Object3D | null;
+  /** block currently being broken by hostile mobs */
+  breaking: { x: number; y: number; z: number; block: number; progress: number } | null;
 };
 
 const GRAV = 26;
@@ -2042,6 +2044,7 @@ export class MobSystem {
       feedFoodId: 0,
       feedJaw,
       feedBody,
+      breaking: null,
     };
     // wire up per-species extras prepared above
     mob.retractParts = ((group.userData as { retract?: THREE.Object3D[] }).retract ?? []) as THREE.Object3D[];
@@ -2388,6 +2391,7 @@ export class MobSystem {
     py: number,
     pz: number,
     daylight: number,
+    threatLevel: number,
     onAttack: (m: Mob, dmg: number, targetId?: string | null) => void,
     onBurnDeath: (m: Mob) => void,
     onRanged?: (m: Mob) => void,
@@ -2589,6 +2593,26 @@ export class MobSystem {
         // melee needs an unobstructed line — no biting through walls or floors
         const canTouch =
           !def.ranged && dist < def.reach && Math.abs(dy) < 2.2 && this.lineOfSight(m, targetX, targetY + 1.2, targetZ);
+        
+        // Hostile mobs break blocks when they can't reach the player (except creepers who just explode)
+        if (!def.ranged && !def.explodes && !canTouch && dist < 8 && dist > def.reach * 0.5) {
+          const obstacle = this.findBlockingObstacle(m, targetX, targetY + 1.2, targetZ);
+          if (obstacle) {
+            const [bx, by, bz, block] = obstacle;
+            // Only break blocks within reach distance
+            const blockDist = Math.hypot(bx + 0.5 - m.x, by + 0.5 - (m.y + 1), bz + 0.5 - m.z);
+            if (blockDist < 2.5) {
+              if (this.tryBreakBlock(m, bx, by, bz, block, threatLevel, mdt)) {
+                // Block was broken, reset breaking state
+                m.breaking = null;
+              }
+              // Slow down while breaking
+              mx *= 0.3;
+              mz *= 0.3;
+            }
+          }
+        }
+        
         // creeper fuse
         if (def.explodes) {
           if (canTouch) {
@@ -3327,6 +3351,111 @@ export class MobSystem {
         return false;
     }
     return true;
+  }
+
+  /**
+   * Find the first solid block on the path between the mob and its target.
+   * Returns [x, y, z, blockId] or null if no obstruction.
+   */
+  findBlockingObstacle(m: Mob, tx: number, ty: number, tz: number): [number, number, number, number] | null {
+    const ox = m.x;
+    const oy = m.y + this.mobHeight(m) * 0.8;
+    const oz = m.z;
+    const dx = tx - ox;
+    const dy = ty - oy;
+    const dz = tz - oz;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 0.6) return null;
+    const steps = Math.ceil(dist * 2.5);
+    for (let i = 1; i < steps; i++) {
+      const k = i / steps;
+      const bx = Math.floor(ox + dx * k);
+      const by = Math.floor(oy + dy * k);
+      const bz = Math.floor(oz + dz * k);
+      const block = this.world.get(bx, by, bz);
+      if (isSolid(block)) {
+        return [bx, by, bz, block];
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Attempt to break a block. Returns true if the block was destroyed.
+   * @param m The mob attempting to break the block
+   * @param x Block x coordinate
+   * @param y Block y coordinate
+   * @param z Block z coordinate
+   * @param block The block ID
+   * @param threatLevel Current threat level (0-10+)
+   * @param dt Delta time for this frame
+   */
+  tryBreakBlock(m: Mob, x: number, y: number, z: number, block: number, threatLevel: number, dt: number): boolean {
+    // Don't break bedrock or unbreakable blocks
+    if (block === BEDROCK) return false;
+    
+    // Initialize break progress if not already breaking
+    if (!m.breaking) {
+      m.breaking = { x, y, z, block, progress: 0 };
+    }
+    
+    // Reset if target changed
+    if (m.breaking.x !== x || m.breaking.y !== y || m.breaking.z !== z || m.breaking.block !== block) {
+      m.breaking = { x, y, z, block, progress: 0 };
+    }
+    
+    // Determine break speed based on threat level and block type
+    const isSoft = block === DIRT || block === GRASS || block === SAND || 
+                  block === GRAVEL || block === SNOW || block === SNOW_GRASS;
+    const isWood = block === WOOD || block === LEAVES || block === PLANKS || block === DOOR;
+    const isStone = block === STONE || block === COBBLESTONE || block === COAL_ORE || 
+                   block === IRON_ORE || block === GOLD_ORE || block === DIAMOND_ORE;
+    
+    let breakTime = 999; // Default: unbreakable
+    
+    // Threat 0-2: Can only break soft blocks (dirt, grass, sand)
+    if (threatLevel < 3) {
+      if (isSoft) breakTime = 3.0;
+      else return false;
+    }
+    // Threat 3-5: Can break soft + wood blocks
+    else if (threatLevel < 6) {
+      if (isSoft) breakTime = 2.0;
+      else if (isWood) breakTime = 4.0;
+      else return false;
+    }
+    // Threat 6-8: Can break soft + wood + stone blocks
+    else if (threatLevel < 9) {
+      if (isSoft) breakTime = 1.5;
+      else if (isWood) breakTime = 2.5;
+      else if (isStone) breakTime = 5.0;
+      else return false;
+    }
+    // Threat 9+: Can break almost anything
+    else {
+      if (isSoft) breakTime = 1.0;
+      else if (isWood) breakTime = 1.5;
+      else if (isStone) breakTime = 3.0;
+      else breakTime = 6.0; // Hard blocks
+    }
+    
+    // Zombies and creepers break faster, spiders slower
+    let speedMul = 1.0;
+    if (m.id === 'zombie' || m.id === 'husk' || m.id === 'drowned') speedMul = 1.3;
+    else if (m.id === 'creeper') speedMul = 1.5;
+    else if (m.id === 'spider' || m.id === 'cave_spider') speedMul = 0.7;
+    
+    // Progress the break
+    m.breaking.progress += dt * speedMul;
+    
+    // Check if block is broken
+    if (m.breaking.progress >= breakTime) {
+      this.world.set(x, y, z, 0);
+      m.breaking = null;
+      return true;
+    }
+    
+    return false;
   }
 
   /** returns the closest mob whose box intersects the ray, within maxDist */

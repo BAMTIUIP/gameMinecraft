@@ -10939,6 +10939,7 @@ if (tpClipActive > 0.5) {
       this.pos.y,
       this.pos.z,
       this.daylight,
+      this.survivalThreatLevel(),
       (m, dmg, targetId) => targetId ? this.companionHit(targetId, m, dmg) : this.mobHit(m, dmg),
       (m) => this.mobDied(m, true),
       (m) => this.mobShoot(m),
@@ -10995,14 +10996,23 @@ if (tpClipActive > 0.5) {
     const red = damageReduction(this.stats.armor);
     let taken = dmg * (1 - red);
     if (m.def.explodes) {
-      this.addShake(1.1);
+      const threat = this.survivalThreatLevel();
+      const explosionScale = this.creeperExplosionScale(threat);
+      const explosionRadius = 3.4 * explosionScale.radius;
+      
+      this.addShake(1.1 * explosionScale.radius);
       this.flash = 0.9;
       this.burst(m.x, m.y + 0.6, m.z, [90, 90, 90], 34, 6);
       this.burst(m.x, m.y + 0.6, m.z, [255, 170, 60], 18, 5);
       const d = Math.hypot(m.x - this.pos.x, m.z - this.pos.z);
-      taken *= Math.max(0.2, 1 - d / 3.4);
+      taken *= explosionScale.damage * Math.max(0.2, 1 - d / explosionRadius);
       // a wall between you and the blast soaks most of it
       if (!this.mobSys.lineOfSight(m, this.pos.x, this.pos.y + 1.2, this.pos.z)) taken *= 0.15;
+      
+      // Destroy blocks based on explosion radius and threat level
+      if (explosionScale.destroyBlocks) {
+        this.destroyBlocksInRadius(m.x, m.y + 0.6, m.z, explosionScale.destroyRadius);
+      }
     } else {
       this.addShake(0.3);
       this.burst(this.pos.x, this.pos.y + 1.2, this.pos.z, [248, 207, 115], 6, 2);
@@ -11018,6 +11028,65 @@ if (tpClipActive > 0.5) {
     }
     this.killedBy = t(m.def.nameKey);
     this.damage(taken, 'mob');
+  }
+
+  /** Calculate creeper explosion modifiers based on threat level. */
+  private creeperExplosionScale(threat: number): { damage: number; radius: number; destroyBlocks: boolean; destroyRadius: number } {
+    // Early game (threat 0-2): normal explosion
+    if (threat < 3) {
+      return { damage: 1.0, radius: 1.0, destroyBlocks: false, destroyRadius: 0 };
+    }
+    // Mid game (threat 3-5): stronger explosion, small block destruction
+    if (threat < 6) {
+      return { damage: 1.3, radius: 1.2, destroyBlocks: true, destroyRadius: 2 };
+    }
+    // Late game (threat 6-8): much stronger, medium block destruction
+    if (threat < 9) {
+      return { damage: 1.6, radius: 1.5, destroyBlocks: true, destroyRadius: 3 };
+    }
+    // End game (threat 9+): devastating explosion, large block destruction
+    return { damage: 2.0, radius: 1.8, destroyBlocks: true, destroyRadius: 4 };
+  }
+
+  /** Destroy blocks in a radius around an explosion. */
+  private destroyBlocksInRadius(cx: number, cy: number, cz: number, radius: number) {
+    if (radius <= 0) return;
+    const r2 = radius * radius;
+    const minX = Math.floor(cx - radius);
+    const maxX = Math.floor(cx + radius);
+    const minY = Math.floor(cy - radius);
+    const maxY = Math.floor(cy + radius);
+    const minZ = Math.floor(cz - radius);
+    const maxZ = Math.floor(cz + radius);
+    
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          const dx = x + 0.5 - cx;
+          const dy = y + 0.5 - cy;
+          const dz = z + 0.5 - cz;
+          const dist2 = dx * dx + dy * dy + dz * dz;
+          if (dist2 > r2) continue;
+          
+          const block = this.world.get(x, y, z);
+          if (block === 0) continue;
+          
+          // Don't destroy bedrock or important blocks
+          if (block === BEDROCK) continue;
+          
+          // Soft blocks (dirt, grass, sand) always break
+          // Hard blocks (stone, ores) only break at higher threat levels
+          const isSoft = block === DIRT || block === GRASS || block === SAND || 
+                        block === GRAVEL || block === SNOW || block === SNOW_GRASS;
+          const isMedium = block === WOOD || block === LEAVES || block === PLANKS;
+          
+          if (isSoft || (isMedium && radius >= 3) || radius >= 4) {
+            this.world.set(x, y, z, 0);
+            this.burst(x + 0.5, y + 0.5, z + 0.5, [120, 100, 80], 3, 2);
+          }
+        }
+      }
+    }
   }
 
   /** player swings at whatever the crosshair is on */
