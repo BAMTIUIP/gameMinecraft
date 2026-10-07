@@ -15,3 +15,7 @@ release/
 .idea/
 .DS_Store
 *.local
+
+# Mock SDK for local development only
+public/sdk.js
+dist/sdk.js
