@@ -631,7 +631,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
     const maxDurability = slot.maxDurability ?? toolSpec?.maxDurability ?? 0;
     return (
             <button
-              key={slot.id}
+              key={`hotbar-${i}`}
               data-hotbar-index={i}
               onClick={() => onSelect(i)}
               className={`hotbar-cell hotbar-slot notch relative flex items-center justify-center ${
