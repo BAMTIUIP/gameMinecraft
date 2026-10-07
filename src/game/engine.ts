@@ -12977,52 +12977,6 @@ if (tpClipActive > 0.5) {
     return groundY;
   }
 
-  private monkeyTreePerchY(
-    x: number,
-    z: number,
-    referenceY: number | null,
-    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
-    maxDelta = 5.2,
-  ): number | null {
-    let best: { y: number; score: number } | null = null;
-    const candidates: Array<[number, number]> = [
-      [0, 0],
-      [0.72, 0], [-0.72, 0], [0, 0.72], [0, -0.72],
-      [1.08, 0], [-1.08, 0], [0, 1.08], [0, -1.08],
-      [0.72, 0.72], [0.72, -0.72], [-0.72, 0.72], [-0.72, -0.72],
-      [1.45, 0], [-1.45, 0], [0, 1.45], [0, -1.45],
-    ];
-    for (const [ox, oz] of candidates) {
-      const tx = x + ox;
-      const tz = z + oz;
-      const cx = Math.floor(tx);
-      const cz = Math.floor(tz);
-      if (!this.world.hasColumn(cx, cz)) continue;
-      const supportY = this.petGroundSurfaceY(cx, cz);
-      if (supportY === null) continue;
-      const support = this.world.get(cx, supportY, cz);
-      if (!isLogId(support) && !isLeafId(support) && support !== VINE) continue;
-      const standY = this.wolfPetGroundY(tx, tz, referenceY, maxDelta, yaw, 'monkey');
-      if (standY === null) continue;
-      const distance = Math.hypot(ox, oz);
-      const elevationBonus = Math.max(0, standY - (referenceY ?? standY));
-      const score = distance * 1.35 - elevationBonus * 0.12 - (support === VINE ? 0.22 : isLeafId(support) ? 0.08 : 0);
-      if (!best || score < best.score) best = { y: standY, score };
-    }
-    return best?.y ?? null;
-  }
-
-  private monkeyPreferredGroundY(
-    x: number,
-    z: number,
-    referenceY: number | null,
-    yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
-    maxDelta = 5.2,
-  ): number | null {
-    return this.monkeyTreePerchY(x, z, referenceY, yaw, maxDelta)
-      ?? this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, 'monkey');
-  }
-
   private petFollowGroundY(
     kind: PetKind,
     x: number,
@@ -13031,28 +12985,13 @@ if (tpClipActive > 0.5) {
     yaw = this.wolfPetRig?.group.rotation.y ?? this.yaw,
     maxDelta = WOLF_PET_INTERACTION_RANGE,
   ): number | null {
-    return kind === 'monkey'
-      ? this.monkeyPreferredGroundY(x, z, referenceY, yaw, Math.max(maxDelta, 5.2))
-      : this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, kind);
+    // Every ground pet (wolf, cat, monkey) walks on the same sized footsteps and climbs at most
+    // one block, so they behave as a cohesive pack around the miner.
+    return this.wolfPetGroundY(x, z, referenceY, maxDelta, yaw, kind);
   }
 
-  private petStepLimits(kind: PetKind) {
-    return kind === 'monkey'
-      ? { rise: 4.25, drop: -4.6, groundDelta: 5.2 }
-      : { rise: 1.05, drop: -2.65, groundDelta: 3.3 };
-  }
-
-  private monkeyNearClimbSurface(x: number, y: number, z: number): boolean {
-    for (let cy = Math.max(0, Math.floor(y - 0.2)); cy <= Math.min(WY - 1, Math.floor(y + 1.6)); cy++) {
-      for (let cz = Math.floor(z - 1); cz <= Math.floor(z + 1); cz++) {
-        for (let cx = Math.floor(x - 1); cx <= Math.floor(x + 1); cx++) {
-          if (!this.world.hasColumn(cx, cz)) continue;
-          const block = this.world.get(cx, cy, cz);
-          if (block === VINE || isLogId(block) || isLeafId(block)) return true;
-        }
-      }
-    }
-    return false;
+  private petStepLimits(_kind: PetKind) {
+    return { rise: 1.05, drop: -2.65, groundDelta: 3.3 };
   }
 
   private buildPetRig(kind: PetKind): WolfPetRig {
@@ -13635,14 +13574,12 @@ if (tpClipActive > 0.5) {
         const centerZ = z + 0.5;
         const playerDistance = Math.hypot(centerX - this.pos.x, centerZ - this.pos.z);
         if (playerDistance < WOLF_PET_PLAYER_GAP && nextKey !== startKey) continue;
-        const groundY = rig.kind === 'monkey'
-          ? this.monkeyPreferredGroundY(centerX, centerZ, current.y, Math.atan2(-dx, -dz), limits.groundDelta)
-          : this.wolfPetGroundY(centerX, centerZ, current.y, limits.groundDelta, Math.atan2(-dx, -dz), rig.kind);
+        const groundY = this.wolfPetGroundY(centerX, centerZ, current.y, limits.groundDelta, Math.atan2(-dx, -dz), rig.kind);
         if (groundY === null) continue;
         const rise = groundY - current.y;
-        // Monkeys can leap between trunks and canopy blocks; wolves/cats keep ordinary one-block climbs.
+        // Every ground pet climbs at most one block, just like the miner's mantle.
         if (rise > limits.rise || rise < limits.drop) continue;
-        const cost = current.g + 1 + Math.max(0, rise) * (rig.kind === 'monkey' ? 0.12 : 0.35) + Math.max(0, -rise) * 0.12;
+        const cost = current.g + 1 + Math.max(0, rise) * 0.35 + Math.max(0, -rise) * 0.12;
         if (cost >= (bestCost.get(nextKey) ?? Infinity)) continue;
         const next: Node = { x, z, y: groundY, g: cost, f: cost + heuristic(x, z) };
         bestCost.set(nextKey, cost);
@@ -13702,9 +13639,7 @@ if (tpClipActive > 0.5) {
             break;
           }
           const stepYaw = Math.atan2(-stepX, -stepZ);
-          const groundY = rig.kind === 'monkey'
-            ? this.monkeyPreferredGroundY(x, z, lastGroundY, stepYaw, limits.groundDelta)
-            : this.wolfPetGroundY(x, z, lastGroundY, limits.groundDelta, stepYaw, rig.kind);
+          const groundY = this.wolfPetGroundY(x, z, lastGroundY, limits.groundDelta, stepYaw, rig.kind);
           if (groundY === null) {
             clear = false;
             break;
@@ -13718,19 +13653,8 @@ if (tpClipActive > 0.5) {
           lastGroundY = groundY;
         }
         if (!clear) continue;
-        const riseAmount = Math.max(0, lastGroundY - pos.y);
-        if (rig.kind === 'monkey' && riseAmount > 1.05) {
-          const nearClimbSurface = this.monkeyNearClimbSurface(pos.x + stepX * 0.5, pos.y + 0.8, pos.z + stepZ * 0.5)
-            || this.monkeyNearClimbSurface(pos.x, pos.y + 0.8, pos.z);
-          const climbSpeed = nearClimbSurface ? 3.25 : 2.45;
-          const climbStep = Math.min(riseAmount, climbSpeed * dt);
-          const horizontalBlend = nearClimbSurface ? 0.28 : 0.42;
-          pos.set(pos.x + stepX * horizontalBlend, pos.y + climbStep, pos.z + stepZ * horizontalBlend);
-          rig.hopTimer = Math.max(rig.hopTimer, 0.24);
-        } else {
-          pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
-          if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, rig.kind === 'monkey' ? Math.min(0.52, 0.18 + riseAmount * 0.08) : 0.28);
-        }
+        pos.set(pos.x + stepX, lastGroundY, pos.z + stepZ);
+        if (steppedUp) rig.hopTimer = Math.max(rig.hopTimer, 0.28);
         rig.yawTarget = Math.atan2(-stepX, -stepZ);
         rig.moving = true;
         return true;
@@ -14042,33 +13966,65 @@ if (tpClipActive > 0.5) {
     if (target.hp <= 0) this.mobDied(target, false);
   }
 
+  /**
+   * The monkey fights like the cat/wolf but keeps its ranged fruit attack: it steps back when a
+   * monster gets too close, keeps a comfortable throwing distance, and pelts the threat from there.
+   * Movement uses the same ground-follow rules as the cat/wolf — no more tree-only perches.
+   */
   private updateMonkeyPetCombat(rig: WolfPetRig, dt: number, target: Mob) {
     const dx = target.x - rig.group.position.x;
     const dz = target.z - rig.group.position.z;
     const distance = Math.hypot(dx, dz) || 1;
     rig.sitting = false;
-    rig.monkeyTreeAnchorValid = false;
+    const swimming = this.inWater || this.wolfPetIsInWater(rig);
+    if (swimming) {
+      if (!rig.swimming) {
+        rig.restAnchorValid = false;
+        rig.navTimer = 0;
+      }
+      rig.swimming = true;
+      rig.underwater = this.inWater && this.headUnderwater();
+    } else if (rig.swimming) {
+      rig.swimming = false;
+      rig.underwater = false;
+      rig.restAnchorValid = false;
+      rig.navTimer = 0;
+    }
     const desiredRange = 4.8;
     if (distance < 2.8) {
-      const retreatX = rig.group.position.x - dx / distance * 1.85;
-      const retreatZ = rig.group.position.z - dz / distance * 1.85;
+      const retreatX = rig.group.position.x - (dx / distance) * 1.85;
+      const retreatZ = rig.group.position.z - (dz / distance) * 1.85;
       const retreatYaw = Math.atan2(dx, dz);
-      const retreatY = this.monkeyPreferredGroundY(retreatX, retreatZ, rig.group.position.y, retreatYaw, 5.2);
-      if (retreatY !== null) rig.target.set(retreatX, retreatY, retreatZ);
-      this.moveWolfPet(rig, dt, 8.9);
+      if (swimming) {
+        const surfaceY = this.wolfPetWaterSurfaceY(retreatX, retreatZ, this.pos.y);
+        const swimY = this.inWater && surfaceY !== null
+          ? Math.min(this.pos.y, surfaceY - 1.15)
+          : this.wolfPetGroundY(retreatX, retreatZ, rig.group.position.y, 5, retreatYaw) ?? this.pos.y;
+        if (this.wolfPetSwimClear(retreatX, swimY, retreatZ, retreatYaw)) rig.target.set(retreatX, swimY, retreatZ);
+        this.moveWolfPetSwimming(rig, dt, 8.9);
+      } else {
+        const retreatY = this.wolfPetGroundY(retreatX, retreatZ, rig.group.position.y, 5, retreatYaw);
+        if (retreatY !== null) rig.target.set(retreatX, retreatY, retreatZ);
+        this.moveWolfPet(rig, dt, 8.9);
+      }
       return;
     }
     if (distance > 6.8 || distance < 3.9) {
       const standX = target.x - (dx / distance) * desiredRange;
       const standZ = target.z - (dz / distance) * desiredRange;
       const targetYaw = Math.atan2(-dx, -dz);
-      const perchY = this.monkeyPreferredGroundY(standX, standZ, rig.group.position.y, targetYaw, 5.2);
-      if (perchY !== null) {
-        rig.target.set(standX, perchY, standZ);
-        rig.monkeyTreeAnchor.copy(rig.target);
-        rig.monkeyTreeAnchorValid = true;
+      if (swimming) {
+        const surfaceY = this.wolfPetWaterSurfaceY(standX, standZ, this.pos.y);
+        const swimY = this.inWater && surfaceY !== null
+          ? Math.min(this.pos.y, surfaceY - 1.15)
+          : this.wolfPetGroundY(standX, standZ, rig.group.position.y, 5, targetYaw) ?? this.pos.y;
+        if (this.wolfPetSwimClear(standX, swimY, standZ, targetYaw)) rig.target.set(standX, swimY, standZ);
+        this.moveWolfPetSwimming(rig, dt, 8.2);
+      } else {
+        const standY = this.wolfPetGroundY(standX, standZ, rig.group.position.y, 5, targetYaw);
+        if (standY !== null) rig.target.set(standX, standY, standZ);
+        this.moveWolfPet(rig, dt, 8.2);
       }
-      this.moveWolfPet(rig, dt, 8.2);
       rig.yawTarget = Math.atan2(-dx, -dz);
       return;
     }

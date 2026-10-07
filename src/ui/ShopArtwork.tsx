@@ -578,6 +578,7 @@ export function ShopArtwork({ productId, accent }: ShopArtworkProps) {
   if (productId === 'pet-monkey') return <MonkeyArtwork />;
   if (productId === 'pet-wolf') return <WolfArtwork />;
   if (productId === 'pet-owl') return <OwlArtwork />;
+  if (productId === 'pet-cat') return <CatArtwork />;
   if (productId === 'pet-capybara') return <CapybaraArtwork />;
   if (productId === 'booster-score') return <AmethystClusterArtwork />;
   if (productId === 'booster-start') return <GoldenRelicArtwork />;

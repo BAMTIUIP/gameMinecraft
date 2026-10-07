@@ -1170,10 +1170,10 @@ export function StartScreen({
                         <button
                           type="button"
                           disabled={!purchasable || buying !== null}
-                          title={alreadyOwned
-                            ? t('shopOwned')
-                            : developerMode
-                              ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
+                          title={developerMode
+                            ? (devAlreadyClaimed || alreadyOwned ? t('devShopTaken') : t('devShopTake'))
+                            : alreadyOwned
+                              ? t('shopOwned')
                               : rewardedDrop
                               ? dropStatus?.available
                                 ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
@@ -1245,31 +1245,31 @@ export function StartScreen({
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {alreadyOwned
-                            ? t('shopOwned')
-                            : developerMode
-                              ? devAlreadyClaimed
+                          {developerMode
+                            ? devAlreadyClaimed || alreadyOwned
                               ? t('devShopTaken')
                               : buying === product.id
                                 ? t('devShopTaking')
                                 : t('devShopTake')
-                            : rewardedDrop
-                              ? dropStatus?.available
-                                ? !rewardedAdsEnabled
-                                  ? t('shopAdUnavailable')
-                                  : buying === product.id
+                            : alreadyOwned
+                              ? t('shopOwned')
+                              : rewardedDrop
+                                ? dropStatus?.available
+                                  ? !rewardedAdsEnabled
+                                    ? t('shopAdUnavailable')
+                                    : buying === product.id
+                                      ? t('shopBuying')
+                                      : t('shopWatchAd')
+                                  : dropStatusLabel
+                                : !product.freeDrop
+                                  ? buying === product.id
                                     ? t('shopBuying')
-                                    : t('shopWatchAd')
-                                : dropStatusLabel
-                              : !product.freeDrop
-                                ? buying === product.id
-                                  ? t('shopBuying')
-                                  : !paymentsAvailable
-                                    ? t('shopPaymentsUnavailable')
-                                    : catalogPrice
-                                      ? t('shopBuy')
-                                      : t('shopPriceUnavailable')
-                                : t('shopItemUnavailable')}
+                                    : !paymentsAvailable
+                                      ? t('shopPaymentsUnavailable')
+                                      : catalogPrice
+                                        ? t('shopBuy')
+                                        : t('shopPriceUnavailable')
+                                  : t('shopItemUnavailable')}
                         </button>
                       </div>
                     </article>

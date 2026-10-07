@@ -131,7 +131,7 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
   ok(engine.setPetEquipped('monkey', true) && engine.wolfPetRig?.kind === 'monkey' && engine.wolfPetLayer.children.length === 1, 'The returned pet token can immediately replace the active companion again');
 }
 
-// The monkey prefers nearby tree canopies while following, and attacks with thrown fruit that can stun.
+// The monkey now follows the same ground rules as the cat/wolf, but still fights with thrown fruit.
 {
   const { engine } = makeEngine();
   engine.petOwnedKinds = ['monkey'];
@@ -147,15 +147,12 @@ function makeEngine({ owned = true, token = true }: { owned?: boolean; token?: b
       return y === 5 ? STONE : AIR;
     },
   };
-  ok(engine.setPetEquipped('monkey', true), 'An owned monkey equips for tree-follow and ranged-combat checks');
+  ok(engine.setPetEquipped('monkey', true), 'An owned monkey equips for ground-follow and ranged-combat checks');
   ok(engine.setWolfPetFollowTarget(engine.wolfPetRig, false), 'The monkey can choose a normal follow target');
-  ok(engine.wolfPetRig.target.y > 8.5, 'When a nearby tree is available, the monkey prefers a canopy perch over the ground', engine.wolfPetRig.target.y.toFixed(2));
+  ok(engine.wolfPetRig.target.y < 6.5, 'Even with a nearby tree available, the monkey stays on the ground like the cat and wolf', engine.wolfPetRig.target.y.toFixed(2));
   const startY = engine.wolfPetRig.group.position.y;
-  const startX = engine.wolfPetRig.group.position.x;
-  for (let i = 0; i < 6; i++) engine.updateWolfPet(0.12);
-  ok(engine.wolfPetRig.group.position.y < 8.2 && Math.abs(engine.wolfPetRig.group.position.x - startX) > 0.08, 'The monkey starts approaching the tree smoothly instead of snapping to the top immediately', `${engine.wolfPetRig.group.position.x.toFixed(2)},${engine.wolfPetRig.group.position.y.toFixed(2)}`);
-  for (let i = 0; i < 18; i++) engine.updateWolfPet(0.12);
-  ok(engine.wolfPetRig.group.position.y > 7.5 && engine.wolfPetRig.group.position.y > startY, 'The monkey reaches the elevated tree route instead of staying on the ground', engine.wolfPetRig.group.position.y.toFixed(2));
+  for (let i = 0; i < 24; i++) engine.updateWolfPet(0.12);
+  ok(engine.wolfPetRig.group.position.y < startY + 0.6, 'The monkey keeps walking on the ground instead of climbing the trunk', engine.wolfPetRig.group.position.y.toFixed(2));
   engine.wolfPetRig.group.position.set(2.2, 6.001, 0.4);
   engine.wolfPetRig.attackTimer = 0;
 
