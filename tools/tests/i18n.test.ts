@@ -298,9 +298,9 @@ for (const lang of LANGS_CHECKED) {
 
 /**
  * Values that legitimately read the same in two languages: international words (FR «RARE»,
- * «NETHERITE»), abbreviations (EN/FR «pts»), Console badges that are proper nouns, and German
- * loanwords the Duden lists («Kills», «Skins»). Everything else that repeats the English text is a
- * missed translation.
+ * «NETHERITE»), official Minecraft mob names, abbreviations (EN/FR «pts»), Console badges that are
+ * proper nouns, and German loanwords the Duden lists («Kills», «Skins»). Everything else that repeats
+ * the English text is a missed translation.
  */
 const SHARED_WITH_EN: Record<string, string[]> = {
   ru: [],
@@ -317,6 +317,12 @@ const SHARED_WITH_EN: Record<string, string[]> = {
     'air',
     'mob_creeper',
     'mob_zombie',
+    'mob_blaze',
+    'mob_enderman',
+    'mob_ghast',
+    'mob_phantom',
+    'mob_slime',
+    'petCatCoatOcelot', // «ocelot» is the French animal name too
     'upgradeNeth',
     'pts',
     'sesSprint',
@@ -338,6 +344,9 @@ const SHARED_WITH_EN: Record<string, string[]> = {
     'aff_magnet',
     'mob_creeper',
     'mob_zombie',
+    'mob_enderman',
+    'mob_ghast',
+    'mob_phantom',
     'gold',
     'sesSprint',
     'sesMarathon',
