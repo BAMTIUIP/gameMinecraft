@@ -55,7 +55,7 @@ import { completePendingShopRewards, pendingShopProductRewards } from './game/sh
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
 import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
-import { hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
+import { CAT_PET_PRODUCT_ID, hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
   leaderboardAvailable,
@@ -914,7 +914,7 @@ export default function App() {
   /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
   const buyInGameShopItem = useCallback(async (productId: string): Promise<ShopItemBuyResult> => {
     const result = await buyShopProduct(productId);
-    if ((productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
+    if ((productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
     return result;
   }, [refreshPetOwnership]);
 
@@ -948,7 +948,7 @@ export default function App() {
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!DEVELOPER_TOOLS_ENABLED || isTvRef.current || tvMode()) return false;
     const granted = grantDeveloperShopProduct(productId);
-    if (productId === WOLF_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) refreshPetOwnership();
+    if (productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) refreshPetOwnership();
     return granted;
   }, [refreshPetOwnership]);
 

@@ -600,27 +600,7 @@ export default function Inventory({
                   }}
                   className="notch flex min-w-0 flex-col gap-1 p-1"
                 >
-                  {hud.petOwnedKinds.length > 1 && (
-                    <div className="flex items-center justify-center gap-1 border-b border-white/10 pb-0.5">
-                      {hud.petOwnedKinds.map((kind) => (
-                        <button
-                          key={`pet-select-${kind}`}
-                          type="button"
-                          data-pet-select={kind}
-                          aria-label={t(petResourceKey(kind))}
-                          onClick={() => onSelectPetKind(kind)}
-                          className="flex h-7 w-8 items-center justify-center border transition-colors disabled:cursor-default"
-                          style={{
-                            borderColor: (hud.petEquippedKind ?? hud.petSelectedKind) === kind ? '#c59b66' : '#ffffff18',
-                            background: (hud.petEquippedKind ?? hud.petSelectedKind) === kind ? '#c59b6624' : 'transparent',
-                            opacity: hud.petEquipped && hud.petEquippedKind !== kind ? 0.4 : 1,
-                          }}
-                        >
-                          {petIcon(kind, hud.petCoatIndices[kind], kind === 'wolf' ? 23 : 21)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+
                   <button
                     type="button"
                     data-pet-toggle={petDisplayKind}

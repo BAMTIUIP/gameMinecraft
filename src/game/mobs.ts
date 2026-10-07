@@ -40,7 +40,21 @@ export type MobId =
   | 'roe_deer'
   | 'moose'
   | 'hedgehog'
-  | 'tumbleweed';
+  | 'tumbleweed'
+  | 'enderman'
+  | 'witch'
+  | 'slime'
+  | 'blaze'
+  | 'guardian'
+  | 'ghast'
+  | 'husk'
+  | 'stray'
+  | 'wither_skeleton'
+  | 'phantom'
+  | 'drowned'
+  | 'cave_spider'
+  | 'silverfish'
+  | 'magma_cube';
 
 /**
  * Baby scale factors are relative to each species' full model size. Fawns now start at 70% (twice
@@ -114,10 +128,29 @@ export const MOBS: Record<MobId, MobDef> = {
   bird: { id: 'bird', nameKey: 'mob_bird', hostile: false, hp: 3, speed: 2.2, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.42, score: 12, level: 0, body: '#4d7dd8', accent: '#f4c842', legs: '#3a5ca8', aquatic: false },
   bee: { id: 'bee', nameKey: 'mob_bee', hostile: false, hp: 3, speed: 1.9, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.32, score: 10, level: 0, body: '#f4c032', accent: '#2a2a30', legs: '#c8d8ee' },
   cat: { id: 'cat', nameKey: 'mob_cat', hostile: false, hp: 12, speed: 3.0, damage: 0, cooldown: 1, reach: 1, burns: false, scale: 0.7, score: 26, level: 0, body: '#c89a5a', accent: '#e8d0a8', legs: '#a87c42' },
+  enderman: { id: 'enderman', nameKey: 'mob_enderman', hostile: true, hp: 40, speed: 3.2, damage: 10, cooldown: 1.2, reach: 2.0, burns: false, scale: 1.4, score: 380, level: 4, body: '#1a1a1a', accent: '#ff00ff', legs: '#0a0a0a' },
+  witch: { id: 'witch', nameKey: 'mob_witch', hostile: true, hp: 26, speed: 2.1, damage: 8, cooldown: 2.5, reach: 12, burns: true, scale: 1.0, score: 260, level: 3, body: '#3d6b3d', accent: '#8a4a8a', legs: '#2d4f2d', ranged: true },
+  slime: { id: 'slime', nameKey: 'mob_slime', hostile: true, hp: 16, speed: 2.0, damage: 4, cooldown: 1.5, reach: 1.5, burns: false, scale: 1.1, score: 140, level: 2, body: '#7bc96f', accent: '#5a9e4f', legs: '#6bb85f' },
+  blaze: { id: 'blaze', nameKey: 'mob_blaze', hostile: true, hp: 20, speed: 2.8, damage: 9, cooldown: 2.0, reach: 10, burns: false, scale: 0.95, score: 320, level: 4, body: '#f4c542', accent: '#d89a2a', legs: '#c88a1a', ranged: true },
+  guardian: { id: 'guardian', nameKey: 'mob_guardian', hostile: true, hp: 30, speed: 2.5, damage: 12, cooldown: 1.8, reach: 14, burns: false, scale: 0.85, score: 360, level: 4, body: '#6a8ca8', accent: '#4a6c88', legs: '#5a7c98', aquatic: true, ranged: true },
+  ghast: { id: 'ghast', nameKey: 'mob_ghast', hostile: true, hp: 10, speed: 1.8, damage: 17, cooldown: 3.0, reach: 16, burns: false, scale: 2.0, score: 440, level: 5, body: '#f4f4f4', accent: '#c8c8c8', legs: '#e4e4e4', ranged: true },
+  husk: { id: 'husk', nameKey: 'mob_husk', hostile: true, hp: 20, speed: 2.3, damage: 7, cooldown: 1.1, reach: 1.5, burns: false, scale: 1.0, score: 160, level: 2, body: '#c4a574', accent: '#8a6a4a', legs: '#9a7a5a' },
+  stray: { id: 'stray', nameKey: 'mob_stray', hostile: true, hp: 20, speed: 2.5, damage: 6, cooldown: 0.85, reach: 1.6, burns: false, scale: 1.0, score: 180, level: 2, body: '#a8b8c8', accent: '#88a8b8', legs: '#98a8b8', ranged: true },
+  wither_skeleton: { id: 'wither_skeleton', nameKey: 'mob_wither_skeleton', hostile: true, hp: 20, speed: 2.6, damage: 11, cooldown: 0.9, reach: 1.8, burns: false, scale: 1.15, score: 340, level: 4, body: '#1a1a1a', accent: '#0a0a0a', legs: '#151515' },
+  phantom: { id: 'phantom', nameKey: 'mob_phantom', hostile: true, hp: 20, speed: 3.5, damage: 8, cooldown: 1.3, reach: 2.0, burns: true, scale: 0.9, score: 280, level: 3, body: '#3a4a5a', accent: '#2a3a4a', legs: '#4a5a6a' },
+  drowned: { id: 'drowned', nameKey: 'mob_drowned', hostile: true, hp: 20, speed: 2.4, damage: 7, cooldown: 1.1, reach: 1.5, burns: false, scale: 1.0, score: 200, level: 3, body: '#4a7a6a', accent: '#3a6a5a', legs: '#2a5a4a', aquatic: true },
+  cave_spider: { id: 'cave_spider', nameKey: 'mob_cave_spider', hostile: true, hp: 12, speed: 3.4, damage: 6, cooldown: 0.7, reach: 1.5, burns: true, scale: 0.75, score: 220, level: 3, body: '#2a3a4a', accent: '#8a2a1a', legs: '#1a2a3a' },
+  silverfish: { id: 'silverfish', nameKey: 'mob_silverfish', hostile: true, hp: 8, speed: 4.0, damage: 1, cooldown: 0.6, reach: 1.0, burns: false, scale: 0.35, score: 80, level: 2, body: '#7a7a7a', accent: '#5a5a5a', legs: '#6a6a6a' },
+  magma_cube: { id: 'magma_cube', nameKey: 'mob_magma_cube', hostile: true, hp: 16, speed: 1.8, damage: 9, cooldown: 1.8, reach: 1.8, burns: false, scale: 1.3, score: 400, level: 5, body: '#d84a1a', accent: '#f47a2a', legs: '#c83a0a' },
   archer: { id: 'archer', nameKey: 'mob_archer', hostile: true, hp: 16, speed: 2.3, damage: 6, cooldown: 2.2, reach: 15, burns: true, scale: 1, score: 170, level: 2, body: '#d8d6cc', accent: '#8a6a3c', legs: '#c2bfb4', ranged: true },
 };
 
-export const HOSTILES: MobId[] = ['zombie', 'skeleton', 'spider', 'creeper'];
+export const HOSTILES: MobId[] = [
+  'zombie', 'skeleton', 'spider', 'creeper', 'archer',
+  'enderman', 'witch', 'slime', 'blaze', 'guardian', 'ghast',
+  'husk', 'stray', 'wither_skeleton', 'phantom', 'drowned',
+  'cave_spider', 'silverfish', 'magma_cube'
+];
 export const PASSIVES: MobId[] = ['pig', 'sheep', 'cow', 'chicken'];
 
 export type MobThreatTarget = { id: string; x: number; y: number; z: number };

@@ -631,6 +631,7 @@ export function StartScreen({
   const [buying, setBuying] = useState<string | null>(null);
   const [shopNotice, setShopNotice] = useState<string | null>(null);
   const [rewardedPopup, setRewardedPopup] = useState<{ title: string; message: string; sub?: string } | null>(null);
+  const [purchasePopup, setPurchasePopup] = useState<{ icon: string; title: string; description: string; accent: string } | null>(null);
   const [clockNow, setClockNow] = useState(() => yaServerTime());
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(yaServerTime()), 1000);
@@ -1170,10 +1171,10 @@ export function StartScreen({
                         <button
                           type="button"
                           disabled={!purchasable || buying !== null}
-                          title={alreadyOwned
-                            ? t('shopOwned')
-                            : developerMode
-                              ? (devAlreadyClaimed ? t('devShopTaken') : t('devShopTake'))
+                          title={developerMode
+                            ? (devAlreadyClaimed || alreadyOwned ? t('devShopTaken') : t('devShopTake'))
+                            : alreadyOwned
+                              ? t('shopOwned')
                               : rewardedDrop
                               ? dropStatus?.available
                                 ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
@@ -1226,6 +1227,12 @@ export function StartScreen({
                             const result = await onBuyShopItem(product.id);
                             setBuying(null);
                             if (result.ok) {
+                              setPurchasePopup({
+                                icon: product.icon,
+                                title: t(product.titleKey),
+                                description: t(product.descriptionKey),
+                                accent: product.accent,
+                              });
                               setShopNotice(result.syncPending
                                 ? t('shopPurchasePending')
                                 : product.id === 'pet-wolf' || product.id === 'pet-cat' || product.id === 'pet-monkey' || product.id === 'pet-parrot' || product.id === 'pet-owl'
@@ -1245,31 +1252,31 @@ export function StartScreen({
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {alreadyOwned
-                            ? t('shopOwned')
-                            : developerMode
-                              ? devAlreadyClaimed
+                          {developerMode
+                            ? devAlreadyClaimed || alreadyOwned
                               ? t('devShopTaken')
                               : buying === product.id
                                 ? t('devShopTaking')
                                 : t('devShopTake')
-                            : rewardedDrop
-                              ? dropStatus?.available
-                                ? !rewardedAdsEnabled
-                                  ? t('shopAdUnavailable')
-                                  : buying === product.id
+                            : alreadyOwned
+                              ? t('shopOwned')
+                              : rewardedDrop
+                                ? dropStatus?.available
+                                  ? !rewardedAdsEnabled
+                                    ? t('shopAdUnavailable')
+                                    : buying === product.id
+                                      ? t('shopBuying')
+                                      : t('shopWatchAd')
+                                  : dropStatusLabel
+                                : !product.freeDrop
+                                  ? buying === product.id
                                     ? t('shopBuying')
-                                    : t('shopWatchAd')
-                                : dropStatusLabel
-                              : !product.freeDrop
-                                ? buying === product.id
-                                  ? t('shopBuying')
-                                  : !paymentsAvailable
-                                    ? t('shopPaymentsUnavailable')
-                                    : catalogPrice
-                                      ? t('shopBuy')
-                                      : t('shopPriceUnavailable')
-                                : t('shopItemUnavailable')}
+                                    : !paymentsAvailable
+                                      ? t('shopPaymentsUnavailable')
+                                      : catalogPrice
+                                        ? t('shopBuy')
+                                        : t('shopPriceUnavailable')
+                                  : t('shopItemUnavailable')}
                         </button>
                       </div>
                     </article>
@@ -1351,6 +1358,47 @@ export function StartScreen({
             <button
               type="button"
               onClick={() => setRewardedPopup(null)}
+              className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-xl border border-white/15 bg-white/8 px-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/14"
+            >
+              {t('close')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {purchasePopup && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 px-4" role="dialog" aria-modal="true">
+          <div 
+            className="w-full max-w-sm rounded-2xl border bg-[#0a0f14] p-5 text-center"
+            style={{
+              borderColor: `${purchasePopup.accent}55`,
+              boxShadow: `0 0 40px ${purchasePopup.accent}28`,
+            }}
+          >
+            <div 
+              className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border text-3xl"
+              style={{
+                borderColor: `${purchasePopup.accent}65`,
+                background: `${purchasePopup.accent}15`,
+              }}
+            >
+              {purchasePopup.icon}
+            </div>
+            <div 
+              className="text-[10px] font-black uppercase tracking-[0.35em]"
+              style={{ color: `${purchasePopup.accent}cc` }}
+            >
+              {t('shopPurchaseComplete')}
+            </div>
+            <div className="mt-3 text-base font-black uppercase leading-tight text-white">
+              {purchasePopup.title}
+            </div>
+            <div className="mt-2 text-[11px] leading-snug text-white/70">
+              {purchasePopup.description}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPurchasePopup(null)}
               className="mt-4 inline-flex min-h-[38px] items-center justify-center rounded-xl border border-white/15 bg-white/8 px-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/14"
             >
               {t('close')}
