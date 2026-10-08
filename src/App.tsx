@@ -359,6 +359,12 @@ export default function App() {
     const eng = new Engine(hostRef.current, setHud);
     eng.setCharacterCustomization(characterCustomization);
     engineRef.current = eng;
+    if (import.meta.env.DEV) {
+      // Dev-only automation hook (window.__ore) for local QA and trailer capture — see
+      // src/game/devHook.ts. The production build replaces import.meta.env.DEV with false and
+      // drops this branch, so no developer instrument ships to players (requirement 1.14).
+      void import('./game/devHook').then((m) => m.exposeDevHook(eng));
+    }
     eng.mount();
     eng.setDom(domRef.current);
     // the remote-config knob (game.exploreMinutes) is applied by the effect below, once flags load
