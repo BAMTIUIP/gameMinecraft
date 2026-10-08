@@ -141,10 +141,26 @@ async function resolveChromium() {
 
 /**
  * Build @font-face rules for the game's two web fonts with the woff2 files inlined as data URLs.
- * The sandbox cannot reach fonts.googleapis.com, so the local @fontsource wheels stand in — same
- * fonts the game loads in production, so the footage matches what players see.
+ * The sandbox cannot reach fonts.googleapis.com, so the same fonts the game loads in production
+ * (Pixelify Sans + Space Grotesk, vendored under tools/trailer/fonts/) stand in — the footage then
+ * matches what players see. Falls back to the @fontsource wheels in node_modules when present.
  */
 function buildFontCss() {
+  const fontsDir = path.join(__dirname, 'fonts');
+  const manifestPath = path.join(fontsDir, 'manifest.json');
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    return manifest
+      .map((face) => {
+        const data = readFileSync(path.join(fontsDir, face.file)).toString('base64');
+        return (
+          `@font-face{font-family:'${face.family}';font-style:normal;font-display:swap;` +
+          `font-weight:${face.weight};src:url(data:font/woff2;base64,${data}) format('woff2');` +
+          `unicode-range:${face.unicodeRange};}`
+        );
+      })
+      .join('\n');
+  }
   const pkgs = [
     { pkg: 'pixelify-sans', family: 'Pixelify Sans', subsets: ['latin', 'cyrillic'] },
     { pkg: 'space-grotesk', family: 'Space Grotesk', subsets: ['latin'] },
@@ -173,7 +189,7 @@ function buildFontCss() {
       );
     }
   }
-  if (!faces.length) throw new Error('no @fontsource faces found — run npm i --no-save @fontsource/pixelify-sans @fontsource/space-grotesk');
+  if (!faces.length) throw new Error('no fonts found — vendored fonts missing and no @fontsource wheels in node_modules');
   return faces.join('\n');
 }
 
@@ -216,8 +232,6 @@ function installController() {
   /** One-time run setup: clean mobs, ambient animals, exact start pose, starting gear. */
   const setupRun = () => {
     ore.clearMobs();
-    for (const s of window.__scene.sheep) ore.spawnMob('sheep', s.x, S, s.z);
-    ore.spawnMob('cow', window.__scene.cow.x, S, window.__scene.cow.z);
     ore.teleport(window.__scene.spawn.x, window.__scene.spawn.y, window.__scene.spawn.z, Math.PI, -0.05);
     ore.grantTool(window.__toolPick, 1);
     ore.grantTool(window.__toolSword, 2);
@@ -348,12 +362,13 @@ async function prepScene(seed, scene) {
   window.__toolPick = scene.toolPick;
   window.__toolSword = scene.toolSword;
   eng.regenerate(seed);
-  // Generate + decorate the whole area the take can stream (the engine streams chunks within
-  // 40 blocks / 3 chunks of the player; the menu camera orbits the same neighbourhood).
+  // Generate the surface of the whole area the take can stream (the engine streams chunks within
+  // 40 blocks / 3 chunks of the player; the menu camera orbits the same neighbourhood). The scene
+  // itself stays undecorated: the fog wall (renderDist 32) hides the horizon anyway, and every
+  // tree/flower would cost software-GL frames during the capture.
   for (let cx = -1; cx <= 9; cx++) {
     for (let cz = -1; cz <= 9; cz++) {
       if (!world.hasSurface(cx, cz)) world.genSurface(cx, cz);
-      if (!world.isDecorated(cx, cz)) world.decorate(cx, cz, true);
     }
   }
   const f = scene.flatY;
@@ -561,6 +576,22 @@ async function record(opts) {
       const scene = { ...SCENE, toolPick: TOOL_PICK_IRON, toolSword: TOOL_SWORD_DIAMOND };
       await page.evaluate(prepScene, seed, scene);
       log('scene prepared (flat plain, pond, tree)');
+
+      // Perf tuning for the software-GL capture box (2 CPU cores, swiftshader): render the 3D
+      // canvas at a low pixel ratio and pull the fog wall in. The game's own adaptive quality
+      // never fights these values (it only lowers toward its own floors, which are higher), and
+      // the fog hides the shorter horizon. The HUD/DOM stays at full CSS resolution.
+      await page.evaluate(() => {
+        const e = window.__ore.engine;
+        e.renderer.setPixelRatio(0.3);
+        e.renderDist = 26;
+        const fog = e.scene.fog;
+        if (fog) {
+          fog.far = 26 * 0.94;
+          fog.near = fog.far * 0.38;
+        }
+      });
+      log('perf tuned (pixelRatio 0.3, renderDist 26)');
 
       // in-page controller
       await page.evaluate(installController);
