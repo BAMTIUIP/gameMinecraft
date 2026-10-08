@@ -47,7 +47,7 @@ const ASPECTS = {
 const SCENE = {
   flatY: 166,
   spawn: { x: 64.5, y: 167.02, z: 64.5 }, // start, faces south (pond)
-  pond: { x0: 56, z0: 82, x1: 72, z1: 94, depth: 3 },
+  pond: { x0: 56, z0: 72, x1: 72, z1: 84, depth: 3 },
   tree: { x: 82, z: 64, trunk: 5 },
   mineSpot: { x: 80.6, y: 167.02, z: 64.0 }, // 1.4 blocks from trunk (within reach 1.5), faces east
   mobs: [
@@ -398,7 +398,7 @@ async function prepScene(seed, scene) {
 
 /* ------------------------------ timeline ------------------------------ */
 
-async function runTimeline(page, bird) {
+async function runTimeline(page, bird, trace) {
   const recStart = Date.now();
   const at = async (t, label, fn) => {
     const wait = recStart + t * 1000 - Date.now();
@@ -413,104 +413,178 @@ async function runTimeline(page, bird) {
   };
   const ev = (fn, ...args) => page.evaluate(fn, ...args);
   const tcExpr = (expr) => page.evaluate(`window.__tc.${expr}`);
+  const tracer = trace
+    ? setInterval(() => {
+        page
+          .evaluate(() => {
+            const tc = window.__tc;
+            const [x, y, z] = tc.playerPos();
+            const [yaw, pitch] = window.__ore.playerLook();
+            return { x: +x.toFixed(1), y: +y.toFixed(2), z: +z.toFixed(1), yaw: +yaw.toFixed(2), pitch: +pitch.toFixed(2), phase: tc.phase() };
+          })
+          .then((s) => log(`  [trace] ${JSON.stringify(s)}`))
+          .catch(() => {});
+      }, 500)
+    : null;
+  // The capture box renders at ~5-15 fps and the engine caps the simulation step at 100 ms, so
+  // simulation time runs slower than wall time under load. Fixed-time beats would drift (the
+  // player once reached the pond 4 s late and the whole water sequence played out on dry land).
+  // The route beats below are therefore event-driven: each waits for the player to actually
+  // arrive (rim / water / shore / tree), which keeps the choreography correct at any frame rate.
+  const waitFor = async (expr, timeoutMs, label) => {
+    const t0 = Date.now();
+    for (;;) {
+      let v = false;
+      try {
+        v = await page.evaluate(expr);
+      } catch {
+        v = false;
+      }
+      if (v) {
+        log(`  [go] ${label} at t=${((Date.now() - recStart) / 1000).toFixed(2)}s`);
+        return true;
+      }
+      if (Date.now() - t0 > timeoutMs) {
+        log(`  [go] ${label} TIMEOUT after ${timeoutMs}ms`);
+        return false;
+      }
+      await sleep(80);
+    }
+  };
 
   log('timeline start');
   await at(1.3, 'menu: select explore mode', () => tcExpr('clickExplorer()'));
   await at(1.8, 'menu: press play', () => tcExpr('clickPlay()'));
 
   // wait for the run to actually start (world is pre-generated, so this is fast)
-  const t0 = Date.now();
-  while (Date.now() - t0 < 15000) {
-    if ((await tcExpr('phase()')) === 'playing') break;
-    await sleep(100);
+  {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 15000) {
+      if ((await tcExpr('phase()')) === 'playing') break;
+      await sleep(100);
+    }
   }
   log(`  phase=playing after ${((Date.now() - recStart) / 1000).toFixed(2)}s`);
 
   await at(2.4, 'setup run (mobs, pose, gear)', () => tcExpr('setupRun()'));
   await at(2.9, 'open inventory', () => tcExpr('openInv()'));
   await at(3.2, `equip bird (${bird})`, () => tcExpr(`clickPet(${JSON.stringify(bird)})`));
-  await at(4.0, 'close inventory', () => tcExpr('closeInv()'));
-  await at(4.2, 'walk to the pond', () => tcExpr('setMove(0,-1)'));
-  await at(5.4, 'switch to third person', () => tcExpr('pressV()'));
-  await at(6.5, 'clear ambient spawns', () => tcExpr('clearMobs()'));
-  await at(7.7, 'jump into the water', () => tcExpr('setJump(true)'));
-  await at(7.95, 'release jump', () => tcExpr('setJump(false)'));
-  await at(8.15, 'switch to first person (dive)', () => tcExpr('pressV()'));
-  await at(8.3, 'dive: look down, swim forward', () =>
-    page.evaluate((scene) => {
-      const tc = window.__tc;
-      tc.lookTo(tc.face(64.5, 88), -0.95, 0.45);
-      tc.setMove(0, -1);
-      return scene.pond.z1;
-    }, SCENE),
-  );
-  await at(9.5, 'turn to see the bird above water', () =>
-    page.evaluate(() => {
-      const tc = window.__tc;
-      tc.lookTo(tc.face(64.5, 80), 0.8, 0.6);
-    }),
-  );
-  await at(10.1, 'switch to third person', () => tcExpr('pressV()'));
-  await at(10.3, 'surface and swim to shore', () =>
-    page.evaluate(() => {
-      const tc = window.__tc;
-      tc.lookTo(0, -0.05, 0.4);
-      tc.setMove(0, -1);
-    }),
-  );
-  await at(12.2, 'stop at the shore', () => tcExpr('setMove(0,0)'));
-  await at(12.5, 'jump on the shore', () => tcExpr('setJump(true)'));
-  await at(12.65, 'open inventory mid-jump', () => tcExpr('openInv()'));
-  await at(12.85, 'switch pet to wolf mid-jump', () => tcExpr(`clickPet("wolf")`));
-  await at(13.15, 'close inventory, land', () =>
+  await at(4.0, 'close inventory, walk to the pond', () =>
     page.evaluate(() => {
       window.__tc.closeInv();
-      window.__tc.setJump(false);
-    }),
-  );
-  await at(13.35, 'sprint to the tree', () =>
-    page.evaluate((spot) => {
-      const tc = window.__tc;
-      tc.setMove(0, -1);
-      tc.setSprint(true);
-      tc.lookTo(tc.face(spot.x, spot.z), -0.05, 0.5);
-    }, SCENE.mineSpot),
-  );
-  await at(14.0, 'clear ambient spawns', () => tcExpr('clearMobs()'));
-  await at(16.9, 'stop, face the tree', () =>
-    page.evaluate(() => {
-      const tc = window.__tc;
-      tc.setMove(0, 0);
-      tc.setSprint(false);
-      tc.lookTo(-Math.PI / 2, -0.15, 0.3);
-    }),
-  );
-  await at(17.2, 'chop the trunk', () => tcExpr('setMining(true)'));
-  await at(18.5, 'stop chopping (wolf fetches)', () => tcExpr('setMining(false)'));
-  await at(18.9, 'switch to first person', () => tcExpr('pressV()'));
-  await at(19.1, 'take the sword', () => tcExpr('selectSlot(2)'));
-  await at(19.2, 'monsters approach', () => page.evaluate((mobs) => window.__tc.spawnMobs(mobs), SCENE.mobs));
-  await at(19.35, 'turn around (monsters ahead)', () =>
-    page.evaluate(() => {
-      window.__tc.lookTo(Math.PI / 2, -0.05, 0.4);
-    }),
-  );
-  await at(20.8, 'charge monsters', () =>
-    page.evaluate(() => {
-      window.__tc.aimNearestHostile();
       window.__tc.setMove(0, -1);
     }),
   );
-  await at(21.2, 'attack: swing sword', () => tcExpr('setMining(true)'));
-  await at(21.9, 're-aim', () => tcExpr('aimNearestHostile()'));
-  await at(22.6, 're-aim', () => tcExpr('aimNearestHostile()'));
-  await at(23.2, 'stop attacking', () =>
-    page.evaluate(() => {
-      window.__tc.setMining(false);
-      window.__tc.setMove(0, 0);
-    }),
+  await at(5.2, 'switch to third person', () => tcExpr('pressV()'));
+
+  await waitFor('window.__tc.playerPos()[2] >= 70.5', 9000, 'reach the pond rim');
+  await page.evaluate(() => window.__tc.setJump(true));
+  await sleep(300);
+  await page.evaluate(() => window.__tc.setJump(false));
+  log('  jump toward the water');
+  await waitFor('window.__ore.engine.inWater === true', 5000, 'splash into the water');
+  await tcExpr('pressV()');
+  log('  first person at the dive');
+  await page.evaluate(() => {
+    const tc = window.__tc;
+    tc.lookTo(tc.face(64.5, 80), -0.95, 0.4);
+    tc.setMove(0, -1);
+  });
+  log('  dive: swim down + forward ~1.1s');
+  await sleep(1100);
+  await page.evaluate(() => {
+    const tc = window.__tc;
+    tc.lookTo(tc.face(64.5, 68), 0.8, 0.6);
+  });
+  log('  turn to see the bird above water');
+  await sleep(900);
+  await tcExpr('pressV()');
+  log('  third person');
+  await page.evaluate(() => {
+    const tc = window.__tc;
+    // Face north and look UP: the swim code only gains height while pitched up, so a level
+    // pitch here would sink the player to the pond floor and the rim wall would block the exit.
+    tc.lookTo(0, 0.55, 0.4);
+    tc.setMove(0, -1);
+  });
+  log('  surface (swim up) and head to the shore');
+  await sleep(1200);
+  await page.evaluate(() => {
+    window.__tc.lookTo(0, -0.05, 0.3); // level: cruise forward at the surface
+  });
+  await waitFor('window.__tc.playerPos()[2] <= 71.0', 7000, 'reach the shore');
+  await tcExpr('setMove(0,0)');
+  log('  stop at the shore');
+
+  // jump on the shore and switch the pet to the wolf mid-air
+  await page.evaluate(() => window.__tc.setJump(true));
+  await sleep(120);
+  await tcExpr('openInv()');
+  await sleep(150);
+  await tcExpr('clickPet("wolf")');
+  await sleep(250);
+  await page.evaluate(() => {
+    window.__tc.closeInv();
+    window.__tc.setJump(false);
+  });
+  log('  jump + wolf switch mid-air');
+
+  await page.evaluate((spot) => {
+    const tc = window.__tc;
+    tc.setMove(0, -1);
+    tc.setSprint(true);
+    tc.lookTo(tc.face(spot.x, spot.z), -0.05, 0.5);
+  }, SCENE.mineSpot);
+  log('  sprint to the tree');
+  await waitFor(
+    '(() => { const p = window.__tc.playerPos(); const s = window.__scene.mineSpot; return Math.hypot(p[0] - s.x, p[2] - s.z) < 1.2; })()',
+    9000,
+    'arrive at the tree',
   );
-  await at(23.55, 'end card (dark + ORE RUSH)', () => tcExpr('endCard(400, 800, 1200)'));
+  await page.evaluate(() => {
+    const tc = window.__tc;
+    tc.setMove(0, 0);
+    tc.setSprint(false);
+    tc.lookTo(-Math.PI / 2, -0.15, 0.3);
+  });
+  log('  stop, face the tree');
+
+  await page.evaluate(() => window.__tc.setMining(true));
+  log('  chop the trunk ~1.3s');
+  await sleep(1300);
+  await page.evaluate(() => window.__tc.setMining(false));
+  log('  stop chopping (wolf fetches)');
+
+  await tcExpr('pressV()');
+  await tcExpr('selectSlot(2)');
+  log('  first person + sword');
+  await page.evaluate((mobs) => window.__tc.spawnMobs(mobs), SCENE.mobs);
+  log('  monsters approach');
+  await page.evaluate(() => {
+    window.__tc.lookTo(Math.PI / 2, -0.05, 0.4);
+  });
+  log('  turn around (monsters ahead)');
+  await sleep(600);
+  await page.evaluate(() => {
+    window.__tc.aimNearestHostile();
+    window.__tc.setMove(0, -1);
+  });
+  log('  charge monsters');
+  await sleep(600);
+  await page.evaluate(() => window.__tc.setMining(true));
+  log('  attack');
+  await sleep(700);
+  await tcExpr('aimNearestHostile()');
+  await sleep(700);
+  await tcExpr('aimNearestHostile()');
+  await page.evaluate(() => {
+    window.__tc.setMining(false);
+    window.__tc.setMove(0, 0);
+  });
+  log('  stop attacking');
+
+  await tcExpr('endCard(400, 800, 1000)');
+  if (tracer) clearInterval(tracer);
   log(`timeline done at ${((Date.now() - recStart) / 1000).toFixed(2)}s`);
   return recStart;
 }
@@ -682,7 +756,7 @@ async function record(opts) {
         everyNthFrame: 1,
       });
 
-      await runTimeline(page, bird);
+      await runTimeline(page, bird, !!opts.trace);
 
       await client.send('Page.stopScreencast').catch(() => {});
       await sleep(300);
@@ -701,6 +775,7 @@ async function record(opts) {
         frames: frameNo,
         fps,
         durationMs: (last - first) * 1000,
+        timestamps,
       };
       writeFileSync(path.join(out, 'meta.json'), JSON.stringify(meta, null, 2));
       log(`captured ${frameNo} frames @ ${meta.fps.toFixed(2)}fps (${(meta.durationMs / 1000).toFixed(2)}s)`);
