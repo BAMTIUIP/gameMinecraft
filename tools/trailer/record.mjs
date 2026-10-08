@@ -325,6 +325,7 @@ function installController() {
     selectSlot: (i) => eng.selectSlot(i),
     pressV: () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV', bubbles: true })),
     spawnMobs: (list) => list.map((m) => ore.spawnMob(m.id, m.x, S, m.z)),
+    clearMobs: () => ore.clearMobs(),
     clickExplorer: () => {
       const btn = document.querySelector('.menu-modes button[aria-pressed="false"]');
       if (btn) {
@@ -425,6 +426,7 @@ async function runTimeline(page, bird) {
   await at(4.0, 'close inventory', () => tcExpr('closeInv()'));
   await at(4.2, 'walk to the pond', () => tcExpr('setMove(0,-1)'));
   await at(5.4, 'switch to third person', () => tcExpr('pressV()'));
+  await at(6.5, 'clear ambient spawns', () => tcExpr('clearMobs()'));
   await at(7.7, 'jump into the water', () => tcExpr('setJump(true)'));
   await at(7.95, 'release jump', () => tcExpr('setJump(false)'));
   await at(8.15, 'switch to first person (dive)', () => tcExpr('pressV()'));
@@ -468,6 +470,7 @@ async function runTimeline(page, bird) {
       tc.lookTo(tc.face(spot.x, spot.z), -0.05, 0.5);
     }, SCENE.mineSpot),
   );
+  await at(14.0, 'clear ambient spawns', () => tcExpr('clearMobs()'));
   await at(17.0, 'stop, face the tree', () =>
     page.evaluate(() => {
       const tc = window.__tc;
@@ -481,7 +484,11 @@ async function runTimeline(page, bird) {
   await at(18.95, 'switch to first person', () => tcExpr('pressV()'));
   await at(19.15, 'take the sword', () => tcExpr('selectSlot(2)'));
   await at(19.25, 'monsters approach', () => page.evaluate((mobs) => window.__tc.spawnMobs(mobs), SCENE.mobs));
-  await at(19.35, 'turn around (monsters ahead)', () => page.evaluate(() => window.__tc.lookTo(Math.PI / 2, -0.05, 0.5)));
+  await at(19.35, 'turn around (monsters ahead)', () =>
+    page.evaluate(() => {
+      window.__tc.lookTo(Math.PI / 2, -0.05, 0.5);
+    }),
+  );
   await at(21.4, 'attack: aim + swing', () =>
     page.evaluate(() => {
       window.__tc.aimNearestHostile();
@@ -712,7 +719,13 @@ async function encode(opts) {
   const meta = JSON.parse(readFileSync(path.join(framesDir, 'meta.json'), 'utf8'));
   const ffmpeg = findFfmpeg();
   const { width: W, height: H } = aspect;
+  const cap = meta.capture ?? { width: W, height: H };
   const fps = meta.fps;
+  // The software-GL capture box records gameplay at ~7-12 fps. Motion-estimated interpolation
+  // (minterpolate, mci) multiplies the frame rate for the promo cut — far better than shipping the
+  // raw choppy capture. The 28s/100MB limits are unaffected (duration is unchanged).
+  const interp = Math.max(1, Math.round(Number(opts.interp ?? 2)));
+  const outFps = fps * interp;
   const aDur = meta.frames / fps;
   const xf = 1.0; // crossfade gameplay → cover
   const coverHold = 1.7; // solo cover time after the crossfade
@@ -720,19 +733,25 @@ async function encode(opts) {
   const total = aDur + coverHold;
   if (total > 28) throw new Error(`result would be ${total.toFixed(2)}s — over the 28s promo limit`);
   mkdirSync(path.dirname(out), { recursive: true });
-  log(`encode ${framesDir} → ${out} (${W}x${H}, ${fps.toFixed(2)}fps, ${meta.frames} frames, ${total.toFixed(2)}s)`);
+  log(
+    `encode ${framesDir} → ${out} (${W}x${H} from ${cap.width}x${cap.height}, ${fps.toFixed(2)}fps` +
+      `${interp > 1 ? ` → ${outFps.toFixed(2)}fps (${interp}x mci)` : ''}, ${meta.frames} frames, ${total.toFixed(2)}s)`,
+  );
+  // when the capture ran below the output resolution, upscale with lanczos first
+  const upscale = cap.width !== W || cap.height !== H ? `scale=${W}:${H}:flags=lanczos,` : '';
+  const interpFilter = interp > 1 ? `minterpolate=fps=${outFps}:mi_mode=mci,` : '';
   const args = [
     '-y',
     '-framerate', String(fps), '-start_number', '0', '-i', path.join(framesDir, '%05d.jpg'),
-    '-loop', '1', '-framerate', String(fps), '-t', String(xf + coverHold), '-i', COVER,
+    '-loop', '1', '-framerate', String(outFps), '-t', String(xf + coverHold), '-i', COVER,
     '-filter_complex',
-    `[0:v]fade=t=in:st=0:d=0.3,fps=${fps},format=yuv420p[v0];` +
-      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=cover,crop=${W}:${H},fps=${fps},format=yuv420p[v1];` +
+    `[0:v]${upscale}fade=t=in:st=0:d=0.3,fps=${fps},${interpFilter}format=yuv420p[v0];` +
+      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=cover,crop=${W}:${H},fps=${outFps},format=yuv420p[v1];` +
       `[v0][v1]xfade=transition=fade:duration=${xf}:offset=${offset.toFixed(3)}[v]`,
     '-map', '[v]',
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
     '-movflags', '+faststart',
-    '-r', String(fps),
+    '-r', String(outFps),
     out,
   ];
   const res = spawnSync(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'] });
