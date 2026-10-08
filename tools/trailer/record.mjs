@@ -48,18 +48,12 @@ const SCENE = {
   flatY: 166,
   spawn: { x: 64.5, y: 167.02, z: 64.5 }, // start, faces south (pond)
   pond: { x0: 56, z0: 82, x1: 72, z1: 94, depth: 3 },
-  tree: { x: 84, z: 64, trunk: 5 },
-  mineSpot: { x: 80.5, y: 167.02, z: 64.5 }, // faces east (yaw=-PI/2)
+  tree: { x: 82, z: 64, trunk: 5 },
+  mineSpot: { x: 80.6, y: 167.02, z: 64.0 }, // 1.4 blocks from trunk (within reach 1.5), faces east
   mobs: [
-    { id: 'slime', x: 68.5, z: 62.5 },
-    { id: 'slime', x: 70.5, z: 67.5 },
-    { id: 'enderman', x: 67.5, z: 69.5 },
+    { id: 'slime', x: 72.5, z: 63.5 },
+    { id: 'enderman', x: 71.5, z: 65.0 },
   ],
-  sheep: [
-    { x: 46.5, z: 78.5 },
-    { x: 49.5, z: 81.5 },
-  ],
-  cow: { x: 44.5, z: 74.5 },
 };
 
 /** Tools granted for the run: iron pickaxe (fast tree chop) and a diamond sword. */
@@ -327,8 +321,20 @@ function installController() {
     spawnMobs: (list) => list.map((m) => ore.spawnMob(m.id, m.x, S, m.z)),
     clearMobs: () => ore.clearMobs(),
     clickExplorer: () => {
-      const btn = document.querySelector('.menu-modes button[aria-pressed="false"]');
-      if (btn) {
+      const btn = [...document.querySelectorAll('.menu-modes button')].find(
+        (b) => b.textContent.includes('✦') || b.textContent.toLowerCase().includes('исследователь') || b.textContent.toLowerCase().includes('explorer'),
+      );
+      if (btn && btn.getAttribute('aria-pressed') !== 'true') {
+        btn.click();
+        return true;
+      }
+      return false;
+    },
+    ensureSurvivalSelected: () => {
+      const btn = [...document.querySelectorAll('.menu-modes button')].find(
+        (b) => b.textContent.includes('☠') || b.textContent.toLowerCase().includes('выживание') || b.textContent.toLowerCase().includes('survival'),
+      );
+      if (btn && btn.getAttribute('aria-pressed') !== 'true') {
         btn.click();
         return true;
       }
@@ -471,33 +477,39 @@ async function runTimeline(page, bird) {
     }, SCENE.mineSpot),
   );
   await at(14.0, 'clear ambient spawns', () => tcExpr('clearMobs()'));
-  await at(17.0, 'stop, face the tree', () =>
+  await at(16.9, 'stop, face the tree', () =>
     page.evaluate(() => {
       const tc = window.__tc;
       tc.setMove(0, 0);
       tc.setSprint(false);
-      tc.lookTo(-Math.PI / 2, -0.05, 0.4);
+      tc.lookTo(-Math.PI / 2, -0.15, 0.3);
     }),
   );
-  await at(17.3, 'chop the trunk', () => tcExpr('setMining(true)'));
-  await at(18.7, 'stop chopping (wolf fetches)', () => tcExpr('setMining(false)'));
-  await at(18.95, 'switch to first person', () => tcExpr('pressV()'));
-  await at(19.15, 'take the sword', () => tcExpr('selectSlot(2)'));
-  await at(19.25, 'monsters approach', () => page.evaluate((mobs) => window.__tc.spawnMobs(mobs), SCENE.mobs));
+  await at(17.2, 'chop the trunk', () => tcExpr('setMining(true)'));
+  await at(18.5, 'stop chopping (wolf fetches)', () => tcExpr('setMining(false)'));
+  await at(18.9, 'switch to first person', () => tcExpr('pressV()'));
+  await at(19.1, 'take the sword', () => tcExpr('selectSlot(2)'));
+  await at(19.2, 'monsters approach', () => page.evaluate((mobs) => window.__tc.spawnMobs(mobs), SCENE.mobs));
   await at(19.35, 'turn around (monsters ahead)', () =>
     page.evaluate(() => {
-      window.__tc.lookTo(Math.PI / 2, -0.05, 0.5);
+      window.__tc.lookTo(Math.PI / 2, -0.05, 0.4);
     }),
   );
-  await at(21.4, 'attack: aim + swing', () =>
+  await at(20.8, 'charge monsters', () =>
     page.evaluate(() => {
       window.__tc.aimNearestHostile();
-      window.__tc.setMining(true);
+      window.__tc.setMove(0, -1);
     }),
   );
-  await at(22.1, 're-aim', () => tcExpr('aimNearestHostile()'));
-  await at(22.8, 're-aim', () => tcExpr('aimNearestHostile()'));
-  await at(23.3, 'stop attacking', () => tcExpr('setMining(false)'));
+  await at(21.2, 'attack: swing sword', () => tcExpr('setMining(true)'));
+  await at(21.9, 're-aim', () => tcExpr('aimNearestHostile()'));
+  await at(22.6, 're-aim', () => tcExpr('aimNearestHostile()'));
+  await at(23.2, 'stop attacking', () =>
+    page.evaluate(() => {
+      window.__tc.setMining(false);
+      window.__tc.setMove(0, 0);
+    }),
+  );
   await at(23.55, 'end card (dark + ORE RUSH)', () => tcExpr('endCard(400, 800, 1200)'));
   log(`timeline done at ${((Date.now() - recStart) / 1000).toFixed(2)}s`);
   return recStart;
@@ -638,6 +650,8 @@ async function record(opts) {
       await page.evaluate(`window.__ore.engine.toMenu()`);
       await page.waitForFunction('window.__ore.engine.phase === "menu"', { timeout: 15000 });
       log('warm-up done, back at menu');
+      await page.evaluate(`window.__tc.ensureSurvivalSelected()`);
+      await sleep(300);
 
       // screencast
       const client = await page.createCDPSession();
@@ -680,6 +694,7 @@ async function record(opts) {
       const meta = {
         width: aspect.width,
         height: aspect.height,
+        capture: { width: captureW, height: captureH },
         aspect: opts.aspect,
         bird,
         seed,
@@ -690,6 +705,21 @@ async function record(opts) {
       writeFileSync(path.join(out, 'meta.json'), JSON.stringify(meta, null, 2));
       log(`captured ${frameNo} frames @ ${meta.fps.toFixed(2)}fps (${(meta.durationMs / 1000).toFixed(2)}s)`);
       log(`frames dir: ${out}`);
+
+      if (opts.encode) {
+        await encode({
+          aspect: opts.aspect,
+          frames: out,
+          out: opts.encode,
+          mci: !!opts.mci,
+          fps: opts.fps,
+        });
+        if (!opts['keep-frames']) {
+          rmSync(out, { recursive: true, force: true });
+          log(`cleaned up temporary frames: ${out}`);
+        }
+      }
+
       return meta;
     } finally {
       await browser.close().catch(() => {});
@@ -721,11 +751,7 @@ async function encode(opts) {
   const { width: W, height: H } = aspect;
   const cap = meta.capture ?? { width: W, height: H };
   const fps = meta.fps;
-  // The software-GL capture box records gameplay at ~7-12 fps. Motion-estimated interpolation
-  // (minterpolate, mci) multiplies the frame rate for the promo cut — far better than shipping the
-  // raw choppy capture. The 28s/100MB limits are unaffected (duration is unchanged).
-  const interp = Math.max(1, Math.round(Number(opts.interp ?? 2)));
-  const outFps = fps * interp;
+  const targetFps = Number(opts.fps ?? 30);
   const aDur = meta.frames / fps;
   const xf = 1.0; // crossfade gameplay → cover
   const coverHold = 1.7; // solo cover time after the crossfade
@@ -734,24 +760,23 @@ async function encode(opts) {
   if (total > 28) throw new Error(`result would be ${total.toFixed(2)}s — over the 28s promo limit`);
   mkdirSync(path.dirname(out), { recursive: true });
   log(
-    `encode ${framesDir} → ${out} (${W}x${H} from ${cap.width}x${cap.height}, ${fps.toFixed(2)}fps` +
-      `${interp > 1 ? ` → ${outFps.toFixed(2)}fps (${interp}x mci)` : ''}, ${meta.frames} frames, ${total.toFixed(2)}s)`,
+    `encode ${framesDir} → ${out} (${W}x${H} from ${cap.width}x${cap.height}, ${fps.toFixed(2)}fps → ${targetFps}fps, ` +
+      `${meta.frames} frames, ${total.toFixed(2)}s)`,
   );
-  // when the capture ran below the output resolution, upscale with lanczos first
-  const upscale = cap.width !== W || cap.height !== H ? `scale=${W}:${H}:flags=lanczos,` : '';
-  const interpFilter = interp > 1 ? `minterpolate=fps=${outFps}:mi_mode=mci,` : '';
+  // Guarantee input 0 matches the exact aspect dimensions for xfade
+  const interpFilter = opts.mci ? `minterpolate=fps=${targetFps}:mi_mode=mci,` : `fps=${targetFps},`;
   const args = [
     '-y',
     '-framerate', String(fps), '-start_number', '0', '-i', path.join(framesDir, '%05d.jpg'),
-    '-loop', '1', '-framerate', String(outFps), '-t', String(xf + coverHold), '-i', COVER,
+    '-loop', '1', '-framerate', String(targetFps), '-t', String(xf + coverHold), '-i', COVER,
     '-filter_complex',
-    `[0:v]${upscale}fade=t=in:st=0:d=0.3,fps=${fps},${interpFilter}format=yuv420p[v0];` +
-      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=cover,crop=${W}:${H},fps=${outFps},format=yuv420p[v1];` +
+    `[0:v]scale=${W}:${H}:flags=lanczos,fade=t=in:st=0:d=0.3,${interpFilter}format=yuv420p[v0];` +
+      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${targetFps},format=yuv420p[v1];` +
       `[v0][v1]xfade=transition=fade:duration=${xf}:offset=${offset.toFixed(3)}[v]`,
     '-map', '[v]',
-    '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'medium', '-crf', '21',
     '-movflags', '+faststart',
-    '-r', String(outFps),
+    '-r', String(targetFps),
     out,
   ];
   const res = spawnSync(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'] });
