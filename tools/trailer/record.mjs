@@ -532,7 +532,10 @@ async function record(opts) {
       executablePath: chromium.executablePath,
       headless: true,
       args: [
-        ...chromium.args,
+        // @sparticuz/chromium ships --single-process/--in-process-gpu/--no-zygote (Lambda-style);
+        // on this capture box that serializes the swiftshader raster, the game JS and the
+        // screencast encode onto one thread (~6 fps). Multi-process spreads them over the cores.
+        ...chromium.args.filter((a) => !['--single-process', '--in-process-gpu', '--no-zygote'].includes(a)),
         '--no-sandbox',
         '--disable-dev-shm-usage',
         '--use-angle=swiftshader',
@@ -634,6 +637,9 @@ async function record(opts) {
       let frameNo = 0;
       const timestamps = [];
       client.on('Page.screencastFrame', (ev) => {
+        // Ack FIRST: the screencast only produces the next frame after the ack, so a slow ack
+        // throttles the whole capture. The file write happens after, off the critical path.
+        client.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
         try {
           writeFileSync(path.join(out, String(frameNo).padStart(5, '0') + '.jpg'), Buffer.from(ev.data, 'base64'));
           timestamps.push(ev.metadata?.timestamp ?? 0);
@@ -641,24 +647,22 @@ async function record(opts) {
         } catch {
           /* disk hiccup — skip frame */
         }
-        client.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
       });
+      // The capture may run below the viewport resolution (--capture-scale) to cut the per-frame
+      // readback+JPEG cost on the software-GL box; encode() upscales back to the full aspect size.
+      const cscale = Math.min(1, Math.max(0.25, Number(opts['capture-scale'] ?? 1)));
+      const captureW = Math.round(aspect.width * cscale);
+      const captureH = Math.round(aspect.height * cscale);
       await client.send('Page.startScreencast', {
         format: 'jpeg',
-        quality: 88,
-        maxWidth: aspect.width,
-        maxHeight: aspect.height,
+        quality: 80,
+        maxWidth: captureW,
+        maxHeight: captureH,
         everyNthFrame: 1,
       });
 
-      // sample the engine's own fps counter while recording (diagnostics for the capture rate)
-      const fpsSampler = setInterval(() => {
-        page.evaluate(`window.__ore.engine.fps`).then((f) => log(`  [fps] ${f}`)).catch(() => {});
-      }, 2000);
-
       await runTimeline(page, bird);
 
-      clearInterval(fpsSampler);
       await client.send('Page.stopScreencast').catch(() => {});
       await sleep(300);
 
