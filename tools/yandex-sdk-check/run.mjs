@@ -978,18 +978,28 @@ async function scenarioShop() {
       try {
         const state = JSON.parse(raw);
         return typeof state.claims?.['drop-daily'] === 'string'
-          && Object.values(state.pending ?? {}).some((grant) => Array.isArray(grant?.items) && grant.items.length === 4);
+          && (state.packs ?? []).some((receipt) => String(receipt?.key ?? '').startsWith('drop-daily:') && receipt?.id === 'drop-daily');
       } catch {
         return false;
       }
     },
     10_000,
   );
-  check(dailyGranted, 'Только подтверждённый rewarded-callback сохраняет daily claim и набор припасов');
+  check(dailyGranted, 'Только подтверждённый rewarded-callback сохраняет daily claim и пакет (сундук) в аккаунте');
   const dailyButtonDisabled = await game.page.evaluate(() =>
     document.querySelector('[data-shop-product="drop-daily"] button')?.disabled === true,
   );
   check(dailyButtonDisabled, 'После успешной выдачи ежедневная кнопка блокируется до нового периода');
+  // the reward popup is a modal: close it the way a player would, or it covers the shop below
+  const rewardPopupClosed = await game.page.evaluate(() => {
+    const popup = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].find((d) => d.textContent?.includes('🎁'));
+    const close = popup?.querySelector('button');
+    if (!close) return false;
+    close.click();
+    return true;
+  });
+  check(rewardPopupClosed, 'Окно награды за просмотр закрывается кнопкой');
+  await wait(300);
   check(game.count(await game.calls(), 'adv.showRewardedVideo') === dailyAdCountBeforeReward + 1, 'Повторный запрос после отказа действительно открыл ещё одно видео');
 
   await game.page.setViewport({ width: 360, height: 640 });
@@ -1083,7 +1093,7 @@ async function scenarioShop() {
       titleBounds: title && [title.top, title.bottom],
       descriptionBounds: description && [description.top, description.bottom],
       actionBounds: action && [action.top, action.bottom],
-      tabsVisible: tabsRect.bottom <= dialogRect.bottom + 1 && tabsRect.top >= dialogRect.bottom - 90,
+      tabsVisible: tabsRect.bottom <= dialogRect.bottom + 1 && tabsRect.top >= dialogRect.top && tabsRect.top >= carouselRect.bottom - 1,
       pageWidth: document.documentElement.scrollWidth,
     };
   });
@@ -1357,22 +1367,15 @@ async function scenarioShop() {
   await game.clickByText(/ЗАКРЫТЬ|CLOSE|FERMER|SCHLIESSEN/); // the shop overlay, if it is still open
   const runStarted = await game.clickByText(/НАЧАТЬ ДОБЫЧУ|MINE NOW|CREUSER|ABBAUEN/);
   check(runStarted, 'Смена выживания запускается для проверки кооператива');
-  const dailySuppliesDelivered = await game.waitFor(
-    'Ежедневные припасы перенесены в активный инвентарь',
-    () => {
-      const raw = window.localStorage.getItem('orerush.rewarded-drops.v1');
-      if (!raw) return false;
-      try {
-        const state = JSON.parse(raw);
-        return Object.keys(state.pending ?? {}).length === 0
-          && state.delivered?.some((key) => key.startsWith('drop-daily:'));
-      } catch {
-        return false;
-      }
-    },
+  // The reward is an account-bound chest: it appears in the inventory of the mode and is opened there.
+  await game.page.keyboard.press('Tab');
+  const dailyChestShown = await game.waitFor(
+    'Ежедневный сундук в инвентаре смены',
+    () => [...document.querySelectorAll('button, [role="button"]')].some((b) => /ОТКРЫТЬ|OPEN|OUVRIR|ÖFFNEN/.test(b.textContent ?? '')),
     10_000,
   );
-  check(dailySuppliesDelivered, 'После старта смены дневные припасы подтверждены как добавленные в инвентарь');
+  check(dailyChestShown, 'После старта смены ежедневный сундук из просмотренного видео лежит в инвентаре');
+  await game.page.keyboard.press('Tab');
 
   await game.page.keyboard.press('Tab');
   const petTokenShown = await game.waitFor(

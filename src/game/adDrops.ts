@@ -599,6 +599,12 @@ export function availableRewardedDropChestCounts(mode: RewardedDropMode): Record
   return counts;
 }
 
+/** Every reward chest id with its unopened count for this mode, zeros included, so inventory can be synced exactly. */
+export function rewardedDropChestEntries(mode: RewardedDropMode): Array<readonly [number, number]> {
+  const counts = availableRewardedDropChestCounts(mode);
+  return REWARDED_DROP_IDS.map((id) => [rewardedDropChestItemId(id), counts[id]] as const);
+}
+
 export function availableRewardedDropChestItems(mode: RewardedDropMode): RewardedDropItem[] {
   const counts = availableRewardedDropChestCounts(mode);
   return REWARDED_DROP_IDS.flatMap((id) => counts[id] > 0 ? [[rewardedDropChestItemId(id), counts[id]] as RewardedDropItem] : []);

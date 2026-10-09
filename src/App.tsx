@@ -42,10 +42,10 @@ import { watchAndClaimDailyReward } from './game/daily';
 import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformEvents } from './game/platform';
 import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
 import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
-import { markAdSessionStart, adInFlight, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
+import { fullscreenAdAllowed, markAdSessionStart, adInFlight, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import {
-  availableRewardedDropChestItems,
   completePendingRewardedDropItems,
+  rewardedDropChestEntries,
   pendingRewardedDropItems,
   recordRewardedDropLogin,
   watchAndClaimRewardedDrop,
@@ -103,6 +103,7 @@ function coopSink(engine: Engine): CoopSink {
 /** Shop goods are delivered only after the destination run/world is loaded. */
 function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (!engine) return;
+  engine.syncRewardedPackTokens(rewardedDropChestEntries(engine.rewardedDropMode()));
   const purchases = pendingShopProductRewards();
   if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewards(purchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
@@ -813,33 +814,66 @@ export default function App() {
     void syncBanner(hud.phase === 'menu' || hud.phase === 'gameover');
   }, [hud.phase, flags['adv.enabled'], flags['adv.banner.enabled'], adFreeOwned]);
 
-  // Fullscreen ad every N minutes of gameplay (default 4 min, configurable via remote flags).
-  // The platform pauses the game automatically when the ad opens, so the player never sees an
-  // ad while actively mining — the world freezes and resumes after the ad closes.
+  // Fullscreen ad every N minutes of gameplay (default 4 min, remote flag adv.interstitialIntervalSec).
+  // Requirement 4.4 for a real-time run longer than 5 minutes: the ad is a timer ad, so the game is paused
+  // first and the player gets a visible 2-second warning. Requirement 4.7: the pause also silences the
+  // run until the ad closes. The timer does not start an ad while a modal window (inventory, chest) is open.
+  const [adWarningSec, setAdWarningSec] = useState<number | null>(null);
+  const adWarningActiveRef = useRef(false);
+  const adWarningTimerRef = useRef<number | null>(null);
+  const modalOpenRef = useRef(false);
+  modalOpenRef.current = hud.inventoryOpen || hud.chest !== null;
+
+  const startTimedAd = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine || adWarningActiveRef.current || adInFlight() || !fullscreenAdAllowed()) return;
+    adWarningActiveRef.current = true;
+    engine.pause(true);
+    let left = 2;
+    setAdWarningSec(left);
+    const step = () => {
+      left -= 1;
+      if (left > 0) {
+        setAdWarningSec(left);
+        adWarningTimerRef.current = window.setTimeout(step, 1000);
+        return;
+      }
+      adWarningTimerRef.current = null;
+      setAdWarningSec(null);
+      showFullscreenAd()
+        .catch(() => {})
+        .finally(() => {
+          adWarningActiveRef.current = false;
+          engineRef.current?.resume(true);
+        });
+    };
+    adWarningTimerRef.current = window.setTimeout(step, 1000);
+  }, []);
+
+  useEffect(() => () => {
+    if (adWarningTimerRef.current !== null) window.clearTimeout(adWarningTimerRef.current);
+  }, []);
+
   useEffect(() => {
     const intervalSec = flagNumber('adv.interstitialIntervalSec', 240);
     let elapsed = 0;
-    let timerId: number | null = null;
 
     const tick = () => {
       if (hud.phase !== 'playing') {
         elapsed = 0;
         return;
       }
-      if (adInFlight()) return;
+      if (adInFlight() || adWarningActiveRef.current || modalOpenRef.current) return;
       elapsed += 5000;
       if (elapsed >= intervalSec * 1000) {
         elapsed = 0;
-        showFullscreenAd().catch(() => {});
+        startTimedAd();
       }
     };
 
-    timerId = window.setInterval(tick, 5000);
-
-    return () => {
-      if (timerId !== null) window.clearInterval(timerId);
-    };
-  }, [hud.phase]);
+    const timerId = window.setInterval(tick, 5000);
+    return () => window.clearInterval(timerId);
+  }, [hud.phase, startTimedAd]);
 
   /**
    * Sign-in is offered, never forced: the button explains the benefit first (requirement 1.2),
@@ -1053,6 +1087,7 @@ export default function App() {
           developerShopEnabled={DEVELOPER_TOOLS_ENABLED && !isTv && !tvMode()}
           shopPrices={shopPrices}
           wolfPetOwned={wolfPetOwned}
+          catPetOwned={catPetOwned}
           monkeyPetOwned={monkeyPetOwned}
           parrotPetOwned={parrotPetOwned}
           owlPetOwned={owlPetOwned}
@@ -1104,6 +1139,7 @@ export default function App() {
           onEquipPet={equipPet}
           onUnequipPet={unequipPet}
           onSelectPetKind={selectPetKind}
+          onOpenRewardPack={openRewardPack}
           onCyclePetCoat={cyclePetCoat}
           onSell={sell}
           onBuy={buyOffer}
@@ -1121,6 +1157,17 @@ export default function App() {
           onDeveloperGrantAll={grantDeveloperCatalog}
           isTouch={isTouch}
         />
+      )}
+      {adWarningSec !== null && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 px-4"
+          role="status"
+          aria-live="assertive"
+        >
+          <div className="rounded-xl border border-[#f4b942]/60 bg-pit-950/95 px-6 py-4 text-center font-display text-lg text-white shadow-xl">
+            {t('adWarningIn').replace('{s}', String(adWarningSec))}
+          </div>
+        </div>
       )}
       {hud.phase === 'paused' && (
         <PauseScreen

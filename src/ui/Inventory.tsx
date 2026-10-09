@@ -89,6 +89,8 @@ type Props = {
   onEquipPet: (kind: PetKind) => void;
   onUnequipPet: (kind: PetKind) => void;
   onSelectPetKind: (kind: PetKind) => void;
+  /** opens a reward chest/bag from the inventory (rewarded drops, mode-bound) */
+  onOpenRewardPack?: (id: number) => void;
   onCyclePetCoat: (kind: PetKind, direction: number) => void;
   onSell: (id: number) => void;
   onBuy: (i: number) => void;
@@ -147,7 +149,6 @@ export default function Inventory({
   onUnequip,
   onEquipPet,
   onUnequipPet,
-  onSelectPetKind,
   onCyclePetCoat,
   onSell,
   onBuy,

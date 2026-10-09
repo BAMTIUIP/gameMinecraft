@@ -1,3 +1,10 @@
+import {
+  isRewardedDropChestItem,
+  openRewardedDropPack,
+  rewardedDropIdFromChestItem,
+  rollbackOpenedRewardedDropPack,
+  type RewardedDropMode,
+} from './adDrops';
 import * as THREE from 'three';
 import { createBreathState, stepBreath, type BreathState } from './breath';
 import { ARROW_IDS, buildArrowModel, isArrowId } from './arrowVisuals';
@@ -38,7 +45,6 @@ import {
   EMERALD,
   QUARTZ,
   REWARD_PACK_DAILY,
-  REWARD_PACK_MONTHLY,
   REWARD_PACK_WEEKLY,
   GRASS,
   LAVA,
@@ -336,15 +342,18 @@ export type HudObjective = {
   status: 'complete' | 'active' | 'locked';
 };
 
-const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
+export const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'weapon', craftTier: 0 },
+  { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
+  { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
+  { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
-  { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftRecipeKey: 'cook_meat' },
+  { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftKind: 'cook' },
   { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
-  { id: 'hunt-meat', titleKey: 'objectiveCookMeatBatch', target: 3, rewardScore: 220, rewardSeconds: 35, craftRecipeKey: 'cook_meat' },
+  { id: 'hunt-meat', titleKey: 'objectiveCookMeatBatch', target: 3, rewardScore: 220, rewardSeconds: 35, craftKind: 'cook' },
   { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
   { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
   { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
@@ -358,11 +367,8 @@ const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
   { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
   { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
-  { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
   { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
   { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
-  { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
-  { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
   { id: 'iron-pick', titleKey: 'objectiveCraftIronPickaxe', target: 1, rewardScore: 380, rewardSeconds: 40, craftPickaxeTier: 2 },
   { id: 'gold', titleKey: 'objectiveMineGold', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [GOLD_ORE] },
@@ -513,7 +519,6 @@ const JUMP_V = 9.4;
 const WALK = 4.6;
 const SPRINT = 7.1;
 const SWIM_SPRINT = WALK * 1.1;
-const SWIM_JUMP_UP = 4.7;
 const PLAYER_HALF = 0.3;
 const PLAYER_HEIGHT = 1.8;
 const CRAWL_HEIGHT = 0.72;
@@ -5384,18 +5389,29 @@ if (tpClipActive > 0.5) {
     return Math.max(0, this.inventory.get(id) ?? 0);
   }
 
-  /** Account-bound reward chests/bags are re-injected when a mode starts until that mode opens them. */
-  grantRewardedPackTokens(items: Array<readonly [number, number]>): boolean {
-    let added = 0;
-    for (const [id, rawCount] of items) {
+  /**
+   * Account-bound reward chests/bags mirror the unopened packs of this mode: the inventory count is set to
+   * the number still waiting (never stacked), so restarting a run or reloading a world cannot duplicate them.
+   */
+  syncRewardedPackTokens(entries: ReadonlyArray<readonly [number, number]>): boolean {
+    let changed = false;
+    let gained = 0;
+    for (const [id, rawCount] of entries) {
       if (!isRewardedDropChestItem(id)) continue;
       const count = Math.max(0, Math.floor(rawCount));
-      if (count <= 0) continue;
-      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
-      added += count;
+      const had = this.inventory.get(id) ?? 0;
+      if (had === count) continue;
+      if (count > 0) {
+        this.inventory.set(id, count);
+        this.addToHotbar(id);
+      } else {
+        this.inventory.delete(id);
+      }
+      gained += Math.max(0, count - had);
+      changed = true;
     }
-    if (!added) return false;
-    this.pushBanner(t('rewardPackReadyTitle'), t('rewardPackReadySub'), '#f4b942');
+    if (!changed) return false;
+    if (gained > 0) this.pushBanner(t('rewardPackReadyTitle'), t('rewardPackReadySub'), '#f4b942');
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
@@ -6510,7 +6526,8 @@ if (tpClipActive > 0.5) {
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
     const parrotCallStationary = Math.hypot(this.vel.x, this.vel.z) <= 0.45 && Math.abs(this.vel.y) <= 0.72;
-    const activeBird = isBirdCompanion(this.wolfPetRig?.kind) && this.petEquipped && this.wolfPetRig.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
+    const companion = this.wolfPetRig;
+    const activeBird = !!companion && isBirdCompanion(companion.kind) && this.petEquipped && companion.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
     this.parrotHandArmBlend += ((activeBird ? 1 : 0) - this.parrotHandArmBlend) * Math.min(1, dt * 9);
     const firstPersonArmVisible = !this.thirdPerson
       && (this.phase === 'playing' || this.phase === 'paused')
@@ -9287,6 +9304,7 @@ if (tpClipActive > 0.5) {
         sfx.place();
         this.burst(target.x + 0.5, target.y + 0.55, target.z + 0.5, [255, 152, 52], 8, 1.1);
         this.popup(target.x + 0.5, target.y + 1.2, target.z + 0.5, `${blockName(cookedId, BLOCKS[cookedId]?.name ?? 'Cooked meat')}!`, '#ffc15e', true);
+        this.recordExplorerCook();
         this.syncHotbar(true);
         this.syncHud(true);
       }
@@ -12501,6 +12519,15 @@ if (tpClipActive > 0.5) {
     this.advanceExplorerObjectives();
   }
 
+  /** Roasting raw meat at a campfire counts toward the cooking missions (any meat type). */
+  private recordExplorerCook() {
+    if (!this.explorationObjectives.length) return;
+    for (const task of this.explorationObjectives) {
+      if (task.craftKind === 'cook') task.progress = Math.min(task.target, task.progress + 1);
+    }
+    this.advanceExplorerObjectives();
+  }
+
   private advanceExplorerObjectives() {
     let lastCompleted: ExplorationTask | null = null;
     let lastScoreAward = 0;
@@ -13283,7 +13310,7 @@ if (tpClipActive > 0.5) {
   /** B whistle (and the mobile CALL button) brings an equipped bird companion onto the outstretched left hand. */
   whistleParrot(): boolean {
     const rig = this.wolfPetRig;
-    if (this.phase !== 'playing' || !this.petEquipped || !isBirdCompanion(rig?.kind)) {
+    if (!rig || this.phase !== 'playing' || !this.petEquipped || !isBirdCompanion(rig.kind)) {
       sfx.ui(false);
       return false;
     }
@@ -13300,7 +13327,7 @@ if (tpClipActive > 0.5) {
 
   private interactParrot(): boolean {
     const rig = this.wolfPetRig;
-    if (!isBirdCompanion(rig?.kind) || !this.petInteractionAvailable()) return false;
+    if (!rig || !isBirdCompanion(rig.kind) || !this.petInteractionAvailable()) return false;
     const seeds = this.inventory.get(WHEAT_SEEDS) ?? 0;
     const feedingSeeds = this.hotbar?.[this.selected] === WHEAT_SEEDS;
     if (seeds > 0 && feedingSeeds) {

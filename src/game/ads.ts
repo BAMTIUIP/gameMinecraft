@@ -65,6 +65,16 @@ export function fullscreenCooldownLeft(): number {
   return Math.max(grace / 1000, Math.ceil((cooldown * 1000 - since) / 1000), 0);
 }
 
+/**
+ * Whether a fullscreen ad may be requested right now (flags, ad-free, cooldown, grace). Used before a
+ * timed in-run ad so the game never pauses with a warning for an ad that would not be shown anyway.
+ */
+export function fullscreenAdAllowed(): boolean {
+  if (hasAdFreeEntitlement()) return false;
+  if (!flagBool('adv.enabled') || !flagBool('adv.interstitial.enabled')) return false;
+  return !inFlight && yaAdvAvailable() && fullscreenCooldownLeft() === 0;
+}
+
 /** Called once per session (App boot) so the grace period starts from the real beginning. */
 export function markAdSessionStart() {
   sessionStartedAt = Date.now();
