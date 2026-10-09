@@ -893,9 +893,12 @@ try {
   if (cmd === 'record') await record(opts);
   else if (cmd === 'encode') await encode(opts);
   else {
-    console.error('usage:');
-    console.error('  node tools/trailer/record.mjs record --aspect=9x16|16x9 --out=<framesDir> [--bird=parrot|owl] [--seed=N]');
-    console.error('  node tools/trailer/record.mjs encode --frames=<framesDir> --aspect=9x16|16x9 --out=<file.mp4>');
+    console.error('usage (see tools/trailer/README.md for the full guide):');
+    console.error('  node tools/trailer/record.mjs record --aspect=9x16|16x9 --out=<framesDir>');
+    console.error('        [--bird=parrot|owl] [--seed=N] [--capture-scale=0.5] [--trace]');
+    console.error('        [--encode=<file.mp4> [--mci] [--fps=30] [--keep-frames]]');
+    console.error('  node tools/trailer/record.mjs encode --frames=<framesDir> --aspect=9x16|16x9');
+    console.error('        --out=<file.mp4> [--mci] [--fps=30]');
     process.exit(1);
   }
 } catch (err) {
