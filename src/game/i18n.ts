@@ -316,10 +316,11 @@ const EN = {
   objectiveCraftPoisonArrows: 'Craft poison arrows',
   objectiveCraftFreezeArrows: 'Craft freeze arrows',
   objectiveCraftStunArrows: 'Craft stun arrows',
-  objectiveCraftArrows: 'Craft arrows before hunting',
-  objectiveCookMeatBatch: 'Cook three portions of meat',
+  objectiveCraftArrows: 'Craft basic arrows',
+  objectiveHuntFeather: 'Hunt birds until you collect a feather',
+  objectiveHuntMeat: 'Hunt animals for {count} portions of raw meat',
   objectiveCraftSpecialArrows: 'Craft four special arrow types',
-  objectiveCraftBow: 'Craft a bow',
+  objectiveCraftBow: 'Craft a wooden bow',
   objectiveCraftWoodShovel: 'Craft a wooden shovel',
   objectiveCraftWoodAxe: 'Craft a wooden axe',
   objectiveFindChest: 'Find and open a secret chest',
@@ -1105,10 +1106,11 @@ const RU: Dict = {
   objectiveCraftPoisonArrows: 'Скрафти ядовитые стрелы',
   objectiveCraftFreezeArrows: 'Скрафти замораживающие стрелы',
   objectiveCraftStunArrows: 'Скрафти оглушающие стрелы',
-  objectiveCraftArrows: 'Скрафти стрелы перед охотой',
-  objectiveCookMeatBatch: 'Пожарь три порции мяса',
+  objectiveCraftArrows: 'Скрафти базовые стрелы',
+  objectiveHuntFeather: 'Охоться на птиц, пока не добудешь перо',
+  objectiveHuntMeat: 'Охоться и добудь {count} куска сырого мяса',
   objectiveCraftSpecialArrows: 'Скрафти четыре вида особых стрел',
-  objectiveCraftBow: 'Скрафти лук',
+  objectiveCraftBow: 'Скрафти деревянный лук',
   objectiveCraftWoodShovel: 'Скрафти деревянную лопату',
   objectiveCraftWoodAxe: 'Скрафти деревянный топор',
   objectiveFindChest: 'Найди и открой секретный сундук',
@@ -1875,10 +1877,11 @@ const FR: Dict = {
   objectiveCraftPoisonArrows: 'Fabriquez des flèches empoisonnées',
   objectiveCraftFreezeArrows: 'Fabriquez des flèches glacées',
   objectiveCraftStunArrows: 'Fabriquez des flèches étourdissantes',
-  objectiveCraftArrows: 'Fabriquez des flèches avant la chasse',
-  objectiveCookMeatBatch: 'Faites cuire trois portions de viande',
+  objectiveCraftArrows: 'Fabriquez des flèches de base',
+  objectiveHuntFeather: 'Chassez les oiseaux jusqu’à obtenir une plume',
+  objectiveHuntMeat: 'Chassez pour obtenir {count} morceaux de viande crue',
   objectiveCraftSpecialArrows: 'Fabriquez quatre types de flèches spéciales',
-  objectiveCraftBow: 'Fabriquez un arc',
+  objectiveCraftBow: 'Fabriquez un arc en bois',
   objectiveCraftWoodShovel: 'Fabriquez une pelle en bois',
   objectiveCraftWoodAxe: 'Fabriquez une hache en bois',
   objectiveFindChest: 'Trouvez et ouvrez un coffre secret',
@@ -2645,10 +2648,11 @@ const DE: Dict = {
   objectiveCraftPoisonArrows: 'Stelle Giftpfeile her',
   objectiveCraftFreezeArrows: 'Stelle Frostpfeile her',
   objectiveCraftStunArrows: 'Stelle Betäubungspfeile her',
-  objectiveCraftArrows: 'Stelle Pfeile für die Jagd her',
-  objectiveCookMeatBatch: 'Brate drei Portionen Fleisch',
+  objectiveCraftArrows: 'Stelle einfache Pfeile her',
+  objectiveHuntFeather: 'Jage Vögel, bis du eine Feder findest',
+  objectiveHuntMeat: 'Jage Tiere und sammle {count} Portionen rohes Fleisch',
   objectiveCraftSpecialArrows: 'Stelle vier Spezialpfeilarten her',
-  objectiveCraftBow: 'Stelle einen Bogen her',
+  objectiveCraftBow: 'Stelle einen Holzbogen her',
   objectiveCraftWoodShovel: 'Stelle eine Holzschaufel her',
   objectiveCraftWoodAxe: 'Stelle eine Holzaxt her',
   objectiveFindChest: 'Finde und öffne eine geheime Truhe',
@@ -3184,6 +3188,11 @@ export function t(key: keyof Dict): string {
 }
 
 export type TKey = keyof Dict;
+
+/** Localized mission title with its numeric target substituted for `{count}`. */
+export function formatObjectiveTitle(key: TKey, count: number): string {
+  return t(key).replace(/\{count\}/g, String(count));
+}
 
 /**
  * The complete dictionary of one language, for the localization checks in
