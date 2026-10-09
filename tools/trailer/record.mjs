@@ -613,6 +613,38 @@ async function runTimeline(page, bird, trace) {
   return recStart;
 }
 
+/* Kill dev servers leaked by interrupted recorder runs (also exposed as the
+ * `cleanup` command). They match our exact spawn signature
+ * (`.bin/vite --port <n> --strictPort`); a user's own `npm run dev` is a bare `vite`
+ * without --strictPort and is left alone. esbuild service children exit with their
+ * parent (stdio pipe closes). Returns the number of killed servers. */
+async function killStaleDevServers() {
+  const ps = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' });
+  if (ps.status !== 0) return 0;
+  // Token-exact match on argv: <pid> ... node_modules/.bin/vite --port <digits> --strictPort.
+  // A substring/regex match would also hit this very script (its source contains the
+  // signature) or a user's own `npm run dev` (bare vite, no --strictPort) — neither may die.
+  const stale = (ps.stdout ?? '')
+    .split('\n')
+    .map((line) => {
+      const t = line.trim().split(/\s+/);
+      const pid = Number(t[0]);
+      if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return 0;
+      for (let i = 1; i + 3 < t.length; i++) {
+        if (t[i].endsWith('node_modules/.bin/vite') && t[i + 1] === '--port' && /^\d+$/.test(t[i + 2]) && t[i + 3] === '--strictPort') return pid;
+      }
+      return 0;
+    })
+    .filter((pid) => pid > 0);
+  if (stale.length) {
+    log(`killing ${stale.length} stale dev server(s): ${stale.join(', ')}`);
+    for (const pid of stale) spawnSync('kill', [String(pid)]);
+    await new Promise((r) => setTimeout(r, 500));
+    for (const pid of stale) spawnSync('kill', ['-9', String(pid)]);
+  }
+  return stale.length;
+}
+
 /* ------------------------------ record ------------------------------ */
 
 async function record(opts) {
@@ -629,34 +661,7 @@ async function record(opts) {
 
   // dev server (dev build exposes window.__ore)
   const port = await freePort();
-  // Kill dev servers leaked by interrupted previous runs. They match our exact spawn
-  // signature (`.bin/vite --port <n> --strictPort`); a user's own `npm run dev` is a bare
-  // `vite` without --strictPort and is left alone. esbuild service children exit with
-  // their parent (stdio pipe closes).
-  const ps = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' });
-  if (ps.status === 0) {
-    // Token-exact match on argv: <pid> ... node_modules/.bin/vite --port <digits> --strictPort.
-    // A substring/regex match would also hit this very script (its source contains the
-    // signature) or a user's own `npm run dev` (bare vite, no --strictPort) — neither may die.
-    const stale = (ps.stdout ?? '')
-      .split('\n')
-      .map((line) => {
-        const t = line.trim().split(/\s+/);
-        const pid = Number(t[0]);
-        if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return 0;
-        for (let i = 1; i + 3 < t.length; i++) {
-          if (t[i].endsWith('node_modules/.bin/vite') && t[i + 1] === '--port' && /^\d+$/.test(t[i + 2]) && t[i + 3] === '--strictPort') return pid;
-        }
-        return 0;
-      })
-      .filter((pid) => pid > 0);
-    if (stale.length) {
-      log(`killing ${stale.length} stale dev server(s) from previous runs: ${stale.join(', ')}`);
-      for (const pid of stale) spawnSync('kill', [String(pid)]);
-      await new Promise((r) => setTimeout(r, 500));
-      for (const pid of stale) spawnSync('kill', ['-9', String(pid)]);
-    }
-  }
+  await killStaleDevServers();
   log(`starting vite dev server on :${port}`);
   const dev = spawn('npx', ['vite', '--port', String(port), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
   const cleanup = () => {
@@ -920,13 +925,17 @@ const { cmd, opts } = parseArgs(process.argv.slice(2));
 try {
   if (cmd === 'record') await record(opts);
   else if (cmd === 'encode') await encode(opts);
-  else {
+  else if (cmd === 'cleanup') {
+    const n = await killStaleDevServers();
+    log(n ? `done: killed ${n} stale dev server(s)` : 'no stale dev servers found — nothing to kill');
+  } else {
     console.error('usage (see tools/trailer/README.md for the full guide):');
     console.error('  node tools/trailer/record.mjs record --aspect=9x16|16x9 --out=<framesDir>');
     console.error('        [--bird=parrot|owl] [--seed=N] [--capture-scale=0.5] [--trace]');
     console.error('        [--encode=<file.mp4> [--mci] [--fps=30] [--keep-frames]]');
     console.error('  node tools/trailer/record.mjs encode --frames=<framesDir> --aspect=9x16|16x9');
     console.error('        --out=<file.mp4> [--mci] [--fps=30]');
+    console.error('  node tools/trailer/record.mjs cleanup   # kill dev servers leaked by interrupted runs');
     process.exit(1);
   }
 } catch (err) {
