@@ -1013,12 +1013,13 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets'
  * Categorize any owned inventory item id into one of the general inventory tabs:
  * - 'tools': weapons, tools, arrows, workbench, anvil
  * - 'food': food, fruits, meat, honey, flowers/potions, campfire
- * - 'armor': gear items (id >= 300)
+ * - 'armor': gear items (hid >= 1000, moved from 300 to avoid cave blocks)
  * - 'blocks': building blocks & raw materials
  */
 export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
   if (isArrowId(id)) return 'tools';
-  if (id >= 300) return 'armor';
+  // gear hid now starts at 1000 to avoid collision with cave blocks 300-321
+  if (id >= 1000) return 'armor';
   // Meat IDs are table-backed because portions that collided with legacy arrow
   // IDs are relocated after the durable-tool range.
   if (

@@ -83,12 +83,12 @@ export function gearSellPrice(item: Pick<Item, 'material' | 'slot' | 'rarity' | 
 }
 
 
-export const GEAR_ID_BASE = 300;
+export const GEAR_ID_BASE = 1000;
 export const isGearHotbarId = (id: number) => id >= GEAR_ID_BASE;
 
 export type Item = {
   uid: string;
-  /** numeric hotbar id (>= 300) so gear can sit in the hotbar and be held/thrown */
+  /** numeric hotbar id (>= 1000) so gear can sit in the hotbar and be held/thrown — moved from 300 to avoid cave blocks 300-321 */
   hid: number;
   slot: Slot;
   material: Material;

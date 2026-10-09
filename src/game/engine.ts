@@ -10268,7 +10268,7 @@ if (tpClipActive > 0.5) {
       this.inventory.set(id, count - 1);
     }
 
-    if (id >= 200 && !isArrowId(id) && !isMeatItem(id)) {
+    if (!isInventoryBlockId(id) && !isArrowId(id) && !isMeatItem(id)) {
       this.recalcOwnedToolTiers();
     }
 
