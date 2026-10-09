@@ -120,6 +120,27 @@ import {
   MOSSY_STONE_BRICK,
   CRACKED_STONE_BRICK,
   STONE_BRICK,
+  CAVE_MOSS_BLOCK,
+  CAVE_VINE,
+  CAVE_VINE_GLOW,
+  GLOW_BERRY,
+  DRIPSTONE_BLOCK,
+  POINTED_DRIPSTONE,
+  HANGING_ROOTS,
+  ROOTED_DIRT,
+  DEEPSLATE,
+  DEEPSLATE_BRICKS,
+  AMETHYST_BLOCK,
+  GLOW_LICHEN,
+  SPORE_BLOSSOM,
+  AZALEA_LEAVES,
+  AZALEA_FLOWERING,
+  CLAY,
+  MUSHROOM_BLOCK_RED,
+  MUSHROOM_BLOCK_BROWN,
+  MUSHROOM_STEM,
+  STALACTITE,
+  STALAGMITE,
   isFlower,
   isPlant,
   isInstaBreak,
@@ -9967,6 +9988,45 @@ if (tpClipActive > 0.5) {
         B(g, 0.08, 0.08, 0, 0.12, 0.04, 0.06, 0x5a9a4a, 0, -0.35);
         B(g, 0.12, 0.02, -0.02, 0.10, 0.03, 0.05, 0x6cbb5a, 0, -0.45);
         B(g, 0, 0.14, 0, 0.14, 0.04, 0.06, 0x7acc6a, 0, 0);
+        break;
+      }
+      case CAVE_VINE:
+      case CAVE_VINE_GLOW: {
+        const glow = id === CAVE_VINE_GLOW;
+        B(g, 0, 0, 0, 0.06, 0.36, 0.06, 0x3a7a2a);
+        B(g, 0.06, 0.08, 0, 0.08, 0.10, 0.08, 0x5a9a3a);
+        if (glow) {
+          B(g, 0, -0.12, 0, 0.10, 0.08, 0.10, 0xf0d860);
+          B(g, 0, -0.18, 0, 0.06, 0.06, 0.06, 0xfff0a0);
+        }
+        break;
+      }
+      case GLOW_BERRY: {
+        B(g, 0, 0, 0, 0.12, 0.12, 0.12, 0xf0d860);
+        B(g, 0, 0.08, 0, 0.08, 0.08, 0.08, 0xfff0a0);
+        break;
+      }
+      case HANGING_ROOTS: {
+        B(g, 0, 0, 0, 0.06, 0.32, 0.06, 0x7a5a3a);
+        B(g, 0.05, -0.04, 0, 0.04, 0.24, 0.04, 0x8a6a4a);
+        break;
+      }
+      case SPORE_BLOSSOM: {
+        B(g, 0, -0.08, 0, 0.04, 0.20, 0.04, 0x5a9a4a);
+        B(g, 0, 0.04, 0, 0.16, 0.10, 0.16, 0xe46a9a);
+        B(g, 0, 0.12, 0, 0.12, 0.06, 0.12, 0xff9abe);
+        break;
+      }
+      case POINTED_DRIPSTONE:
+      case STALACTITE:
+      case STALAGMITE: {
+        B(g, 0, 0, 0, 0.10, 0.32, 0.10, 0x8a7565);
+        B(g, 0, -0.12, 0, 0.06, 0.16, 0.06, 0x9a8a7a);
+        break;
+      }
+      case GLOW_LICHEN: {
+        B(g, 0, 0, 0, 0.28, 0.06, 0.24, 0x6a9a5a);
+        B(g, 0, 0.04, 0, 0.18, 0.04, 0.16, 0x8abb6a);
         break;
       }
       case DEAD_BUSH: {

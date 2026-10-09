@@ -76,6 +76,28 @@ import {
   WISTERIA_VINE,
   MOSS_CARPET,
   LEAF_PILE,
+  // cave biomes
+  CAVE_MOSS_BLOCK,
+  CAVE_VINE,
+  CAVE_VINE_GLOW,
+  GLOW_BERRY,
+  DRIPSTONE_BLOCK,
+  POINTED_DRIPSTONE,
+  HANGING_ROOTS,
+  ROOTED_DIRT,
+  DEEPSLATE,
+  DEEPSLATE_BRICKS,
+  AMETHYST_BLOCK,
+  GLOW_LICHEN,
+  SPORE_BLOSSOM,
+  AZALEA_LEAVES,
+  AZALEA_FLOWERING,
+  CLAY,
+  MUSHROOM_BLOCK_RED,
+  MUSHROOM_BLOCK_BROWN,
+  MUSHROOM_STEM,
+  STALACTITE,
+  STALAGMITE,
 } from './blocks';
 import { CHUNK, WY, World } from './world';
 import { tileUV } from './textures';
@@ -901,6 +923,54 @@ function addWisteriaVineDecor(P: number[], C: number[], I: number[], x: number, 
     addBox(P, C, I, cx + dx, y + yy - 0.06, cz + dz, 0.10, 0.10, 0.10, ...srgb(0xc8a8f0));
   }
 }
+function addCaveVine(P: number[], C: number[], I: number[], x: number, y: number, z: number, glow: boolean) {
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.5, cz, 0.06, 1.0, 0.06, ...srgb(0x3a7a2a));
+  addBox(P, C, I, cx + 0.08, y + 0.6, cz + 0.06, 0.10, 0.12, 0.10, ...srgb(glow ? 0x6cbb4a : 0x4a8a3a));
+  addBox(P, C, I, cx - 0.07, y + 0.3, cz - 0.05, 0.09, 0.10, 0.09, ...srgb(glow ? 0x7acc5a : 0x3a6a2a));
+  if (glow) {
+    addBox(P, C, I, cx, y + 0.15, cz, 0.12, 0.10, 0.12, ...srgb(0xf0d860));
+    addBox(P, C, I, cx, y + 0.08, cz, 0.08, 0.06, 0.08, ...srgb(0xfff0a0));
+  }
+}
+function addGlowBerry(P: number[], C: number[], I: number[], x: number, y: number, z: number) {
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.5, cz, 0.05, 0.8, 0.05, ...srgb(0x4a7a2a));
+  addBox(P, C, I, cx, y + 0.12, cz, 0.14, 0.12, 0.14, ...srgb(0xf0d860));
+  addBox(P, C, I, cx, y + 0.06, cz, 0.08, 0.08, 0.08, ...srgb(0xfff0a0));
+}
+function addHangingRoots(P: number[], C: number[], I: number[], x: number, y: number, z: number) {
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.5, cz, 0.06, 1.0, 0.06, ...srgb(0x7a5a3a));
+  addBox(P, C, I, cx + 0.06, y + 0.4, cz, 0.04, 0.8, 0.04, ...srgb(0x8a6a4a));
+  addBox(P, C, I, cx - 0.06, y + 0.35, cz, 0.04, 0.7, 0.04, ...srgb(0x6a4a2a));
+}
+function addSporeBlossom(P: number[], C: number[], I: number[], x: number, y: number, z: number) {
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.85, cz, 0.14, 0.08, 0.14, ...srgb(0x4a7a3a));
+  addBox(P, C, I, cx, y + 0.5, cz, 0.18, 0.14, 0.18, ...srgb(0xe46a9a));
+  addBox(P, C, I, cx, y + 0.38, cz, 0.12, 0.10, 0.12, ...srgb(0xff9abe));
+  addBox(P, C, I, cx, y + 0.20, cz, 0.04, 0.4, 0.04, ...srgb(0x5a9a4a));
+}
+function addDripstone(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number) {
+  const cx = x + 0.5, cz = z + 0.5;
+  if (id === POINTED_DRIPSTONE) {
+    addBox(P, C, I, cx, y + 0.5, cz, 0.14, 0.8, 0.14, ...srgb(0x8a7565));
+    addBox(P, C, I, cx, y + 0.15, cz, 0.08, 0.3, 0.08, ...srgb(0x9a8a7a));
+  } else if (id === STALACTITE) {
+    addBox(P, C, I, cx, y + 0.7, cz, 0.22, 0.6, 0.22, ...srgb(0x8a7565));
+    addBox(P, C, I, cx, y + 0.25, cz, 0.14, 0.5, 0.14, ...srgb(0x9a8a7a));
+    addBox(P, C, I, cx, y + 0.05, cz, 0.08, 0.3, 0.08, ...srgb(0xaa9a8a));
+  } else if (id === STALAGMITE) {
+    addBox(P, C, I, cx, y + 0.3, cz, 0.22, 0.6, 0.22, ...srgb(0x8a7565));
+    addBox(P, C, I, cx, y + 0.7, cz, 0.14, 0.4, 0.14, ...srgb(0x9a8a7a));
+  }
+}
+function addGlowLichen(P: number[], C: number[], I: number[], x: number, y: number, z: number) {
+  const cx = x + 0.5, cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.5, cz, 0.08, 0.08, 0.92, ...srgb(0x6a9a5a));
+  addBox(P, C, I, cx, y + 0.55, cz, 0.06, 0.04, 0.72, ...srgb(0x8abb6a));
+}
 function addGroundCover(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number) {
   const cx = x + 0.5;
   const cz = z + 0.5;
@@ -1501,6 +1571,34 @@ export function* buildChunkGeometrySteps(
           // Climbable hanging tendrils; do not fill the entire voxel.
           addBox(dPositions, dColors, dIndices, x + 0.45, y + 0.5, z + 0.45, 0.06, 0.96, 0.06, ...srgb(0x38743a));
           addBox(dPositions, dColors, dIndices, x + 0.58, y + 0.4, z + 0.53, 0.05, 0.78, 0.05, ...srgb(0x68a850));
+          continue;
+        }
+        if (id === CAVE_VINE) {
+          addCaveVine(dPositions, dColors, dIndices, x, y, z, false);
+          continue;
+        }
+        if (id === CAVE_VINE_GLOW) {
+          addCaveVine(dPositions, dColors, dIndices, x, y, z, true);
+          continue;
+        }
+        if (id === GLOW_BERRY) {
+          addGlowBerry(dPositions, dColors, dIndices, x, y, z);
+          continue;
+        }
+        if (id === HANGING_ROOTS) {
+          addHangingRoots(dPositions, dColors, dIndices, x, y, z);
+          continue;
+        }
+        if (id === SPORE_BLOSSOM) {
+          addSporeBlossom(dPositions, dColors, dIndices, x, y, z);
+          continue;
+        }
+        if (id === POINTED_DRIPSTONE || id === STALACTITE || id === STALAGMITE) {
+          addDripstone(dPositions, dColors, dIndices, x, y, z, id);
+          continue;
+        }
+        if (id === GLOW_LICHEN) {
+          addGlowLichen(dPositions, dColors, dIndices, x, y, z);
           continue;
         }
         if (isLadder(id)) {

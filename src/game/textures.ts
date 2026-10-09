@@ -49,6 +49,28 @@ import {
   MOSSY_STONE_BRICK,
   CRACKED_STONE_BRICK,
   STONE_BRICK,
+  CAVE_MOSS_BLOCK,
+  CAVE_VINE,
+  CAVE_VINE_GLOW,
+  GLOW_BERRY,
+  DRIPSTONE_BLOCK,
+  POINTED_DRIPSTONE,
+  HANGING_ROOTS,
+  ROOTED_DIRT,
+  DEEPSLATE,
+  DEEPSLATE_BRICKS,
+  AMETHYST_BLOCK,
+  GLOW_LICHEN,
+  SPORE_BLOSSOM,
+  AZALEA_LEAVES,
+  AZALEA_FLOWERING,
+  CLAY,
+  MUSHROOM_BLOCK_RED,
+  MUSHROOM_BLOCK_BROWN,
+  MUSHROOM_STEM,
+  STALACTITE,
+  STALAGMITE,
+  STONE_BRICK,
   TALL_GRASS,
   FERN,
 } from './blocks';
@@ -2098,6 +2120,112 @@ function drawTile(ctx: Ctx, index: number) {
       ctx.fillStyle = '#3a5a1a'; ctx.fillRect(ox+7, oy, 2, 2);
       break;
     }
+    // ---- Cave biomes ----
+    case T.caveMoss: {
+      speckle(ctx, ox, oy, '#4a7a3a', 4001, 18);
+      for (let i=0;i<10;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 1,1, rand()<0.5?'#6cbb4a':'#3a5a2a');
+      break;
+    }
+    case T.caveVine: {
+      ctx.clearRect(ox, oy, 16,16);
+      speckle(ctx, ox, oy, '#2a4a2a', 4002, 8);
+      ctx.fillStyle = '#4a8a3a'; ctx.fillRect(ox+7, oy, 2, 16);
+      for (let y=0;y<16;y+=3) px(ctx, ox, oy, 6, y, 4,2,'#5a9a4a');
+      break;
+    }
+    case T.caveVineGlow: {
+      ctx.clearRect(ox, oy, 16,16);
+      speckle(ctx, ox, oy, '#2a4a2a', 4003, 8);
+      ctx.fillStyle = '#4a8a3a'; ctx.fillRect(ox+7, oy, 2, 16);
+      for (let y=2;y<16;y+=4) { px(ctx, ox, oy, 6, y, 4,2,'#6cbb4a'); px(ctx, ox, oy, 5, y+1, 2,2,'#f0e080'); }
+      break;
+    }
+    case T.glowBerry: {
+      ctx.clearRect(ox, oy, 16,16);
+      px(ctx, ox, oy, 6, 6, 4, 4, '#f0d860'); px(ctx, ox, oy, 5, 5, 6, 2, '#f8e890'); px(ctx, ox, oy, 7, 10, 2, 2, '#c8a020');
+      break;
+    }
+    case T.dripstoneBlock: {
+      speckle(ctx, ox, oy, '#8a7565', 4004, 12);
+      for (let i=0;i<6;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 2,1,'#9a8a7a');
+      break;
+    }
+    case T.pointedDripstone: {
+      ctx.clearRect(ox, oy, 16,16);
+      ctx.fillStyle = '#9a8a7a'; ctx.fillRect(ox+6, oy+2, 4, 12); ctx.fillRect(ox+7, oy, 2, 2); ctx.fillRect(ox+7, oy+14, 2, 2);
+      break;
+    }
+    case T.hangingRoots: {
+      ctx.clearRect(ox, oy, 16,16);
+      ctx.fillStyle = '#7a5a3a'; for (let x=5;x<11;x++) ctx.fillRect(ox+x, oy, 1, 16);
+      break;
+    }
+    case T.rootedDirt: {
+      speckle(ctx, ox, oy, '#7a5a3a', 4005, 10);
+      ctx.fillStyle = '#5a3a2a'; for (let i=0;i<5;i++) ctx.fillRect(ox+Math.floor(rand()*14), oy+Math.floor(rand()*14), 1, 4);
+      break;
+    }
+    case T.deepslate: {
+      speckle(ctx, ox, oy, '#3a3a42', 4006, 14);
+      for (let i=0;i<8;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 2,1,'#4a4a52');
+      break;
+    }
+    case T.deepslateBricks: {
+      ctx.fillStyle = '#3a3a42'; ctx.fillRect(ox, oy, 16,16);
+      ctx.fillStyle = '#4a4a52'; ctx.fillRect(ox+1, oy+1, 14,6); ctx.fillRect(ox+1, oy+9, 14,6);
+      ctx.fillStyle = '#2a2a32'; ctx.fillRect(ox, oy+7,16,2);
+      break;
+    }
+    case T.amethyst: {
+      speckle(ctx, ox, oy, '#8a6ab8', 4007, 16);
+      for (let i=0;i<6;i++) px(ctx, ox, oy, Math.floor(rand()*14), Math.floor(rand()*14), 2,2,'#c8a0f0');
+      px(ctx, ox, oy, 7,7,2,2,'#ffffff');
+      break;
+    }
+    case T.glowLichen: {
+      ctx.clearRect(ox, oy, 16,16);
+      px(ctx, ox, oy, 2,2,12,12,'#6a9a5a'); px(ctx, ox, oy, 3,3,10,10,'#8abb6a'); px(ctx, ox, oy, 6,6,4,4,'#c0e0a0');
+      break;
+    }
+    case T.sporeBlossom: {
+      ctx.clearRect(ox, oy, 16,16);
+      px(ctx, ox, oy, 5, 8, 6, 2, '#5a8a3a'); px(ctx, ox, oy, 4, 3, 8, 5, '#e46a9a'); px(ctx, ox, oy, 6, 4, 4, 3, '#ff9abe');
+      break;
+    }
+    case T.azalea: {
+      speckle(ctx, ox, oy, '#5a8a3a', 4008, 14);
+      for (let i=0;i<8;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 1,1,'#6cbb4a');
+      break;
+    }
+    case T.azaleaFlowering: {
+      speckle(ctx, ox, oy, '#5a8a3a', 4009, 14);
+      for (let i=0;i<5;i++) px(ctx, ox, oy, Math.floor(rand()*14), Math.floor(rand()*14), 2,2,'#e46a9a');
+      break;
+    }
+    case T.clay: {
+      speckle(ctx, ox, oy, '#9aa0b0', 4010, 12);
+      break;
+    }
+    case T.mushroomRed: {
+      speckle(ctx, ox, oy, '#c82a2a', 4011, 8);
+      for (let i=0;i<4;i++) px(ctx, ox, oy, Math.floor(rand()*14), Math.floor(rand()*14), 2,2,'#ffffff');
+      break;
+    }
+    case T.mushroomBrown: {
+      speckle(ctx, ox, oy, '#8a6a4a', 4012, 8);
+      break;
+    }
+    case T.mushroomStem: {
+      speckle(ctx, ox, oy, '#d8d0c0', 4013, 8);
+      break;
+    }
+    case T.stalactite:
+    case T.stalagmite: {
+      ctx.clearRect(ox, oy, 16,16);
+      ctx.fillStyle = '#8a7565'; ctx.fillRect(ox+5, oy, 6, 16);
+      ctx.fillStyle = '#9a8a7a'; ctx.fillRect(ox+6, oy, 4, 16);
+      break;
+    }
     // ---- Mineral Item Tiles (Row 2 fallback in atlas) ----
     case T.coalItem:
       speckle(ctx, ox, oy, '#222328', 411, 14);
@@ -2743,7 +2871,9 @@ export function getBlockIcon(id: number): string {
   const isTallFlower = id === TALL_LAVENDER || id === TALL_SUNFLOWER;
   const isGroundCover = id === MOSS_CARPET || id === LEAF_PILE || id === WISTERIA_VINE;
   const isBrick = id === MOSSY_COBBLE || id === MOSSY_STONE_BRICK || id === CRACKED_STONE_BRICK || id === STONE_BRICK;
-  if (isNewFlower || isNewBush || isTallFlower || isGroundCover || isBrick || id === TALL_GRASS || id === FERN) {
+  const isCavePlant = id === CAVE_VINE || id === CAVE_VINE_GLOW || id === GLOW_BERRY || id === HANGING_ROOTS || id === SPORE_BLOSSOM || id === POINTED_DRIPSTONE || id === STALACTITE || id === STALAGMITE || id === GLOW_LICHEN;
+  const isCaveBlock = id === CAVE_MOSS_BLOCK || id === DRIPSTONE_BLOCK || id === ROOTED_DIRT || id === DEEPSLATE || id === DEEPSLATE_BRICKS || id === AMETHYST_BLOCK || id === CLAY || id === AZALEA_LEAVES || id === AZALEA_FLOWERING || id === MUSHROOM_BLOCK_RED || id === MUSHROOM_BLOCK_BROWN || id === MUSHROOM_STEM;
+  if (isNewFlower || isNewBush || isTallFlower || isGroundCover || isBrick || id === TALL_GRASS || id === FERN || isCavePlant || isCaveBlock) {
     ctx.clearRect(0, 0, size, size);
     // shadow
     fill48(12, 40, 24, 3, 'rgba(0,0,0,0.25)');
@@ -2811,8 +2941,8 @@ export function getBlockIcon(id: number): string {
       p(5, 9, 3, 1, '#5a9a4a'); p(4, 10, 3, 1, '#6cbb5a');
       p(9, 8, 3, 1, '#5a9a4a'); p(10, 7, 3, 1, '#6cbb5a');
       p(6, 6, 4, 1, '#7acc6a'); p(5, 7, 2, 1, '#7acc6a');
-    } else if (isBrick) {
-      // brick icon: keep cube style but with brick texture visible
+    } else if (isBrick || isCaveBlock) {
+      // brick/cave block icon: keep cube style but with texture visible
       const atlas = getAtlasCanvas();
       const def = BLOCKS[id];
       const [tx, ty] = tileOrigin(def.top);
@@ -2820,6 +2950,20 @@ export function getBlockIcon(id: number): string {
       const [sx, sy] = tileOrigin(def.side);
       ctx.drawImage(atlas, sx, sy, TILE, TILE, 0, size*0.42, size, size*0.58);
       const url = c.toDataURL(); iconCache.set(id, url); return url;
+    } else if (id === CAVE_VINE) {
+      p(7, 2, 2, 12, '#3a7a2a'); p(6, 3, 4, 2, '#5a9a3a'); p(6, 7, 4, 2, '#4a8a3a'); p(6, 11, 4, 2, '#6cbb4a');
+    } else if (id === CAVE_VINE_GLOW) {
+      p(7, 2, 2, 12, '#3a7a2a'); p(6, 3, 4, 2, '#6cbb4a'); p(5, 8, 2, 2, '#f0e080'); p(6, 12, 4, 2, '#f0d860');
+    } else if (id === GLOW_BERRY) {
+      p(6, 5, 4, 4, '#f0d860'); p(6, 5, 4, 2, '#fff0a0'); p(7, 9, 2, 1, '#c8a020');
+    } else if (id === HANGING_ROOTS) {
+      p(7, 2, 2, 12, '#7a5a3a'); p(6, 4, 1, 10, '#8a6a4a'); p(8, 5, 1, 9, '#6a4a2a');
+    } else if (id === SPORE_BLOSSOM) {
+      p(7, 8, 2, 6, '#5a7a3a'); p(4, 3, 8, 4, '#e46a9a'); p(5, 4, 6, 2, '#ff9abe');
+    } else if (id === POINTED_DRIPSTONE || id === STALACTITE || id === STALAGMITE) {
+      p(7, 2, 2, 12, '#8a7565'); p(6, 3, 4, 10, '#9a8a7a'); p(7, 2, 2, 2, '#c0b0a0');
+    } else if (id === GLOW_LICHEN) {
+      p(2, 4, 12, 8, '#6a9a5a'); p(3, 5, 10, 6, '#8abb6a'); p(5, 6, 6, 4, '#c0e0a0');
     }
     const url = c.toDataURL();
     iconCache.set(id, url);

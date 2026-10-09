@@ -180,6 +180,30 @@ export const MOSSY_STONE_BRICK = 297;
 export const CRACKED_STONE_BRICK = 298;
 export const STONE_BRICK = 299;
 
+/** Cave biomes expansion: lush caves, dripstone, vine caves, mossy ruins (reference images) */
+export const CAVE_MOSS_BLOCK = 300;
+export const CAVE_VINE = 301;
+export const CAVE_VINE_GLOW = 302;
+export const GLOW_BERRY = 303;
+export const DRIPSTONE_BLOCK = 304;
+export const POINTED_DRIPSTONE = 305;
+export const HANGING_ROOTS = 306;
+export const ROOTED_DIRT = 307;
+export const DEEPSLATE = 308;
+export const DEEPSLATE_BRICKS = 309;
+export const AMETHYST_BLOCK = 310;
+export const GLOW_LICHEN = 311;
+export const SPORE_BLOSSOM = 312;
+export const AZALEA_LEAVES = 313;
+export const AZALEA_FLOWERING = 314;
+export const CLAY = 315;
+export const MUSHROOM_BLOCK_RED = 316;
+export const MUSHROOM_BLOCK_BROWN = 317;
+export const MUSHROOM_STEM = 318;
+export const CAVE_AIR = 319; // non-solid marker for large caverns (treated as AIR but for biome detection)
+export const STALACTITE = 320; // long hanging stalactite
+export const STALAGMITE = 321; // long rising stalagmite
+
 /** tilled soil created by a hoe; it drops dirt when broken */
 export const FARMLAND = 126;
 
@@ -313,20 +337,23 @@ export const isFlower = (id: number) =>
   id === FLOWER_TULIP_RED || id === FLOWER_TULIP_YELLOW || id === FLOWER_TULIP_PINK ||
   id === FLOWER_TULIP_ORANGE || id === FLOWER_TULIP_WHITE ||
   id === FLOWER_SUNFLOWER || id === FLOWER_ROSE || id === FLOWER_LAVENDER ||
-  id === FLOWER_WISTERIA || id === FLOWER_DAISY || id === FLOWER_ORCHID || id === FLOWER_PEONY;
+  id === FLOWER_WISTERIA || id === FLOWER_DAISY || id === FLOWER_ORCHID || id === FLOWER_PEONY ||
+  id === SPORE_BLOSSOM || id === GLOW_BERRY;
 export const isPlant = (id: number) => isFlower(id) ||
   id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM ||
   id === BUSH || id === BUSH_FLOWERING || id === BERRY_BUSH ||
   id === TALL_LAVENDER || id === TALL_SUNFLOWER || id === WISTERIA_VINE ||
   id === MOSS_CARPET || id === LEAF_PILE ||
+  id === CAVE_VINE || id === CAVE_VINE_GLOW || id === HANGING_ROOTS || id === GLOW_LICHEN ||
+  id === POINTED_DRIPSTONE || id === STALACTITE || id === STALAGMITE ||
   (id >= WHEAT_CROP_1 && id <= WHEAT_CROP_3);
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
-export const isInstaBreak = (id: number) => isPlant(id) || isCactus(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
+export const isInstaBreak = (id: number) => isPlant(id) || isCactus(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM || id === GLOW_LICHEN;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
 export const isLeafId = (id: number) =>
   id === LEAVES || id === SNOW_LEAVES || id === BIRCH_LEAVES || id === APPLE_LEAVES ||
   id === COCONUT_LEAVES || id === BANANA_LEAVES || id === AUTUMN_LEAVES || id === CHERRY_LEAVES ||
-  id === JACARANDA_LEAVES;
+  id === JACARANDA_LEAVES || id === AZALEA_LEAVES || id === AZALEA_FLOWERING;
 export const isResource = (id: number) =>
   isArrowId(id) ||
   isMineralItem(id) ||
@@ -370,6 +397,18 @@ export function blockClass(id: number): BlockClass {
     case DIAMOND_BLOCK:
     case EMERALD_BLOCK:
     case QUARTZ_BLOCK:
+    case DRIPSTONE_BLOCK:
+    case DEEPSLATE:
+    case DEEPSLATE_BRICKS:
+    case CLAY:
+    case ROOTED_DIRT:
+    case CAVE_MOSS_BLOCK:
+    case MUSHROOM_BLOCK_RED:
+    case MUSHROOM_BLOCK_BROWN:
+    case MUSHROOM_STEM:
+    case AMETHYST_BLOCK:
+    case AZALEA_LEAVES:
+    case AZALEA_FLOWERING:
     case FENCE_STONE:
     case PEDESTAL:
     case PEDESTAL_GOLD:
@@ -583,6 +622,28 @@ export const T = {
   crackedStoneBrick: 149,
   stoneBrick: 150,
   pumpkin: 151,
+  // cave biomes
+  caveMoss: 152,
+  caveVine: 153,
+  caveVineGlow: 154,
+  glowBerry: 155,
+  dripstoneBlock: 156,
+  pointedDripstone: 157,
+  hangingRoots: 158,
+  rootedDirt: 159,
+  deepslate: 160,
+  deepslateBricks: 161,
+  amethyst: 162,
+  glowLichen: 163,
+  sporeBlossom: 164,
+  azalea: 165,
+  azaleaFlowering: 166,
+  clay: 167,
+  mushroomRed: 168,
+  mushroomBrown: 169,
+  mushroomStem: 170,
+  stalactite: 171,
+  stalagmite: 172,
 };
 
 export type BlockDef = {
@@ -1226,6 +1287,28 @@ const BLOCK_DEFS: BlockDef[] = [
   d({ id: MOSSY_STONE_BRICK, name: 'Mossy Stone Bricks', side: T.mossyStoneBrick, hardness: 1.2, score: 7, tint: [108, 124, 108] }),
   d({ id: CRACKED_STONE_BRICK, name: 'Cracked Stone Bricks', side: T.crackedStoneBrick, hardness: 1.1, score: 6, tint: [110, 114, 116] }),
   d({ id: STONE_BRICK, name: 'Stone Bricks', side: T.stoneBrick, hardness: 1.2, score: 7, tint: [122, 126, 128] }),
+  // ---- Cave biomes expansion (lush, dripstone, vine, mossy ruins) ----
+  d({ id: CAVE_MOSS_BLOCK, name: 'Cave Moss', side: T.caveMoss, hardness: 0.4, score: 3, tint: [76, 142, 62] }),
+  d({ id: CAVE_VINE, name: 'Cave Vines', side: T.caveVine, hardness: 0.08, score: 2, solid: false, tint: [62, 132, 52] }),
+  d({ id: CAVE_VINE_GLOW, name: 'Glow Vines', side: T.caveVineGlow, hardness: 0.08, score: 4, solid: false, tint: [90, 180, 70], emissive: 1 }),
+  d({ id: GLOW_BERRY, name: 'Glow Berry', side: T.glowBerry, hardness: 0.05, score: 5, solid: false, tint: [240, 200, 80], emissive: 1 }),
+  d({ id: DRIPSTONE_BLOCK, name: 'Dripstone', side: T.dripstoneBlock, hardness: 1.0, score: 5, tint: [148, 122, 104] }),
+  d({ id: POINTED_DRIPSTONE, name: 'Pointed Dripstone', side: T.pointedDripstone, hardness: 0.9, score: 4, solid: false, tint: [158, 132, 114] }),
+  d({ id: HANGING_ROOTS, name: 'Hanging Roots', side: T.hangingRoots, hardness: 0.1, score: 2, solid: false, tint: [122, 86, 56] }),
+  d({ id: ROOTED_DIRT, name: 'Rooted Dirt', side: T.rootedDirt, hardness: 0.5, score: 3, tint: [124, 92, 62] }),
+  d({ id: DEEPSLATE, name: 'Deepslate', side: T.deepslate, hardness: 1.8, score: 8, tint: [68, 68, 74] }),
+  d({ id: DEEPSLATE_BRICKS, name: 'Deepslate Bricks', side: T.deepslateBricks, hardness: 1.9, score: 9, tint: [72, 72, 78] }),
+  d({ id: AMETHYST_BLOCK, name: 'Amethyst', side: T.amethyst, hardness: 1.2, score: 12, tint: [168, 124, 212], emissive: 1 }),
+  d({ id: GLOW_LICHEN, name: 'Glow Lichen', side: T.glowLichen, hardness: 0.05, score: 3, solid: false, tint: [160, 200, 140], emissive: 1 }),
+  d({ id: SPORE_BLOSSOM, name: 'Spore Blossom', side: T.sporeBlossom, hardness: 0.08, score: 5, solid: false, tint: [224, 122, 168] }),
+  d({ id: AZALEA_LEAVES, name: 'Azalea Leaves', side: T.azalea, hardness: 0.22, score: 3, tint: [88, 152, 64] }),
+  d({ id: AZALEA_FLOWERING, name: 'Flowering Azalea', side: T.azaleaFlowering, hardness: 0.22, score: 4, tint: [180, 90, 140] }),
+  d({ id: CLAY, name: 'Clay', side: T.clay, hardness: 0.6, score: 4, tint: [162, 166, 182] }),
+  d({ id: MUSHROOM_BLOCK_RED, name: 'Red Mushroom Block', side: T.mushroomRed, hardness: 0.3, score: 3, tint: [196, 52, 42] }),
+  d({ id: MUSHROOM_BLOCK_BROWN, name: 'Brown Mushroom Block', side: T.mushroomBrown, hardness: 0.3, score: 3, tint: [146, 118, 92] }),
+  d({ id: MUSHROOM_STEM, name: 'Mushroom Stem', side: T.mushroomStem, hardness: 0.3, score: 3, tint: [218, 210, 198] }),
+  d({ id: STALACTITE, name: 'Stalactite', side: T.stalactite, hardness: 1.0, score: 5, solid: false, tint: [148, 122, 104] }),
+  d({ id: STALAGMITE, name: 'Stalagmite', side: T.stalagmite, hardness: 1.0, score: 5, solid: false, tint: [148, 122, 104] }),
   ...meatBlockDefs,
   d({ id: STONE_ARROW, name: 'Stone Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [170,180,190] }),
   d({ id: IRON_ARROW, name: 'Iron Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [210,225,230] }),
