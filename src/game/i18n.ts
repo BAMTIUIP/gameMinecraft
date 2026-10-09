@@ -31,6 +31,7 @@ const EN = {
   watchAdReviveSub: '+{sec} sec and half health',
   adBadge: 'AD',
   adNotShown: 'The ad is not available right now',
+  adWarningIn: 'Ad in: {s}',
   adThanks: 'Thanks! Reward granted',
   reviveLimit: 'No more revives in this shift',
 
@@ -820,6 +821,7 @@ const RU: Dict = {
   watchAdReviveSub: '+{sec} сек и половина здоровья',
   adBadge: 'РЕКЛАМА',
   adNotShown: 'Реклама сейчас недоступна',
+  adWarningIn: 'Реклама через: {s}',
   adThanks: 'Спасибо! Награда начислена',
   reviveLimit: 'Больше возрождений в этой смене нет',
 
@@ -1589,6 +1591,7 @@ const FR: Dict = {
   watchAdReviveSub: '+{sec} s et la moitié de la vie',
   adBadge: 'PUB',
   adNotShown: 'La publicité est indisponible pour le moment',
+  adWarningIn: 'Publicité dans : {s}',
   adThanks: 'Merci ! Récompense accordée',
   reviveLimit: 'Plus de réanimation pour cette session',
 
@@ -2358,6 +2361,7 @@ const DE: Dict = {
   watchAdReviveSub: '+{sec} Sek. und halbe Gesundheit',
   adBadge: 'WERBUNG',
   adNotShown: 'Werbung ist gerade nicht verfügbar',
+  adWarningIn: 'Werbung in: {s}',
   adThanks: 'Danke! Belohnung gutgeschrieben',
   reviveLimit: 'Keine Wiederbelebung mehr in dieser Schicht',
 
