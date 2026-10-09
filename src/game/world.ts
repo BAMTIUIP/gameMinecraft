@@ -96,7 +96,7 @@ export function keyToChunk(key: number): [number, number] {
 }
 
 export type Chunk = {
-  blocks: Uint8Array; // CHUNK * WY * CHUNK, index (y*CHUNK+lz)*CHUNK+lx
+  blocks: Uint16Array; // CHUNK * WY * CHUNK, index (y*CHUNK+lz)*CHUNK+lx — Uint16 for >255 block IDs (forest flora)
   height: Int16Array; // CHUNK * CHUNK ground height
   /** 0 = empty/preview, 1 = full terrain, 2 = decorated */
   state: number;
@@ -122,6 +122,7 @@ export class World {
 
   constructor(seed = 1337) {
     this.seed = seed;
+    seedNoise(seed);
   }
 
   reset(seed: number) {
@@ -364,7 +365,7 @@ export class World {
     const key = chunkKey(cx, cz);
     if (this.hasSurface(cx, cz)) return;
     const chunk: Chunk = {
-      blocks: new Uint8Array(CHUNK * WY * CHUNK),
+      blocks: new Uint16Array(CHUNK * WY * CHUNK),
       height: new Int16Array(CHUNK * CHUNK),
       state: 0,
       surfaceReady: false,
@@ -450,7 +451,7 @@ export class World {
     const key = chunkKey(cx, cz);
     if ((this.chunks.get(key)?.state ?? 0) >= 1) return;
     const chunk: Chunk = {
-      blocks: new Uint8Array(CHUNK * WY * CHUNK),
+      blocks: new Uint16Array(CHUNK * WY * CHUNK),
       height: new Int16Array(CHUNK * CHUNK),
       state: 0,
     };
@@ -495,31 +496,31 @@ export class World {
           if (y < 32) {
             const netherNoise = noise3(x * 0.31 + 97.3, y * 0.5 - 41, z * 0.31 - 77.7);
             const depthFactor = (32 - y) / 30; // 0 at y=32, ~1 at y=2
-            const thresh = 0.68 - depthFactor * 0.22; // 0.68 near top, 0.46 at bottom
+            const thresh = 0.72 - depthFactor * 0.22; // rarer than before: 0.72 near top, 0.50 at bottom
             if (netherNoise > thresh) ore = NETHERITE_ORE;
           }
           if (!ore && y < 58) {
             nG = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
             hasNg = true;
-            if (nG > 0.65 - depth * 0.2) ore = EMERALD_ORE;
+            if (nG > 0.70 - depth * 0.2) ore = EMERALD_ORE;
           }
-          if (!ore && y < 88 && noise3(x * 0.26 - 61.2, y * 0.4 + 19, z * 0.26 + 51.9) > 0.6 - depth * 0.24) ore = DIAMOND_ORE;
+          if (!ore && y < 88 && noise3(x * 0.26 - 61.2, y * 0.4 + 19, z * 0.26 + 51.9) > 0.66 - depth * 0.24) ore = DIAMOND_ORE;
           if (!ore && y < 128) {
             nF = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
             hasNf = true;
-            if (nF > 0.59 - depth * 0.15) ore = LAPIS_ORE;
+            if (nF > 0.64 - depth * 0.15) ore = LAPIS_ORE;
           }
-          if (!ore && y < 158 && noise3(x * 0.22 + 44.7, y * 0.34 - 12, z * 0.22 - 33.1) > 0.58 - depth * 0.16) ore = GOLD_ORE;
+          if (!ore && y < 158 && noise3(x * 0.22 + 44.7, y * 0.34 - 12, z * 0.22 - 33.1) > 0.63 - depth * 0.16) ore = GOLD_ORE;
           if (!ore && y < 188) {
             if (!hasNf) nF = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
-            if (nF < -0.56 + depth * 0.14) ore = REDSTONE_ORE;
+            if (nF < -0.60 + depth * 0.14) ore = REDSTONE_ORE;
           }
           if (!ore && y < 210) {
             if (!hasNg) nG = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
-            if (nG < -0.57 + depth * 0.12) ore = QUARTZ_ORE;
+            if (nG < -0.61 + depth * 0.12) ore = QUARTZ_ORE;
           }
-          if (!ore && y < 270 && noise3(x * 0.19 - 21.4, y * 0.3 + 5, z * 0.19 + 8.2) > 0.52 - depth * 0.1) ore = IRON_ORE;
-          if (!ore && y < 318 && noise3(x * 0.17 + 3.1, y * 0.26, z * 0.17 - 1.7) > 0.46) ore = COAL_ORE;
+          if (!ore && y < 270 && noise3(x * 0.19 - 21.4, y * 0.3 + 5, z * 0.19 + 8.2) > 0.58 - depth * 0.1) ore = IRON_ORE;
+          if (!ore && y < 318 && noise3(x * 0.17 + 3.1, y * 0.26, z * 0.17 - 1.7) > 0.54) ore = COAL_ORE;
           if (ore) chunk.blocks[cidx(lx, y, lz)] = ore;
         }
 
@@ -794,9 +795,9 @@ export class World {
 
     // ---- seasonal flower meadows: summer blooms, autumn asters, jungle orchids + expanded forest flora ----
     const centerBiome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-    const flowerPatches = centerBiome === 'jungle' ? 3 : centerBiome === 'autumn' ? 2 : centerBiome === 'plains' ? 3 : 1;
+    const flowerPatches = centerBiome === 'jungle' ? 4 : centerBiome === 'autumn' ? 3 : centerBiome === 'plains' ? 4 : 1;
     for (let i = 0; i < flowerPatches; i++) {
-      if (rand() > 0.55) continue;
+      if (rand() > 0.62) continue;
       const fx = cx * CHUNK + 2 + Math.floor(rand() * 12);
       const fz = cz * CHUNK + 2 + Math.floor(rand() * 12);
       const patchBiome = this.biomeAt(fx, fz, this.getHeight(fx, fz));
@@ -820,7 +821,7 @@ export class World {
       // dense meadow: pick one dominant species per patch for visual impact (like reference photos)
       const dominant = palette[Math.floor(rand() * palette.length)];
       const secondary = palette[Math.floor(rand() * palette.length)];
-      for (let p = 0; p < 7 + Math.floor(rand() * 8); p++) {
+      for (let p = 0; p < 10 + Math.floor(rand() * 10); p++) {
         const px = fx + Math.floor(rand() * 7) - 3;
         const pz = fz + Math.floor(rand() * 7) - 3;
         const h = this.getHeight(px, pz);
@@ -833,9 +834,9 @@ export class World {
     }
     // ---- forest ground cover: moss carpets, leaf piles, bushes (summer/winter/autumn variety) ----
     if (['plains', 'autumn', 'winter'].includes(centerBiome)) {
-      const gcCount = centerBiome === 'plains' ? 4 : centerBiome === 'autumn' ? 3 : 2;
+      const gcCount = centerBiome === 'plains' ? 7 : centerBiome === 'autumn' ? 5 : 3;
       for (let i = 0; i < gcCount; i++) {
-        if (rand() > 0.65) continue;
+        if (rand() > 0.72) continue;
         const gx = cx * CHUNK + 1 + Math.floor(rand() * 14);
         const gz = cz * CHUNK + 1 + Math.floor(rand() * 14);
         const h = this.getHeight(gx, gz);
@@ -902,9 +903,9 @@ export class World {
       }
     }
 
-    // ---- surface ore pokes (keep open desert sand plains clean) ----
-    for (let i = 0; i < 4; i++) {
-      if (rand() > 0.7) continue;
+    // ---- surface ore pokes (keep open desert sand plains clean) — reduced density
+    for (let i = 0; i < 3; i++) {
+      if (rand() > 0.82) continue;
       const x = cx * CHUNK + 1 + Math.floor(rand() * 14);
       const z = cz * CHUNK + 1 + Math.floor(rand() * 14);
       const h = this.getHeight(x, z);
@@ -928,15 +929,15 @@ export class World {
       if (rand() < 0.5) this.placeOreColumn(x + (rand() < 0.5 ? 1 : -1), z + (rand() < 0.5 ? 1 : -1), kind, 1);
     }
 
-    // guaranteed starter vein in the spawn chunk area
+    // guaranteed starter vein in the spawn chunk area — reduced to 2 small veins
     const scx = Math.floor(ORIGIN_X / CHUNK);
     const scz = Math.floor(ORIGIN_Z / CHUNK);
     if (Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1) {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         const x = cx * CHUNK + 2 + Math.floor(rand() * 12);
         const z = cz * CHUNK + 2 + Math.floor(rand() * 12);
         if (this.biomeAt(x, z) === 'desert') continue;
-        this.placeOreColumn(x, z, i < 2 ? COAL_ORE : IRON_ORE, 1 + (i % 2));
+        this.placeOreColumn(x, z, COAL_ORE, 1);
       }
     }
 
@@ -976,15 +977,15 @@ export class World {
         const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
         if (!nearSpawn) {
           if (biome === 'plains' || biome === 'autumn' || biome === 'winter') {
-            // expanded forest biomes: castles, ruined castles, cliff houses, face gates, flower groves — reduced density to avoid clutter
-            if (roll < 0.012) this.buildForestCastle(cx, cz, sRand);
-            else if (roll < 0.022) this.buildRuinedCastle(cx, cz, sRand);
-            else if (roll < 0.032) this.buildCliffHouses(cx, cz, sRand);
-            else if (roll < 0.038) this.buildDwarfFaceGate(cx, cz, sRand);
-            else if (roll < 0.052) this.buildFlowerGrove(cx, cz, sRand);
-            else if (roll < 0.07) this.buildCottage(cx, cz, sRand);
-            else if (roll < 0.085) this.buildTower(cx, cz, sRand);
-            else if (roll < 0.095) this.buildRuinYard(cx, cz, sRand);
+            // expanded forest biomes: castles, ruined castles, cliff houses, face gates, flower groves — balanced density
+            if (roll < 0.018) this.buildForestCastle(cx, cz, sRand);
+            else if (roll < 0.032) this.buildRuinedCastle(cx, cz, sRand);
+            else if (roll < 0.048) this.buildCliffHouses(cx, cz, sRand);
+            else if (roll < 0.058) this.buildDwarfFaceGate(cx, cz, sRand);
+            else if (roll < 0.078) this.buildFlowerGrove(cx, cz, sRand);
+            else if (roll < 0.10) this.buildCottage(cx, cz, sRand);
+            else if (roll < 0.12) this.buildTower(cx, cz, sRand);
+            else if (roll < 0.135) this.buildRuinYard(cx, cz, sRand);
           } else {
             if (roll < 0.03) this.buildCottage(cx, cz, sRand);
             else if (roll < 0.05) this.buildTower(cx, cz, sRand);
@@ -2009,7 +2010,9 @@ export class World {
 
   // ---------------- structures ----------------
   private flatSpotInChunk(cx: number, cz: number, w: number, d: number, rand: () => number): [number, number, number] | null {
-    for (let tries = 0; tries < 8; tries++) {
+    const maxSlope = w > 10 || d > 10 ? 6 : 4;
+    const maxH = SEA + 28;
+    for (let tries = 0; tries < 16; tries++) {
       const x = cx * CHUNK + Math.floor(rand() * (CHUNK - 2));
       const z = cz * CHUNK + Math.floor(rand() * (CHUNK - 2));
       let hMin = Infinity;
@@ -2025,7 +2028,15 @@ export class World {
         hMin = Math.min(hMin, h);
         hMax = Math.max(hMax, h);
       }
-      if (hMax - hMin > 3 || hMin < SEA + 1 || hMax > SEA + 22) continue;
+      if (hMax - hMin > maxSlope || hMin < SEA + 1 || hMax > maxH) continue;
+      // avoid water-adjacent spots for large castles
+      if (w > 10) {
+        let wet = false;
+        for (let dx = -1; dx <= w; dx++) for (let dz = -1; dz <= d; dz++) {
+          if (this.getHeight(x + dx, z + dz) <= SEA) { wet = true; break; }
+        }
+        if (wet) continue;
+      }
       return [x, hMin, z];
     }
     return null;

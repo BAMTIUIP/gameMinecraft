@@ -4931,7 +4931,7 @@ if (tpClipActive > 0.5) {
     }
   }
 
-  private static rleEnc(arr: Uint8Array | Int16Array): number[] {
+  private static rleEnc(arr: Uint8Array | Uint16Array | Int16Array): number[] {
     const out: number[] = [];
     let i = 0;
     while (i < arr.length) {
@@ -4944,7 +4944,7 @@ if (tpClipActive > 0.5) {
     return out;
   }
 
-  private static rleDec(pairs: number[], len: number, into: Uint8Array | Int16Array) {
+  private static rleDec(pairs: number[], len: number, into: Uint8Array | Uint16Array | Int16Array) {
     let idx = 0;
     for (let i = 0; i < pairs.length && idx < len; i += 2) {
       const n = pairs[i];
@@ -5047,7 +5047,7 @@ if (tpClipActive > 0.5) {
     this.chestBonusGear.clear();
     this.activeChest = null;
     for (const [key, state, blocksRLE, heightRLE] of data.chunks) {
-      const blocks = new Uint8Array(CHUNK * WY * CHUNK);
+      const blocks = new Uint16Array(CHUNK * WY * CHUNK);
       const height = new Int16Array(CHUNK * CHUNK);
       Engine.rleDec(blocksRLE, blocks.length, blocks);
       Engine.rleDec(heightRLE, height.length, height);
