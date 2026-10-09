@@ -25,6 +25,15 @@ import {
   APPLE,
   COCONUT,
   BANANA,
+  FLOWER_RED,
+  FLOWER_YELLOW,
+  FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
+  RAW_MEAT,
+  COOKED_MEAT,
+  MEAT_ITEM_BY_ID,
   FLOWER_TULIP_RED,
   FLOWER_TULIP_YELLOW,
   FLOWER_TULIP_PINK,
@@ -2669,6 +2678,153 @@ export function getBlockIcon(id: number): string {
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
+  }
+  // ---- Meat icons: non-block, distinct per family / cooked state ----
+  const meatInfo = MEAT_ITEM_BY_ID[id];
+  if (meatInfo || id === RAW_MEAT || id === COOKED_MEAT) {
+    ctx.clearRect(0, 0, size, size);
+    // shadow
+    fill48(14, 38, 20, 3, 'rgba(0,0,0,0.22)');
+    const family = meatInfo ? meatInfo.family : (id === RAW_MEAT ? 'beef' as const : 'beef' as const);
+    const cooked = meatInfo ? meatInfo.cooked : id === COOKED_MEAT;
+    const sizeTag = meatInfo ? meatInfo.size : 'medium';
+    const scaleBonus = sizeTag === 'large' ? 2 : sizeTag === 'small' ? -1 : 0;
+
+    const meatPalette: Record<string, { raw: string; rawLight: string; rawDark: string; cooked: string; cookedLight: string; cookedDark: string; bone?: string }> = {
+      beef: { raw: '#c94a4a', rawLight: '#e86a5a', rawDark: '#7a1e1e', cooked: '#8a4a2e', cookedLight: '#b86a3a', cookedDark: '#4a2a18', bone: '#f0e0c8' },
+      pork: { raw: '#d98a8a', rawLight: '#f0a8a8', rawDark: '#8a4a4a', cooked: '#a86a4a', cookedLight: '#d08a5a', cookedDark: '#5a3a28' },
+      chicken: { raw: '#e8b8a8', rawLight: '#f8d0c0', rawDark: '#a06a5a', cooked: '#c48a4a', cookedLight: '#e8b06a', cookedDark: '#6a4a2a', bone: '#f8f0e0' },
+      mutton: { raw: '#c08070', rawLight: '#d8a090', rawDark: '#7a4a3a', cooked: '#9a6a4a', cookedLight: '#c08a5a', cookedDark: '#5a3a2a' },
+      fish: { raw: '#7ab8d0', rawLight: '#9ad0e8', rawDark: '#3a6a8a', cooked: '#c0a060', cookedLight: '#d8c080', cookedDark: '#7a5a30' },
+      salmon: { raw: '#e88a6a', rawLight: '#f0a88a', rawDark: '#8a4a3a', cooked: '#d06a4a', cookedLight: '#e88a6a', cookedDark: '#6a3a28' },
+      rabbit: { raw: '#c8a080', rawLight: '#e0b898', rawDark: '#8a6a4a', cooked: '#a87a4a', cookedLight: '#c89a6a', cookedDark: '#5a4a2a', bone: '#f0e0c8' },
+      venison: { raw: '#a04a3a', rawLight: '#c06a4a', rawDark: '#5a2a1a', cooked: '#6a3a28', cookedLight: '#8a5a3a', cookedDark: '#3a2018' },
+      crab: { raw: '#d05030', rawLight: '#e8704a', rawDark: '#8a2a18', cooked: '#c04020', cookedLight: '#e06030', cookedDark: '#6a2010' },
+    };
+    const pal = meatPalette[family] || meatPalette.beef;
+    const base = cooked ? pal.cooked : pal.raw;
+    const light = cooked ? pal.cookedLight : pal.rawLight;
+    const dark = cooked ? pal.cookedDark : pal.rawDark;
+
+    if (family === 'fish' || family === 'salmon') {
+      // fish silhouette side view
+      const y = 6 + (scaleBonus < 0 ? 1 : 0);
+      const h = 6 + scaleBonus;
+      // body
+      p(3, y, 8, h, dark);
+      p(3, y, 7, h - 1, base);
+      p(4, y, 5, 2, light);
+      // head
+      p(2, y + 1, 3, h - 2, base);
+      p(2, y + 1, 2, 1, light);
+      // eye
+      p(3, y + 2, 1, 1, cooked ? '#2a1a0a' : '#0a0a1a');
+      // tail fin
+      p(11, y, 3, h, base);
+      p(12, y, 2, 1, light);
+      p(12, y + h - 1, 2, 1, dark);
+      // belly highlight for raw
+      if (!cooked) p(5, y + h - 2, 3, 1, '#e0f0f8');
+      // grill marks for cooked
+      if (cooked) {
+        p(5, y + 1, 1, h - 2, '#3a2010');
+        p(7, y + 1, 1, h - 2, '#3a2010');
+        p(9, y + 1, 1, h - 2, '#3a2010');
+      }
+    } else if (family === 'chicken' || family === 'rabbit') {
+      // drumstick: bone + meat ball
+      const y0 = 3;
+      // bone handle
+      p(10, y0 + 1, 2, 8, '#f0e8d0');
+      p(10, y0 + 1, 2, 2, '#ffffff');
+      p(10, y0 + 7, 2, 2, pal.bone || '#f0e0c8');
+      p(9, y0 + 9, 4, 2, '#f0e8d0');
+      p(9, y0 + 9, 1, 2, '#ffffff');
+      // meat ball
+      p(4, y0 + 2, 6, 6, dark);
+      p(4, y0 + 2, 5, 5, base);
+      p(5, y0 + 2, 3, 2, light);
+      p(5, y0 + 6, 4, 1, dark);
+      if (cooked) {
+        p(5, y0 + 3, 1, 3, '#4a2a18');
+        p(7, y0 + 3, 1, 3, '#4a2a18');
+      }
+      // size
+      if (scaleBonus > 0) {
+        p(3, y0 + 3, 1, 4, base);
+        p(3, y0 + 3, 1, 2, light);
+      }
+    } else if (family === 'crab') {
+      // crab claw
+      p(4, 4, 7, 7, dark);
+      p(4, 4, 6, 6, base);
+      p(5, 4, 4, 2, light);
+      p(5, 9, 4, 1, dark);
+      // pincer
+      p(10, 3, 3, 3, base);
+      p(10, 3, 2, 1, light);
+      p(10, 7, 3, 3, base);
+      p(10, 9, 2, 1, dark);
+      // joints
+      p(9, 5, 2, 4, dark);
+      if (cooked) {
+        p(6, 6, 1, 1, '#ffcc6a');
+      }
+    } else {
+      // steak/chop: rounded steak with fat rim
+      const y = 4;
+      const w = 8 + scaleBonus;
+      const h = 6 + Math.max(0, scaleBonus);
+      const x = 4 - Math.floor(scaleBonus / 2);
+      // fat rim
+      p(x - 1, y, w + 2, h + 2, '#f0e0c8');
+      p(x - 1, y, w + 2, 1, '#ffffff');
+      // meat
+      p(x, y + 1, w, h, dark);
+      p(x, y + 1, w - 1, h - 1, base);
+      p(x + 1, y + 1, w - 3, 2, light);
+      // marbling / grill
+      if (!cooked) {
+        p(x + 2, y + 3, 2, 1, '#ffffff');
+        p(x + 5, y + 4, 2, 1, '#f8d0c0');
+      } else {
+        p(x + 1, y + 2, 1, h - 2, '#3a1a0a');
+        p(x + 3, y + 2, 1, h - 2, '#3a1a0a');
+        p(x + 5, y + 2, 1, h - 2, '#3a1a0a');
+      }
+    }
+
+    const url2 = c.toDataURL();
+    iconCache.set(id, url2);
+    return url2;
+  }
+  if (id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE) {
+    ctx.clearRect(0, 0, size, size);
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.25)');
+    const colMap: Record<number, { cup: string; light: string; dark: string; center: string }> = {
+      [FLOWER_RED]: { cup: '#d42a2a', light: '#ff5a4a', dark: '#8a1a1a', center: '#ffea4a' },
+      [FLOWER_YELLOW]: { cup: '#e8c628', light: '#ffea4a', dark: '#a08018', center: '#8a5a10' },
+      [FLOWER_BLUE]: { cup: '#4a8ae0', light: '#7ab0ff', dark: '#2a4a8a', center: '#ffea6a' },
+      [FLOWER_PINK]: { cup: '#e46a9a', light: '#ff9abe', dark: '#a04068', center: '#ffe0a0' },
+      [FLOWER_PURPLE]: { cup: '#8a4ac8', light: '#b07aea', dark: '#5a2a8a', center: '#ffea4a' },
+      [FLOWER_WHITE]: { cup: '#f0f0e8', light: '#ffffff', dark: '#c8c8b8', center: '#e8c628' },
+    };
+    const col = colMap[id] || colMap[FLOWER_RED];
+    // stem
+    p(7, 8, 2, 6, '#4a8a2a');
+    p(7, 8, 1, 5, '#6cb33a');
+    // petals - 5 petal flower
+    p(5, 3, 6, 2, col.cup);
+    p(4, 4, 8, 3, col.cup);
+    p(5, 4, 6, 2, col.light);
+    p(5, 5, 1, 1, '#ffffff');
+    // center
+    p(7, 5, 2, 2, col.center);
+    p(7, 5, 1, 1, '#ffffff');
+    p(7, 8, 2, 1, col.dark);
+    const url3 = c.toDataURL();
+    iconCache.set(id, url3);
+    return url3;
   }
   if (id === COAL) {
     // 1. Ember-Core Anthracite Shard Cluster (3 jagged dark carbon spires + glowing orange ember fissure)

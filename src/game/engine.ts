@@ -10769,21 +10769,48 @@ if (tpClipActive > 0.5) {
     const fog = this.scene.fog as THREE.Fog;
     const isUnder = this.headUnderwater();
     if (isUnder) {
-      // underwater blue filter — clear water boundary visibility
-      const waterFog = new THREE.Color(0x0e4a7a).lerp(new THREE.Color(0x1a6fb0), d * 0.5);
+      // underwater — dark blurred water boundary, not bright blue hole; filter shows where water ends
+      const waterFog = new THREE.Color(0x061e32).lerp(new THREE.Color(0x0b2f4a), d * 0.35);
       fog.color.copy(waterFog);
       this.scene.background = waterFog;
       fog.near = 2;
-      fog.far = Math.min(42, this.renderDist * 0.45);
-      if (this.skyMat) this.skyMat.color.copy(waterFog).multiplyScalar(0.55);
+      fog.far = Math.min(36, this.renderDist * 0.42);
+      if (this.skyMat) this.skyMat.color.copy(waterFog).multiplyScalar(0.45);
     } else {
-      fog.color.copy(c);
-      const nightHaze = 0.66 + d * 0.54;
-      const weatherHaze = 1 - weather * 0.16;
-      fog.far = this.renderDist * nightHaze * weatherHaze;
-      fog.near = fog.far * (0.34 + weather * 0.07);
-      this.scene.background = c;
-      if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+      // detect deep underground to hide sky leaking through unloaded chunk holes
+      let surfaceH = 64;
+      try {
+        surfaceH = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
+      } catch {}
+      const isDeepUnderground = this.pos.y < surfaceH - 10;
+      const isCave = this.pos.y < surfaceH - 4 && this.pos.y < 48;
+      if (isDeepUnderground) {
+        // dark cave void — no bright sky, unloaded chunks appear as dark blurred fog, but ore still visible
+        const caveFog = new THREE.Color(0x0a1418).lerp(new THREE.Color(0x111c22), Math.min(1, (surfaceH - this.pos.y) / 40) * 0.5);
+        caveFog.lerp(night, (1 - d) * 0.35);
+        fog.color.copy(caveFog);
+        this.scene.background = caveFog;
+        fog.far = Math.min(this.renderDist * 0.78, 84);
+        fog.near = fog.far * 0.22;
+        if (this.skyMat) this.skyMat.color.copy(caveFog).multiplyScalar(0.35);
+      } else if (isCave) {
+        // shallow cave / overhang — muted, desaturated sky to avoid sharp blue rectangles
+        const caveBlend = new THREE.Color(0x1a2a32);
+        caveBlend.lerp(c, 0.22 + d * 0.18);
+        fog.color.copy(caveBlend);
+        this.scene.background = caveBlend;
+        fog.far = this.renderDist * (0.68 + d * 0.14) * (1 - weather * 0.16);
+        fog.near = fog.far * 0.28;
+        if (this.skyMat) this.skyMat.color.copy(caveBlend).multiplyScalar(0.5);
+      } else {
+        fog.color.copy(c);
+        const nightHaze = 0.66 + d * 0.54;
+        const weatherHaze = 1 - weather * 0.16;
+        fog.far = this.renderDist * nightHaze * weatherHaze;
+        fog.near = fog.far * (0.34 + weather * 0.07);
+        this.scene.background = c;
+        if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+      }
     }
 
     const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();

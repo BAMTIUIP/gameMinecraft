@@ -1039,7 +1039,7 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pe
   ) {
     return 'food';
   }
-  if (id >= 154 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
+  if (isToolId(id) || isArrowId(id) || id === ARROW_ITEM || id === TOOL_TORCH || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   return 'blocks';
 }
 

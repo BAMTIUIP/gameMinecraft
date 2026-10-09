@@ -673,7 +673,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                   return (
                     <span className="flex flex-col items-center justify-center leading-none" style={{ color: matCol }}>
                       {gear ? (
-                        <GearIcon slot={gear.slot} color={matCol} size={28} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
+                        <GearIcon slot={gear.slot} color={matCol} affixes={gear.affixes} size={28} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
                       ) : (
                         <span className="text-base sm:text-xl" style={{ textShadow: `0 0 8px ${rarCol}` }}>⛨</span>
                       )}

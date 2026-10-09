@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
-import type { Slot } from '../game/items';
+import { AFFIXES, type AffixId, type Item } from '../game/items';
 
 type GearIconProps = {
-  slot: Slot;
+  slot: Item['slot'];
   color: string;
   size?: number;
   className?: string;
+  affixes?: Item['affixes'];
+  patternColors?: string[];
 };
 
-/** Crisp, slot-specific armor silhouettes; the main fill is the same tint used by the 3D model. */
-export function GearIcon({ slot, color, size = 32, className }: GearIconProps) {
+/** Crisp, slot-specific armor silhouettes; base fill = material color, affix colors = dots/stripes. */
+export function GearIcon({ slot, color, size = 32, className, affixes, patternColors }: GearIconProps) {
   const outline = '#151b18';
   const highlight = '#ffffff';
   const shade = '#101512';
@@ -20,6 +22,14 @@ export function GearIcon({ slot, color, size = 32, className }: GearIconProps) {
     strokeLinejoin: 'round' as const,
     strokeLinecap: 'square' as const,
   };
+
+  // Derive pattern colors from affixes if not explicitly passed
+  const colors: string[] =
+    patternColors ??
+    (affixes ?? [])
+      .map((a) => AFFIXES[a.id as AffixId]?.color)
+      .filter(Boolean) as string[];
+  const affIds: AffixId[] = (affixes ?? []).map((a) => a.id as AffixId);
 
   let silhouette: ReactNode;
   switch (slot) {
@@ -80,6 +90,37 @@ export function GearIcon({ slot, color, size = 32, className }: GearIconProps) {
       break;
   }
 
+  const patternNodes: ReactNode[] = [];
+  const dotCount = Math.min(4, colors.length);
+  for (let i = 0; i < dotCount; i++) {
+    const col = colors[i];
+    const spacing = 6;
+    const startX = 16 - ((dotCount - 1) * spacing) / 2;
+    const cx = startX + i * spacing;
+    const cy = slot === 'head' ? 17 : slot === 'chest' ? 23 : slot === 'legs' ? 22 : slot === 'feet' ? 21 : slot === 'hands' ? 20 : 22;
+    patternNodes.push(<rect key={`dot-${i}`} x={cx - 1} y={cy} width={2} height={2} fill={col} stroke={outline} strokeWidth={0.6} />);
+  }
+  if (affIds.includes('fire')) {
+    const fireCol = AFFIXES.fire.color;
+    patternNodes.push(<rect key="stripe-fire" x={14} y={8} width={1} height={14} fill={fireCol} opacity={0.9} />);
+    patternNodes.push(<rect key="stripe-fire-2" x={17} y={8} width={1} height={14} fill={fireCol} opacity={0.7} />);
+  }
+  if (affIds.includes('frost')) {
+    const frostCol = AFFIXES.frost.color;
+    patternNodes.push(<rect key="stripe-frost" x={7} y={10} width={1} height={10} fill={frostCol} opacity={0.85} />);
+    patternNodes.push(<rect key="stripe-frost-2" x={24} y={10} width={1} height={10} fill={frostCol} opacity={0.85} />);
+  }
+  if (affIds.includes('vamp')) {
+    const vampCol = AFFIXES.vamp.color;
+    patternNodes.push(<rect key="dot-vamp-l" x={5} y={12} width={1} height={6} fill={vampCol} />);
+    patternNodes.push(<rect key="dot-vamp-r" x={26} y={12} width={1} height={6} fill={vampCol} />);
+  }
+  if (affIds.includes('thorns')) {
+    const thCol = AFFIXES.thorns.color;
+    patternNodes.push(<rect key="th-1" x={10} y={6} width={2} height={1} fill={thCol} />);
+    patternNodes.push(<rect key="th-2" x={20} y={6} width={2} height={1} fill={thCol} />);
+  }
+
   return (
     <svg
       aria-hidden="true"
@@ -91,6 +132,7 @@ export function GearIcon({ slot, color, size = 32, className }: GearIconProps) {
       focusable="false"
     >
       {silhouette}
+      {patternNodes}
     </svg>
   );
 }

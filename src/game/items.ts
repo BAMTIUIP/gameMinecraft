@@ -105,18 +105,26 @@ export type Item = {
   crafted: boolean;
 };
 
-/** Shared color source for 3D armor, inventory icons, and the crafting preview. */
+/** Shared color source for 3D armor, inventory icons, and the crafting preview.
+ * Base color is always the material (iron, diamond, netherite…); affix colors are rendered as secondary
+ * pattern dots/stripes, not as the primary tint. */
 export function gearColor(
   item: Pick<Item, 'material' | 'visualColor'> & Partial<Pick<Item, 'affixes' | 'crafted'>>,
 ): string {
   const custom = typeof item.visualColor === 'string' && /^#[0-9a-f]{6}$/i.test(item.visualColor)
     ? item.visualColor.toLowerCase()
     : null;
-  const primaryAffix = item.crafted ? null : item.affixes?.[0]?.id;
-  return custom
-    ?? (primaryAffix ? AFFIX_BASE_COLORS[primaryAffix] : null)
-    ?? MATERIALS[item.material]?.color
-    ?? '#d6d9dd';
+  return custom ?? MATERIALS[item.material]?.color ?? '#d6d9dd';
+}
+
+/** Secondary pattern colors derived from buffs/affixes — used for dots/stripes on armor. */
+export function gearAffixPatternColors(
+  item: Pick<Item, 'affixes'> & Partial<Pick<Item, 'crafted'>>,
+): string[] {
+  if (item.crafted) return [];
+  const aff = item.affixes ?? [];
+  // Use the actual affix display colors (AFFIXES[ id ].color) for patterns
+  return aff.map((a) => AFFIXES[a.id]?.color).filter(Boolean) as string[];
 }
 
 export const SLOT_KEY: Record<Slot, TKey> = {
