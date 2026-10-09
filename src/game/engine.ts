@@ -336,15 +336,18 @@ export type HudObjective = {
   status: 'complete' | 'active' | 'locked';
 };
 
-const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
+export const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'weapon', craftTier: 0 },
+  { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
+  { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
+  { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
-  { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftRecipeKey: 'cook_meat' },
+  { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftKind: 'cook' },
   { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
-  { id: 'hunt-meat', titleKey: 'objectiveCookMeatBatch', target: 3, rewardScore: 220, rewardSeconds: 35, craftRecipeKey: 'cook_meat' },
+  { id: 'hunt-meat', titleKey: 'objectiveCookMeatBatch', target: 3, rewardScore: 220, rewardSeconds: 35, craftKind: 'cook' },
   { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
   { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
   { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
@@ -358,11 +361,8 @@ const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
   { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
   { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
-  { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
   { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
   { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
-  { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
-  { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
   { id: 'iron-pick', titleKey: 'objectiveCraftIronPickaxe', target: 1, rewardScore: 380, rewardSeconds: 40, craftPickaxeTier: 2 },
   { id: 'gold', titleKey: 'objectiveMineGold', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [GOLD_ORE] },
@@ -9287,6 +9287,7 @@ if (tpClipActive > 0.5) {
         sfx.place();
         this.burst(target.x + 0.5, target.y + 0.55, target.z + 0.5, [255, 152, 52], 8, 1.1);
         this.popup(target.x + 0.5, target.y + 1.2, target.z + 0.5, `${blockName(cookedId, BLOCKS[cookedId]?.name ?? 'Cooked meat')}!`, '#ffc15e', true);
+        this.recordExplorerCook();
         this.syncHotbar(true);
         this.syncHud(true);
       }
@@ -12497,6 +12498,15 @@ if (tpClipActive > 0.5) {
       const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
       const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
       if (craftedPickaxe || craftedRecipe || craftedRecipeVariant || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
+    }
+    this.advanceExplorerObjectives();
+  }
+
+  /** Roasting raw meat at a campfire counts toward the cooking missions (any meat type). */
+  private recordExplorerCook() {
+    if (!this.explorationObjectives.length) return;
+    for (const task of this.explorationObjectives) {
+      if (task.craftKind === 'cook') task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();
   }
