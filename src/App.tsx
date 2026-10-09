@@ -44,7 +44,6 @@ import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDev
 import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
 import { markAdSessionStart, adInFlight, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import {
-  availableRewardedDropChestItems,
   completePendingRewardedDropItems,
   pendingRewardedDropItems,
   recordRewardedDropLogin,
@@ -1053,6 +1052,7 @@ export default function App() {
           developerShopEnabled={DEVELOPER_TOOLS_ENABLED && !isTv && !tvMode()}
           shopPrices={shopPrices}
           wolfPetOwned={wolfPetOwned}
+          catPetOwned={catPetOwned}
           monkeyPetOwned={monkeyPetOwned}
           parrotPetOwned={parrotPetOwned}
           owlPetOwned={owlPetOwned}
@@ -1104,6 +1104,7 @@ export default function App() {
           onEquipPet={equipPet}
           onUnequipPet={unequipPet}
           onSelectPetKind={selectPetKind}
+          onOpenRewardPack={openRewardPack}
           onCyclePetCoat={cyclePetCoat}
           onSell={sell}
           onBuy={buyOffer}

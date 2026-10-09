@@ -556,6 +556,7 @@ export function StartScreen({
   shopPrices: ShopCatalog;
   /** restored permanent companion ownership; prevents another purchase for the same account */
   wolfPetOwned: boolean;
+  catPetOwned: boolean;
   monkeyPetOwned: boolean;
   parrotPetOwned: boolean;
   owlPetOwned: boolean;

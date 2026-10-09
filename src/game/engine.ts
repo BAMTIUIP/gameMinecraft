@@ -1,3 +1,10 @@
+import {
+  isRewardedDropChestItem,
+  openRewardedDropPack,
+  rewardedDropIdFromChestItem,
+  rollbackOpenedRewardedDropPack,
+  type RewardedDropMode,
+} from './adDrops';
 import * as THREE from 'three';
 import { createBreathState, stepBreath, type BreathState } from './breath';
 import { ARROW_IDS, buildArrowModel, isArrowId } from './arrowVisuals';
@@ -38,7 +45,6 @@ import {
   EMERALD,
   QUARTZ,
   REWARD_PACK_DAILY,
-  REWARD_PACK_MONTHLY,
   REWARD_PACK_WEEKLY,
   GRASS,
   LAVA,
@@ -513,7 +519,6 @@ const JUMP_V = 9.4;
 const WALK = 4.6;
 const SPRINT = 7.1;
 const SWIM_SPRINT = WALK * 1.1;
-const SWIM_JUMP_UP = 4.7;
 const PLAYER_HALF = 0.3;
 const PLAYER_HEIGHT = 1.8;
 const CRAWL_HEIGHT = 0.72;
@@ -6510,7 +6515,8 @@ if (tpClipActive > 0.5) {
     const visible = this.thirdPerson && (this.phase === 'playing' || this.phase === 'paused');
     this.playerAvatar.visible = visible;
     const parrotCallStationary = Math.hypot(this.vel.x, this.vel.z) <= 0.45 && Math.abs(this.vel.y) <= 0.72;
-    const activeBird = isBirdCompanion(this.wolfPetRig?.kind) && this.petEquipped && this.wolfPetRig.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
+    const companion = this.wolfPetRig;
+    const activeBird = !!companion && isBirdCompanion(companion.kind) && this.petEquipped && companion.parrotCalled && !this.playerSprinting && !this.inWater && parrotCallStationary;
     this.parrotHandArmBlend += ((activeBird ? 1 : 0) - this.parrotHandArmBlend) * Math.min(1, dt * 9);
     const firstPersonArmVisible = !this.thirdPerson
       && (this.phase === 'playing' || this.phase === 'paused')
@@ -13293,7 +13299,7 @@ if (tpClipActive > 0.5) {
   /** B whistle (and the mobile CALL button) brings an equipped bird companion onto the outstretched left hand. */
   whistleParrot(): boolean {
     const rig = this.wolfPetRig;
-    if (this.phase !== 'playing' || !this.petEquipped || !isBirdCompanion(rig?.kind)) {
+    if (!rig || this.phase !== 'playing' || !this.petEquipped || !isBirdCompanion(rig.kind)) {
       sfx.ui(false);
       return false;
     }
@@ -13310,7 +13316,7 @@ if (tpClipActive > 0.5) {
 
   private interactParrot(): boolean {
     const rig = this.wolfPetRig;
-    if (!isBirdCompanion(rig?.kind) || !this.petInteractionAvailable()) return false;
+    if (!rig || !isBirdCompanion(rig.kind) || !this.petInteractionAvailable()) return false;
     const seeds = this.inventory.get(WHEAT_SEEDS) ?? 0;
     const feedingSeeds = this.hotbar?.[this.selected] === WHEAT_SEEDS;
     if (seeds > 0 && feedingSeeds) {
