@@ -29,6 +29,8 @@ export const LOCAL_FLAGS: YaFlags = {
   'adv.interstitial.enabled': 'true',
   /** seconds between two fullscreen ads */
   'adv.interstitialCooldownSec': '180',
+  /** seconds of gameplay between two fullscreen ads during a run */
+  'adv.interstitialIntervalSec': '240',
   'adv.rewarded.enabled': 'true',
   /** sticky banner control through the SDK (Console option «Использовать API для показа sticky-баннера») */
   'adv.banner.enabled': 'true',

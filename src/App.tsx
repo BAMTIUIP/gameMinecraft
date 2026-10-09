@@ -36,13 +36,13 @@ import {
   type YaProfile,
 } from './game/yandex';
 import { addTotals, flushProfile, markProfileDirty, onProfileChange, pauseProfileSync, resyncProfile, saveProgressNow, startProfileSync, type ProfileSnapshot } from './game/profile';
-import { allFlags, flagBool, loadFlags } from './game/flags';
+import { allFlags, flagBool, flagNumber, loadFlags } from './game/flags';
 import { promoAction } from './game/promo';
 import { watchAndClaimDailyReward } from './game/daily';
 import { confirmExit, dismissExit, onAccountSwitch, onExitPrompt, startPlatformEvents } from './game/platform';
 import { copyText, fullscreenAvailable, fullscreenOn, toggleFullscreen, touchDevice } from './game/params';
 import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote';
-import { markAdSessionStart, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
+import { markAdSessionStart, adInFlight, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import {
   availableRewardedDropChestItems,
   completePendingRewardedDropItems,
@@ -359,6 +359,12 @@ export default function App() {
     const eng = new Engine(hostRef.current, setHud);
     eng.setCharacterCustomization(characterCustomization);
     engineRef.current = eng;
+    if (import.meta.env.DEV) {
+      // Dev-only automation hook (window.__ore) for local QA and trailer capture — see
+      // src/game/devHook.ts. The production build replaces import.meta.env.DEV with false and
+      // drops this branch, so no developer instrument ships to players (requirement 1.14).
+      void import('./game/devHook').then((m) => m.exposeDevHook(eng));
+    }
     eng.mount();
     eng.setDom(domRef.current);
     // the remote-config knob (game.exploreMinutes) is applied by the effect below, once flags load
@@ -806,6 +812,34 @@ export default function App() {
   useEffect(() => {
     void syncBanner(hud.phase === 'menu' || hud.phase === 'gameover');
   }, [hud.phase, flags['adv.enabled'], flags['adv.banner.enabled'], adFreeOwned]);
+
+  // Fullscreen ad every N minutes of gameplay (default 4 min, configurable via remote flags).
+  // The platform pauses the game automatically when the ad opens, so the player never sees an
+  // ad while actively mining — the world freezes and resumes after the ad closes.
+  useEffect(() => {
+    const intervalSec = flagNumber('adv.interstitialIntervalSec', 240);
+    let elapsed = 0;
+    let timerId: number | null = null;
+
+    const tick = () => {
+      if (hud.phase !== 'playing') {
+        elapsed = 0;
+        return;
+      }
+      if (adInFlight()) return;
+      elapsed += 5000;
+      if (elapsed >= intervalSec * 1000) {
+        elapsed = 0;
+        showFullscreenAd().catch(() => {});
+      }
+    };
+
+    timerId = window.setInterval(tick, 5000);
+
+    return () => {
+      if (timerId !== null) window.clearInterval(timerId);
+    };
+  }, [hud.phase]);
 
   /**
    * Sign-in is offered, never forced: the button explains the benefit first (requirement 1.2),

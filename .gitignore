@@ -19,3 +19,6 @@ release/
 # Mock SDK for local development only
 public/sdk.js
 dist/sdk.js
+
+# trailer capture frames (encoded videos live in docs/)
+tools/trailer/.frames/

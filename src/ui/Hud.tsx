@@ -589,8 +589,11 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             <span className="font-display text-xs tracking-widest text-[#d98cff] sm:text-sm">{t('pressTrade')}</span>
           </div>
         )}
+        {/* Controls hint. On a tall portrait (9:16) screen this black plate sits right over the
+            action in the middle of the view, and on touch it only repeats what the always-visible
+            control buttons already say — so it is hidden in portrait orientation. Landscape keeps it. */}
         {hint && (
-          <div className="bevel-flat notch anim-rise px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/55 sm:text-xs">
+          <div className="bevel-flat notch anim-rise px-3 py-1.5 text-center text-[10px] tracking-[0.16em] text-white/55 portrait:hidden sm:text-xs">
             {controlsHint}
           </div>
         )}
