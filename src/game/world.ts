@@ -525,63 +525,58 @@ export class World {
 
         for (let y = 2; y < h - 3; y++) {
           if (chunk.blocks[cidx(lx, y, lz)] !== STONE) continue;
-          // Minecraft-like ore distribution: more common near surface for coal/iron, rarer deep
-          // attempt rate tuned: 22% for common, 8% for rare — gives visible but not wall-to-wall ore
-          const isDeep = y < 60;
-          const attemptRate = isDeep ? 0.11 : 0.20;
+          // Minecraft-like ore distribution — tuned to be visible but not wall-to-wall
+          // attempt rate 32% gives ~2-3% ore at best levels after thresholds, matching MC vein density
+          const attemptRate = y < 50 ? 0.32 : y < 100 ? 0.30 : 0.28;
           if (rand() > attemptRate) continue;
           let ore = 0;
-          // based on Minecraft 1.20 distribution research: coal best 96-136, iron best 16 & 232, gold -16, diamond -59, etc.
-          // our world: SEA 162, bedrock 0, so map: y 90-140 = coal mountain, y 40-80 = iron/gold, y 8-25 = diamond/redstone
+          // our world: SEA 162, bedrock 0, so map: y 90-140 = coal mountain, y 40-90 = iron/gold, y 8-28 = diamond/redstone
           if (y < 20) {
             const netherNoise = noise3(x * 0.31 + 97.3, y * 0.5 - 41, z * 0.31 - 77.7);
             const depthFactor = (20 - y) / 18;
-            const thresh = 0.84 - depthFactor * 0.10;
+            const thresh = 0.78 - depthFactor * 0.10; // 0.78->0.68 deep
             if (netherNoise > thresh) ore = NETHERITE_ORE;
           }
-          if (!ore && y < 32) {
-            // diamond & redstone peak at deep levels like MC -59
+          if (!ore && y < 35) {
             const n = noise3(x * 0.26 - 61.2, y * 0.4 + 19, z * 0.26 + 51.9);
-            if (n > 0.76) ore = DIAMOND_ORE;
-            else if (!ore) {
+            if (n > 0.68) ore = DIAMOND_ORE;
+            else {
               const n2 = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
-              if (n2 < -0.74) ore = REDSTONE_ORE;
+              if (n2 < -0.68) ore = REDSTONE_ORE;
             }
           }
-          if (!ore && y < 52) {
+          if (!ore && y < 55) {
             const n = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
-            if (n > 0.76) ore = EMERALD_ORE;
+            if (n > 0.70) ore = EMERALD_ORE;
             else {
               const n2 = noise3(x * 0.22 + 44.7, y * 0.34 - 12, z * 0.22 - 33.1);
-              if (n2 > 0.74) ore = GOLD_ORE;
+              if (n2 > 0.66) ore = GOLD_ORE;
               else {
                 const n3 = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
-                if (n3 > 0.73) ore = LAPIS_ORE;
+                if (n3 > 0.66) ore = LAPIS_ORE;
+                else {
+                  const n4 = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
+                  if (n4 < -0.66) ore = QUARTZ_ORE;
+                }
               }
             }
           }
-          if (!ore && y < 72) {
-            const n = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
-            if (n < -0.74) ore = QUARTZ_ORE;
-          }
-          if (!ore && y < 120) {
-            // iron peak around y 60-90 like MC y=16, plus secondary high mountain peak
-            if (noise3(x * 0.19 - 21.4, y * 0.3 + 5, z * 0.19 + 8.2) > 0.68) ore = IRON_ORE;
+          if (!ore && y < 125) {
+            if (noise3(x * 0.19 - 21.4, y * 0.3 + 5, z * 0.19 + 8.2) > 0.60) ore = IRON_ORE;
           }
           if (!ore && y < 165) {
-            // coal best 96-136 overlapping — most common ore
-            if (noise3(x * 0.17 + 3.1, y * 0.26, z * 0.17 - 1.7) > 0.66) ore = COAL_ORE;
+            if (noise3(x * 0.17 + 3.1, y * 0.26, z * 0.17 - 1.7) > 0.58) ore = COAL_ORE;
           }
           if (ore) {
             chunk.blocks[cidx(lx, y, lz)] = ore;
-            // small veins 2-5 blocks — Minecraft veins are 3-8, we keep smaller for performance
-            if (rand() < 0.55) {
-              for (let v = 0; v < 2 + Math.floor(rand() * 3); v++) {
+            // small veins 2-5 blocks
+            if (rand() < 0.62) {
+              for (let v = 0; v < 2 + Math.floor(rand() * 4); v++) {
                 const nx = lx + Math.floor(rand() * 3) - 1;
                 const ny = y + Math.floor(rand() * 3) - 1;
                 const nz = lz + Math.floor(rand() * 3) - 1;
                 if (nx < 0 || nx >= CHUNK || nz < 0 || nz >= CHUNK || ny < 2 || ny >= h - 3) continue;
-                if (chunk.blocks[cidx(nx, ny, nz)] === STONE && rand() < 0.65) chunk.blocks[cidx(nx, ny, nz)] = ore;
+                if (chunk.blocks[cidx(nx, ny, nz)] === STONE && rand() < 0.70) chunk.blocks[cidx(nx, ny, nz)] = ore;
               }
             }
           }
@@ -591,18 +586,17 @@ export class World {
         const lavaChannel = Math.abs(fbm2(x * 0.014 - 71.8, z * 0.014 + 126.4, 3));
         const lavaLevel = 20 + Math.floor((fbm2(x * 0.008 + 19, z * 0.008 - 44, 2) + 1) * 54);
         const floodedCavern = fbm2(x * 0.019 + 43, z * 0.019 - 98, 2) < -0.28;
-        // rare ores always survive, common ores mostly carved (reduced air exposure like MC) but 15-20% remain visible in cave walls
+        // rare ores always survive, common ores 35% remain exposed in caves (MC reduced air exposure but still visible)
         const isRareOreId = (id: number) => id === NETHERITE_ORE || id === DIAMOND_ORE || id === EMERALD_ORE || id === GOLD_ORE;
         const isCommonOreId = (id: number) => id === COAL_ORE || id === IRON_ORE || id === REDSTONE_ORE || id === LAPIS_ORE || id === QUARTZ_ORE;
 
         // ---- New cave biome carving: large caverns for lush/vine/mossy/lake, dripstone for deep ----
-        // reference-like caves: big open rooms, mossy floors, hanging vines, dripstone columns, underground lakes
         for (let y = 2; y < caveTop; y++) {
           const at = cidx(lx, y, lz);
           let cur = chunk.blocks[at];
           if (cur === BEDROCK) continue;
           if (isRareOreId(cur)) continue;
-          if (isCommonOreId(cur) && rand() < 0.18) continue; // 18% of common ores stay exposed in caves (MC reduced air exposure)
+          if (isCommonOreId(cur) && rand() < 0.35) continue; // 35% of common ores stay exposed
 
 
           // deepslate layer below y=40
@@ -847,6 +841,43 @@ export class World {
           // yield occasionally to keep generator responsive
           // Note: we are inside generator, so we can yield
           // but we are in a non-generator block, need to handle outside? We'll just continue
+        }
+      }
+    }
+
+    // ---- post-carve ore veins on cave walls: ensures visible ores even in large caverns (MC style) ----
+    {
+      const oreRand = mulberry32(this.seed ^ (cx * 1337) ^ (cz * 7331));
+      for (let y = 8; y < 140; y++) {
+        for (let lz = 0; lz < CHUNK; lz++) {
+          for (let lx = 0; lx < CHUNK; lx++) {
+            const at = cidx(lx, y, lz);
+            const id = chunk.blocks[at];
+            if (id !== STONE && id !== DEEPSLATE) continue;
+            // only walls adjacent to air (cave wall)
+            let adjacentAir = false;
+            for (let dy = -1; dy <= 1 && !adjacentAir; dy++) for (let dx = -1; dx <= 1 && !adjacentAir; dx++) for (let dz = -1; dz <= 1 && !adjacentAir; dz++) {
+              if (dx === 0 && dy === 0 && dz === 0) continue;
+              const nx = lx + dx, ny = y + dy, nz = lz + dz;
+              if (nx < 0 || nx >= CHUNK || nz < 0 || nz >= CHUNK || ny < 0 || ny >= WY) continue;
+              if (chunk.blocks[cidx(nx, ny, nz)] === AIR) adjacentAir = true;
+            }
+            if (!adjacentAir) continue;
+            if (oreRand() > 0.018) continue; // 1.8% of wall blocks become ore — visible but not spammy
+            let ore = 0;
+            if (y < 28 && oreRand() < 0.22) {
+              ore = oreRand() < 0.55 ? DIAMOND_ORE : oreRand() < 0.7 ? GOLD_ORE : REDSTONE_ORE;
+            } else if (y < 50 && oreRand() < 0.28) {
+              ore = oreRand() < 0.4 ? GOLD_ORE : oreRand() < 0.65 ? LAPIS_ORE : oreRand() < 0.85 ? REDSTONE_ORE : EMERALD_ORE;
+            } else if (y < 85 && oreRand() < 0.32) {
+              ore = oreRand() < 0.5 ? IRON_ORE : oreRand() < 0.75 ? GOLD_ORE : COAL_ORE;
+            } else if (y < 125 && oreRand() < 0.36) {
+              ore = oreRand() < 0.55 ? IRON_ORE : COAL_ORE;
+            } else if (y < 160) {
+              ore = COAL_ORE;
+            }
+            if (ore) chunk.blocks[at] = ore;
+          }
         }
       }
     }

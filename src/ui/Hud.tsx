@@ -120,6 +120,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         ? 'from-[#c9761f] to-torch'
         : 'from-[#8f1c14] to-blood';
 
+  const underwater = hud.inWater || hud.breathVisible;
   return (
     <div className={`pointer-events-none absolute inset-0 z-20 select-none font-body ${isTouch ? 'hud-touch' : ''}`}>
       {/* damage / hazard vignette */}
@@ -130,6 +131,29 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         className="absolute inset-0 opacity-0"
         style={{ transition: 'opacity 90ms linear' }}
       />
+      {/* underwater blue filter — shows water boundary */}
+      {underwater && (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `radial-gradient(ellipse at 50% 40%, rgba(40,140,220,0.22) 0%, rgba(10,70,140,0.38) 55%, rgba(5,35,80,0.52) 100%)`,
+            backdropFilter: 'blur(0.5px)',
+            WebkitBackdropFilter: 'blur(0.5px)',
+            transition: 'opacity 300ms ease',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+      {hud.inWater && !hud.breathVisible && (
+        <div
+          className="absolute inset-x-0 top-0 h-24"
+          style={{
+            background: 'linear-gradient(180deg, rgba(60,160,255,0.35) 0%, rgba(20,80,160,0.18) 45%, transparent 100%)',
+            borderBottom: '2px solid rgba(80,180,255,0.35)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
 
       {/* ---------------- TOP LEFT: vitals + mission ---------------- */}
       <div className="hud-information hud-information--top-left absolute left-2 top-2 flex flex-col gap-1.5 sm:left-4 sm:top-4 sm:gap-2">

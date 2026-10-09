@@ -10766,13 +10766,24 @@ if (tpClipActive > 0.5) {
     if (weather > 0) c.lerp(storm, Math.min(0.72, weather * 0.62));
 
     const fog = this.scene.fog as THREE.Fog;
-    fog.color.copy(c);
-    const nightHaze = 0.66 + d * 0.54;
-    const weatherHaze = 1 - weather * 0.16;
-    fog.far = this.renderDist * nightHaze * weatherHaze;
-    fog.near = fog.far * (0.34 + weather * 0.07);
-    this.scene.background = c;
-    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+    const isUnder = this.headUnderwater();
+    if (isUnder) {
+      // underwater blue filter — clear water boundary visibility
+      const waterFog = new THREE.Color(0x0e4a7a).lerp(new THREE.Color(0x1a6fb0), d * 0.5);
+      fog.color.copy(waterFog);
+      this.scene.background = waterFog;
+      fog.near = 2;
+      fog.far = Math.min(42, this.renderDist * 0.45);
+      if (this.skyMat) this.skyMat.color.copy(waterFog).multiplyScalar(0.55);
+    } else {
+      fog.color.copy(c);
+      const nightHaze = 0.66 + d * 0.54;
+      const weatherHaze = 1 - weather * 0.16;
+      fog.far = this.renderDist * nightHaze * weatherHaze;
+      fog.near = fog.far * (0.34 + weather * 0.07);
+      this.scene.background = c;
+      if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+    }
 
     const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();
     this.sunDir.copy(sunDir);
