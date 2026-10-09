@@ -362,6 +362,10 @@ export const isResource = (id: number) =>
   (id >= FEATHER && id <= CAT_CLAW) ||
   id === APPLE || id === COCONUT || id === BANANA || id === WHEAT || id === WHEAT_SEEDS || isMeatItem(id);
 
+/** blocks that should appear in inventory/hotbar/chest UI — includes new flora 276+ and cave blocks 300+ */
+export const isInventoryBlockId = (id: number) =>
+  id > AIR && id < 500 && !isOpenChest(id) && (id < 200 || (id >= 276 && id <= 350) || isArrowId(id) || isMeatItem(id));
+
 /** rough material class — tools are specialised per class */
 export type BlockClass = 'stone' | 'earth' | 'wood' | 'other';
 export function blockClass(id: number): BlockClass {

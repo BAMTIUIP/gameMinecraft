@@ -168,6 +168,7 @@ import {
   openChestId,
   isUnderwaterChest,
   baseChestId,
+  isInventoryBlockId,
 } from './blocks';
 import { resourceSellPrice } from './economy';
 import { cookedMeatForRaw, foodHeal, meatDropForAnimal } from './food';
@@ -11934,7 +11935,7 @@ if (tpClipActive > 0.5) {
 
   /** sell a tool straight out of the hotbar or inventory */
   sellTool(id: number, instanceId?: number) {
-    if (id < 200 || isArrowId(id) || isMeatItem(id)) return;
+    if (isInventoryBlockId(id)) return;
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) return; // nothing owned — never sell an air slot
     let durability: number | undefined;
@@ -14117,7 +14118,7 @@ if (tpClipActive > 0.5) {
     const id = this.world.get(target.x, target.y, target.z);
     if (!isTreasureChest(id) || baseChestId(id) !== baseChestId(target.id)) return false;
     const chest = this.chestInventoryAt(target.x, target.y, target.z, id);
-    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && (itemId < 200 || isArrowId(itemId) || isMeatItem(itemId)) && !!BLOCKS[itemId] && !getToolSpec(itemId));
+    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && isInventoryBlockId(itemId) && !!BLOCKS[itemId] && !getToolSpec(itemId));
   }
 
   /** Find a nearby stocked chest and one clear adjacent position the wolf can reach. */
@@ -14261,7 +14262,7 @@ if (tpClipActive > 0.5) {
     if (distance <= 0.48) {
       const currentId = this.world.get(target.x, target.y, target.z);
       const chest = this.chestInventoryAt(target.x, target.y, target.z, currentId);
-      const item = [...chest].find(([id, count]) => id > AIR && (id < 200 || isArrowId(id) || isMeatItem(id)) && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
+      const item = [...chest].find(([id, count]) => id > AIR && isInventoryBlockId(id) && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
       if (!item) {
         this.setWolfPetChestLid(target, false);
         rig.chestTarget = null;

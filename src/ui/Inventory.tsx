@@ -13,7 +13,7 @@ import {
   getSalvageForGear,
   type InvCategory,
 } from '../game/recipes';
-import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW, isArrowId, isMeatItem } from '../game/blocks';
+import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW, isArrowId, isMeatItem, isInventoryBlockId } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
@@ -781,7 +781,7 @@ export default function Inventory({
                               className="absolute bottom-1 left-1 right-1 h-[2px]"
                             />
                           )}
-                          {slot && (slot.id < 200 || isArrowId(slot.id) || isMeatItem(slot.id)) && slot.id !== HAND && (
+                          {slot && isInventoryBlockId(slot.id) && slot.id !== HAND && (
                             <span className="absolute bottom-0 right-0.5 font-display text-[8px] leading-none text-white text-shadow-hard">
                               {slot.count}
                             </span>
@@ -1295,7 +1295,7 @@ function TradePanel({
   onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
+  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && isInventoryBlockId(it.id));
   const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">

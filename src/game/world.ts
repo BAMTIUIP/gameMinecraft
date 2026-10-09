@@ -286,10 +286,9 @@ export class World {
     return 'plains';
   }
 
-  /** Underground cave biome: separate from surface biome, based on 3D noise & depth */
+  /** Underground cave biome: separate from surface biome, based on 3D noise & depth — tuned for reference-like variety */
   caveBiomeAt(x: number, y: number, z: number): CaveBiome {
     if (y > SEA - 8) return 'normal';
-    // deep factor
     const depth = SEA - y;
     const large = fbm3(x * 0.008 + 12.3, y * 0.008 - 44.1, z * 0.008 + 91.7, 3);
     const detail = fbm3(x * 0.022 - 31.2, y * 0.022 + 19.4, z * 0.022 - 73.5, 2);
@@ -297,24 +296,24 @@ export class World {
     const temp = fbm2(x * 0.011 - 71, z * 0.011 + 14, 3);
 
     // amethyst geodes rare deep
-    if (y < 35 && large > 0.62 && detail > 0.3) return 'amethyst';
+    if (y < 35 && large > 0.58 && detail > 0.22) return 'amethyst';
 
-    // lake caverns: low humidity + low large noise
-    if (y > 18 && y < SEA - 18 && humid < -0.32 && large < -0.18) return 'lake';
+    // lake caverns: more common, low humidity pockets with big open space
+    if (y > 18 && y < SEA - 14 && humid < -0.12 && large < -0.02) return 'lake';
 
-    // lush caves: high humidity, mid depth, large > 0.2
-    if (depth > 12 && depth < 90 && humid > 0.18 && large > 0.18) return 'lush';
+    // lush caves: high humidity, mid depth — should be ~25% of caves (reference lush)
+    if (depth > 10 && depth < 95 && humid > 0.08 && large > 0.02) return 'lush';
 
-    // vine caves: very lush with hanging vines, even more humid
-    if (depth > 10 && depth < 80 && humid > 0.32 && large > 0.05 && temp > -0.1) return 'vine';
+    // vine caves: very lush with hanging vines, even more humid — ~15% of caves
+    if (depth > 8 && depth < 85 && humid > 0.20 && large > -0.08 && temp > -0.18) return 'vine';
 
-    // mossy ruins: temperate, moderate depth
-    if (depth > 15 && depth < 70 && large > -0.05 && large < 0.25 && humid > -0.1 && humid < 0.28) return 'mossy';
+    // mossy ruins: temperate, moderate depth — overgrown entrances / ruined villages
+    if (depth > 12 && depth < 75 && large > -0.12 && large < 0.32 && humid > -0.18 && humid < 0.32) return 'mossy';
 
-    // dripstone: dry, deep
-    if (y < 70 && (large < -0.25 || (humid < -0.15 && detail < -0.1))) return 'dripstone';
+    // dripstone: dry, deep — stalactites/stalagmites
+    if (y < 75 && (large < -0.18 || (humid < -0.08 && detail < -0.02))) return 'dripstone';
 
-    if (y < 30) return 'deep';
+    if (y < 32) return 'deep';
 
     return 'normal';
   }
@@ -526,55 +525,72 @@ export class World {
 
         for (let y = 2; y < h - 3; y++) {
           if (chunk.blocks[cidx(lx, y, lz)] !== STONE) continue;
-          const depth = y / WY;
+          // drastically reduce ore density: only ~8% of stone columns even try to spawn ore
+          if (rand() > 0.09) continue;
           let ore = 0;
-          let nF = 0, nG = 0;
-          let hasNf = false, hasNg = false;
-          // Netherite (ancient debris) now spawns up to y=32, rare but findable, more common very deep.
-          // Previously y<14 with 0.74 threshold was almost never seen and then carved away by caves.
-          if (y < 32) {
+          // new thresholds are much higher (rarer) and y-ranges tighter — matches reference cave cleanliness
+          if (y < 22) {
             const netherNoise = noise3(x * 0.31 + 97.3, y * 0.5 - 41, z * 0.31 - 77.7);
-            const depthFactor = (32 - y) / 30; // 0 at y=32, ~1 at y=2
-            const thresh = 0.72 - depthFactor * 0.22; // rarer than before: 0.72 near top, 0.50 at bottom
+            const depthFactor = (22 - y) / 20;
+            const thresh = 0.86 - depthFactor * 0.12; // 0.86 near top, 0.74 at bottom
             if (netherNoise > thresh) ore = NETHERITE_ORE;
           }
-          if (!ore && y < 58) {
-            nG = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
-            hasNg = true;
-            if (nG > 0.70 - depth * 0.2) ore = EMERALD_ORE;
+          if (!ore && y < 36) {
+            const n = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
+            if (n > 0.84) ore = EMERALD_ORE;
           }
-          if (!ore && y < 88 && noise3(x * 0.26 - 61.2, y * 0.4 + 19, z * 0.26 + 51.9) > 0.66 - depth * 0.24) ore = DIAMOND_ORE;
-          if (!ore && y < 128) {
-            nF = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
-            hasNf = true;
-            if (nF > 0.64 - depth * 0.15) ore = LAPIS_ORE;
+          if (!ore && y < 48) {
+            if (noise3(x * 0.26 - 61.2, y * 0.4 + 19, z * 0.26 + 51.9) > 0.83) ore = DIAMOND_ORE;
           }
-          if (!ore && y < 158 && noise3(x * 0.22 + 44.7, y * 0.34 - 12, z * 0.22 - 33.1) > 0.63 - depth * 0.16) ore = GOLD_ORE;
-          if (!ore && y < 188) {
-            if (!hasNf) nF = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
-            if (nF < -0.60 + depth * 0.14) ore = REDSTONE_ORE;
+          if (!ore && y < 68) {
+            const n = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
+            if (n > 0.82) ore = LAPIS_ORE;
           }
-          if (!ore && y < 210) {
-            if (!hasNg) nG = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
-            if (nG < -0.61 + depth * 0.12) ore = QUARTZ_ORE;
+          if (!ore && y < 80) {
+            if (noise3(x * 0.22 + 44.7, y * 0.34 - 12, z * 0.22 - 33.1) > 0.83) ore = GOLD_ORE;
           }
-          if (!ore && y < 270 && noise3(x * 0.19 - 21.4, y * 0.3 + 5, z * 0.19 + 8.2) > 0.58 - depth * 0.1) ore = IRON_ORE;
-          if (!ore && y < 318 && noise3(x * 0.17 + 3.1, y * 0.26, z * 0.17 - 1.7) > 0.54) ore = COAL_ORE;
-          if (ore) chunk.blocks[cidx(lx, y, lz)] = ore;
+          if (!ore && y < 100) {
+            const n = noise3(x * 0.24 - 18.5, y * 0.36 + 29, z * 0.24 + 63.4);
+            if (n < -0.82) ore = REDSTONE_ORE;
+          }
+          if (!ore && y < 110) {
+            const n = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
+            if (n < -0.83) ore = QUARTZ_ORE;
+          }
+          if (!ore && y < 135) {
+            if (noise3(x * 0.19 - 21.4, y * 0.3 + 5, z * 0.19 + 8.2) > 0.81) ore = IRON_ORE;
+          }
+          if (!ore && y < 165) {
+            if (noise3(x * 0.17 + 3.1, y * 0.26, z * 0.17 - 1.7) > 0.79) ore = COAL_ORE;
+          }
+          if (ore) {
+            chunk.blocks[cidx(lx, y, lz)] = ore;
+            // small veins 2-4 blocks for a more natural look, but still rare
+            if (rand() < 0.45) {
+              for (let v = 0; v < 2 + Math.floor(rand() * 2); v++) {
+                const nx = lx + Math.floor(rand() * 3) - 1;
+                const ny = y + Math.floor(rand() * 3) - 1;
+                const nz = lz + Math.floor(rand() * 3) - 1;
+                if (nx < 0 || nx >= CHUNK || nz < 0 || nz >= CHUNK || ny < 2 || ny >= h - 3) continue;
+                if (chunk.blocks[cidx(nx, ny, nz)] === STONE && rand() < 0.6) chunk.blocks[cidx(nx, ny, nz)] = ore;
+              }
+            }
+          }
         }
 
         const caveTop = biome === 'desert' ? h - 4 : h - 1;
         const lavaChannel = Math.abs(fbm2(x * 0.014 - 71.8, z * 0.014 + 126.4, 3));
         const lavaLevel = 20 + Math.floor((fbm2(x * 0.008 + 19, z * 0.008 - 44, 2) + 1) * 54);
         const floodedCavern = fbm2(x * 0.019 + 43, z * 0.019 - 98, 2) < -0.28;
-        // ore blocks must survive cave carving, otherwise netherite etc disappear
-        const isOreId = (id: number) => (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
+        // only rare ores survive cave carving — common ores (coal/iron/redstone/etc) are carved away to avoid floating ore walls like in screenshot
+        const isRareOreId = (id: number) => id === NETHERITE_ORE || id === DIAMOND_ORE || id === EMERALD_ORE || id === GOLD_ORE;
 
         // ---- New cave biome carving: large caverns for lush/vine/mossy/lake, dripstone for deep ----
+        // reference-like caves: big open rooms, mossy floors, hanging vines, dripstone columns, underground lakes
         for (let y = 2; y < caveTop; y++) {
           const at = cidx(lx, y, lz);
           let cur = chunk.blocks[at];
-          if (cur === BEDROCK || isOreId(cur)) continue;
+          if (cur === BEDROCK || isRareOreId(cur)) continue;
 
           // deepslate layer below y=40
           if (y < 38 && cur === STONE) {
@@ -603,22 +619,23 @@ export class World {
               continue;
             }
           } else if (caveBiome === 'lake') {
-            // huge open lake caverns
-            if (largeCave > 0.08 && c1 > 0.18 - bias) shouldCarve = true;
+            // huge open lake caverns — reference: big water-filled rooms with clay banks
+            if (largeCave > -0.08 && c1 > 0.02 - bias) shouldCarve = true;
+            else if (c1 > 0.18 - bias) shouldCarve = true;
           } else if (caveBiome === 'lush' || caveBiome === 'vine') {
-            // lush/vine: very large open caverns with low threshold, plus secondary tunnels
-            if (largeCave > 0.12 && c1 > 0.08) shouldCarve = true;
-            else if (c1 > 0.28 - bias) shouldCarve = true;
+            // lush/vine: very large open caverns with low threshold, plus secondary tunnels — reference lush caves
+            if (largeCave > -0.10 && c1 > -0.05) shouldCarve = true;
+            else if (c1 > 0.20 - bias) shouldCarve = true;
           } else if (caveBiome === 'mossy') {
-            if (largeCave > 0.15 && c1 > 0.15) shouldCarve = true;
-            else if (c1 > 0.32 - bias) shouldCarve = true;
+            if (largeCave > -0.05 && c1 > 0.0) shouldCarve = true;
+            else if (c1 > 0.24 - bias) shouldCarve = true;
           } else if (caveBiome === 'dripstone' || caveBiome === 'deep') {
-            if (c1 > 0.30 - bias) shouldCarve = true;
-            else if (y < 22 && detail > 0.48) shouldCarve = true;
+            if (c1 > 0.24 - bias) shouldCarve = true;
+            else if (y < 26 && detail > 0.38) shouldCarve = true;
           } else {
-            // normal
-            if (c1 > 0.36 - bias) shouldCarve = true;
-            else if (y < 22 && detail > 0.52) shouldCarve = true;
+            // normal: more caves than before, but not as huge as lush
+            if (c1 > 0.30 - bias) shouldCarve = true;
+            else if (y < 26 && detail > 0.42) shouldCarve = true;
           }
 
           // fissures: meandering diagonal cracks, but less frequent in lush biomes
