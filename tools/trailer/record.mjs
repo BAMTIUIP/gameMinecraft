@@ -507,14 +507,21 @@ async function runTimeline(page, bird, trace) {
     tc.lookTo(0, 0.55, 0.4);
     tc.setMove(0, -1);
   });
-  log('  surface (swim up) and head to the shore');
+  log('  surface (swim up)');
   await sleep(1200);
   await page.evaluate(() => {
-    window.__tc.lookTo(0, -0.05, 0.3); // level: cruise forward at the surface
+    const tc = window.__tc;
+    tc.lookTo(0, -0.05, 0.3); // level: cruise at the surface
+    tc.setJump(true); // hold jump: at the bank the engine mantles the swimmer onto dry land
   });
+  log('  swim to the shore (jump held to climb out)');
   await waitFor('window.__tc.playerPos()[2] <= 71.0', 7000, 'reach the shore');
-  await tcExpr('setMove(0,0)');
+  await page.evaluate(() => {
+    window.__tc.setMove(0, 0);
+    window.__tc.setJump(false);
+  });
   log('  stop at the shore');
+  await sleep(400); // let the climb-out hop land before the scripted jump
 
   // jump on the shore and switch the pet to the wolf mid-air
   await page.evaluate(() => window.__tc.setJump(true));
@@ -529,18 +536,35 @@ async function runTimeline(page, bird, trace) {
   });
   log('  jump + wolf switch mid-air');
 
-  await page.evaluate((spot) => {
+  await page.evaluate(() => {
     const tc = window.__tc;
     tc.setMove(0, -1);
     tc.setSprint(true);
-    tc.lookTo(tc.face(spot.x, spot.z), -0.05, 0.5);
-  }, SCENE.mineSpot);
+  });
   log('  sprint to the tree');
-  await waitFor(
-    '(() => { const p = window.__tc.playerPos(); const s = window.__scene.mineSpot; return Math.hypot(p[0] - s.x, p[2] - s.z) < 1.2; })()',
-    9000,
-    'arrive at the tree',
-  );
+  // Home onto the mine spot while sprinting: the initial aim tween curves the path, and at
+  // sprint speed the player would otherwise fly straight past the tree (seen on the 16:9 take).
+  {
+    const sprintT0 = Date.now();
+    let arrived = false;
+    while (Date.now() - sprintT0 < 9000) {
+      const d = await page.evaluate((s) => {
+        const p = window.__tc.playerPos();
+        return Math.hypot(p[0] - s.x, p[2] - s.z);
+      }, SCENE.mineSpot);
+      if (d < 1.2) {
+        arrived = true;
+        break;
+      }
+      if (d > 2.5) {
+        await page.evaluate((spot) => {
+          window.__tc.lookTo(window.__tc.face(spot.x, spot.z), -0.05, 0.25);
+        }, SCENE.mineSpot);
+      }
+      await sleep(120);
+    }
+    log(`  [go] arrive at the tree${arrived ? '' : ' TIMEOUT'} at t=${((Date.now() - recStart) / 1000).toFixed(2)}s`);
+  }
   await page.evaluate(() => {
     const tc = window.__tc;
     tc.setMove(0, 0);
@@ -845,7 +869,7 @@ async function encode(opts) {
     '-framerate', String(fps), '-start_number', '0', '-i', path.join(framesDir, '%05d.jpg'),
     '-loop', '1', '-framerate', String(targetFps), '-t', String(xf + coverHold), '-i', COVER,
     '-filter_complex',
-    `[0:v]scale=${W}:${H}:flags=lanczos,fade=t=in:st=0:d=0.3,${interpFilter}format=yuv420p[v0];` +
+    `[0:v]fade=t=in:st=0:d=0.3,${interpFilter}scale=${W}:${H}:flags=lanczos,format=yuv420p[v0];` +
       `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${targetFps},format=yuv420p[v1];` +
       `[v0][v1]xfade=transition=fade:duration=${xf}:offset=${offset.toFixed(3)}[v]`,
     '-map', '[v]',
