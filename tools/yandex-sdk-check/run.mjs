@@ -2243,6 +2243,11 @@ async function scenarioLayout() {
   await game.waitFor('Смена на телефоне', () => !!document.querySelector('canvas'), 30_000);
   const missionVisible = await game.waitFor('Панель миссий в забеге', () => !!document.querySelector('.hud-objective-panel'), 30_000);
   check(missionVisible, 'В исследователе отображается панель миссий');
+  const missionTitles = await game.page.evaluate(() =>
+    [...document.querySelectorAll('.hud-objective-row')].map((row) => row.querySelector('span.flex-1')?.textContent?.trim() ?? ''),
+  );
+  check(missionTitles.length > 0, 'В панели есть названия миссий', JSON.stringify(missionTitles));
+  check(missionTitles.every((title) => !/\{[a-zA-Z0-9_]+\}/.test(title)), 'В интерфейсе нет необработанных переменных миссий', JSON.stringify(missionTitles));
   for (const vp of [
     LAYOUT_VIEWPORTS[0],
     LAYOUT_VIEWPORTS[1],

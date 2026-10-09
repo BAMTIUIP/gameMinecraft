@@ -114,6 +114,7 @@ import {
   isBreakable,
   isInteractive,
   isMeatItem,
+  isRawMeatItem,
   isResource,
   isSolid,
   isTreasureChest,
@@ -224,7 +225,7 @@ import {
   type Slot,
   type Stats,
 } from './items';
-import { blockName, matName, pickaxeLabel, recipeText, toolLabelForId, t, type TKey } from './i18n';
+import { blockName, formatObjectiveTitle, matName, pickaxeLabel, recipeText, toolLabelForId, t, type TKey } from './i18n';
 import { yaReady, yaServerTime } from './yandex';
 import { deviceKind } from './params';
 import { isDeveloperShopEnabled } from './devShop';
@@ -322,6 +323,8 @@ type ExplorationTaskDefinition = {
   rewardScore: number;
   rewardSeconds: number;
   mineBlockIds?: readonly number[];
+  collectItemId?: number;
+  collectRawMeat?: boolean;
   craftPickaxeTier?: number;
   craftRecipeKey?: string;
   craftRecipeKeys?: readonly string[];
@@ -347,13 +350,15 @@ export const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'weapon', craftTier: 0 },
+  { id: 'bird-feather', titleKey: 'objectiveHuntFeather', target: 1, rewardScore: 160, rewardSeconds: 25, collectItemId: FEATHER },
+  { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
   { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
   { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
   { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
+  { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
+  { id: 'hunt-meat', titleKey: 'objectiveHuntMeat', target: 3, rewardScore: 220, rewardSeconds: 35, collectRawMeat: true },
   { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
   { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftKind: 'cook' },
-  { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
-  { id: 'hunt-meat', titleKey: 'objectiveCookMeatBatch', target: 3, rewardScore: 220, rewardSeconds: 35, craftKind: 'cook' },
   { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
   { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
   { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
@@ -366,7 +371,6 @@ export const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
   { id: 'secret-chest', titleKey: 'objectiveFindChest', target: 1, rewardScore: 220, rewardSeconds: 35, openChest: true },
   { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
   { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
-  { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
   { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
   { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
@@ -10238,6 +10242,7 @@ if (tpClipActive > 0.5) {
       return;
     }
     const itemCount = Math.max(1, Math.floor(d.count ?? 1));
+    this.recordExplorerCollect(d.id, itemCount);
     // Picking up a dropped weapon or tool; durable items keep their exact wear/identity.
     if (d.id >= 200 && !isArrowId(d.id) && !isMeatItem(d.id)) {
       if (isDurabilityTool(d.id)) {
@@ -12507,6 +12512,16 @@ if (tpClipActive > 0.5) {
     this.advanceExplorerObjectives();
   }
 
+  private recordExplorerCollect(itemId: number, amount = 1) {
+    if (!this.explorationObjectives?.length || amount <= 0) return;
+    for (const task of this.explorationObjectives) {
+      const collectedRequiredItem = task.collectItemId === itemId;
+      const collectedRawMeat = task.collectRawMeat && isRawMeatItem(itemId);
+      if (collectedRequiredItem || collectedRawMeat) task.progress = Math.min(task.target, task.progress + amount);
+    }
+    this.advanceExplorerObjectives();
+  }
+
   private recordExplorerCraft(recipe: Recipe) {
     if (!this.explorationObjectives.length) return;
     for (const task of this.explorationObjectives) {
@@ -12545,7 +12560,7 @@ if (tpClipActive > 0.5) {
       .replace('{score}', String(lastScoreAward))
       .replace('{time}', rewardTime);
     this.popup(this.pos.x, this.pos.y + 1.7, this.pos.z, `+${lastScoreAward} · +${lastCompleted.rewardSeconds}${t('secShort')}`, '#93c95d', true);
-    this.pushBanner(t('objectiveComplete'), `${t(lastCompleted.titleKey)} · ${reward}`, '#93c95d');
+    this.pushBanner(t('objectiveComplete'), `${formatObjectiveTitle(lastCompleted.titleKey, lastCompleted.target)} · ${reward}`, '#93c95d');
   }
 
   private tmpV = new THREE.Vector3();

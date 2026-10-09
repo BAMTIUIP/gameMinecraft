@@ -26,7 +26,7 @@ import {
   TOOL_TORCH,
 } from '../game/recipes';
 import { gearColor, isGearHotbarId, RARITY } from '../game/items';
-import { t } from '../game/i18n';
+import { formatObjectiveTitle, t } from '../game/i18n';
 import { getToolSpec } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { GearIcon } from './GearIcon';
@@ -270,7 +270,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                       {objective.status === 'complete' ? '✓' : objective.status === 'active' ? '◆' : '◇'}
                     </span>
                     <span className="min-w-0 flex-1 text-[10px] leading-tight text-white/85 sm:text-[11px]">
-                      {t(objective.titleKey)}
+                      {formatObjectiveTitle(objective.titleKey, objective.target)}
                     </span>
                     {objective.status !== 'locked' && (
                       <span className="shrink-0 font-display text-[9px] tabular-nums text-white/70">
