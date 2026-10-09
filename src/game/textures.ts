@@ -33,7 +33,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 48; // 192 tiles - expanded for forest flora & ruins
+export const ATLAS_ROWS = 64; // 256 tiles - power-of-two height 2048 for mipmaps, expanded for forest flora & ruins
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 

@@ -794,9 +794,9 @@ export class World {
 
     // ---- seasonal flower meadows: summer blooms, autumn asters, jungle orchids + expanded forest flora ----
     const centerBiome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-    const flowerPatches = centerBiome === 'jungle' ? 6 : centerBiome === 'autumn' ? 5 : centerBiome === 'plains' ? 5 : 3;
+    const flowerPatches = centerBiome === 'jungle' ? 3 : centerBiome === 'autumn' ? 2 : centerBiome === 'plains' ? 3 : 1;
     for (let i = 0; i < flowerPatches; i++) {
-      if (rand() > 0.68) continue;
+      if (rand() > 0.55) continue;
       const fx = cx * CHUNK + 2 + Math.floor(rand() * 12);
       const fz = cz * CHUNK + 2 + Math.floor(rand() * 12);
       const patchBiome = this.biomeAt(fx, fz, this.getHeight(fx, fz));
@@ -833,9 +833,9 @@ export class World {
     }
     // ---- forest ground cover: moss carpets, leaf piles, bushes (summer/winter/autumn variety) ----
     if (['plains', 'autumn', 'winter'].includes(centerBiome)) {
-      const gcCount = centerBiome === 'plains' ? 10 : centerBiome === 'autumn' ? 8 : 5;
+      const gcCount = centerBiome === 'plains' ? 4 : centerBiome === 'autumn' ? 3 : 2;
       for (let i = 0; i < gcCount; i++) {
-        if (rand() > 0.78) continue;
+        if (rand() > 0.65) continue;
         const gx = cx * CHUNK + 1 + Math.floor(rand() * 14);
         const gz = cz * CHUNK + 1 + Math.floor(rand() * 14);
         const h = this.getHeight(gx, gz);
@@ -968,7 +968,7 @@ export class World {
       const firstStructureSite = this.structureSites.length;
       if (biome === 'desert' || biome === 'canyon') {
         spawnDesertBiomeStructures(this, cx, cz, sRand);
-      } else if (isDesertMountainTransition(this, cx, cz) && sRand() < 0.45) {
+      } else if (isDesertMountainTransition(this, cx, cz) && sRand() < 0.15) {
         buildCliffsideCarvedTemple(this, cx, cz, sRand);
       } else {
         const roll = sRand();
@@ -976,19 +976,19 @@ export class World {
         const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
         if (!nearSpawn) {
           if (biome === 'plains' || biome === 'autumn' || biome === 'winter') {
-            // expanded forest biomes: castles, ruined castles, cliff houses, face gates, flower groves
-            if (roll < 0.025) this.buildForestCastle(cx, cz, sRand);
-            else if (roll < 0.05) this.buildRuinedCastle(cx, cz, sRand);
-            else if (roll < 0.07) this.buildCliffHouses(cx, cz, sRand);
-            else if (roll < 0.082) this.buildDwarfFaceGate(cx, cz, sRand);
-            else if (roll < 0.105) this.buildFlowerGrove(cx, cz, sRand);
-            else if (roll < 0.14) this.buildCottage(cx, cz, sRand);
-            else if (roll < 0.165) this.buildTower(cx, cz, sRand);
-            else if (roll < 0.185) this.buildRuinYard(cx, cz, sRand);
-          } else {
-            if (roll < 0.055) this.buildCottage(cx, cz, sRand);
+            // expanded forest biomes: castles, ruined castles, cliff houses, face gates, flower groves — reduced density to avoid clutter
+            if (roll < 0.012) this.buildForestCastle(cx, cz, sRand);
+            else if (roll < 0.022) this.buildRuinedCastle(cx, cz, sRand);
+            else if (roll < 0.032) this.buildCliffHouses(cx, cz, sRand);
+            else if (roll < 0.038) this.buildDwarfFaceGate(cx, cz, sRand);
+            else if (roll < 0.052) this.buildFlowerGrove(cx, cz, sRand);
+            else if (roll < 0.07) this.buildCottage(cx, cz, sRand);
             else if (roll < 0.085) this.buildTower(cx, cz, sRand);
-            else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
+            else if (roll < 0.095) this.buildRuinYard(cx, cz, sRand);
+          } else {
+            if (roll < 0.03) this.buildCottage(cx, cz, sRand);
+            else if (roll < 0.05) this.buildTower(cx, cz, sRand);
+            else if (roll < 0.06) this.buildRuinYard(cx, cz, sRand);
           }
         }
       }
