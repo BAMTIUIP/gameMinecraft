@@ -34,6 +34,26 @@ import {
   RAW_MEAT,
   COOKED_MEAT,
   MEAT_ITEM_BY_ID,
+  HONEY,
+  MUSHROOM,
+  WHEAT,
+  WHEAT_SEEDS,
+  VINE,
+  WEB,
+  BONE,
+  FLESH,
+  GUNPOWDER,
+  FEATHER,
+  TURTLE_SHELL,
+  CRAB_SHELL,
+  FISH_SCALE,
+  CAT_CLAW,
+  DEAD_BUSH,
+  DRY_BLOOM,
+  DESERT_THISTLE,
+  BIRD_NEST,
+  CHICKEN_NEST,
+  CACTUS,
   FLOWER_TULIP_RED,
   FLOWER_TULIP_YELLOW,
   FLOWER_TULIP_PINK,
@@ -2826,6 +2846,125 @@ export function getBlockIcon(id: number): string {
     iconCache.set(id, url3);
     return url3;
   }
+  // ---- Additional non-block resources: honey, mushroom, wheat, vines, webs, bones etc — must not look like cube ----
+  if (id === HONEY || id === MUSHROOM || id === WHEAT || id === WHEAT_SEEDS || id === VINE || id === WEB || id === BONE || id === FLESH || id === GUNPOWDER || id === FEATHER || id === TURTLE_SHELL || id === CRAB_SHELL || id === FISH_SCALE || id === CAT_CLAW || id === DEAD_BUSH || id === DRY_BLOOM || id === DESERT_THISTLE || id === BIRD_NEST || id === CHICKEN_NEST || id === CACTUS) {
+    ctx.clearRect(0, 0, size, size);
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.22)');
+    if (id === HONEY) {
+      // honey drop
+      p(6, 3, 4, 8, '#b87409');
+      p(5, 4, 6, 7, '#d99311');
+      p(5, 4, 5, 5, '#f7c11e');
+      p(6, 5, 3, 2, '#ffe96b');
+      p(6, 5, 1, 1, '#fffbe0');
+      p(6, 10, 4, 2, '#8a5a0a');
+    } else if (id === MUSHROOM) {
+      // red mushroom with white spots
+      p(7, 8, 2, 5, '#e8d0b0');
+      p(7, 8, 1, 4, '#f8e8d0');
+      p(4, 3, 8, 5, '#8a1a1a');
+      p(4, 3, 8, 3, '#d42a2a');
+      p(5, 4, 2, 1, '#ffeaea');
+      p(8, 5, 2, 1, '#ffeaea');
+      p(6, 6, 1, 1, '#ffffff');
+    } else if (id === WHEAT) {
+      // wheat bundle
+      p(7, 2, 2, 11, '#c9a84a');
+      p(5, 3, 2, 3, '#e8c65a');
+      p(9, 4, 2, 3, '#e8c65a');
+      p(4, 6, 2, 2, '#f0d86a');
+      p(10, 7, 2, 2, '#f0d86a');
+      p(5, 9, 2, 2, '#d9b84a');
+      p(9, 10, 2, 2, '#d9b84a');
+    } else if (id === WHEAT_SEEDS) {
+      p(5, 6, 6, 3, '#8a6a2a');
+      p(6, 6, 4, 2, '#a0803a');
+      p(6, 7, 1, 1, '#c9a84a');
+      p(8, 7, 1, 1, '#c9a84a');
+    } else if (id === VINE) {
+      p(7, 2, 2, 12, '#3a7a2a');
+      p(6, 3, 4, 2, '#5a9a3a');
+      p(6, 7, 4, 2, '#4a8a3a');
+      p(6, 11, 4, 2, '#6cbb4a');
+    } else if (id === WEB) {
+      // spider web
+      p(3, 3, 10, 10, '#e0e0e8');
+      p(3, 3, 10, 1, '#ffffff');
+      p(3, 12, 10, 1, '#c8c8d0');
+      p(3, 3, 1, 10, '#ffffff');
+      p(12, 3, 1, 10, '#c8c8d0');
+      p(6, 6, 4, 4, '#f0f0f8');
+      p(7, 3, 2, 10, '#d0d0d8');
+      p(3, 7, 10, 2, '#d0d0d8');
+    } else if (id === BONE) {
+      p(5, 3, 6, 2, '#f0e8d0');
+      p(4, 4, 8, 2, '#e8e0c8');
+      p(5, 6, 6, 2, '#d8d0b8');
+      p(4, 8, 8, 2, '#f0e8d0');
+      p(3, 4, 2, 6, '#ffffff');
+      p(11, 4, 2, 6, '#ffffff');
+    } else if (id === FLESH) {
+      p(4, 4, 8, 7, '#6a8a4a');
+      p(5, 5, 6, 5, '#8aaa6a');
+      p(5, 5, 2, 2, '#a8c88a');
+      p(6, 9, 4, 1, '#4a6a2a');
+    } else if (id === GUNPOWDER) {
+      p(5, 5, 6, 6, '#5a5a60');
+      p(6, 6, 4, 4, '#7a7a82');
+      p(6, 6, 2, 2, '#9a9aa2');
+      p(4, 8, 8, 2, '#3a3a40');
+    } else if (id === FEATHER) {
+      p(7, 2, 2, 11, '#f0f0f4');
+      p(6, 3, 4, 9, '#ffffff');
+      p(7, 4, 1, 7, '#e0e0e8');
+      p(5, 5, 2, 6, '#d0d0d8');
+    } else if (id === TURTLE_SHELL) {
+      p(4, 4, 8, 7, '#4a7a4a');
+      p(5, 5, 6, 5, '#6a9a5a');
+      p(5, 5, 2, 2, '#8abb6a');
+      p(7, 7, 2, 2, '#3a5a2a');
+      p(4, 10, 8, 2, '#2a4a2a');
+    } else if (id === CRAB_SHELL) {
+      p(4, 4, 8, 6, '#8a2a18');
+      p(5, 5, 6, 4, '#d05030');
+      p(5, 5, 2, 1, '#e8704a');
+      p(6, 9, 4, 1, '#5a1a0a');
+    } else if (id === FISH_SCALE) {
+      p(6, 4, 4, 7, '#5a9aba');
+      p(6, 5, 3, 5, '#7ab8d0');
+      p(7, 6, 1, 2, '#a8d8ea');
+      p(7, 5, 1, 1, '#ffffff');
+    } else if (id === CAT_CLAW) {
+      p(8, 3, 3, 9, '#e8dcc8');
+      p(9, 3, 2, 8, '#f8f0e0');
+      p(9, 3, 1, 3, '#ffffff');
+      p(5, 6, 4, 2, '#d0c4a8');
+    } else if (id === DEAD_BUSH) {
+      p(7, 5, 2, 8, '#6a5a3a');
+      p(5, 7, 6, 2, '#8a7a5a');
+      p(4, 9, 8, 2, '#5a4a2a');
+    } else if (id === DRY_BLOOM || id === DESERT_THISTLE) {
+      p(7, 8, 2, 6, '#8a7a4a');
+      p(5, 4, 6, 3, '#c8a87a');
+      p(6, 5, 4, 1, '#e8d0a0');
+      if (id === DESERT_THISTLE) { p(4, 3, 2, 2, '#a0c86a'); p(10, 4, 2, 2, '#a0c86a'); }
+    } else if (id === BIRD_NEST || id === CHICKEN_NEST) {
+      p(3, 8, 10, 5, '#6a4a2a');
+      p(4, 9, 8, 3, '#8a6a3a');
+      p(5, 7, 2, 2, '#f0f0e8');
+      if (id === BIRD_NEST) p(8, 7, 2, 2, '#a0b8e0');
+      else p(7, 6, 3, 2, '#f0d8a0');
+    } else if (id === CACTUS) {
+      p(6, 3, 4, 10, '#4a9a3a');
+      p(6, 3, 3, 9, '#5abb4a');
+      p(7, 5, 1, 2, '#7acc6a');
+      p(5, 6, 1, 2, '#3a7a2a');
+      p(9, 7, 1, 2, '#3a7a2a');
+    }
+    const urlExtra = c.toDataURL();
+    iconCache.set(id, urlExtra);
+    return urlExtra;
+  }
   if (id === COAL) {
     // 1. Ember-Core Anthracite Shard Cluster (3 jagged dark carbon spires + glowing orange ember fissure)
     p(6, 2, 4, 12, '#0e0f14');
@@ -3126,8 +3265,25 @@ export function getBlockIcon(id: number): string {
     return url;
   }
 
-  const atlas = getAtlasCanvas();
   const def = BLOCKS[id];
+  // generic non-solid fallback: flat item, not cube — prevents block-texture look for any missed resource/plant
+  if (def && !def.solid) {
+    ctx.clearRect(0, 0, size, size);
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.22)');
+    const atlas2 = getAtlasCanvas();
+    const [sx2, sy2] = tileOrigin(def.side);
+    // flat 2D sprite, centered, with slight highlight/shadow instead of cube
+    ctx.drawImage(atlas2, sx2, sy2, TILE, TILE, 4, 4, size - 8, size - 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(4, 4, size - 8, (size - 8) * 0.32);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(4, 4 + (size - 8) * 0.65, size - 8, (size - 8) * 0.35);
+    const urlFlat = c.toDataURL();
+    iconCache.set(id, urlFlat);
+    return urlFlat;
+  }
+
+  const atlas = getAtlasCanvas();
   // top face (squashed, lighter)
   const [tx, ty] = tileOrigin(def.top);
   ctx.save();
