@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && rm -f dist/sdk.js",
+    "build": "vite build",
     "preview": "vite preview",
     "yandex:check": "node scripts/package-yandex.mjs --check",
     "yandex:zip": "npm run build && node scripts/package-yandex.mjs --zip",
