@@ -96,6 +96,30 @@ import {
   FERN,
   DEAD_BUSH,
   MUSHROOM,
+  FLOWER_TULIP_RED,
+  FLOWER_TULIP_YELLOW,
+  FLOWER_TULIP_PINK,
+  FLOWER_TULIP_ORANGE,
+  FLOWER_TULIP_WHITE,
+  FLOWER_SUNFLOWER,
+  FLOWER_ROSE,
+  FLOWER_LAVENDER,
+  FLOWER_WISTERIA,
+  FLOWER_DAISY,
+  FLOWER_ORCHID,
+  FLOWER_PEONY,
+  BUSH,
+  BUSH_FLOWERING,
+  BERRY_BUSH,
+  TALL_LAVENDER,
+  TALL_SUNFLOWER,
+  WISTERIA_VINE,
+  MOSS_CARPET,
+  LEAF_PILE,
+  MOSSY_COBBLE,
+  MOSSY_STONE_BRICK,
+  CRACKED_STONE_BRICK,
+  STONE_BRICK,
   isFlower,
   isPlant,
   isInstaBreak,
@@ -9818,11 +9842,131 @@ if (tpClipActive > 0.5) {
         }
         break;
       }
-      case TALL_GRASS:
+      case FLOWER_TULIP_RED:
+      case FLOWER_TULIP_YELLOW:
+      case FLOWER_TULIP_PINK:
+      case FLOWER_TULIP_ORANGE:
+      case FLOWER_TULIP_WHITE: {
+        const cmap: Record<number, number> = {
+          [FLOWER_TULIP_RED]: 0xd42a2a,
+          [FLOWER_TULIP_YELLOW]: 0xe8c628,
+          [FLOWER_TULIP_PINK]: 0xe46a9a,
+          [FLOWER_TULIP_ORANGE]: 0xe86a18,
+          [FLOWER_TULIP_WHITE]: 0xf0f0e8,
+        };
+        const col = cmap[id] ?? 0xd42a2a;
+        B(g, 0, -0.14, 0, 0.04, 0.28, 0.04, 0x4a8a2a);
+        B(g, 0, 0.02, 0, 0.14, 0.16, 0.14, col);
+        B(g, 0, 0.12, 0, 0.10, 0.08, 0.10, col ^ 0x222222);
+        B(g, 0, -0.08, 0, 0.03, 0.12, 0.03, 0x5a9a3a);
+        break;
+      }
+      case FLOWER_SUNFLOWER:
+      case TALL_SUNFLOWER: {
+        const tall = id === TALL_SUNFLOWER;
+        B(g, 0, -0.16, 0, 0.04, tall?0.36:0.28, 0.04, 0x4a8a2a);
+        B(g, 0.05, -0.06, 0, 0.06, 0.08, 0.06, 0x5a9a3a);
+        B(g, 0, 0.08, 0, 0.18, 0.05, 0.18, 0xe8c628);
+        B(g, 0, 0.08, 0, 0.10, 0.10, 0.10, 0x8a6018);
+        B(g, 0, 0.16, 0, 0.12, 0.04, 0.12, 0xffea4a);
+        break;
+      }
+      case FLOWER_ROSE: {
+        B(g, 0, -0.14, 0, 0.04, 0.28, 0.04, 0x4a8a2a);
+        B(g, 0, 0.04, 0, 0.12, 0.14, 0.12, 0xb81e12);
+        B(g, 0, 0.12, 0, 0.10, 0.08, 0.10, 0xe23628);
+        B(g, 0.06, 0.06, 0, 0.06, 0.06, 0.06, 0xff7a6a);
+        break;
+      }
+      case FLOWER_LAVENDER:
+      case TALL_LAVENDER: {
+        const tall = id === TALL_LAVENDER;
+        B(g, 0, -0.16, 0, 0.03, tall?0.38:0.30, 0.03, 0x5a7a4a);
+        for(let k=0;k<(tall?5:3);k++){
+          const y = -0.04 + k*0.09;
+          B(g, 0, y, 0, 0.09, 0.07, 0.09, 0x8a6ab8);
+          B(g, 0.04, y+0.02, 0, 0.05, 0.05, 0.05, 0xb89ae0);
+        }
+        break;
+      }
+      case FLOWER_WISTERIA:
+      case WISTERIA_VINE: {
+        B(g, 0, 0.12, 0, 0.04, 0.18, 0.04, 0x6a5a4a);
+        for(let k=0;k<4;k++){
+          const y = 0.06 - k*0.11;
+          B(g, (k%2?0.06:-0.06), y, 0, 0.11, 0.07, 0.11, 0x9a7ac8);
+          B(g, (k%2?-0.04:0.04), y-0.02, 0.02, 0.07, 0.05, 0.07, 0xc8a0f0);
+        }
+        break;
+      }
+      case FLOWER_DAISY: {
+        B(g, 0, -0.14, 0, 0.04, 0.28, 0.04, 0x4a8a2a);
+        B(g, 0, 0.02, 0, 0.08, 0.08, 0.08, 0xe8c628);
+        B(g, 0.12, 0.02, 0, 0.09, 0.07, 0.09, 0xf0f0e8);
+        B(g, -0.12, 0.02, 0, 0.09, 0.07, 0.09, 0xf0f0e8);
+        B(g, 0, 0.02, 0.12, 0.09, 0.07, 0.09, 0xf0f0e8);
+        B(g, 0, 0.02, -0.12, 0.09, 0.07, 0.09, 0xf0f0e8);
+        break;
+      }
+      case FLOWER_ORCHID: {
+        B(g, 0, -0.14, 0, 0.04, 0.26, 0.04, 0x4a8a2a);
+        B(g, 0, 0.04, 0, 0.10, 0.12, 0.10, 0xe46a9a);
+        B(g, 0, 0.12, 0, 0.08, 0.06, 0.08, 0xff9abe);
+        B(g, 0, -0.02, 0.08, 0.07, 0.07, 0.04, 0xffffff);
+        break;
+      }
+      case FLOWER_PEONY: {
+        B(g, 0, -0.14, 0, 0.04, 0.26, 0.04, 0x4a8a2a);
+        B(g, 0, 0.02, 0, 0.18, 0.14, 0.18, 0xe46a9a);
+        B(g, 0, 0.10, 0, 0.14, 0.10, 0.14, 0xff9abe);
+        B(g, 0.05, 0.06, 0.05, 0.06, 0.06, 0.06, 0xffffff);
+        break;
+      }
+      case BUSH:
+      case BUSH_FLOWERING:
+      case BERRY_BUSH: {
+        B(g, 0, -0.06, 0, 0.22, 0.18, 0.22, 0x3a7a2a);
+        B(g, 0, 0.06, 0, 0.18, 0.14, 0.18, 0x5a9a3a);
+        B(g, 0.10, 0.02, 0.06, 0.10, 0.10, 0.10, 0x4a8a2a);
+        B(g, -0.10, 0.04, -0.04, 0.10, 0.08, 0.10, 0x2a5a1a);
+        if (id === BUSH_FLOWERING) {
+          B(g, 0.08, 0.12, 0.05, 0.06, 0.06, 0.06, 0xf0f0e8);
+          B(g, -0.07, 0.10, 0.04, 0.05, 0.05, 0.05, 0xff9abe);
+        }
+        if (id === BERRY_BUSH) {
+          B(g, 0.09, 0.10, 0.04, 0.04, 0.04, 0.04, 0xd42a2a);
+          B(g, -0.08, 0.08, 0.06, 0.04, 0.04, 0.04, 0xd42a2a);
+        }
+        break;
+      }
+      case MOSS_CARPET: {
+        B(g, 0, -0.12, 0, 0.32, 0.06, 0.28, 0x4a9a3a);
+        B(g, 0.08, -0.09, 0.05, 0.12, 0.04, 0.10, 0x6cbb4a);
+        B(g, -0.09, -0.08, -0.04, 0.10, 0.03, 0.08, 0x3a7a2a);
+        break;
+      }
+      case LEAF_PILE: {
+        B(g, 0, -0.12, 0, 0.30, 0.07, 0.26, 0xc87a2a);
+        B(g, 0.06, -0.08, 0.04, 0.14, 0.05, 0.12, 0xe89a3a);
+        B(g, -0.07, -0.06, -0.03, 0.12, 0.04, 0.10, 0xa85a1a);
+        break;
+      }
+      case TALL_GRASS: {
+        // diverse tall grass: 4 blades with bend and varying green
+        B(g, 0, -0.08, 0, 0.05, 0.32, 0.05, 0x4a8a2a, 0, 0.18);
+        B(g, 0.07, -0.02, 0.02, 0.06, 0.28, 0.05, 0x6cbb4a, 0, -0.22);
+        B(g, -0.06, 0.02, -0.01, 0.05, 0.26, 0.05, 0x5a9a3a, 0, 0.28);
+        B(g, 0.03, 0.10, -0.04, 0.04, 0.18, 0.04, 0x78c64e, 0, -0.15);
+        break;
+      }
       case FERN: {
-        B(g, 0, -0.05, 0, 0.06, 0.28, 0.06, 0x5f9738, 0, 0.2);
-        B(g, 0.06, 0.02, 0, 0.12, 0.05, 0.06, 0x78b54e);
-        B(g, -0.06, 0.08, 0, 0.12, 0.05, 0.06, 0x4a7a2a);
+        // improved fern: central stem + feathery fronds
+        B(g, 0, -0.08, 0, 0.04, 0.30, 0.04, 0x3a6a2a);
+        B(g, -0.08, 0.06, 0, 0.12, 0.04, 0.06, 0x5a9a4a, 0, 0.35);
+        B(g, -0.12, 0.00, 0.02, 0.10, 0.03, 0.05, 0x6cbb5a, 0, 0.45);
+        B(g, 0.08, 0.08, 0, 0.12, 0.04, 0.06, 0x5a9a4a, 0, -0.35);
+        B(g, 0.12, 0.02, -0.02, 0.10, 0.03, 0.05, 0x6cbb5a, 0, -0.45);
+        B(g, 0, 0.14, 0, 0.14, 0.04, 0.06, 0x7acc6a, 0, 0);
         break;
       }
       case DEAD_BUSH: {

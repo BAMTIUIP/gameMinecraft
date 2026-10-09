@@ -171,8 +171,17 @@ export type Recipe = {
 
 /** bare hand pseudo-item: always occupies hotbar slot 1 */
 export const HAND = -1;
-/** The 200+ tool-ID space excludes stackable arrows and relocated meat portions. */
-export const isToolId = (id: number) => id >= 200 && !isArrowId(id) && !isMeatItem(id);
+/** Tool IDs live in 200-206, 210-215, 220-225, 230-235, 240-255, 260-264 — excludes arrows, meat and new flora blocks 276+ */
+export const isToolId = (id: number) => {
+  if (isArrowId(id) || isMeatItem(id)) return false;
+  if (id >= 200 && id <= 206) return true;
+  if (id >= 210 && id <= 215) return true;
+  if (id >= 220 && id <= 225) return true;
+  if (id >= 230 && id <= 235) return true;
+  if (id >= 240 && id <= 255) return true;
+  if (id >= 260 && id <= 264) return true;
+  return false;
+};
 
 const MATERIAL_ITEMS = [PLANKS, COBBLE, IRON, GOLD, DIAMOND, NETHERITE_INGOT] as const;
 

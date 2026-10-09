@@ -349,24 +349,77 @@ const COL = {
 };
 
 function addTallGrass(P: number[], C: number[], I: number[], x: number, y: number, z: number, seed: number) {
-  const cx = x + 0.5 + (((seed * 7) % 5) - 2) * 0.03;
-  const cz = z + 0.5 + (((seed * 11) % 5) - 2) * 0.03;
-  const h = 0.55 + ((seed % 5) - 2) * 0.06;
-  addBox(P, C, I, cx - 0.08, y + h * 0.45, cz - 0.05, 0.06, h * 0.9, 0.06, ...COL.grassA);
-  addBox(P, C, I, cx + 0.07, y + h * 0.5, cz + 0.06, 0.06, h, 0.06, ...COL.grassB);
-  addBox(P, C, I, cx - 0.04, y + h * 0.35, cz + 0.1, 0.05, h * 0.7, 0.05, ...COL.grassC);
-  addBox(P, C, I, cx + 0.09, y + h * 0.4, cz - 0.08, 0.05, h * 0.8, 0.05, ...COL.grassA);
+  const variant = Math.abs(seed) % 4;
+  const cx = x + 0.5 + (((seed * 7) % 7) - 3) * 0.04;
+  const cz = z + 0.5 + (((seed * 11) % 7) - 3) * 0.04;
+  const h = 0.48 + ((seed % 6) * 0.08);
+  if (variant === 0) {
+    // classic dense clump with bent tips
+    addBox(P, C, I, cx - 0.08, y + h * 0.45, cz - 0.05, 0.06, h * 0.9, 0.06, ...COL.grassA);
+    addBox(P, C, I, cx + 0.07, y + h * 0.5, cz + 0.06, 0.06, h, 0.06, ...COL.grassB);
+    addBox(P, C, I, cx - 0.04, y + h * 0.35, cz + 0.1, 0.05, h * 0.7, 0.05, ...COL.grassC);
+    addBox(P, C, I, cx + 0.09, y + h * 0.4, cz - 0.08, 0.05, h * 0.8, 0.05, ...COL.grassA);
+  } else if (variant === 1) {
+    // tall arching blades with light tips
+    addBox(P, C, I, cx, y + h * 0.5, cz, 0.05, h, 0.05, ...COL.grassB);
+    addBox(P, C, I, cx + 0.12, y + h * 0.55, cz + 0.04, 0.04, h*0.85, 0.04, ...COL.grassA);
+    addBox(P, C, I, cx - 0.10, y + h * 0.48, cz - 0.06, 0.04, h*0.75, 0.04, ...COL.grassC);
+    addBox(P, C, I, cx + 0.04, y + h * 0.85, cz + 0.02, 0.07, 0.07, 0.07, ...srgb(0xc8e6a0));
+  } else if (variant === 2) {
+    // feathery 5-blade star
+    for (let k=0;k<5;k++){
+      const ang = k*1.256 + seed*0.1;
+      const dx = Math.cos(ang)*0.11, dz = Math.sin(ang)*0.11;
+      const col = k%2===0?COL.grassA:COL.grassB;
+      addBox(P, C, I, cx+dx*0.5, y+h*0.5, cz+dz*0.5, 0.05, h*(0.7+0.2*Math.random()), 0.05, ...col);
+    }
+  } else {
+    // low thick meadow tuft with seed heads
+    addBox(P, C, I, cx, y+0.18, cz, 0.18, 0.36, 0.18, ...COL.grassC);
+    addBox(P, C, I, cx+0.08, y+0.32, cz+0.06, 0.08, 0.22, 0.08, ...COL.grassB);
+    addBox(P, C, I, cx-0.07, y+0.30, cz-0.05, 0.07, 0.20, 0.07, ...COL.grassA);
+    addBox(P, C, I, cx, y+0.52, cz, 0.10, 0.06, 0.10, ...srgb(0xd4c07a));
+  }
 }
 
 function addFern(P: number[], C: number[], I: number[], x: number, y: number, z: number, seed: number) {
-  const cx = x + 0.5;
-  const cz = z + 0.5;
-  const h = 0.45 + ((seed % 3) - 1) * 0.04;
-  addBox(P, C, I, cx, y + h * 0.5, cz, 0.08, h, 0.08, ...COL.fernA);
-  addBox(P, C, I, cx + 0.14, y + h * 0.6, cz, 0.22, 0.05, 0.12, ...COL.fernB);
-  addBox(P, C, I, cx - 0.14, y + h * 0.6, cz, 0.22, 0.05, 0.12, ...COL.fernB);
-  addBox(P, C, I, cx, y + h * 0.5, cz + 0.14, 0.12, 0.05, 0.22, ...COL.fernB);
-  addBox(P, C, I, cx, y + h * 0.5, cz - 0.14, 0.12, 0.05, 0.22, ...COL.fernB);
+  const variant = Math.abs(seed) % 4;
+  const cx = x + 0.5 + (((seed*3)%5)-2)*0.02;
+  const cz = z + 0.5 + (((seed*7)%5)-2)*0.02;
+  const h = 0.42 + ((seed % 4) * 0.08);
+  if (variant === 0) {
+    addBox(P, C, I, cx, y + h * 0.5, cz, 0.08, h, 0.08, ...COL.fernA);
+    addBox(P, C, I, cx + 0.14, y + h * 0.6, cz, 0.22, 0.05, 0.12, ...COL.fernB);
+    addBox(P, C, I, cx - 0.14, y + h * 0.6, cz, 0.22, 0.05, 0.12, ...COL.fernB);
+    addBox(P, C, I, cx, y + h * 0.5, cz + 0.14, 0.12, 0.05, 0.22, ...COL.fernB);
+    addBox(P, C, I, cx, y + h * 0.5, cz - 0.14, 0.12, 0.05, 0.22, ...COL.fernB);
+  } else if (variant === 1) {
+    // tall layered fern with 3 tiers
+    addBox(P, C, I, cx, y+h*0.5, cz, 0.07, h, 0.07, ...COL.fernA);
+    for(let t=0;t<3;t++){
+      const ty = y + 0.12 + t*0.14;
+      const s = 0.18 + t*0.06;
+      addBox(P, C, I, cx+s, ty, cz, s, 0.04, 0.08, ...COL.fernB);
+      addBox(P, C, I, cx-s, ty+0.02, cz, s, 0.04, 0.08, ...COL.fernB);
+    }
+  } else if (variant === 2) {
+    // broad ostrich fern
+    addBox(P, C, I, cx, y+h*0.45, cz, 0.09, h*0.9, 0.09, ...COL.fernA);
+    for(let k=0;k<6;k++){
+      const ang = k*1.047; const r=0.16;
+      const dx=Math.cos(ang)*r, dz=Math.sin(ang)*r;
+      addBox(P, C, I, cx+dx, y+h*0.62, cz+dz, 0.18, 0.04, 0.10, ...COL.fernB);
+    }
+  } else {
+    // delicate maidenhair with small leaflets
+    addBox(P, C, I, cx, y+h*0.5, cz, 0.05, h, 0.05, ...COL.fernA);
+    for(let k=0;k<4;k++){
+      const yk = y+0.15+k*0.10;
+      addBox(P, C, I, cx+0.10, yk, cz+0.04, 0.12, 0.03, 0.06, ...COL.fernB);
+      addBox(P, C, I, cx-0.10, yk+0.02, cz-0.03, 0.12, 0.03, 0.06, ...COL.fernB);
+      addBox(P, C, I, cx+0.04, yk+0.01, cz+0.10, 0.06, 0.03, 0.12, ...COL.fernB);
+    }
+  }
 }
 
 function addMushroom(P: number[], C: number[], I: number[], x: number, y: number, z: number, seed: number) {

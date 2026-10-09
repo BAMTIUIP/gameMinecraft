@@ -25,6 +25,32 @@ import {
   APPLE,
   COCONUT,
   BANANA,
+  FLOWER_TULIP_RED,
+  FLOWER_TULIP_YELLOW,
+  FLOWER_TULIP_PINK,
+  FLOWER_TULIP_ORANGE,
+  FLOWER_TULIP_WHITE,
+  FLOWER_SUNFLOWER,
+  FLOWER_ROSE,
+  FLOWER_LAVENDER,
+  FLOWER_WISTERIA,
+  FLOWER_DAISY,
+  FLOWER_ORCHID,
+  FLOWER_PEONY,
+  BUSH,
+  BUSH_FLOWERING,
+  BERRY_BUSH,
+  TALL_LAVENDER,
+  TALL_SUNFLOWER,
+  WISTERIA_VINE,
+  MOSS_CARPET,
+  LEAF_PILE,
+  MOSSY_COBBLE,
+  MOSSY_STONE_BRICK,
+  CRACKED_STONE_BRICK,
+  STONE_BRICK,
+  TALL_GRASS,
+  FERN,
 } from './blocks';
 import { drawArrowIcon, isArrowId } from './arrowVisuals';
 
@@ -2706,6 +2732,95 @@ export function getBlockIcon(id: number): string {
     p(6, 8, 4, 1, '#ffd06a');
     p(10, 9, 2, 1, '#ff7045');
     p(3, 5, 1, 1, '#ffb05e');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
+  // ---- New forest flora & ruin bricks: custom non-cube icons ----
+  const isNewFlower = id >= FLOWER_TULIP_RED && id <= FLOWER_PEONY;
+  const isNewBush = id === BUSH || id === BUSH_FLOWERING || id === BERRY_BUSH;
+  const isTallFlower = id === TALL_LAVENDER || id === TALL_SUNFLOWER;
+  const isGroundCover = id === MOSS_CARPET || id === LEAF_PILE || id === WISTERIA_VINE;
+  const isBrick = id === MOSSY_COBBLE || id === MOSSY_STONE_BRICK || id === CRACKED_STONE_BRICK || id === STONE_BRICK;
+  if (isNewFlower || isNewBush || isTallFlower || isGroundCover || isBrick || id === TALL_GRASS || id === FERN) {
+    ctx.clearRect(0, 0, size, size);
+    // shadow
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.25)');
+    if (id === FLOWER_TULIP_RED || id === FLOWER_TULIP_YELLOW || id === FLOWER_TULIP_PINK || id === FLOWER_TULIP_ORANGE || id === FLOWER_TULIP_WHITE) {
+      const colMap: Record<number, {cup: string, light: string, dark: string}> = {
+        [FLOWER_TULIP_RED]: {cup: '#d42a2a', light: '#ff5a4a', dark: '#8a1a1a'},
+        [FLOWER_TULIP_YELLOW]: {cup: '#e8c628', light: '#ffea4a', dark: '#a08018'},
+        [FLOWER_TULIP_PINK]: {cup: '#e46a9a', light: '#ff9abe', dark: '#a04068'},
+        [FLOWER_TULIP_ORANGE]: {cup: '#e86a18', light: '#ff9a3a', dark: '#a0400a'},
+        [FLOWER_TULIP_WHITE]: {cup: '#f0f0e8', light: '#ffffff', dark: '#c8c8b8'},
+      };
+      const col = colMap[id] || colMap[FLOWER_TULIP_RED];
+      // stem
+      p(7, 8, 2, 6, '#4a8a2a'); p(7, 8, 1, 5, '#6cb33a');
+      // cup
+      p(5, 3, 6, 6, col.cup); p(5, 3, 6, 2, col.light); p(5, 7, 6, 1, col.dark);
+      p(6, 4, 4, 3, col.light); p(6, 4, 1, 2, '#ffffff');
+    } else if (id === FLOWER_SUNFLOWER || id === TALL_SUNFLOWER) {
+      const tall = id === TALL_SUNFLOWER;
+      // stem
+      p(7, tall?6:8, 2, tall?8:6, '#5a8a2a'); p(7, tall?6:8, 1, tall?7:5, '#7ab33a');
+      // leaves
+      p(5, 10, 2, 2, '#4a7a2a'); p(9, 9, 2, 2, '#4a7a2a');
+      // flower head
+      const y0 = tall?1:3;
+      p(4, y0, 8, 5, '#e8c628'); p(4, y0, 8, 2, '#ffea4a'); p(5, y0+1, 6, 3, '#ffea4a');
+      p(6, y0+2, 4, 2, '#a08018'); p(7, y0+2, 2, 2, '#5a4010');
+    } else if (id === FLOWER_ROSE) {
+      p(7, 8, 2, 6, '#4a8a2a'); p(7, 8, 1, 5, '#6cb33a');
+      p(5, 3, 6, 5, '#b81e12'); p(5, 3, 6, 2, '#e23628'); p(6, 4, 4, 2, '#ff5a4a');
+      p(6, 5, 1, 1, '#ffcec6');
+    } else if (id === FLOWER_LAVENDER || id === TALL_LAVENDER) {
+      const tall = id === TALL_LAVENDER;
+      p(7, tall?6:8, 2, tall?8:6, '#5a7a4a');
+      const y0 = tall?1:3;
+      for(let k=0;k<(tall?4:3);k++){ p(6, y0+k*2, 4, 2, '#8a6ab8'); p(7, y0+k*2, 2, 1, '#b89ae0'); }
+    } else if (id === FLOWER_WISTERIA || id === WISTERIA_VINE) {
+      p(7, 2, 2, 12, '#6a5a4a');
+      for(let k=0;k<4;k++){ p(5+k%2, 3+k*3, 5, 2, '#9a7ac8'); p(6, 3+k*3, 3, 1, '#c8a0f0'); }
+    } else if (id === FLOWER_DAISY) {
+      p(7, 8, 2, 6, '#5a8a2a');
+      p(4, 3, 8, 5, '#f0f0e8'); p(5, 4, 6, 3, '#ffffff'); p(6, 4, 4, 2, '#e8c628'); p(7, 5, 2, 1, '#a08018');
+    } else if (id === FLOWER_ORCHID) {
+      p(7, 8, 2, 6, '#5a8a2a');
+      p(5, 3, 6, 4, '#e46a9a'); p(6, 2, 4, 2, '#ff9abe'); p(6, 4, 2, 1, '#ffffff');
+    } else if (id === FLOWER_PEONY) {
+      p(7, 8, 2, 6, '#4a8a2a');
+      p(4, 2, 8, 6, '#e46a9a'); p(5, 3, 6, 4, '#ff9abe'); p(6, 4, 4, 2, '#ffffff');
+    } else if (isNewBush) {
+      // bush base
+      p(3, 8, 10, 6, '#3a7a2a'); p(4, 7, 8, 2, '#5a9a3a'); p(5, 9, 6, 3, '#2a5a1a');
+      if (id === BUSH_FLOWERING) { p(5, 8, 2, 2, '#f0f0e8'); p(8, 7, 2, 2, '#ff9abe'); }
+      if (id === BERRY_BUSH) { p(5, 8, 1, 1, '#d42a2a'); p(8, 9, 1, 1, '#d42a2a'); p(6, 10, 1, 1, '#d42a2a'); }
+    } else if (id === MOSS_CARPET) {
+      p(2, 10, 12, 4, '#4a9a3a'); p(3, 9, 10, 2, '#6cbb4a'); p(4, 10, 2, 1, '#8ad46a');
+    } else if (id === LEAF_PILE) {
+      p(2, 11, 12, 3, '#c87a2a'); p(3, 10, 10, 2, '#e89a3a'); p(4, 9, 8, 2, '#a85a1a');
+    } else if (id === TALL_GRASS) {
+      // improved tall grass: 3 blades with varying height and bend
+      p(6, 6, 1, 8, '#5a9a3a'); p(7, 5, 1, 9, '#6cbb4a'); p(8, 7, 1, 7, '#4a7a2a');
+      p(5, 10, 2, 2, '#3a6a1a'); p(9, 9, 2, 2, '#3a6a1a');
+    } else if (id === FERN) {
+      // diverse fern: feathery fronds
+      p(7, 8, 1, 6, '#4a7a3a');
+      p(5, 9, 3, 1, '#5a9a4a'); p(4, 10, 3, 1, '#6cbb5a');
+      p(9, 8, 3, 1, '#5a9a4a'); p(10, 7, 3, 1, '#6cbb5a');
+      p(6, 6, 4, 1, '#7acc6a'); p(5, 7, 2, 1, '#7acc6a');
+    } else if (isBrick) {
+      // brick icon: keep cube style but with brick texture visible
+      const atlas = getAtlasCanvas();
+      const def = BLOCKS[id];
+      const [tx, ty] = tileOrigin(def.top);
+      ctx.save(); ctx.transform(1,0,0,0.42,0,0); ctx.drawImage(atlas, tx, ty, TILE, TILE, 0,0,size,size); ctx.restore();
+      const [sx, sy] = tileOrigin(def.side);
+      ctx.drawImage(atlas, sx, sy, TILE, TILE, 0, size*0.42, size, size*0.58);
+      const url = c.toDataURL(); iconCache.set(id, url); return url;
+    }
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;
