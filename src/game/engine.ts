@@ -10803,12 +10803,15 @@ if (tpClipActive > 0.5) {
         fog.near = fog.far * 0.28;
         if (this.skyMat) this.skyMat.color.copy(caveBlend).multiplyScalar(0.5);
       } else {
-        fog.color.copy(c);
+        // surface: make distant void dark blurred, not bright blue hole — fog darker than sky, background dark
+        const surfaceVoidDark = new THREE.Color(0x1a2a36);
+        const surfaceFog = c.clone().lerp(surfaceVoidDark, 0.38 + (1 - d) * 0.18);
+        fog.color.copy(surfaceFog);
+        this.scene.background = surfaceFog;
         const nightHaze = 0.66 + d * 0.54;
         const weatherHaze = 1 - weather * 0.16;
         fog.far = this.renderDist * nightHaze * weatherHaze;
         fog.near = fog.far * (0.34 + weather * 0.07);
-        this.scene.background = c;
         if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
       }
     }
