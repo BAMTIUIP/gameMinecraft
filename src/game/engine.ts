@@ -236,7 +236,7 @@ const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
 ) as Record<AffixId, Parameters<typeof t>[0]>;
 const RARITY_COLORS = RARITY.map((r) => r.color);
-const CAMPFIRE_SMOKE_PUFFS = 12;
+const CAMPFIRE_SMOKE_PUFFS = 20;
 
 import {
   buildChunkGeometrySteps,
@@ -346,42 +346,66 @@ export type HudObjective = {
 };
 
 export const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
+  // ---- Phase 1: Surface basics (wood + tools) - 17 missions, early chain preserved ----
   { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
+  { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
+  { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'weapon', craftTier: 0 },
   { id: 'bird-feather', titleKey: 'objectiveHuntFeather', target: 1, rewardScore: 160, rewardSeconds: 25, collectItemId: FEATHER },
   { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
   { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
   { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
+  { id: 'stone-axe', titleKey: 'objectiveCraftStoneAxe', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'axe', craftTier: 1 },
+  { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
   { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
   { id: 'hunt-meat', titleKey: 'objectiveHuntMeat', target: 3, rewardScore: 220, rewardSeconds: 35, collectRawMeat: true },
   { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
   { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftKind: 'cook' },
-  { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
-  { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
-  { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
-  { id: 'netherite-sword', titleKey: 'objectiveCraftNetheriteSword', target: 1, rewardScore: 700, rewardSeconds: 65, craftKind: 'weapon', craftTier: 5 },
-  { id: 'netherite-arrows', titleKey: 'objectiveCraftNetheriteArrows', target: 1, rewardScore: 800, rewardSeconds: 75, craftRecipeKey: 'arrows_netherite' },
-  { id: 'fire-arrows', titleKey: 'objectiveCraftFireArrows', target: 1, rewardScore: 300, rewardSeconds: 35, craftRecipeKey: 'arrows_fire' },
-  { id: 'poison-arrows', titleKey: 'objectiveCraftPoisonArrows', target: 1, rewardScore: 320, rewardSeconds: 35, craftRecipeKey: 'arrows_poison' },
-  { id: 'freeze-arrows', titleKey: 'objectiveCraftFreezeArrows', target: 1, rewardScore: 340, rewardSeconds: 35, craftRecipeKey: 'arrows_freeze' },
-  { id: 'stun-arrows', titleKey: 'objectiveCraftStunArrows', target: 1, rewardScore: 360, rewardSeconds: 35, craftRecipeKey: 'arrows_stun' },
+
+  // ---- Phase 2: Early underground - chest early, iron, separated arrow types ----
   { id: 'secret-chest', titleKey: 'objectiveFindChest', target: 1, rewardScore: 220, rewardSeconds: 35, openChest: true },
-  { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
-  { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
-  { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
-  { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
   { id: 'iron-pick', titleKey: 'objectiveCraftIronPickaxe', target: 1, rewardScore: 380, rewardSeconds: 40, craftPickaxeTier: 2 },
+  { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
+  { id: 'iron-axe', titleKey: 'objectiveCraftIronAxe', target: 1, rewardScore: 240, rewardSeconds: 30, craftKind: 'axe', craftTier: 2 },
+  { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
+  { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
+
+  // ---- Phase 3: Gold + farming smoke boost - gold before gold arrows, hay for visible smoke ----
   { id: 'gold', titleKey: 'objectiveMineGold', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [GOLD_ORE] },
   { id: 'gold-pick', titleKey: 'objectiveCraftGoldPickaxe', target: 1, rewardScore: 600, rewardSeconds: 50, craftPickaxeTier: 3 },
+  { id: 'hay-bale', titleKey: 'objectiveCraftHayBale', target: 1, rewardScore: 200, rewardSeconds: 30, craftRecipeKey: 'hay_bale' },
+  { id: 'gold-gear', titleKey: 'objectiveCraftGoldGear', target: 2, rewardScore: 320, rewardSeconds: 40, craftKind: 'gear', craftTier: 3 },
+  { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
+  { id: 'quartz', titleKey: 'objectiveMineQuartz', target: 3, rewardScore: 450, rewardSeconds: 40, mineBlockIds: [QUARTZ_ORE] },
+  { id: 'redstone', titleKey: 'objectiveMineRedstone', target: 3, rewardScore: 480, rewardSeconds: 40, mineBlockIds: [REDSTONE_ORE] },
+
+  // ---- Phase 4: Diamond + rare ores ----
   { id: 'diamond', titleKey: 'objectiveMineDiamond', target: 2, rewardScore: 700, rewardSeconds: 55, mineBlockIds: [DIAMOND_ORE] },
   { id: 'diamond-pick', titleKey: 'objectiveCraftDiamondPickaxe', target: 1, rewardScore: 850, rewardSeconds: 65, craftPickaxeTier: 4 },
+  { id: 'diamond-axe', titleKey: 'objectiveCraftDiamondAxe', target: 1, rewardScore: 600, rewardSeconds: 50, craftKind: 'axe', craftTier: 4 },
+  { id: 'diamond-sword', titleKey: 'objectiveCraftDiamondSword', target: 1, rewardScore: 650, rewardSeconds: 55, craftKind: 'weapon', craftTier: 4 },
+  { id: 'chest-hoard', titleKey: 'objectiveFindChestHoard', target: 3, rewardScore: 400, rewardSeconds: 45, openChest: true },
+  { id: 'lapis', titleKey: 'objectiveMineLapis', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [LAPIS_ORE] },
+  { id: 'emerald', titleKey: 'objectiveMineEmerald', target: 3, rewardScore: 550, rewardSeconds: 45, mineBlockIds: [EMERALD_ORE] },
+  { id: 'diamond-gear', titleKey: 'objectiveCraftDiamondGear', target: 2, rewardScore: 700, rewardSeconds: 60, craftKind: 'gear', craftTier: 4 },
   { id: 'rare-ores', titleKey: 'objectiveMineRareOres', target: 3, rewardScore: 1000, rewardSeconds: 70, mineBlockIds: [REDSTONE_ORE, LAPIS_ORE, EMERALD_ORE] },
-  { id: 'ancient-debris', titleKey: 'objectiveMineAncientDebris', target: 12, rewardScore: 1400, rewardSeconds: 120, mineBlockIds: [NETHERITE_ORE] },
-  { id: 'netherite-ingots', titleKey: 'objectiveCraftNetheriteIngot', target: 3, rewardScore: 1800, rewardSeconds: 150, craftRecipeKey: 'netherite_ingot' },
+
+  // ---- Phase 5: Netherite tier - spawns y<32, protected from cave carving ----
+  { id: 'ancient-debris', titleKey: 'objectiveMineAncientDebris', target: 6, rewardScore: 1200, rewardSeconds: 100, mineBlockIds: [NETHERITE_ORE] },
+  { id: 'netherite-ingots', titleKey: 'objectiveCraftNetheriteIngot', target: 2, rewardScore: 1400, rewardSeconds: 120, craftRecipeKey: 'netherite_ingot' },
+
+  // ---- Phase 6: Special arrows interleaved with netherite gear to avoid 3 arrows in a row ----
+  { id: 'fire-arrows', titleKey: 'objectiveCraftFireArrows', target: 1, rewardScore: 300, rewardSeconds: 35, craftRecipeKey: 'arrows_fire' },
+  { id: 'poison-arrows', titleKey: 'objectiveCraftPoisonArrows', target: 1, rewardScore: 320, rewardSeconds: 35, craftRecipeKey: 'arrows_poison' },
+  { id: 'netherite-sword', titleKey: 'objectiveCraftNetheriteSword', target: 1, rewardScore: 900, rewardSeconds: 75, craftKind: 'weapon', craftTier: 5 },
+  { id: 'freeze-arrows', titleKey: 'objectiveCraftFreezeArrows', target: 1, rewardScore: 340, rewardSeconds: 35, craftRecipeKey: 'arrows_freeze' },
+  { id: 'stun-arrows', titleKey: 'objectiveCraftStunArrows', target: 1, rewardScore: 360, rewardSeconds: 35, craftRecipeKey: 'arrows_stun' },
+  { id: 'netherite-gear', titleKey: 'objectiveCraftNetheriteGear', target: 2, rewardScore: 1000, rewardSeconds: 80, craftKind: 'gear', craftTier: 5 },
+  { id: 'netherite-arrows', titleKey: 'objectiveCraftNetheriteArrows', target: 1, rewardScore: 1000, rewardSeconds: 85, craftRecipeKey: 'arrows_netherite' },
   { id: 'netherite-pick', titleKey: 'objectiveCraftNetheritePickaxe', target: 1, rewardScore: 3000, rewardSeconds: 180, craftPickaxeTier: 5 },
 ];
 
@@ -1560,10 +1584,10 @@ export class Engine {
   private campfireDummy = new THREE.Object3D();
   private campfireOuterGeometry = new THREE.ConeGeometry(0.19, 0.74, 6);
   private campfireInnerGeometry = new THREE.ConeGeometry(0.12, 0.48, 6);
-  private campfireSmokeGeometry = new THREE.SphereGeometry(0.13, 5, 4);
+  private campfireSmokeGeometry = new THREE.SphereGeometry(0.21, 6, 5);
   private campfireOuterMaterial = new THREE.MeshBasicMaterial({ color: 0xff641b, transparent: true, opacity: 0.92, depthWrite: false, toneMapped: false });
   private campfireInnerMaterial = new THREE.MeshBasicMaterial({ color: 0xffc64b, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false });
-  private campfireSmokeMaterial = new THREE.MeshBasicMaterial({ color: 0x99938d, transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false });
+  private campfireSmokeMaterial = new THREE.MeshBasicMaterial({ color: 0xc4bdb5, transparent: true, opacity: 0.42, depthWrite: false, toneMapped: false });
   private campfireVisualClock = 0;
   private campfireDamageCooldown = new WeakMap<Mob, number>();
   /** hinged chest lids, kept per chunk next to the meshes they belong to */
@@ -4149,16 +4173,20 @@ if (tpClipActive > 0.5) {
 
         for (let puffIndex = 0; puffIndex < CAMPFIRE_SMOKE_PUFFS; puffIndex++) {
           const offset = puffIndex / CAMPFIRE_SMOKE_PUFFS;
-          const progress = (this.campfireVisualClock * 0.072 + offset) % 1;
-          const drift = 0.08 + progress * 0.48;
-          const theta = this.campfireVisualClock * 0.85 + offset * Math.PI * 2 + phase;
+          // slower rise so puffs linger and the column reads clearly
+          const progress = (this.campfireVisualClock * 0.055 + offset) % 1;
+          const drift = 0.12 + progress * 0.72;
+          const theta = this.campfireVisualClock * 0.62 + offset * Math.PI * 2 + phase;
+          const swayX = Math.sin(this.campfireVisualClock * 0.9 + phase + offset * 3.1) * (0.08 + progress * 0.22);
+          const swayZ = Math.cos(this.campfireVisualClock * 0.75 + phase * 1.3 + offset * 2.7) * (0.08 + progress * 0.22);
           dummy.position.set(
-            fire.x + 0.5 + Math.cos(theta) * drift,
+            fire.x + 0.5 + Math.cos(theta) * drift + swayX,
             fire.y + 0.16 + 0.35 + progress * (fire.smokeHeight - 0.35),
-            fire.z + 0.5 + Math.sin(theta) * drift,
+            fire.z + 0.5 + Math.sin(theta) * drift + swayZ,
           );
           dummy.rotation.set(0, theta, 0);
-          const puffSize = 0.46 + progress * 1.55;
+          // larger, more readable puffs: dense near fire, big soft cloud high up
+          const puffSize = 0.78 + progress * 2.6;
           dummy.scale.setScalar(puffSize);
           dummy.updateMatrix();
           visual.smoke.setMatrixAt(fire.smokeIndex + puffIndex, dummy.matrix);
@@ -12524,11 +12552,20 @@ if (tpClipActive > 0.5) {
 
   private recordExplorerCraft(recipe: Recipe) {
     if (!this.explorationObjectives.length) return;
+    const gearMaterialTier: Record<string, number> = {
+      wood: 0, leather: 0, stone: 1, iron: 2, gold: 3, diamond: 4, netherite: 5,
+      redstone: 2, lapis: 2, emerald: 3,
+    };
     for (const task of this.explorationObjectives) {
       const craftedPickaxe = task.craftPickaxeTier !== undefined && recipe.kind === 'pickaxe' && recipe.tier === task.craftPickaxeTier;
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
       const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
-      const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
+      let craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
+      if (!craftedKind && task.craftKind === 'gear' && recipe.kind === 'gear' && task.craftTier !== undefined) {
+        const mat = (recipe as any).material as string | undefined;
+        const matTier = mat ? gearMaterialTier[mat] : undefined;
+        if (matTier !== undefined && matTier === task.craftTier) craftedKind = true;
+      }
       if (craftedPickaxe || craftedRecipe || craftedRecipeVariant || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();

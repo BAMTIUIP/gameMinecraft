@@ -21,6 +21,10 @@ import {
   NETHERITE_INGOT,
   CHEST_STORAGE_OPEN,
   isTreasureChest,
+  CAMPFIRE,
+  APPLE,
+  COCONUT,
+  BANANA,
 } from './blocks';
 import { drawArrowIcon, isArrowId } from './arrowVisuals';
 
@@ -29,7 +33,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 32; // 128 tiles
+export const ATLAS_ROWS = 48; // 192 tiles - expanded for forest flora & ruins
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -1822,6 +1826,252 @@ function drawTile(ctx: Ctx, index: number) {
       for (let x = 3; x < 16; x += 5) ctx.fillRect(ox + x, oy + 1, 1, 2);
       break;
     }
+    // ---- Expanded Flora (Tulips, Roses, Sunflowers, Lavender, Wisteria, Daisy, etc.) ----
+    case T.flowerTulipRed:
+    case T.flowerTulipYellow:
+    case T.flowerTulipPink:
+    case T.flowerTulipOrange:
+    case T.flowerTulipWhite: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const tulipMap: Record<number, {cup: string, light: string, dark: string}> = {
+        [T.flowerTulipRed]: {cup: '#d42a2a', light: '#ff5a4a', dark: '#8a1a1a'},
+        [T.flowerTulipYellow]: {cup: '#e8c628', light: '#ffea4a', dark: '#a08018'},
+        [T.flowerTulipPink]: {cup: '#e46a9a', light: '#ff9abe', dark: '#a04068'},
+        [T.flowerTulipOrange]: {cup: '#e86a18', light: '#ff9a3a', dark: '#a0400a'},
+        [T.flowerTulipWhite]: {cup: '#f0f0e8', light: '#ffffff', dark: '#c8c8b8'},
+      };
+      const col = tulipMap[index] || tulipMap[T.flowerTulipRed];
+      // stem
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 8, 2, 8);
+      // tulip cup - closed elegant shape
+      ctx.fillStyle = col.dark; ctx.fillRect(ox + 5, oy + 5, 6, 5);
+      ctx.fillStyle = col.cup; ctx.fillRect(ox + 5, oy + 4, 6, 5);
+      ctx.fillRect(ox + 4, oy + 5, 8, 3);
+      ctx.fillStyle = col.light; ctx.fillRect(ox + 6, oy + 4, 2, 2);
+      break;
+    }
+    case T.flowerSunflower: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 8, 2, 8);
+      // sunflower head - large yellow with dark center
+      ctx.fillStyle = '#e8c828'; ctx.fillRect(ox + 2, oy + 2, 12, 8);
+      ctx.fillRect(ox + 3, oy + 1, 10, 10);
+      ctx.fillStyle = '#ffea4a'; ctx.fillRect(ox + 4, oy + 3, 8, 5);
+      ctx.fillStyle = '#5a3a10'; ctx.fillRect(ox + 6, oy + 5, 4, 4);
+      ctx.fillStyle = '#7a5a1a'; ctx.fillRect(ox + 7, oy + 6, 2, 2);
+      break;
+    }
+    case T.flowerRose: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 7, oy + 8, 2, 8);
+      // rose bloom - layered red petals
+      ctx.fillStyle = '#8a1010'; ctx.fillRect(ox + 5, oy + 4, 6, 5);
+      ctx.fillStyle = '#c41e1e'; ctx.fillRect(ox + 4, oy + 3, 8, 6);
+      ctx.fillStyle = '#e83030'; ctx.fillRect(ox + 5, oy + 3, 6, 4);
+      ctx.fillStyle = '#ff5a4a'; ctx.fillRect(ox + 6, oy + 3, 2, 2);
+      // thorns hint
+      px(ctx, ox, oy, 6, 12, 1, 1, '#5a3a1a');
+      break;
+    }
+    case T.flowerLavender: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 9, 2, 7);
+      // lavender spike - purple clustered buds
+      ctx.fillStyle = '#5a3a8a'; ctx.fillRect(ox + 6, oy + 3, 4, 8);
+      ctx.fillStyle = '#7a5aba'; ctx.fillRect(ox + 5, oy + 2, 6, 7);
+      for (let y = 2; y < 9; y += 2) {
+        px(ctx, ox, oy, 6 + (y % 2), y, 2, 1, '#a48ad8');
+        px(ctx, ox, oy, 8, y + 1, 1, 1, '#c4a8f0');
+      }
+      break;
+    }
+    case T.flowerWisteria: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#6a8a4a'; ctx.fillRect(ox + 7, oy + 2, 2, 6);
+      // hanging wisteria cluster - cascading light purple
+      ctx.fillStyle = '#8a6aba'; ctx.fillRect(ox + 4, oy + 6, 8, 7);
+      ctx.fillStyle = '#a88ad8'; ctx.fillRect(ox + 5, oy + 7, 6, 6);
+      ctx.fillStyle = '#c8a8f0'; ctx.fillRect(ox + 6, oy + 8, 4, 4);
+      for (let y = 7; y < 13; y++) px(ctx, ox, oy, 6 + (y % 3), y, 1, 1, '#e0c8ff');
+      ctx.fillStyle = '#5a4a6a'; ctx.fillRect(ox + 7, oy + 13, 2, 2);
+      break;
+    }
+    case T.flowerDaisy: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#5a9a3a'; ctx.fillRect(ox + 7, oy + 9, 2, 7);
+      // white petals + yellow center
+      ctx.fillStyle = '#f0f0e8'; ctx.fillRect(ox + 3, oy + 4, 10, 6);
+      ctx.fillRect(ox + 5, oy + 3, 6, 8);
+      ctx.fillStyle = '#e8e8d8'; ctx.fillRect(ox + 4, oy + 5, 2, 4);
+      ctx.fillRect(ox + 10, oy + 5, 2, 4);
+      ctx.fillStyle = '#f0d840'; ctx.fillRect(ox + 6, oy + 5, 4, 4);
+      ctx.fillStyle = '#ffe860'; px(ctx, ox, oy, 7, 6, 1, 1, '#ffe860');
+      break;
+    }
+    case T.flowerOrchid: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a7a3a'; ctx.fillRect(ox + 7, oy + 9, 2, 7);
+      // exotic orchid - blue-purple with patterned lip
+      ctx.fillStyle = '#4a3a8a'; ctx.fillRect(ox + 3, oy + 5, 10, 5);
+      ctx.fillStyle = '#6a5aba'; ctx.fillRect(ox + 4, oy + 3, 8, 6);
+      ctx.fillStyle = '#8a7ad8'; ctx.fillRect(ox + 5, oy + 4, 6, 3);
+      ctx.fillStyle = '#d8c8ff'; ctx.fillRect(ox + 5, oy + 6, 6, 3);
+      ctx.fillStyle = '#ff9ad0'; ctx.fillRect(ox + 7, oy + 7, 2, 1);
+      break;
+    }
+    case T.flowerPeony: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 10, 2, 6);
+      // large fluffy peony
+      ctx.fillStyle = '#b04070'; ctx.fillRect(ox + 3, oy + 3, 10, 8);
+      ctx.fillStyle = '#d45a8a'; ctx.fillRect(ox + 4, oy + 2, 8, 8);
+      ctx.fillStyle = '#e87aa8'; ctx.fillRect(ox + 5, oy + 3, 6, 6);
+      ctx.fillStyle = '#ffb0d0'; ctx.fillRect(ox + 6, oy + 4, 3, 3);
+      for (const [x,y] of [[4,4],[9,4],[5,8],[9,8]]) px(ctx, ox, oy, x, y, 2, 1, '#ffa8c8');
+      break;
+    }
+    case T.bush: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // dense green shrub
+      ctx.fillStyle = '#2a5a1a'; ctx.fillRect(ox + 3, oy + 6, 10, 8);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 2, oy + 5, 12, 7);
+      ctx.fillStyle = '#4a9a3a'; ctx.fillRect(ox + 4, oy + 4, 8, 6);
+      ctx.fillStyle = '#5aba4a'; ctx.fillRect(ox + 5, oy + 5, 3, 2);
+      ctx.fillStyle = '#3a4a1a'; ctx.fillRect(ox + 7, oy + 12, 2, 4);
+      break;
+    }
+    case T.bushFlowering: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#2a5a1a'; ctx.fillRect(ox + 2, oy + 6, 12, 8);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 1, oy + 5, 14, 7);
+      // white/pink blossoms on bush
+      for (const [x,y,c] of [[3,6,'#f0e0e8'],[7,5,'#ffb0d0'],[11,7,'#f0f0f8'],[5,8,'#ff9abe'],[9,9,'#ffe0f0']] as const) {
+        px(ctx, ox, oy, x as number, y as number, 2, 2, c as string);
+      }
+      ctx.fillStyle = '#3a4a1a'; ctx.fillRect(ox + 7, oy + 12, 2, 4);
+      break;
+    }
+    case T.berryBush: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#2a5a1a'; ctx.fillRect(ox + 2, oy + 6, 12, 8);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 3, oy + 5, 10, 7);
+      // red berries
+      for (const [x,y] of [[4,7],[8,6],[11,8],[5,10],[9,11]]) {
+        px(ctx, ox, oy, x, y, 2, 2, '#c41e1e');
+        px(ctx, ox, oy, x, y, 1, 1, '#ff4a3a');
+      }
+      ctx.fillStyle = '#3a4a1a'; ctx.fillRect(ox + 7, oy + 12, 2, 4);
+      break;
+    }
+    case T.tallLavender:
+    case T.tallSunflower: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const isSun = index === T.tallSunflower;
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 2, 2, 14);
+      if (isSun) {
+        // tall sunflower - two blooms? top one
+        ctx.fillStyle = '#e8c828'; ctx.fillRect(ox + 2, oy + 1, 12, 6);
+        ctx.fillStyle = '#ffea4a'; ctx.fillRect(ox + 4, oy + 2, 8, 4);
+        ctx.fillStyle = '#5a3a10'; ctx.fillRect(ox + 6, oy + 3, 4, 3);
+        ctx.fillStyle = '#3a9a2a'; ctx.fillRect(ox + 3, oy + 9, 10, 4);
+      } else {
+        // tall lavender
+        for (let y = 1; y < 10; y++) {
+          ctx.fillStyle = y % 2 === 0 ? '#7a5aba' : '#5a3a8a';
+          ctx.fillRect(ox + 5, oy + y, 6, 1);
+          px(ctx, ox, oy, 6, y, 1, 1, '#a48ad8');
+        }
+        ctx.fillStyle = '#4a9a3a'; ctx.fillRect(ox + 4, oy + 10, 8, 3);
+      }
+      break;
+    }
+    case T.wisteriaVine: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // hanging vine with purple clusters like T.vine but with flowers
+      ctx.fillStyle = '#4a6a3a'; ctx.fillRect(ox + 6, oy, 2, 16);
+      ctx.fillStyle = '#6a8a5a';
+      for (let y = 1; y < 16; y += 3) ctx.fillRect(ox + 3, oy + y, 4, 2);
+      ctx.fillStyle = '#9a7ac8';
+      for (const [x,y] of [[9,3],[4,7],[10,9],[3,12]]) {
+        px(ctx, ox, oy, x, y, 3, 3, '#9a7ac8');
+        px(ctx, ox, oy, x+1, y+1, 1, 1, '#d0b0f0');
+      }
+      break;
+    }
+    case T.mossCarpet: {
+      // lush green moss carpet ground cover
+      speckle(ctx, ox, oy, '#4a9a3a', 3001, 18);
+      for (let i = 0; i < 20; i++) {
+        const x = Math.floor((mulberry32(3001 + i)()) * 16);
+        const y = Math.floor((mulberry32(3101 + i)()) * 16);
+        px(ctx, ox, oy, x, y, 1 + (i % 2), 1, i % 3 === 0 ? '#5aba4a' : i % 3 === 1 ? '#3a7a2a' : '#6ac85a');
+      }
+      break;
+    }
+    case T.leafPile: {
+      // autumn leaf litter - orange/brown/yellow mix
+      speckle(ctx, ox, oy, '#c87a28', 3201, 16);
+      const cols = ['#e8a040','#d06020','#f0c040','#8a4a1a','#c87828'];
+      for (let i = 0; i < 24; i++) {
+        const x = Math.floor((mulberry32(3201 + i)()) * 16);
+        const y = Math.floor((mulberry32(3301 + i)()) * 16);
+        px(ctx, ox, oy, x, y, 1, 1, cols[i % cols.length]);
+      }
+      break;
+    }
+    case T.mossyCobble: {
+      speckle(ctx, ox, oy, '#5a5e5a', 3401, 10);
+      for (const [bx,by,bw,bh] of [[0,0,7,7],[9,0,7,7],[0,9,8,7],[9,9,7,7]] as const) {
+        ctx.fillStyle = '#666a66'; ctx.fillRect(ox+bx,oy+by,bw,bh);
+        ctx.fillStyle = '#7a807a'; ctx.fillRect(ox+bx+1,oy+by+1,bw-2,bh-2);
+      }
+      ctx.fillStyle = '#3a4a3a'; ctx.fillRect(ox,oy+7,16,2);
+      ctx.fillRect(ox+7,oy,2,16);
+      // moss patches
+      for (const [x,y] of [[2,2],[11,3],[3,11],[10,10]]) px(ctx, ox, oy, x, y, 3, 2, '#4a8a3a');
+      break;
+    }
+    case T.mossyStoneBrick: {
+      // stone bricks with moss overgrowth - castle ruins aesthetic
+      ctx.fillStyle = '#5a5e60'; ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#6a6e70'; ctx.fillRect(ox+1, oy+1, 14, 6);
+      ctx.fillRect(ox+1, oy+9, 14, 6);
+      ctx.fillStyle = '#4a4e50'; ctx.fillRect(ox, oy+7,16,2); ctx.fillRect(ox, oy+15,16,1);
+      ctx.fillStyle = '#8a8e90'; ctx.fillRect(ox+2, oy+2, 5, 1); ctx.fillRect(ox+2, oy+10, 4, 1);
+      // moss
+      px(ctx, ox, oy, 1, 1, 4, 2, '#4a7a3a'); px(ctx, ox, oy, 9, 3, 3, 2, '#5a9a4a');
+      px(ctx, ox, oy, 2, 11, 5, 2, '#3a6a2a'); px(ctx, ox, oy, 11, 10, 3, 3, '#4a8a3a');
+      break;
+    }
+    case T.crackedStoneBrick: {
+      ctx.fillStyle = '#5a5e60'; ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#6a6e70'; ctx.fillRect(ox+1, oy+1, 14, 6); ctx.fillRect(ox+1, oy+9, 14, 6);
+      ctx.fillStyle = '#4a4e50'; ctx.fillRect(ox, oy+7,16,2);
+      // cracks
+      ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox+3, oy+2); ctx.lineTo(ox+6, oy+7); ctx.lineTo(ox+4, oy+12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ox+11, oy+1); ctx.lineTo(ox+9, oy+8); ctx.lineTo(ox+12, oy+14); ctx.stroke();
+      break;
+    }
+    case T.stoneBrick: {
+      // clean stone bricks - castle walls
+      ctx.fillStyle = '#5a5e60'; ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#7a7e80'; ctx.fillRect(ox+1, oy+1, 14, 6);
+      ctx.fillRect(ox+1, oy+9, 14, 6);
+      ctx.fillStyle = '#4a4e50'; ctx.fillRect(ox, oy+7,16,2); ctx.fillRect(ox, oy+15,16,1); ctx.fillRect(ox+7, oy,1,16);
+      ctx.fillStyle = '#8a8e90'; ctx.fillRect(ox+2, oy+2, 5, 1); ctx.fillRect(ox+2, oy+10, 4, 1);
+      ctx.fillStyle = '#9aa0a4'; ctx.fillRect(ox+9, oy+2, 3, 1);
+      break;
+    }
+    case T.pumpkin: {
+      // jack-o style pumpkin
+      speckle(ctx, ox, oy, '#d87a18', 3601, 10);
+      ctx.fillStyle = '#a85a10'; for (let x=0;x<16;x+=4) ctx.fillRect(ox+x,oy,1,16);
+      ctx.fillStyle = '#f0a030'; ctx.fillRect(ox+2, oy+2, 12, 12);
+      ctx.fillStyle = '#5a3a0a'; ctx.fillRect(ox+6, oy+1, 4, 3);
+      ctx.fillStyle = '#3a5a1a'; ctx.fillRect(ox+7, oy, 2, 2);
+      break;
+    }
     // ---- Mineral Item Tiles (Row 2 fallback in atlas) ----
     case T.coalItem:
       speckle(ctx, ox, oy, '#222328', 411, 14);
@@ -2157,11 +2407,115 @@ export function getBlockIcon(id: number): string {
     return url;
   }
 
-  // ---- Unique Stylized Mineral Material Icons (16x16 grid scaled 3x to 48x48) ----
+  // ---- Custom non-block icons: campfire, apple, coconut, banana (should not look like blocks) ----
   const p = (gx: number, gy: number, gw: number, gh: number, col: string) => {
     ctx.fillStyle = col;
     ctx.fillRect(gx * 3, gy * 3, gw * 3, gh * 3);
   };
+  const fill48 = (x: number, y: number, w: number, h: number, col: string) => {
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, w, h);
+  };
+  if (id === CAMPFIRE) {
+    // Campfire icon: not a cube, but logs + flames from side view
+    ctx.clearRect(0, 0, size, size);
+    // shadow base
+    fill48(8, 38, 32, 4, '#1a120a');
+    // crossed logs at bottom
+    // log 1 - horizontal
+    fill48(6, 32, 36, 7, '#3d2814');
+    fill48(6, 32, 36, 3, '#7a4a28');
+    fill48(8, 35, 32, 2, '#a46d3a');
+    fill48(6, 32, 5, 7, '#4a2e16');
+    fill48(37, 32, 5, 7, '#4a2e16');
+    // log 2 - slightly upper, also horizontal but darker
+    fill48(8, 28, 32, 6, '#2f1d0f');
+    fill48(8, 28, 32, 2, '#6b4420');
+    // embers
+    fill48(14, 26, 20, 4, '#4a1a0a');
+    fill48(16, 27, 3, 2, '#ff4a14');
+    fill48(24, 27, 3, 2, '#ff6a14');
+    // flames - 3 tongues
+    fill48(12, 14, 10, 14, '#e05a14');
+    fill48(14, 10, 6, 12, '#ff7a1a');
+    fill48(16, 6, 4, 10, '#ffae22');
+    fill48(26, 12, 10, 16, '#c94a12');
+    fill48(28, 8, 6, 14, '#ff7a1a');
+    fill48(30, 4, 4, 10, '#ffae22');
+    fill48(18, 16, 12, 12, '#ff8a22');
+    fill48(20, 10, 8, 12, '#ffae22');
+    fill48(22, 4, 4, 10, '#ffee58');
+    fill48(22, 6, 2, 6, '#ffffff');
+    fill48(30, 8, 2, 4, '#ffffcc');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === APPLE) {
+    // Apple icon: round fruit, not a block
+    ctx.clearRect(0, 0, size, size);
+    // shadow
+    fill48(16, 38, 16, 3, '#1a0a0a');
+    // apple body - round
+    p(4, 5, 8, 8, '#b81e12');
+    p(5, 4, 6, 10, '#d92a1c');
+    p(3, 6, 10, 6, '#e23628');
+    p(4, 6, 8, 6, '#e23628');
+    // highlight
+    p(5, 5, 2, 3, '#ff7a6a');
+    p(5, 5, 1, 2, '#ffcec6');
+    // bottom shade
+    p(5, 12, 6, 1, '#8a1410');
+    // stem
+    p(7, 2, 2, 3, '#4a2e12');
+    p(7, 2, 1, 2, '#6b4a20');
+    // leaf
+    p(9, 2, 3, 2, '#4a8a2a');
+    p(9, 2, 2, 1, '#6cb33a');
+    p(10, 3, 2, 1, '#3d6a1e');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === COCONUT) {
+    ctx.clearRect(0, 0, size, size);
+    // coconut - round brown with 3 eyes
+    p(4, 4, 8, 9, '#4a2a12');
+    p(5, 3, 6, 11, '#6b4420');
+    p(3, 6, 10, 6, '#7a4e24');
+    p(4, 5, 8, 8, '#8a5a2e');
+    p(5, 5, 2, 2, '#c9a87a');
+    p(9, 5, 1, 1, '#3a2210');
+    p(5, 8, 1, 1, '#3a2210');
+    p(8, 8, 1, 1, '#3a2210');
+    p(5, 6, 1, 1, '#a67c4a');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === BANANA) {
+    ctx.clearRect(0, 0, size, size);
+    // banana - curved yellow bunch
+    // bunch stem
+    p(10, 3, 2, 2, '#5a3d12');
+    // three bananas curved
+    // banana 1 (front)
+    fill48(10, 12, 24, 4, '#c9a81e');
+    fill48(12, 8, 20, 8, '#f2d23a');
+    fill48(14, 8, 16, 3, '#f9e85a');
+    fill48(30, 14, 4, 4, '#a68a18');
+    // banana 2 (middle)
+    fill48(14, 16, 22, 4, '#b89a1a');
+    fill48(16, 12, 18, 8, '#e8c62a');
+    fill48(18, 12, 14, 3, '#f9e85a');
+    // banana 3 (back)
+    fill48(18, 20, 20, 4, '#a68a18');
+    fill48(20, 16, 16, 8, '#d9b820');
+    fill48(22, 16, 12, 3, '#f2d23a');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
   if (id === COAL) {
     // 1. Ember-Core Anthracite Shard Cluster (3 jagged dark carbon spires + glowing orange ember fissure)
     p(6, 2, 4, 12, '#0e0f14');

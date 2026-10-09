@@ -153,6 +153,33 @@ export const WHEAT_CROP_IDS = [WHEAT_CROP_1, WHEAT_CROP_2, WHEAT_CROP_3] as cons
 export const REWARD_PACK_DAILY = 273;
 export const REWARD_PACK_WEEKLY = 274;
 export const REWARD_PACK_MONTHLY = 275;
+
+/** Expanded flora and ruins for forest biomes (reference photos) */
+export const FLOWER_TULIP_RED = 276;
+export const FLOWER_TULIP_YELLOW = 277;
+export const FLOWER_TULIP_PINK = 278;
+export const FLOWER_TULIP_ORANGE = 279;
+export const FLOWER_TULIP_WHITE = 280;
+export const FLOWER_SUNFLOWER = 281;
+export const FLOWER_ROSE = 282;
+export const FLOWER_LAVENDER = 283;
+export const FLOWER_WISTERIA = 284;
+export const FLOWER_DAISY = 285;
+export const FLOWER_ORCHID = 286;
+export const FLOWER_PEONY = 287;
+export const BUSH = 288;
+export const BUSH_FLOWERING = 289;
+export const BERRY_BUSH = 290;
+export const TALL_LAVENDER = 291;
+export const TALL_SUNFLOWER = 292;
+export const WISTERIA_VINE = 293;
+export const MOSS_CARPET = 294;
+export const LEAF_PILE = 295;
+export const MOSSY_COBBLE = 296;
+export const MOSSY_STONE_BRICK = 297;
+export const CRACKED_STONE_BRICK = 298;
+export const STONE_BRICK = 299;
+
 /** tilled soil created by a hoe; it drops dirt when broken */
 export const FARMLAND = 126;
 
@@ -282,8 +309,17 @@ export const isFluid = (id: number) => id === WATER || id === LAVA;
 export const isFlower = (id: number) =>
   id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
   id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE ||
-  id === DRY_BLOOM || id === DESERT_THISTLE;
-export const isPlant = (id: number) => isFlower(id) || id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM || (id >= WHEAT_CROP_1 && id <= WHEAT_CROP_3);
+  id === DRY_BLOOM || id === DESERT_THISTLE ||
+  id === FLOWER_TULIP_RED || id === FLOWER_TULIP_YELLOW || id === FLOWER_TULIP_PINK ||
+  id === FLOWER_TULIP_ORANGE || id === FLOWER_TULIP_WHITE ||
+  id === FLOWER_SUNFLOWER || id === FLOWER_ROSE || id === FLOWER_LAVENDER ||
+  id === FLOWER_WISTERIA || id === FLOWER_DAISY || id === FLOWER_ORCHID || id === FLOWER_PEONY;
+export const isPlant = (id: number) => isFlower(id) ||
+  id === TALL_GRASS || id === FERN || id === DEAD_BUSH || id === VINE || id === MUSHROOM ||
+  id === BUSH || id === BUSH_FLOWERING || id === BERRY_BUSH ||
+  id === TALL_LAVENDER || id === TALL_SUNFLOWER || id === WISTERIA_VINE ||
+  id === MOSS_CARPET || id === LEAF_PILE ||
+  (id >= WHEAT_CROP_1 && id <= WHEAT_CROP_3);
 export const isCactus = (id: number) => id === CACTUS || id === CACTUS_PALE;
 export const isInstaBreak = (id: number) => isPlant(id) || isCactus(id) || id === TURTLE_EGG || id === PENGUIN_EGG || id === BIRD_NEST || id === CHICKEN_NEST || id === MUSHROOM;
 export const isLogId = (id: number) => id === LOG || id === BIRCH_LOG || id === PALM_LOG;
@@ -309,6 +345,10 @@ export function blockClass(id: number): BlockClass {
     case TERRACOTTA_ORANGE:
     case STONE:
     case COBBLE:
+    case MOSSY_COBBLE:
+    case STONE_BRICK:
+    case MOSSY_STONE_BRICK:
+    case CRACKED_STONE_BRICK:
     case COAL:
     case IRON:
     case GOLD:
@@ -517,6 +557,32 @@ export const T = {
   rewardBag: 124,
   rewardChest: 125,
   rewardChestOrnate: 126,
+  // ---- Expanded flora and ruins (reference photos) ----
+  flowerTulipRed: 127,
+  flowerTulipYellow: 128,
+  flowerTulipPink: 129,
+  flowerTulipOrange: 130,
+  flowerTulipWhite: 131,
+  flowerSunflower: 132,
+  flowerRose: 133,
+  flowerLavender: 134,
+  flowerWisteria: 135,
+  flowerDaisy: 136,
+  flowerOrchid: 137,
+  flowerPeony: 138,
+  bush: 139,
+  bushFlowering: 140,
+  berryBush: 141,
+  tallLavender: 142,
+  tallSunflower: 143,
+  wisteriaVine: 144,
+  mossCarpet: 145,
+  leafPile: 146,
+  mossyCobble: 147,
+  mossyStoneBrick: 148,
+  crackedStoneBrick: 149,
+  stoneBrick: 150,
+  pumpkin: 151,
 };
 
 export type BlockDef = {
@@ -1135,6 +1201,31 @@ const BLOCK_DEFS: BlockDef[] = [
   d({ id: REWARD_PACK_DAILY, name: 'Daily Resource Bag', side: T.rewardBag, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [214, 165, 95] }),
   d({ id: REWARD_PACK_WEEKLY, name: 'Weekly Supply Chest', side: T.rewardChest, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [167, 120, 74] }),
   d({ id: REWARD_PACK_MONTHLY, name: 'Monthly Rich Chest', side: T.rewardChestOrnate, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [126, 154, 198] }),
+  // ---- Expanded forest flora & ruin materials (reference photos) ----
+  d({ id: FLOWER_TULIP_RED, name: 'Red Tulip', side: T.flowerTulipRed, hardness: 0.1, score: 3, solid: false, tint: [212, 42, 42] }),
+  d({ id: FLOWER_TULIP_YELLOW, name: 'Yellow Tulip', side: T.flowerTulipYellow, hardness: 0.1, score: 3, solid: false, tint: [232, 198, 40] }),
+  d({ id: FLOWER_TULIP_PINK, name: 'Pink Tulip', side: T.flowerTulipPink, hardness: 0.1, score: 3, solid: false, tint: [228, 106, 154] }),
+  d({ id: FLOWER_TULIP_ORANGE, name: 'Orange Tulip', side: T.flowerTulipOrange, hardness: 0.1, score: 3, solid: false, tint: [232, 106, 24] }),
+  d({ id: FLOWER_TULIP_WHITE, name: 'White Tulip', side: T.flowerTulipWhite, hardness: 0.1, score: 3, solid: false, tint: [240, 240, 232] }),
+  d({ id: FLOWER_SUNFLOWER, name: 'Sunflower', side: T.flowerSunflower, hardness: 0.1, score: 4, solid: false, tint: [240, 192, 48] }),
+  d({ id: FLOWER_ROSE, name: 'Rose', side: T.flowerRose, hardness: 0.1, score: 4, solid: false, tint: [196, 30, 30] }),
+  d({ id: FLOWER_LAVENDER, name: 'Lavender', side: T.flowerLavender, hardness: 0.1, score: 3, solid: false, tint: [122, 90, 186] }),
+  d({ id: FLOWER_WISTERIA, name: 'Wisteria', side: T.flowerWisteria, hardness: 0.1, score: 3, solid: false, tint: [154, 122, 200] }),
+  d({ id: FLOWER_DAISY, name: 'Daisy', side: T.flowerDaisy, hardness: 0.1, score: 3, solid: false, tint: [240, 240, 232] }),
+  d({ id: FLOWER_ORCHID, name: 'Blue Orchid', side: T.flowerOrchid, hardness: 0.1, score: 4, solid: false, tint: [106, 90, 186] }),
+  d({ id: FLOWER_PEONY, name: 'Peony', side: T.flowerPeony, hardness: 0.1, score: 4, solid: false, tint: [212, 90, 138] }),
+  d({ id: BUSH, name: 'Shrub', side: T.bush, hardness: 0.15, score: 3, solid: false, tint: [58, 122, 42] }),
+  d({ id: BUSH_FLOWERING, name: 'Flowering Shrub', side: T.bushFlowering, hardness: 0.15, score: 4, solid: false, tint: [90, 140, 70] }),
+  d({ id: BERRY_BUSH, name: 'Berry Bush', side: T.berryBush, hardness: 0.15, score: 4, solid: false, tint: [100, 130, 60] }),
+  d({ id: TALL_LAVENDER, name: 'Tall Lavender', side: T.tallLavender, hardness: 0.12, score: 3, solid: false, tint: [122, 90, 186] }),
+  d({ id: TALL_SUNFLOWER, name: 'Tall Sunflower', side: T.tallSunflower, hardness: 0.12, score: 4, solid: false, tint: [240, 192, 48] }),
+  d({ id: WISTERIA_VINE, name: 'Wisteria Vine', side: T.wisteriaVine, hardness: 0.1, score: 2, solid: false, tint: [154, 122, 200] }),
+  d({ id: MOSS_CARPET, name: 'Moss Carpet', side: T.mossCarpet, hardness: 0.1, score: 2, solid: false, tint: [74, 154, 58] }),
+  d({ id: LEAF_PILE, name: 'Leaf Litter', side: T.leafPile, hardness: 0.08, score: 2, solid: false, tint: [200, 122, 40] }),
+  d({ id: MOSSY_COBBLE, name: 'Mossy Cobblestone', side: T.mossyCobble, hardness: 1.1, score: 6, tint: [106, 122, 106] }),
+  d({ id: MOSSY_STONE_BRICK, name: 'Mossy Stone Bricks', side: T.mossyStoneBrick, hardness: 1.2, score: 7, tint: [108, 124, 108] }),
+  d({ id: CRACKED_STONE_BRICK, name: 'Cracked Stone Bricks', side: T.crackedStoneBrick, hardness: 1.1, score: 6, tint: [110, 114, 116] }),
+  d({ id: STONE_BRICK, name: 'Stone Bricks', side: T.stoneBrick, hardness: 1.2, score: 7, tint: [122, 126, 128] }),
   ...meatBlockDefs,
   d({ id: STONE_ARROW, name: 'Stone Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [170,180,190] }),
   d({ id: IRON_ARROW, name: 'Iron Arrow', side: T.arrowItem, hardness: 1, score: 2, solid: false, breakable: false, drop: 0, tint: [210,225,230] }),

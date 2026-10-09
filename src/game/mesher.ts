@@ -55,6 +55,27 @@ import {
   WATER,
   isCutout,
   isOpaque,
+  // expanded flora & ruins
+  FLOWER_TULIP_RED,
+  FLOWER_TULIP_YELLOW,
+  FLOWER_TULIP_PINK,
+  FLOWER_TULIP_ORANGE,
+  FLOWER_TULIP_WHITE,
+  FLOWER_SUNFLOWER,
+  FLOWER_ROSE,
+  FLOWER_LAVENDER,
+  FLOWER_WISTERIA,
+  FLOWER_DAISY,
+  FLOWER_ORCHID,
+  FLOWER_PEONY,
+  BUSH,
+  BUSH_FLOWERING,
+  BERRY_BUSH,
+  TALL_LAVENDER,
+  TALL_SUNFLOWER,
+  WISTERIA_VINE,
+  MOSS_CARPET,
+  LEAF_PILE,
 } from './blocks';
 import { CHUNK, WY, World } from './world';
 import { tileUV } from './textures';
@@ -137,8 +158,8 @@ function cachedTileUV(tile: number): readonly number[] {
   return uv;
 }
 
-export const CAMPFIRE_SMOKE_HEIGHT = 30;
-export const HAY_CAMPFIRE_SMOKE_HEIGHT = 60;
+export const CAMPFIRE_SMOKE_HEIGHT = 42;
+export const HAY_CAMPFIRE_SMOKE_HEIGHT = 78;
 export type CampfireSpec = { x: number; y: number; z: number; hayBoost: boolean };
 export type ChunkGeometry = {
   campfires: CampfireSpec[];
@@ -649,24 +670,64 @@ function addTreasureChestBody(P: number[], C: number[], I: number[], x: number, 
   }
 }
 
-/** Chunky voxel flowers with distinct tulip, lavender, daisy and classic rosette silhouettes. */
+/** Chunky voxel flowers with distinct tulip, lavender, daisy and classic rosette silhouettes — expanded for forest biomes. */
 function addFlower(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, seed: number) {
   const cx = x + 0.5 + (((seed * 7) % 5) - 2) * 0.04;
   const cz = z + 0.5 + (((seed * 13) % 5) - 2) * 0.04;
-  const petal = id === FLOWER_RED ? COL.red
-    : id === FLOWER_YELLOW ? COL.yellow
-      : id === FLOWER_BLUE ? COL.blue
-        : id === FLOWER_PINK ? COL.pink
-          : id === FLOWER_PURPLE ? COL.purple
-            : COL.white;
-  const core = id === FLOWER_YELLOW ? COL.coreB : COL.coreY;
-  const h = id === FLOWER_PURPLE ? 0.66 : 0.5 + ((seed % 3) - 1) * 0.05;
+
+  // Extended color map for new flora
+  const COL_TULIP_RED = srgb(0xd42a2a);
+  const COL_TULIP_YELLOW = srgb(0xe8c628);
+  const COL_TULIP_PINK = srgb(0xe46a9a);
+  const COL_TULIP_ORANGE = srgb(0xe86a18);
+  const COL_TULIP_WHITE = srgb(0xf0f0e8);
+  const COL_SUNFLOWER = srgb(0xf0c030);
+  const COL_ROSE = srgb(0xc41e1e);
+  const COL_LAV = srgb(0x7a5aba);
+  const COL_WISTERIA = srgb(0x9a7ac8);
+  const COL_DAISY = srgb(0xf0f0e8);
+  const COL_ORCHID = srgb(0x6a5aba);
+  const COL_PEONY = srgb(0xd45a8a);
+
+  let petal: number[] = COL.white;
+  let core = COL.coreY;
+  let isTulip = false;
+  let isLavenderSpike = false;
+  let isSunflower = false;
+  let isRose = false;
+  let isWisteria = false;
+  let isDaisy = false;
+  let isOrchid = false;
+  let isPeony = false;
+
+  switch (id) {
+    case FLOWER_RED: petal = COL.red; break;
+    case FLOWER_YELLOW: petal = COL.yellow; core = COL.coreB; break;
+    case FLOWER_BLUE: petal = COL.blue; break;
+    case FLOWER_PINK: petal = COL.pink; isTulip = true; break;
+    case FLOWER_PURPLE: petal = COL.purple; isLavenderSpike = true; break;
+    case FLOWER_WHITE: petal = COL.white; isDaisy = true; break;
+    case FLOWER_TULIP_RED: petal = COL_TULIP_RED; isTulip = true; break;
+    case FLOWER_TULIP_YELLOW: petal = COL_TULIP_YELLOW; isTulip = true; core = COL.coreB; break;
+    case FLOWER_TULIP_PINK: petal = COL_TULIP_PINK; isTulip = true; break;
+    case FLOWER_TULIP_ORANGE: petal = COL_TULIP_ORANGE; isTulip = true; break;
+    case FLOWER_TULIP_WHITE: petal = COL_TULIP_WHITE; isTulip = true; break;
+    case FLOWER_SUNFLOWER: petal = COL_SUNFLOWER; isSunflower = true; core = srgb(0x5a3a10); break;
+    case FLOWER_ROSE: petal = COL_ROSE; isRose = true; break;
+    case FLOWER_LAVENDER: petal = COL_LAV; isLavenderSpike = true; break;
+    case FLOWER_WISTERIA: petal = COL_WISTERIA; isWisteria = true; break;
+    case FLOWER_DAISY: petal = COL_DAISY; isDaisy = true; break;
+    case FLOWER_ORCHID: petal = COL_ORCHID; isOrchid = true; break;
+    case FLOWER_PEONY: petal = COL_PEONY; isPeony = true; break;
+    default: break;
+  }
+
+  const h = isLavenderSpike ? 0.66 : isSunflower ? 0.72 : isRose ? 0.56 : 0.5 + ((seed % 3) - 1) * 0.05;
   addBox(P, C, I, cx, y + h / 2, cz, 0.07, h, 0.07, ...COL.stem);
   addBox(P, C, I, cx + 0.1, y + h * 0.35, cz, 0.14, 0.05, 0.08, ...COL.leafG);
   addBox(P, C, I, cx - 0.09, y + h * 0.55, cz + 0.02, 0.12, 0.05, 0.08, ...COL.leafG);
 
-  if (id === FLOWER_PURPLE) {
-    // Tall lavender spike: several compact florets rise along a single stem.
+  if (isLavenderSpike) {
     for (let row = 0; row < 4; row++) {
       const fy = y + 0.24 + row * 0.105;
       const offset = row % 2 === 0 ? -0.045 : 0.045;
@@ -677,14 +738,51 @@ function addFlower(P: number[], C: number[], I: number[], x: number, y: number, 
   }
 
   const hy = y + h + 0.08;
-  if (id === FLOWER_PINK) {
-    // Tulip cup: three upright petals around a shaded base.
+  if (isTulip) {
     addBox(P, C, I, cx, hy - 0.035, cz, 0.17, 0.14, 0.17, ...COL.purple);
     addBox(P, C, I, cx, hy + 0.035, cz, 0.14, 0.14, 0.14, ...petal);
     addBox(P, C, I, cx - 0.095, hy + 0.045, cz, 0.09, 0.17, 0.12, ...petal);
     addBox(P, C, I, cx + 0.095, hy + 0.045, cz, 0.09, 0.17, 0.12, ...petal);
     addBox(P, C, I, cx, hy + 0.055, cz - 0.09, 0.12, 0.16, 0.09, ...COL.pink);
     addBox(P, C, I, cx, hy + 0.09, cz, 0.07, 0.06, 0.07, ...COL.coreY);
+    return;
+  }
+  if (isSunflower) {
+    // Large sunflower head with dark center
+    addBox(P, C, I, cx, hy, cz, 0.32, 0.14, 0.32, ...core);
+    for (const [dx, dz] of [[0.18, 0], [-0.18, 0], [0, 0.18], [0, -0.18], [0.13, 0.13], [-0.13, 0.13], [0.13, -0.13], [-0.13, -0.13]]) {
+      addBox(P, C, I, cx + dx, hy, cz + dz, 0.16, 0.12, 0.16, ...petal);
+    }
+    return;
+  }
+  if (isRose) {
+    addBox(P, C, I, cx, hy, cz, 0.22, 0.20, 0.22, ...petal);
+    addBox(P, C, I, cx, hy + 0.08, cz, 0.16, 0.12, 0.16, ...srgb(0xe83030));
+    addBox(P, C, I, cx, hy + 0.14, cz, 0.09, 0.06, 0.09, ...srgb(0xff5a4a));
+    return;
+  }
+  if (isWisteria) {
+    // Hanging cascade
+    for (let r = 0; r < 3; r++) {
+      const fy = hy - r * 0.12;
+      const s = 0.18 - r * 0.03;
+      addBox(P, C, I, cx, fy, cz, s, s * 0.7, s, ...petal);
+      addBox(P, C, I, cx + 0.05, fy - 0.02, cz + 0.03, s * 0.7, s * 0.5, s * 0.7, ...srgb(0xc8a8f0));
+    }
+    return;
+  }
+  if (isOrchid) {
+    addBox(P, C, I, cx, hy, cz, 0.18, 0.14, 0.18, ...petal);
+    addBox(P, C, I, cx + 0.12, hy + 0.02, cz, 0.12, 0.10, 0.12, ...petal);
+    addBox(P, C, I, cx - 0.12, hy + 0.02, cz, 0.12, 0.10, 0.12, ...petal);
+    addBox(P, C, I, cx, hy + 0.06, cz, 0.14, 0.10, 0.22, ...srgb(0xd8c8ff));
+    addBox(P, C, I, cx, hy + 0.02, cz + 0.08, 0.10, 0.08, 0.10, ...srgb(0xff9ad0));
+    return;
+  }
+  if (isPeony) {
+    addBox(P, C, I, cx, hy, cz, 0.26, 0.22, 0.26, ...petal);
+    addBox(P, C, I, cx, hy + 0.08, cz, 0.20, 0.16, 0.20, ...srgb(0xe87aa8));
+    addBox(P, C, I, cx, hy + 0.14, cz, 0.12, 0.10, 0.12, ...srgb(0xffb0d0));
     return;
   }
 
@@ -694,11 +792,73 @@ function addFlower(P: number[], C: number[], I: number[], x: number, y: number, 
   addBox(P, C, I, cx - 0.14, hy, cz, 0.14, 0.12, 0.12, ...petal);
   addBox(P, C, I, cx, hy, cz + 0.14, 0.12, 0.12, 0.14, ...petal);
   addBox(P, C, I, cx, hy, cz - 0.14, 0.12, 0.12, 0.14, ...petal);
-  if (id === FLOWER_WHITE) {
-    for (const [dx, dz] of [[0.1, 0.1], [-0.1, 0.1], [0.1, -0.1], [-0.1, -0.1]])
+  if (isDaisy) {
+    for (const [dx, dz] of [[0.1, 0.1], [-0.1, 0.1], [0.1, -0.1], [-0.1, -0.1]] as const)
       addBox(P, C, I, cx + dx, hy, cz + dz, 0.11, 0.1, 0.11, ...petal);
   }
   addBox(P, C, I, cx, hy + 0.12, cz, 0.1, 0.06, 0.1, ...petal);
+}
+
+/** Bushes, berry bushes, tall lavender/sunflower, wisteria vine, moss carpet, leaf pile for forest biomes */
+function addBush(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number, seed: number) {
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  const leaf = srgb(0x3a7a2a);
+  const leafLight = srgb(0x5aba4a);
+  const stem = srgb(0x4a3a1a);
+  // trunk
+  addBox(P, C, I, cx, y + 0.18, cz, 0.10, 0.36, 0.10, ...stem);
+  if (id === BUSH) {
+    addBox(P, C, I, cx, y + 0.46, cz, 0.64, 0.42, 0.64, ...leaf);
+    addBox(P, C, I, cx, y + 0.58, cz, 0.52, 0.28, 0.52, ...leafLight);
+  } else if (id === BUSH_FLOWERING) {
+    addBox(P, C, I, cx, y + 0.46, cz, 0.68, 0.44, 0.68, ...leaf);
+    for (const [dx, dz, col] of [[-0.18, -0.12, 0xf0e0e8], [0.16, 0.14, 0xffb0d0], [0.12, -0.16, 0xf0f0f8]] as const) {
+      addBox(P, C, I, cx + dx, y + 0.58, cz + dz, 0.14, 0.10, 0.14, ...srgb(col));
+    }
+  } else if (id === BERRY_BUSH) {
+    addBox(P, C, I, cx, y + 0.46, cz, 0.64, 0.42, 0.64, ...leaf);
+    for (const [dx, dz] of [[-0.15, 0.1], [0.18, -0.08], [0.05, 0.18]] as const) {
+      addBox(P, C, I, cx + dx, y + 0.54, cz + dz, 0.10, 0.10, 0.10, ...srgb(0xc41e1e));
+      addBox(P, C, I, cx + dx + 0.02, y + 0.58, cz + dz, 0.05, 0.05, 0.05, ...srgb(0xff4a3a));
+    }
+  }
+}
+function addTallPlant(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number) {
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  const stem = srgb(0x4a8a32);
+  addBox(P, C, I, cx, y + 0.5, cz, 0.08, 1.0, 0.08, ...stem);
+  if (id === TALL_LAVENDER) {
+    for (let r = 0; r < 5; r++) {
+      const fy = y + 0.45 + r * 0.12;
+      addBox(P, C, I, cx, fy, cz, 0.16, 0.10, 0.16, ...srgb(r % 2 === 0 ? 0x7a5aba : 0x5a3a8a));
+    }
+  } else if (id === TALL_SUNFLOWER) {
+    addBox(P, C, I, cx, y + 0.85, cz, 0.34, 0.16, 0.34, ...srgb(0xf0c030));
+    addBox(P, C, I, cx, y + 0.85, cz, 0.18, 0.18, 0.18, ...srgb(0x5a3a10));
+  }
+}
+function addWisteriaVineDecor(P: number[], C: number[], I: number[], x: number, y: number, z: number) {
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  addBox(P, C, I, cx, y + 0.5, cz, 0.07, 1.0, 0.07, ...srgb(0x4a6a3a));
+  for (const [dx, dz, yy] of [[0.12, 0.08, 0.75], [-0.10, 0.12, 0.55], [0.08, -0.12, 0.35]] as const) {
+    addBox(P, C, I, cx + dx, y + yy, cz + dz, 0.16, 0.14, 0.16, ...srgb(0x9a7ac8));
+    addBox(P, C, I, cx + dx, y + yy - 0.06, cz + dz, 0.10, 0.10, 0.10, ...srgb(0xc8a8f0));
+  }
+}
+function addGroundCover(P: number[], C: number[], I: number[], x: number, y: number, z: number, id: number) {
+  const cx = x + 0.5;
+  const cz = z + 0.5;
+  if (id === MOSS_CARPET) {
+    addBox(P, C, I, cx, y + 0.06, cz, 0.96, 0.12, 0.96, ...srgb(0x4a9a3a));
+    addBox(P, C, I, cx + 0.1, y + 0.12, cz - 0.08, 0.32, 0.06, 0.28, ...srgb(0x5aba4a));
+  } else if (id === LEAF_PILE) {
+    addBox(P, C, I, cx, y + 0.08, cz, 0.92, 0.16, 0.92, ...srgb(0xc87a28));
+    addBox(P, C, I, cx - 0.12, y + 0.16, cz + 0.10, 0.36, 0.08, 0.32, ...srgb(0xe8a040));
+    addBox(P, C, I, cx + 0.14, y + 0.14, cz - 0.06, 0.28, 0.06, 0.28, ...srgb(0xd06020));
+  }
 }
 
 const COL_SNOW = srgb(0xeef2f8);
@@ -1246,9 +1406,29 @@ export function* buildChunkGeometrySteps(
         // flowers, grasses & egg clutches render as little 3D models, not textured cubes
         if (
           id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE ||
-          id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE
+          id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE ||
+          id === FLOWER_TULIP_RED || id === FLOWER_TULIP_YELLOW || id === FLOWER_TULIP_PINK ||
+          id === FLOWER_TULIP_ORANGE || id === FLOWER_TULIP_WHITE ||
+          id === FLOWER_SUNFLOWER || id === FLOWER_ROSE || id === FLOWER_LAVENDER ||
+          id === FLOWER_WISTERIA || id === FLOWER_DAISY || id === FLOWER_ORCHID || id === FLOWER_PEONY
         ) {
           addFlower(dPositions, dColors, dIndices, x, y, z, id, x * 31 + z * 17 + y);
+          continue;
+        }
+        if (id === BUSH || id === BUSH_FLOWERING || id === BERRY_BUSH) {
+          addBush(dPositions, dColors, dIndices, x, y, z, id, x * 31 + z * 17 + y);
+          continue;
+        }
+        if (id === TALL_LAVENDER || id === TALL_SUNFLOWER) {
+          addTallPlant(dPositions, dColors, dIndices, x, y, z, id);
+          continue;
+        }
+        if (id === WISTERIA_VINE) {
+          addWisteriaVineDecor(dPositions, dColors, dIndices, x, y, z);
+          continue;
+        }
+        if (id === MOSS_CARPET || id === LEAF_PILE) {
+          addGroundCover(dPositions, dColors, dIndices, x, y, z, id);
           continue;
         }
         if (id === DRY_BLOOM || id === DESERT_THISTLE) {

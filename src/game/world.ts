@@ -50,6 +50,11 @@ import {
   COAL_BLOCK,
   isCutout, isFlower,
   FARMLAND, WHEAT_CROP_2, WHEAT_CROP_3, WEB,
+  // expanded forest flora & ruins
+  FLOWER_TULIP_RED, FLOWER_TULIP_YELLOW, FLOWER_TULIP_PINK, FLOWER_TULIP_ORANGE, FLOWER_TULIP_WHITE,
+  FLOWER_SUNFLOWER, FLOWER_ROSE, FLOWER_LAVENDER, FLOWER_WISTERIA, FLOWER_DAISY, FLOWER_ORCHID, FLOWER_PEONY,
+  BUSH, BUSH_FLOWERING, BERRY_BUSH, TALL_LAVENDER, TALL_SUNFLOWER, WISTERIA_VINE, MOSS_CARPET, LEAF_PILE,
+  MOSSY_COBBLE, MOSSY_STONE_BRICK, CRACKED_STONE_BRICK, STONE_BRICK,
 } from './blocks';
 import { isDesertMountainTransition, spawnDesertBiomeStructures } from './desertAssets';
 import { buildCliffsideCarvedTemple } from './desertLandmarks';
@@ -485,9 +490,14 @@ export class World {
           let ore = 0;
           let nF = 0, nG = 0;
           let hasNf = false, hasNg = false;
-          // Sample only fields eligible at this depth, and reuse the lapis/redstone and
-          // emerald/quartz fields instead of calculating them twice in the same cell.
-          if (y < 14 && noise3(x * 0.31 + 97.3, y * 0.5 - 41, z * 0.31 - 77.7) > 0.74) ore = NETHERITE_ORE;
+          // Netherite (ancient debris) now spawns up to y=32, rare but findable, more common very deep.
+          // Previously y<14 with 0.74 threshold was almost never seen and then carved away by caves.
+          if (y < 32) {
+            const netherNoise = noise3(x * 0.31 + 97.3, y * 0.5 - 41, z * 0.31 - 77.7);
+            const depthFactor = (32 - y) / 30; // 0 at y=32, ~1 at y=2
+            const thresh = 0.68 - depthFactor * 0.22; // 0.68 near top, 0.46 at bottom
+            if (netherNoise > thresh) ore = NETHERITE_ORE;
+          }
           if (!ore && y < 58) {
             nG = noise3(x * 0.28 + 71.2, y * 0.42 - 17, z * 0.28 - 48.9);
             hasNg = true;
@@ -514,14 +524,15 @@ export class World {
         }
 
         const caveTop = biome === 'desert' ? h - 4 : h - 1;
-        const fracture = Math.abs(fbm2(x * 0.021 + 147.2, z * 0.021 - 83.6, 3));
         const lavaChannel = Math.abs(fbm2(x * 0.014 - 71.8, z * 0.014 + 126.4, 3));
         const lavaLevel = 20 + Math.floor((fbm2(x * 0.008 + 19, z * 0.008 - 44, 2) + 1) * 54);
         const floodedCavern = fbm2(x * 0.019 + 43, z * 0.019 - 98, 2) < -0.28;
+        // ore blocks must survive cave carving, otherwise netherite etc disappear
+        const isOreId = (id: number) => (id >= COAL_ORE && id <= QUARTZ_ORE) || id === NETHERITE_ORE;
         for (let y = 2; y < caveTop; y++) {
           const at = cidx(lx, y, lz);
           let cur = chunk.blocks[at];
-          if (cur === BEDROCK) continue;
+          if (cur === BEDROCK || isOreId(cur)) continue;
           const c1 = fbm3(x * 0.055, y * 0.085, z * 0.055, 3);
           const bias = y < 14 ? 0.05 : 0.0;
           let c2 = 0;
@@ -537,13 +548,32 @@ export class World {
               cur = AIR;
             }
           }
-          // Hairline cracks descend from high ground into the cave network; their secondary noise
-          // is sampled only in the rare columns/layers that can actually form a crack.
-          if (cur !== AIR && fracture < 0.022 && y >= SEA - 150 && y < h - 1) {
-            if (!c2Computed) c2 = fbm3(x * 0.11 + 90, y * 0.14 - 40, z * 0.11 + 30, 2);
-            if (c2 > -0.55) {
-              chunk.blocks[at] = AIR;
-              cur = AIR;
+          // Diagonal, meandering fissures instead of solid vertical shafts.
+          // Old code used only 2D fbm2(x,z) -> vertical cracks from SEA-150 to surface = instant death pits.
+          // New: 3D noise that includes y, so crack drifts sideways as it goes down, and is broken by secondary noise.
+          if (cur !== AIR && y >= SEA - 150 && y < h - 1) {
+            const fissure = fbm3(x * 0.023 + y * 0.016 + 147.2, y * 0.042 - 83.6, z * 0.023 - y * 0.016 + 91.3, 2);
+            if (Math.abs(fissure) < 0.065) {
+              if (!c2Computed) {
+                c2 = fbm3(x * 0.11 + 90, y * 0.14 - 40, z * 0.11 + 30, 2);
+                c2Computed = true;
+              }
+              // secondary noise breaks the fissure into irregular segments, leaving ledges/platforms
+              if (c2 > -0.32) {
+                // avoid carving a 6+ high free-fall shaft: if 5 blocks below are already air, keep this as a ledge 50% of the time
+                let airBelow = 0;
+                for (let dy = 1; dy <= 5; dy++) {
+                  const yy = y - dy;
+                  if (yy < 0) break;
+                  if (chunk.blocks[cidx(lx, yy, lz)] === AIR) airBelow++;
+                  else break;
+                }
+                const ledgeNoise = fbm2(x * 0.11 + y * 0.07, z * 0.11 - y * 0.07, 2);
+                if (airBelow < 5 || ledgeNoise > 0.15) {
+                  chunk.blocks[at] = AIR;
+                  cur = AIR;
+                }
+              }
             }
           }
           if (cur !== AIR) continue;
@@ -762,27 +792,60 @@ export class World {
       }
     }
 
-    // ---- seasonal flower meadows: summer blooms, autumn asters, jungle orchids ----
+    // ---- seasonal flower meadows: summer blooms, autumn asters, jungle orchids + expanded forest flora ----
     const centerBiome = this.biomeAt(cx * CHUNK + 8, cz * CHUNK + 8);
-    const flowerPatches = centerBiome === 'jungle' ? 5 : centerBiome === 'autumn' ? 4 : 3;
+    const flowerPatches = centerBiome === 'jungle' ? 6 : centerBiome === 'autumn' ? 5 : centerBiome === 'plains' ? 5 : 3;
     for (let i = 0; i < flowerPatches; i++) {
-      if (rand() > 0.75) continue;
+      if (rand() > 0.68) continue;
       const fx = cx * CHUNK + 2 + Math.floor(rand() * 12);
       const fz = cz * CHUNK + 2 + Math.floor(rand() * 12);
       const patchBiome = this.biomeAt(fx, fz, this.getHeight(fx, fz));
-      const palette = patchBiome === 'autumn'
-        ? [FLOWER_YELLOW, FLOWER_PURPLE, FLOWER_RED]
-        : patchBiome === 'jungle'
-          ? [FLOWER_PINK, FLOWER_WHITE, FLOWER_BLUE, FLOWER_RED]
-          : [FLOWER_RED, FLOWER_YELLOW, FLOWER_BLUE, FLOWER_PINK, FLOWER_WHITE];
-      const kind = palette[Math.floor(rand() * palette.length)];
-      for (let p = 0; p < 4 + Math.floor(rand() * 5); p++) {
-        const px = fx + Math.floor(rand() * 5) - 2;
-        const pz = fz + Math.floor(rand() * 5) - 2;
+      let palette: number[];
+      if (patchBiome === 'autumn') {
+        palette = [FLOWER_YELLOW, FLOWER_PURPLE, FLOWER_RED, FLOWER_TULIP_ORANGE, FLOWER_TULIP_RED, FLOWER_DAISY, LEAF_PILE, BUSH];
+      } else if (patchBiome === 'jungle') {
+        palette = [FLOWER_PINK, FLOWER_WHITE, FLOWER_BLUE, FLOWER_RED, FLOWER_ORCHID, FLOWER_PEONY, FLOWER_WISTERIA, WISTERIA_VINE, BUSH_FLOWERING];
+      } else if (patchBiome === 'plains') {
+        // summer forest: dense tulip fields, sunflowers, lavender, daisy, rose, peony — reference photos 11-20
+        palette = [
+          FLOWER_TULIP_RED, FLOWER_TULIP_YELLOW, FLOWER_TULIP_PINK, FLOWER_TULIP_ORANGE, FLOWER_TULIP_WHITE,
+          FLOWER_SUNFLOWER, FLOWER_ROSE, FLOWER_LAVENDER, FLOWER_DAISY, FLOWER_PEONY,
+          TALL_LAVENDER, TALL_SUNFLOWER, BUSH_FLOWERING, BERRY_BUSH
+        ];
+      } else if (patchBiome === 'winter') {
+        palette = [FLOWER_WHITE, FLOWER_TULIP_WHITE, MOSS_CARPET, BUSH];
+      } else {
+        palette = [FLOWER_RED, FLOWER_YELLOW, FLOWER_BLUE, FLOWER_PINK, FLOWER_WHITE, FLOWER_TULIP_PINK];
+      }
+      // dense meadow: pick one dominant species per patch for visual impact (like reference photos)
+      const dominant = palette[Math.floor(rand() * palette.length)];
+      const secondary = palette[Math.floor(rand() * palette.length)];
+      for (let p = 0; p < 7 + Math.floor(rand() * 8); p++) {
+        const px = fx + Math.floor(rand() * 7) - 3;
+        const pz = fz + Math.floor(rand() * 7) - 3;
         const h = this.getHeight(px, pz);
         const localBiome = this.biomeAt(px, pz, h);
-        if (localBiome !== 'winter' && this.get(px, h, pz) === GRASS && this.get(px, h + 1, pz) === AIR)
-          this.set(px, h + 1, pz, kind);
+        if (this.get(px, h, pz) !== GRASS || this.get(px, h + 1, pz) !== AIR) continue;
+        if (localBiome === 'winter' && rand() > 0.5) continue;
+        const kind = rand() < 0.72 ? dominant : secondary;
+        this.set(px, h + 1, pz, kind);
+      }
+    }
+    // ---- forest ground cover: moss carpets, leaf piles, bushes (summer/winter/autumn variety) ----
+    if (['plains', 'autumn', 'winter'].includes(centerBiome)) {
+      const gcCount = centerBiome === 'plains' ? 10 : centerBiome === 'autumn' ? 8 : 5;
+      for (let i = 0; i < gcCount; i++) {
+        if (rand() > 0.78) continue;
+        const gx = cx * CHUNK + 1 + Math.floor(rand() * 14);
+        const gz = cz * CHUNK + 1 + Math.floor(rand() * 14);
+        const h = this.getHeight(gx, gz);
+        if (this.get(gx, h, gz) !== GRASS || this.get(gx, h + 1, gz) !== AIR) continue;
+        const roll = rand();
+        let id = MOSS_CARPET;
+        if (centerBiome === 'autumn') id = roll < 0.45 ? LEAF_PILE : roll < 0.7 ? MOSS_CARPET : BUSH;
+        else if (centerBiome === 'winter') id = roll < 0.5 ? MOSS_CARPET : BUSH;
+        else id = roll < 0.3 ? BUSH : roll < 0.5 ? BUSH_FLOWERING : roll < 0.65 ? BERRY_BUSH : roll < 0.8 ? MOSS_CARPET : TALL_GRASS;
+        this.set(gx, h + 1, gz, id);
       }
     }
 
@@ -912,9 +975,21 @@ export class World {
         // keep the spawn basin itself clear
         const nearSpawn = Math.abs(cx - scx) <= 1 && Math.abs(cz - scz) <= 1;
         if (!nearSpawn) {
-          if (roll < 0.055) this.buildCottage(cx, cz, sRand);
-          else if (roll < 0.085) this.buildTower(cx, cz, sRand);
-          else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
+          if (biome === 'plains' || biome === 'autumn' || biome === 'winter') {
+            // expanded forest biomes: castles, ruined castles, cliff houses, face gates, flower groves
+            if (roll < 0.025) this.buildForestCastle(cx, cz, sRand);
+            else if (roll < 0.05) this.buildRuinedCastle(cx, cz, sRand);
+            else if (roll < 0.07) this.buildCliffHouses(cx, cz, sRand);
+            else if (roll < 0.082) this.buildDwarfFaceGate(cx, cz, sRand);
+            else if (roll < 0.105) this.buildFlowerGrove(cx, cz, sRand);
+            else if (roll < 0.14) this.buildCottage(cx, cz, sRand);
+            else if (roll < 0.165) this.buildTower(cx, cz, sRand);
+            else if (roll < 0.185) this.buildRuinYard(cx, cz, sRand);
+          } else {
+            if (roll < 0.055) this.buildCottage(cx, cz, sRand);
+            else if (roll < 0.085) this.buildTower(cx, cz, sRand);
+            else if (roll < 0.105) this.buildRuinYard(cx, cz, sRand);
+          }
         }
       }
       this.placeStructureChests(firstStructureSite, sRand);
@@ -2093,7 +2168,6 @@ export class World {
       this.set(x, y0 + 1, z, rand() < 0.6 ? COBBLE : STONE);
       if (rand() < 0.3) this.set(x, y0 + 2, z, COBBLE);
     }
-    // Central weathered stone & wood street lamp post in the ruin yard (maxresdefault.jpg style)
     this.set(x0 + 3, y0 + 1, z0 + 3, COBBLE);
     this.set(x0 + 3, y0 + 2, z0 + 3, FENCE_STONE);
     this.set(x0 + 3, y0 + 3, z0 + 3, FENCE_WOOD);
@@ -2101,6 +2175,258 @@ export class World {
     this.set(x0 + 4, y0 + 4, z0 + 3, FENCE_WOOD);
     this.set(x0 + 4, y0 + 3, z0 + 3, TORCH);
     if (rand() < 0.5) this.set(x0 + 2, y0 + 1, z0 + 3, GOLD_BLOCK);
+  }
+
+  // ---- Forest biome expansions: castles, ruined castles, cliff towns, dwarf face gate, cave dwellings ----
+  private buildForestCastle(cx: number, cz: number, rand: () => number) {
+    // Reference: images 1-8 cliff towns, ivy-covered towers, stone brick castles
+    const spot = this.flatSpotInChunk(cx, cz, 13, 13, rand);
+    if (!spot) return;
+    const [x0, y0, z0] = spot;
+    const w = 11, d = 11;
+    const h = 7 + Math.floor(rand() * 3);
+    this.clearBox(x0, y0 + 1, z0, w, h + 4, d);
+    this.fillFloor(x0, y0, z0, w, d, STONE_BRICK);
+    // outer walls
+    for (let y = 1; y <= h; y++) {
+      const wallMat = y <= 2 ? STONE_BRICK : rand() < 0.12 ? CRACKED_STONE_BRICK : STONE_BRICK;
+      for (let x = x0; x < x0 + w; x++) {
+        this.set(x, y0 + y, z0, wallMat);
+        this.set(x, y0 + y, z0 + d - 1, wallMat);
+      }
+      for (let z = z0 + 1; z < z0 + d - 1; z++) {
+        this.set(x0, y0 + y, z, wallMat);
+        this.set(x0 + w - 1, y0 + y, z, wallMat);
+      }
+    }
+    // corner towers
+    for (const [tx, tz] of [[x0, z0], [x0 + w - 1, z0], [x0, z0 + d - 1], [x0 + w - 1, z0 + d - 1]] as const) {
+      for (let y = 1; y <= h + 3; y++) {
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+          if (Math.abs(dx) + Math.abs(dz) > 1) continue;
+          const mat = y > h ? STONE_BRICK : rand() < 0.1 ? MOSSY_STONE_BRICK : STONE_BRICK;
+          this.set(tx + dx, y0 + y, tz + dz, mat);
+        }
+      }
+      // crenellations
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        if ((dx + dz) % 2 === 0) this.set(tx + dx, y0 + h + 4, tz + dz, STONE_BRICK);
+      }
+    }
+    // gate
+    const gx = x0 + Math.floor(w / 2);
+    this.set(gx, y0 + 1, z0, AIR);
+    this.set(gx, y0 + 2, z0, AIR);
+    this.set(gx, y0 + 3, z0, FENCE_WOOD);
+    // interior keep
+    const kx = x0 + 3, kz = z0 + 3;
+    for (let y = 1; y <= 4; y++) {
+      for (let x = kx; x < kx + 5; x++) {
+        this.set(x, y0 + y, kz, STONE_BRICK);
+        this.set(x, y0 + y, kz + 4, STONE_BRICK);
+      }
+      for (let z = kz + 1; z < kz + 4; z++) {
+        this.set(kx, y0 + y, z, STONE_BRICK);
+        this.set(kx + 4, y0 + y, z, STONE_BRICK);
+      }
+    }
+    this.fillFloor(kx + 1, y0 + 1, kz + 1, 3, 3, PLANKS);
+    this.set(kx + 2, y0 + 2, kz + 2, TORCH);
+    // overgrowth - vines/wisteria on walls
+    for (let i = 0; i < 6; i++) {
+      const wx = x0 + Math.floor(rand() * w);
+      const wz = rand() < 0.5 ? z0 : z0 + d - 1;
+      if (rand() < 0.6) this.set(wx, y0 + h - Math.floor(rand() * 3), wz, WISTERIA_VINE);
+      else this.set(wx, y0 + h - Math.floor(rand() * 3), wz, VINE);
+    }
+    this.structureSites.push({ x: x0 + Math.floor(w / 2), y: y0 + 1, z: z0 + Math.floor(d / 2), kind: 'tower' });
+  }
+
+  private buildRuinedCastle(cx: number, cz: number, rand: () => number) {
+    // Overgrown mossy ruins with collapsed walls, ivy, wisteria — images 4-8
+    const spot = this.flatSpotInChunk(cx, cz, 15, 15, rand);
+    if (!spot) return;
+    const [x0, y0, z0] = spot;
+    const w = 12 + Math.floor(rand() * 3);
+    const d = 12 + Math.floor(rand() * 3);
+    const baseH = 3 + Math.floor(rand() * 3);
+    this.clearBox(x0, y0 + 1, z0, w, baseH + 5, d);
+    // rubble floor with moss
+    for (let x = x0; x < x0 + w; x++) for (let z = z0; z < z0 + d; z++) {
+      if (rand() < 0.7) this.set(x, y0, z, rand() < 0.5 ? MOSSY_COBBLE : COBBLE);
+      if (rand() < 0.18) this.set(x, y0 + 1, z, rand() < 0.5 ? MOSS_CARPET : LEAF_PILE);
+    }
+    // crumbling walls
+    for (let y = 1; y <= baseH; y++) {
+      for (let x = x0; x < x0 + w; x++) {
+        if (rand() < 0.72) {
+          const mat = rand() < 0.5 ? MOSSY_STONE_BRICK : rand() < 0.7 ? CRACKED_STONE_BRICK : STONE_BRICK;
+          if (rand() < 0.85) this.set(x, y0 + y, z0, mat);
+          if (rand() < 0.85) this.set(x, y0 + y, z0 + d - 1, mat);
+        }
+      }
+      for (let z = z0 + 1; z < z0 + d - 1; z++) {
+        if (rand() < 0.72) {
+          const mat = rand() < 0.5 ? MOSSY_STONE_BRICK : CRACKED_STONE_BRICK;
+          if (rand() < 0.85) this.set(x0, y0 + y, z, mat);
+          if (rand() < 0.85) this.set(x0 + w - 1, y0 + y, z, mat);
+        }
+      }
+    }
+    // collapsed tower stump
+    const tx = x0 + 2, tz = z0 + 2;
+    for (let y = 1; y <= baseH + 2; y++) {
+      if (rand() < 0.8) this.set(tx, y0 + y, tz, MOSSY_STONE_BRICK);
+      if (rand() < 0.6) this.set(tx + 1, y0 + y, tz, MOSSY_STONE_BRICK);
+    }
+    // overgrowth: vines, wisteria, bushes, flowers
+    for (let i = 0; i < 10; i++) {
+      const rx = x0 + Math.floor(rand() * w);
+      const rz = z0 + Math.floor(rand() * d);
+      const rh = y0 + 1 + Math.floor(rand() * 2);
+      if (this.get(rx, rh, rz) !== AIR) continue;
+      const r = rand();
+      if (r < 0.25) this.set(rx, rh, rz, WISTERIA_VINE);
+      else if (r < 0.45) this.set(rx, rh, rz, VINE);
+      else if (r < 0.65) this.set(rx, rh, rz, BUSH);
+      else if (r < 0.85) this.set(rx, rh, rz, [FLOWER_WISTERIA, FLOWER_LAVENDER, FLOWER_DAISY][Math.floor(rand() * 3)]);
+      else this.set(rx, rh, rz, MOSS_CARPET);
+    }
+    if (rand() < 0.6) this.set(x0 + Math.floor(w / 2), y0 + 1, z0 + Math.floor(d / 2), GOLD_BLOCK);
+    this.structureSites.push({ x: x0 + Math.floor(w / 2), y: y0 + 1, z: z0 + Math.floor(d / 2), kind: 'ruin' });
+  }
+
+  private buildCliffHouses(cx: number, cz: number, rand: () => number) {
+    // Cliffside carved dwellings / cave houses — images 1-3, 6-8 (stone face gate style)
+    // Find a steep drop
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const bx = cx * CHUNK + 3 + Math.floor(rand() * 10);
+      const bz = cz * CHUNK + 3 + Math.floor(rand() * 10);
+      const h = this.getHeight(bx, bz);
+      if (h < SEA + 6 || h > SEA + 22) continue;
+      // check for cliff nearby
+      let cliffDir: [number, number] | null = null;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nh = this.getHeight(bx + dx * 6, bz + dz * 6);
+        if (h - nh >= 7) { cliffDir = [dx, dz]; break; }
+      }
+      if (!cliffDir) continue;
+      const [cdx, cdz] = cliffDir;
+      const faceX = bx + cdx * 3;
+      const faceZ = bz + cdz * 3;
+      const faceH = this.getHeight(faceX, faceZ);
+      // carve cave dwellings into cliff face
+      for (let cave = 0; cave < 2 + Math.floor(rand() * 2); cave++) {
+        const caveX = faceX + (rand() < 0.5 ? -1 : 1) * Math.floor(rand() * 3);
+        const caveZ = faceZ + (rand() < 0.5 ? -1 : 1) * Math.floor(rand() * 3);
+        const caveY = faceH - 1 - cave * 3;
+        if (caveY < 5) continue;
+        // 3x3x3 cave room
+        for (let dy = 0; dy < 3; dy++) for (let dz = -1; dz <= 2; dz++) for (let dx = -1; dx <= 2; dx++) {
+          this.set(caveX + dx, caveY + dy, caveZ + dz, AIR);
+        }
+        // stone brick door frame
+        this.set(caveX, caveY, caveZ, STONE_BRICK);
+        this.set(caveX, caveY + 1, caveZ, STONE_BRICK);
+        this.set(caveX + 1, caveY, caveZ, STONE_BRICK);
+        this.set(caveX + 1, caveY + 2, caveZ, STONE_BRICK);
+        this.set(caveX, caveY + 2, caveZ, STONE_BRICK);
+        this.set(caveX + 1, caveY + 1, caveZ, DOOR_WOOD);
+        // interior
+        this.set(caveX + 1, caveY, caveZ + 1, PLANKS);
+        this.set(caveX, caveY, caveZ + 1, TORCH);
+        // small balcony with fence
+        if (rand() < 0.6) {
+          this.set(caveX, caveY, caveZ - 1, FENCE_WOOD);
+          this.set(caveX + 1, caveY, caveZ - 1, FENCE_WOOD);
+        }
+      }
+      // add bushes/flowers around cliff top
+      for (let i = 0; i < 5; i++) {
+        const rx = bx + Math.floor(rand() * 5) - 2;
+        const rz = bz + Math.floor(rand() * 5) - 2;
+        const rh = this.getHeight(rx, rz);
+        if (this.get(rx, rh, rz) === GRASS && this.get(rx, rh + 1, rz) === AIR) {
+          this.set(rx, rh + 1, rz, rand() < 0.5 ? BUSH : FLOWER_TULIP_PINK);
+        }
+      }
+      this.structureSites.push({ x: bx, y: h + 1, z: bz, kind: 'cottage' });
+      return;
+    }
+  }
+
+  private buildDwarfFaceGate(cx: number, cz: number, rand: () => number) {
+    // Stone face gate carved into hillside — reference images show dwarf/face gate
+    const spot = this.flatSpotInChunk(cx, cz, 9, 6, rand);
+    if (!spot) return;
+    const [x0, y0, z0] = spot;
+    // find hillside
+    let hillX = x0 + 4, hillZ = z0 + 3;
+    let maxH = y0;
+    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+      const h = this.getHeight(x0 + 4 + dx, z0 + 3 + dz);
+      if (h > maxH) { maxH = h; hillX = x0 + 4 + dx; hillZ = z0 + 3 + dz; }
+    }
+    if (maxH - y0 < 5) return;
+    // build face wall
+    const faceY = maxH - 2;
+    for (let dy = 0; dy < 6; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const mat = dy < 2 ? STONE_BRICK : rand() < 0.3 ? MOSSY_STONE_BRICK : STONE_BRICK;
+      this.set(hillX + dx, faceY + dy, hillZ, mat);
+    }
+    // eyes (indent)
+    this.set(hillX - 1, faceY + 4, hillZ, AIR);
+    this.set(hillX + 1, faceY + 4, hillZ, AIR);
+    this.set(hillX - 1, faceY + 3, hillZ, AIR);
+    this.set(hillX + 1, faceY + 3, hillZ, AIR);
+    // mouth = doorway
+    this.set(hillX, faceY + 1, hillZ, AIR);
+    this.set(hillX, faceY + 2, hillZ, AIR);
+    this.set(hillX, faceY, hillZ, AIR);
+    // tunnel behind
+    for (let d = 1; d <= 4; d++) {
+      for (let dy = 0; dy < 3; dy++) for (let dx = -1; dx <= 1; dx++) {
+        this.set(hillX + dx, faceY + dy, hillZ + d, AIR);
+      }
+      this.set(hillX - 1, faceY + 3, hillZ + d, STONE_BRICK);
+      this.set(hillX + 1, faceY + 3, hillZ + d, STONE_BRICK);
+    }
+    this.set(hillX, faceY, hillZ + 4, PLANKS);
+    this.set(hillX, faceY + 1, hillZ + 2, TORCH);
+    this.structureSites.push({ x: hillX, y: faceY, z: hillZ, kind: 'ruin' });
+  }
+
+  private buildFlowerGrove(cx: number, cz: number, rand: () => number) {
+    // Dense flower grove with cherry blossoms / wisteria canopy — images 11-20
+    const x = cx * CHUNK + 4 + Math.floor(rand() * 8);
+    const z = cz * CHUNK + 4 + Math.floor(rand() * 8);
+    const h = this.getHeight(x, z);
+    if (this.biomeAt(x, z, h) === 'winter' || h < SEA + 1) return;
+    if (this.get(x, h, z) !== GRASS) return;
+    // plant 2-3 cherry/jacaranda trees
+    for (let t = 0; t < 2 + Math.floor(rand() * 2); t++) {
+      const tx = x + Math.floor(rand() * 7) - 3;
+      const tz = z + Math.floor(rand() * 7) - 3;
+      const th = this.getHeight(tx, tz);
+      if (this.get(tx, th, tz) === GRASS && this.get(tx, th + 1, tz) === AIR) {
+        if (rand() < 0.5) this.growCherryTree(tx, th + 1, tz, rand);
+        else this.growJacarandaTree(tx, th + 1, tz, rand);
+      }
+    }
+    // dense flower carpet underneath
+    const flowerPalette = [
+      FLOWER_TULIP_RED, FLOWER_TULIP_PINK, FLOWER_TULIP_YELLOW, FLOWER_TULIP_WHITE,
+      FLOWER_DAISY, FLOWER_LAVENDER, FLOWER_PEONY, FLOWER_WISTERIA, FLOWER_ROSE,
+      TALL_LAVENDER, BUSH_FLOWERING
+    ];
+    for (let i = 0; i < 18; i++) {
+      const fx = x + Math.floor(rand() * 12) - 6;
+      const fz = z + Math.floor(rand() * 12) - 6;
+      const fh = this.getHeight(fx, fz);
+      if (this.get(fx, fh, fz) === GRASS && this.get(fx, fh + 1, fz) === AIR) {
+        this.set(fx, fh + 1, fz, flowerPalette[Math.floor(rand() * flowerPalette.length)]);
+      }
+    }
   }
 
   findSpawn(): [number, number, number] {
