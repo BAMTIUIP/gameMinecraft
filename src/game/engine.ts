@@ -488,6 +488,7 @@ export type HudState = {
   arrowLoadout: number | null;
   airBubbles: number;
   inWater: boolean;
+  headUnderwater: boolean;
   breathVisible: boolean;
   combo: number;
   comboMult: number;
@@ -12978,6 +12979,7 @@ if (tpClipActive > 0.5) {
       Math.round(this.staminaState.stamina),
       this.breathState.bubbles,
       this.inWater ? 1 : 0,
+      this.headUnderwater() ? 1 : 0,
       this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6) ? 1 : 0,
       this.combo,
       this.tier,
@@ -13039,6 +13041,7 @@ if (tpClipActive > 0.5) {
       arrowLoadout: this.arrowLoadout,
       airBubbles: this.breathState.bubbles,
       inWater: this.inWater,
+      headUnderwater: this.headUnderwater(),
       breathVisible: this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6),
       combo: this.combo,
       comboMult: this.comboMult(),

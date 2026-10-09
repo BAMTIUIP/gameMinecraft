@@ -586,9 +586,8 @@ export class World {
         const lavaChannel = Math.abs(fbm2(x * 0.014 - 71.8, z * 0.014 + 126.4, 3));
         const lavaLevel = 20 + Math.floor((fbm2(x * 0.008 + 19, z * 0.008 - 44, 2) + 1) * 54);
         const floodedCavern = fbm2(x * 0.019 + 43, z * 0.019 - 98, 2) < -0.28;
-        // rare ores always survive, common ores 35% remain exposed in caves (MC reduced air exposure but still visible)
+        // rare ores always survive, common ores are carved like stone (no floating ore walls) — wall veins added later ensure visibility
         const isRareOreId = (id: number) => id === NETHERITE_ORE || id === DIAMOND_ORE || id === EMERALD_ORE || id === GOLD_ORE;
-        const isCommonOreId = (id: number) => id === COAL_ORE || id === IRON_ORE || id === REDSTONE_ORE || id === LAPIS_ORE || id === QUARTZ_ORE;
 
         // ---- New cave biome carving: large caverns for lush/vine/mossy/lake, dripstone for deep ----
         for (let y = 2; y < caveTop; y++) {
@@ -596,8 +595,6 @@ export class World {
           let cur = chunk.blocks[at];
           if (cur === BEDROCK) continue;
           if (isRareOreId(cur)) continue;
-          if (isCommonOreId(cur) && rand() < 0.35) continue; // 35% of common ores stay exposed
-
 
           // deepslate layer below y=40
           if (y < 38 && cur === STONE) {
