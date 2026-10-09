@@ -45,6 +45,7 @@ import { backIntent, focusFirst, installRemoteKeys, tvMode } from './game/remote
 import { fullscreenAdAllowed, markAdSessionStart, adInFlight, rewardedAdsAvailable, showFullscreenAd, showRewardedAd, syncBanner } from './game/ads';
 import {
   completePendingRewardedDropItems,
+  rewardedDropChestEntries,
   pendingRewardedDropItems,
   recordRewardedDropLogin,
   watchAndClaimRewardedDrop,
@@ -102,6 +103,7 @@ function coopSink(engine: Engine): CoopSink {
 /** Shop goods are delivered only after the destination run/world is loaded. */
 function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (!engine) return;
+  engine.syncRewardedPackTokens(rewardedDropChestEntries(engine.rewardedDropMode()));
   const purchases = pendingShopProductRewards();
   if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewards(purchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');

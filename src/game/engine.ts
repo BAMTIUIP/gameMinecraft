@@ -5389,18 +5389,29 @@ if (tpClipActive > 0.5) {
     return Math.max(0, this.inventory.get(id) ?? 0);
   }
 
-  /** Account-bound reward chests/bags are re-injected when a mode starts until that mode opens them. */
-  grantRewardedPackTokens(items: Array<readonly [number, number]>): boolean {
-    let added = 0;
-    for (const [id, rawCount] of items) {
+  /**
+   * Account-bound reward chests/bags mirror the unopened packs of this mode: the inventory count is set to
+   * the number still waiting (never stacked), so restarting a run or reloading a world cannot duplicate them.
+   */
+  syncRewardedPackTokens(entries: ReadonlyArray<readonly [number, number]>): boolean {
+    let changed = false;
+    let gained = 0;
+    for (const [id, rawCount] of entries) {
       if (!isRewardedDropChestItem(id)) continue;
       const count = Math.max(0, Math.floor(rawCount));
-      if (count <= 0) continue;
-      this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
-      added += count;
+      const had = this.inventory.get(id) ?? 0;
+      if (had === count) continue;
+      if (count > 0) {
+        this.inventory.set(id, count);
+        this.addToHotbar(id);
+      } else {
+        this.inventory.delete(id);
+      }
+      gained += Math.max(0, count - had);
+      changed = true;
     }
-    if (!added) return false;
-    this.pushBanner(t('rewardPackReadyTitle'), t('rewardPackReadySub'), '#f4b942');
+    if (!changed) return false;
+    if (gained > 0) this.pushBanner(t('rewardPackReadyTitle'), t('rewardPackReadySub'), '#f4b942');
     this.syncHotbar(true);
     this.syncHud(true);
     return true;
