@@ -629,6 +629,34 @@ async function record(opts) {
 
   // dev server (dev build exposes window.__ore)
   const port = await freePort();
+  // Kill dev servers leaked by interrupted previous runs. They match our exact spawn
+  // signature (`.bin/vite --port <n> --strictPort`); a user's own `npm run dev` is a bare
+  // `vite` without --strictPort and is left alone. esbuild service children exit with
+  // their parent (stdio pipe closes).
+  const ps = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' });
+  if (ps.status === 0) {
+    // Token-exact match on argv: <pid> ... node_modules/.bin/vite --port <digits> --strictPort.
+    // A substring/regex match would also hit this very script (its source contains the
+    // signature) or a user's own `npm run dev` (bare vite, no --strictPort) — neither may die.
+    const stale = (ps.stdout ?? '')
+      .split('\n')
+      .map((line) => {
+        const t = line.trim().split(/\s+/);
+        const pid = Number(t[0]);
+        if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return 0;
+        for (let i = 1; i + 3 < t.length; i++) {
+          if (t[i].endsWith('node_modules/.bin/vite') && t[i + 1] === '--port' && /^\d+$/.test(t[i + 2]) && t[i + 3] === '--strictPort') return pid;
+        }
+        return 0;
+      })
+      .filter((pid) => pid > 0);
+    if (stale.length) {
+      log(`killing ${stale.length} stale dev server(s) from previous runs: ${stale.join(', ')}`);
+      for (const pid of stale) spawnSync('kill', [String(pid)]);
+      await new Promise((r) => setTimeout(r, 500));
+      for (const pid of stale) spawnSync('kill', ['-9', String(pid)]);
+    }
+  }
   log(`starting vite dev server on :${port}`);
   const dev = spawn('npx', ['vite', '--port', String(port), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
   const cleanup = () => {
