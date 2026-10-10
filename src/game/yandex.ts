@@ -1154,31 +1154,45 @@ export function yaPaymentsAvailable(): boolean {
   return Boolean(ysdk?.getPayments || ysdk?.payments) && Boolean(ysdk);
 }
 
+export type YaPurchaseResult =
+  | { ok: true; purchase: YaPurchase }
+  /** the SDK rejected or answered without a token: no money was charged */
+  | { ok: false; reason: 'unavailable' | 'cancelled' }
+  /** `signed: true` answered with an encrypted receipt only: the player HAS paid */
+  | { ok: false; reason: 'signature-only' };
+
 /**
- * `payments.purchase({ id })` — opens the payment frame. Rejects when the player closes the window,
- * when the product is unknown or when the payment provider fails; the caller must treat all of those
- * as "no purchase" and must not credit anything.
+ * `payments.purchase({ id })` — opens the payment frame.
+ *
+ * The SDK resolves with an `IPurchase` on success and **rejects** when the payment did not happen:
+ * the docs list a closed payment frame, a product that is missing from the Console, a missing
+ * authorization, an expired payment window and insufficient funds. Nothing is charged in any of
+ * those cases, so the caller may report them as a cancellation — and must not credit anything.
+ *
+ * The one answer that is not a cancellation is `signed: true`: then the response carries only an
+ * encrypted `signature`, i.e. the money is gone and only a server could process it.
  */
-export async function yaPurchase(id: string, developerPayload?: string): Promise<YaPurchase | null> {
+export async function yaPurchase(id: string, developerPayload?: string): Promise<YaPurchaseResult> {
   const payments = await yaGetPayments();
-  if (!payments?.purchase) return null;
+  if (!payments?.purchase) return { ok: false, reason: 'unavailable' };
   try {
     const purchase = await payments.purchase(developerPayload === undefined ? { id } : { id, developerPayload });
-    if (!purchase) return null;
+    if (!purchase) return { ok: false, reason: 'cancelled' };
     if (!purchase.purchaseToken && typeof purchase.signature === 'string') {
-      // `signed: true`: the player has paid, but the receipt is encrypted for a server this game does
-      // not have. Never report it as a cancellation — the shop would say "отменено" about real money.
+      // The player has paid, but the receipt is encrypted for a server this game does not have.
+      // Never report it as a cancellation — the shop would say "отменено" about real money.
       console.error(
         '[Yandex SDK] purchase() answered with a signature only — payments must be initialised with `signed: false` for client-side processing',
       );
-      throw new Error('purchase-signature-not-supported');
+      return { ok: false, reason: 'signature-only' };
     }
-    if (!purchase.purchaseToken) return null;
-    return purchase;
+    if (!purchase.purchaseToken) return { ok: false, reason: 'cancelled' };
+    return { ok: true, purchase };
   } catch (err) {
-    // a cancelled purchase is a normal outcome, not an error state
+    // a rejected purchase is a normal outcome (the player closed the frame or could not pay),
+    // not an error state
     console.info('[Yandex SDK] purchase not completed', err);
-    return null;
+    return { ok: false, reason: 'cancelled' };
   }
 }
 

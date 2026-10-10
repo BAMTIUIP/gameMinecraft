@@ -9,8 +9,8 @@ import type { LeaderboardView } from '../game/leaderboard';
 
 import { FitBox } from './FitBox';
 import { GAME_NAME_LINES } from '../game/brand';
-import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
-import { developerShopClaims, clearDeveloperShopClaims, isDeveloperShopEnabled } from '../game/devShop';
+import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult, type ShopPrice } from '../game/shop';
+import { developerShopClaims, clearDeveloperShopClaims } from '../game/devShop';
 import { resetRewardedDropState } from '../game/adDrops';
 import { resetShopRewards } from '../game/shopRewards';
 import { resetPetsForTests } from '../game/pets';
@@ -20,7 +20,7 @@ import { CHARACTER_COLORS, CHARACTER_EXPRESSIONS, CHARACTER_GLASSES, CHARACTER_H
 import { characterFacePixels } from '../game/characterVisuals';
 import { fullscreenAvailable } from '../game/params';
 import { BLOCKS } from '../game/blocks';
-import { isRewardedDrop, rewardedDropStatuses, claimRewardedDrop, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
+import { isRewardedDrop, rewardedDropStatuses, type RewardedDropClaimResult, type RewardedDropId, type RewardedDropStatus } from '../game/adDrops';
 import { ShopArtwork } from './ShopArtwork';
 import {
   BagIcon,
@@ -188,6 +188,153 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
   { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
 ];
+
+const PET_PRODUCT_IDS: readonly string[] = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'];
+const BOOSTER_PRODUCT_IDS: readonly string[] = ['booster-start', 'booster-ore', 'booster-score'];
+/** Products a player may hold only once per account. */
+export function isPetProductId(id: string): boolean {
+  return PET_PRODUCT_IDS.includes(id);
+}
+export function isBoosterProductId(id: string): boolean {
+  return BOOSTER_PRODUCT_IDS.includes(id);
+}
+/** Priority of the one-off «quick buy» strip: free ad rewards first, then permanent pets, then the rest. */
+const QUICK_BUY_PRIORITY: readonly string[] = [
+  'drop-daily', 'drop-weekly', 'drop-monthly',
+  ...PET_PRODUCT_IDS,
+  ...BOOSTER_PRODUCT_IDS,
+  'chest-common', 'chest-rare', 'chest-epic',
+];
+
+export type ShopOfferContext = {
+  /** local developer test catalogue: no platform payment is ever opened from it */
+  developerMode: boolean;
+  /** `ysdk.payments` exists and this is not a TV build */
+  paymentsAvailable: boolean;
+  /** rewarded ads are switched on and the SDK exposes a rewarded-video method */
+  rewardedAdsEnabled: boolean;
+  /** the row of this SKU in the active `payments.getCatalog()`, if the Console has one */
+  catalogPrice: ShopPrice | undefined;
+  /** cooldown/progress of a rewarded drop, `undefined` for paid products */
+  dropStatus: RewardedDropStatus | undefined;
+  /** already-on-account state that replaces the buy button */
+  dropStatusLabel: string;
+  alreadyOwned: boolean;
+  devAlreadyClaimed: boolean;
+  buying: boolean;
+};
+
+export type ShopOffer = {
+  rewardedDrop: boolean;
+  /** `true` only when pressing the button may really open a payment frame or an ad */
+  purchasable: boolean;
+  /** what the price line shows — for a paid SKU it is `IProduct.price`, verbatim */
+  priceLabel: string;
+  /** SDK currency icon (`getPriceCurrencyImage('small')`), empty for ad rewards and in dev mode */
+  currencyIcon: string;
+  buttonLabel: string;
+  buttonTitle: string;
+};
+
+/**
+ * Single source of truth for one shop offer: whether it can be bought right now and what it costs.
+ * The cards, the quick-buy strip in the menu and the one inside the shop all render this, so a
+ * product can no longer be labelled one way in a card and another way in a banner.
+ *
+ * Yandex Games requirements for in-app purchases:
+ *   - 1.13.4 — every purchase shows a numeric price and names the portal currency. A paid SKU is
+ *     therefore never rendered as «free»: without `IProduct.price` there is no price to show.
+ *   - 1.13.2 — that price and the currency icon come from the SDK (`IProduct.price`,
+ *     `IProduct.getPriceCurrencyImage()`), never from the bundle.
+ *   - 1.13.6 — the in-game list mirrors the Console: a SKU that is not in the active catalogue is
+ *     not offered, so it is not purchasable and the quick-buy strip skips it.
+ */
+export function shopOfferFor(product: ShopProduct, ctx: ShopOfferContext): ShopOffer {
+  const rewardedDrop = isRewardedDrop(product.id);
+  const isPet = isPetProductId(product.id);
+  const isBooster = isBoosterProductId(product.id);
+  /** chests, armor and tools: unlimited, always the same SKU */
+  const isUnlimited = !isPet && !isBooster && !rewardedDrop;
+  const { catalogPrice } = ctx;
+
+  const purchasable = ctx.developerMode
+    ? isPet
+      ? !ctx.alreadyOwned && !ctx.devAlreadyClaimed
+      : isBooster
+        ? !ctx.devAlreadyClaimed
+        : rewardedDrop
+          ? Boolean(ctx.dropStatus?.available)
+          : !ctx.alreadyOwned
+    : isPet
+      ? !ctx.alreadyOwned && ctx.paymentsAvailable && Boolean(catalogPrice)
+      : isBooster
+        ? ctx.paymentsAvailable && Boolean(catalogPrice)
+        : rewardedDrop
+          ? ctx.rewardedAdsEnabled && Boolean(ctx.dropStatus?.available)
+          : ctx.paymentsAvailable && Boolean(catalogPrice);
+
+  // A paid product without an active catalogue row says so instead of inventing a price; an ad
+  // reward is labelled as an ad reward, which is what it is.
+  const priceLabel = ctx.developerMode
+    ? isUnlimited
+      ? `${t('devShopPrice')} · ∞`
+      : isBooster
+        ? `${t('devShopPrice')} · ${t('devShopPerRun')}`
+        : t('devShopPrice')
+    : rewardedDrop
+      ? t('shopRewardedPrice')
+      : catalogPrice?.label ?? (ctx.paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));
+
+  const currencyIcon = !ctx.developerMode && !rewardedDrop ? catalogPrice?.currencyIcon ?? '' : '';
+
+  const buttonTitle = ctx.developerMode
+    ? ctx.devAlreadyClaimed || ctx.alreadyOwned
+      ? t('devShopTaken')
+      : t('devShopTake')
+    : ctx.alreadyOwned
+      ? t('shopOwned')
+      : rewardedDrop
+        ? ctx.dropStatus?.available
+          ? ctx.rewardedAdsEnabled
+            ? t('shopWatchAd')
+            : t('shopAdUnavailable')
+          : ctx.dropStatusLabel
+        : product.freeDrop
+          ? t('shopItemUnavailable')
+          : ctx.paymentsAvailable
+            ? catalogPrice
+              ? t('shopBuy')
+              : t('shopPriceUnavailable')
+            : t('shopPaymentsUnavailable');
+
+  const buttonLabel = ctx.developerMode
+    ? ctx.devAlreadyClaimed || ctx.alreadyOwned
+      ? t('devShopTaken')
+      : ctx.buying
+        ? t('devShopTaking')
+        : t('devShopTake')
+    : ctx.alreadyOwned
+      ? t('shopOwned')
+      : rewardedDrop
+        ? ctx.dropStatus?.available
+          ? !ctx.rewardedAdsEnabled
+            ? t('shopAdUnavailable')
+            : ctx.buying
+              ? t('shopBuying')
+              : t('shopWatchAd')
+          : ctx.dropStatusLabel
+        : product.freeDrop
+          ? t('shopItemUnavailable')
+          : ctx.buying
+            ? t('shopBuying')
+            : !ctx.paymentsAvailable
+              ? t('shopPaymentsUnavailable')
+              : catalogPrice
+                ? t('shopBuy')
+                : t('shopPriceUnavailable');
+
+  return { rewardedDrop, purchasable, priceLabel, currencyIcon, buttonLabel, buttonTitle };
+}
 
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
   return (
@@ -656,6 +803,128 @@ export function StartScreen({
         ].join(' · ');
   const adFreePrice = shopPrices.get(AD_FREE_PRODUCT_ID);
   const rewardedDrops = rewardedDropStatuses(clockNow);
+
+  /** Restored permanent companion ownership, by product id. */
+  const petOwned = (productId: string): boolean =>
+    productId === 'pet-wolf' ? wolfPetOwned
+    : productId === 'pet-cat' ? catPetOwned
+    : productId === 'pet-monkey' ? monkeyPetOwned
+    : productId === 'pet-parrot' ? parrotPetOwned
+    : productId === 'pet-owl' ? owlPetOwned
+    : false;
+
+  /** Cooldown/login progress of a rewarded drop; empty while it can be claimed right now. */
+  const dropStatusLine = (productId: string): string => {
+    if (!isRewardedDrop(productId)) return '';
+    const status = rewardedDrops[productId as RewardedDropId];
+    if (!status || status.available) return '';
+    return productId === 'drop-daily'
+      ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
+      : t('shopLoginProgress').replace('{days}', String(status.progress)).replace('{goal}', String(status.goal));
+  };
+
+  /**
+   * The one offer object every shop surface renders (cards, quick-buy strip in the menu, quick-buy
+   * strip in the dialog). Price, currency icon and purchasability are computed once, from the active
+   * `payments.getCatalog()` row — see `shopOfferFor`.
+   */
+  const offerFor = (product: ShopProduct, developerMode: boolean, buying = false): ShopOffer =>
+    shopOfferFor(product, {
+      developerMode,
+      paymentsAvailable,
+      rewardedAdsEnabled,
+      catalogPrice: shopPrices.get(product.id),
+      dropStatus: isRewardedDrop(product.id) ? rewardedDrops[product.id as RewardedDropId] : undefined,
+      dropStatusLabel: dropStatusLine(product.id),
+      alreadyOwned: petOwned(product.id),
+      devAlreadyClaimed: devClaims.includes(product.id),
+      buying,
+    });
+
+  /**
+   * One click on a shop product: a developer claim, a rewarded-ad drop, or a real Yandex IAP.
+   * The payment frame itself is opened by `buyShopProduct()` (`src/game/shop.ts`), and only for a
+   * SKU that has a row in the active `payments.getCatalog()` (requirement 1.13.6); a cancelled or
+   * failed payment only reports back — nothing is granted.
+   */
+  async function handleShopProduct(product: ShopProduct, developerMode: boolean): Promise<void> {
+    const offer = offerFor(product, developerMode);
+    if (!offer.purchasable || buying !== null) return;
+    setBuying(product.id);
+    setShopNotice(null);
+    if (developerMode) {
+      const granted = await onDeveloperClaim(product.id);
+      setBuying(null);
+      if (granted) {
+        setDevClaims(developerShopClaims());
+        setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+        if (offer.rewardedDrop) {
+          setRewardedPopup({
+            title: t('rewardPackReadyTitle'),
+            message: t('shopDropGranted').replace('{reward}', t(product.titleKey)),
+            sub: t('rewardPackReadySub'),
+          });
+        }
+        setPurchasePopup({
+          icon: product.icon,
+          title: t(product.titleKey),
+          description: t(product.descriptionKey),
+          accent: product.accent,
+        });
+      } else {
+        setShopNotice(t('devShopGrantFailed'));
+      }
+      return;
+    }
+    if (offer.rewardedDrop) {
+      const result = await onClaimRewardedDrop(product.id as RewardedDropId);
+      setBuying(null);
+      if (result.ok) {
+        const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
+        const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+        const deliveryNote = result.delivery === 'account'
+          ? t('shopDropAccountBound')
+          : result.delivery === 'own-world'
+            ? t('shopDropOwnWorld')
+            : t('shopDropNextRun');
+        setShopNotice(`${notice} · ${deliveryNote}`);
+        setRewardedPopup({
+          title: t('rewardPackReadyTitle'),
+          message: notice,
+          sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote,
+        });
+      } else if (result.reason === 'ad') {
+        setShopNotice(t('shopDropAdFailed'));
+      } else if (result.reason === 'claimed') {
+        setShopNotice(t('shopDropAlreadyClaimed'));
+      } else {
+        setShopNotice(t('shopDropSaveFailed'));
+      }
+      return;
+    }
+    const result = await onBuyShopItem(product.id);
+    setBuying(null);
+    if (result.ok) {
+      setPurchasePopup({
+        icon: product.icon,
+        title: t(product.titleKey),
+        description: t(product.descriptionKey),
+        accent: product.accent,
+      });
+      setShopNotice(result.syncPending
+        ? t('shopPurchasePending')
+        : isPetProductId(product.id)
+          ? t('shopPetPurchaseDone')
+          : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
+    } else {
+      setShopNotice(result.reason === 'cancelled'
+        ? t('shopPurchaseCancelled')
+        : result.reason === 'unavailable'
+          ? t('shopItemUnavailable')
+          : t('shopPurchaseFailed'));
+    }
+  }
+
   // Requirement 1.13.6: a real-money offer must exist in the active Yandex catalogue. Do not show
   // stale/inactive Console SKUs as disabled pseudo-offers; outside Yandex the shop remains a preview.
   const visibleShopProducts = useMemo(
@@ -671,13 +940,11 @@ export function StartScreen({
   // Sort: purchasable first (daily/weekly/monthly when available pop to front, claimed fall to end), then by custom order
   const filteredShopProducts = useMemo(() => {
     const orderIndex = new Map(SHOP_PRODUCTS.map((p, i) => [p.id, i] as const));
-    const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
-    const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
     const getPurchasable = (product: typeof SHOP_PRODUCTS[number]) => {
       const devAlreadyClaimed = devClaims.includes(product.id);
-      const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-cat' ? catPetOwned : product.id === 'pet-monkey' ? monkeyPetOwned : product.id === 'pet-parrot' ? parrotPetOwned : product.id === 'pet-owl' && owlPetOwned;
-      if (isPet(product.id)) return !alreadyOwned && !devAlreadyClaimed;
-      if (isBooster(product.id)) return !devAlreadyClaimed;
+      const alreadyOwned = petOwned(product.id);
+      if (isPetProductId(product.id)) return !alreadyOwned && !devAlreadyClaimed;
+      if (isBoosterProductId(product.id)) return !devAlreadyClaimed;
       if (isRewardedDrop(product.id)) {
         const status = rewardedDrops[product.id as RewardedDropId];
         return Boolean(status?.available);
@@ -880,79 +1147,46 @@ export function StartScreen({
             </section>
 
             {(() => {
-              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score', 'chest-common', 'chest-rare', 'chest-epic'];
-              const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
-              const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
-              const getPurch = (id: string) => {
-                const devAlreadyClaimed = devClaims.includes(id);
-                const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
-                const catalogPrice = shopPrices.get(id);
-                const rewardedDrop = isRewardedDrop(id);
-                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[id as RewardedDropId]?.available) : false;
-                if (developerShopEnabled) {
-                  if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
-                  if (isBooster(id)) return !devAlreadyClaimed;
-                  if (rewardedDrop) return dropAvailable;
-                  return true;
-                } else {
-                  if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
-                  if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
-                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
-                  return paymentsAvailable && Boolean(catalogPrice);
-                }
-              };
-              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? 'chest-common';
-              const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
+              // «Quick buy» strip: the first offer the player can actually act on. Requirement 1.13.6 —
+              // a SKU without an active getCatalog() row is not purchasable, and then the whole strip
+              // stays hidden instead of offering something that cannot be paid for.
+              const developerMode = developerShopEnabled;
+              const quickProduct = QUICK_BUY_PRIORITY
+                .map((id) => SHOP_PRODUCTS.find((product) => product.id === id))
+                .find((product): product is ShopProduct => product !== undefined && offerFor(product, developerMode).purchasable);
               if (!quickProduct) return null;
-              const rewardedDrop = isRewardedDrop(quickProduct.id);
-              const priceLabel = 'БЕСПЛАТНО';
+              const offer = offerFor(quickProduct, developerMode, buying === quickProduct.id);
               return (
-                <div className="shop-quick-banner mt-3 flex w-full max-w-[900px] items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
+                <div
+                  className="shop-quick-banner mt-3 flex w-full max-w-[900px] items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3"
+                  data-shop-quick="1"
+                  data-shop-quick-product={quickProduct.id}
+                >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#f4b942]/30 bg-[#f4b942]/15 text-base sm:h-12 sm:w-12 sm:text-lg" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">{t('shopQuickBuy')}</div>
                     <div className="truncate font-display text-sm font-bold text-white sm:text-base">{t(quickProduct.titleKey)}</div>
                     <div className="truncate text-[10px] leading-snug text-white/60 sm:text-[11px]">{t(quickProduct.descriptionKey)}</div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
-                    <div className="font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]">{priceLabel}</div>
+                    {/* requirements 1.13.2 and 1.13.4: the price and the portal-currency icon of a
+                        paid SKU come straight from getCatalog(); an ad reward is labelled as one */}
+                    <div className="flex items-center gap-1.5 font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]" data-shop-quick-price="1">
+                      {offer.currencyIcon && <img src={offer.currencyIcon} alt="" className="h-3.5 w-3.5" referrerPolicy="no-referrer" />}
+                      {offer.priceLabel}
+                    </div>
                     <button
                       type="button"
-                      disabled={buying !== null}
-                      onClick={async () => {
-                        if (buying !== null) return;
-                        setBuying(quickProduct.id);
-                        setShopNotice(null);
-                        if (developerShopEnabled) {
-                          const granted = await onDeveloperClaim(quickProduct.id);
-                          setBuying(null);
-                          if (granted) {
-                            setDevClaims(developerShopClaims());
-                            setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
-                            setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
-                          }
-                          return;
-                        }
-                        if (rewardedDrop) {
-                          const result = await onClaimRewardedDrop(quickProduct.id as RewardedDropId);
-                          setBuying(null);
-                          if (result.ok) {
-                            const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
-                            const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                            setShopNotice(`${notice}`);
-                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: t('rewardPackReadySub') });
-                          }
-                          return;
-                        }
-                        const result = await onBuyShopItem(quickProduct.id);
-                        setBuying(null);
-                        if (result.ok) {
-                          setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
-                        }
-                      }}
-                      className="notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 bg-[#f4b942] px-4 py-1.5 font-display text-[11px] font-bold tracking-wide text-black hover:brightness-110 disabled:opacity-60 sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs"
+                      disabled={!offer.purchasable || buying !== null}
+                      title={offer.buttonTitle}
+                      onClick={() => { void handleShopProduct(quickProduct, developerMode); }}
+                      className={`notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 px-4 py-1.5 font-display text-[11px] font-bold tracking-wide sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs ${
+                        offer.purchasable
+                          ? 'bg-[#f4b942] text-black hover:brightness-110 disabled:opacity-60'
+                          : 'cursor-not-allowed bg-[#3b3524] text-white/45'
+                      }`}
                     >
-                      {buying === quickProduct.id ? '...' : 'КУПИТЬ'}
+                      {offer.buttonLabel}
                     </button>
                   </div>
                 </div>
@@ -1167,20 +1401,20 @@ export function StartScreen({
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm('Сбросить все покупки? Дев-магазин, обычные покупки, питомцы и ежедневные/еженедельные сундуки будут сброшены — как будто ни одной покупки не было.')) {
+                    if (confirm(t('devShopResetConfirm'))) {
                       clearDeveloperShopClaims();
                       resetRewardedDropState();
                       resetShopRewards();
                       resetPetsForTests();
                       try { localStorage.removeItem('orerush.dev-shop.claims.v1'); localStorage.removeItem('orerush.shop-rewards.v1'); localStorage.removeItem('orerush.rewarded-drops.v1'); localStorage.removeItem('orerush.pets.v1'); } catch {}
                       setDevClaims([]);
-                      setShopNotice('Все покупки сброшены — как будто ни одной покупки не было');
+                      setShopNotice(t('devShopResetDone'));
                     }
                   }}
                   className="btn-mc notch flex h-9 shrink-0 items-center justify-center bg-gradient-to-b from-[#3a2a2a] to-[#2a1a1a] px-3 text-[10px] text-[#ff8a7a] sm:h-11 sm:px-3 sm:text-xs"
-                  title="Сбросить все покупки — как будто ни одной не было"
+                  title={t('devShopResetTitle')}
                 >
-                  СБРОС ВСЕ
+                  {t('devShopReset')}
                 </button>
               )}
               <button
@@ -1214,79 +1448,46 @@ export function StartScreen({
             )}
 
             {(() => {
-              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score', 'chest-common', 'chest-rare', 'chest-epic'];
-              const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
-              const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
-              const getPurch = (id: string) => {
-                const devAlreadyClaimed = devClaims.includes(id);
-                const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
-                const catalogPrice = shopPrices.get(id);
-                const rewardedDrop = isRewardedDrop(id);
-                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[id as RewardedDropId]?.available) : false;
-                if (shopMode === 'developer') {
-                  if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
-                  if (isBooster(id)) return !devAlreadyClaimed;
-                  if (rewardedDrop) return dropAvailable;
-                  return true;
-                } else {
-                  if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
-                  if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
-                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
-                  return paymentsAvailable && Boolean(catalogPrice);
-                }
-              };
-              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? 'chest-common';
-              const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
+              // «Quick buy» strip: the first offer the player can actually act on. Requirement 1.13.6 —
+              // a SKU without an active getCatalog() row is not purchasable, and then the whole strip
+              // stays hidden instead of offering something that cannot be paid for.
+              const developerMode = shopMode === 'developer';
+              const quickProduct = QUICK_BUY_PRIORITY
+                .map((id) => SHOP_PRODUCTS.find((product) => product.id === id))
+                .find((product): product is ShopProduct => product !== undefined && offerFor(product, developerMode).purchasable);
               if (!quickProduct) return null;
-              const rewardedDrop = isRewardedDrop(quickProduct.id);
-              const priceLabel = 'БЕСПЛАТНО';
+              const offer = offerFor(quickProduct, developerMode, buying === quickProduct.id);
               return (
-                <div className="shop-quick-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:mx-4 sm:gap-3 sm:px-4 sm:py-3">
+                <div
+                  className="shop-quick-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:mx-4 sm:gap-3 sm:px-4 sm:py-3"
+                  data-shop-quick="1"
+                  data-shop-quick-product={quickProduct.id}
+                >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#f4b942]/30 bg-[#f4b942]/15 text-base sm:h-12 sm:w-12 sm:text-lg" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">{t('shopQuickBuy')}</div>
                     <div className="truncate font-display text-sm font-bold text-white sm:text-base">{t(quickProduct.titleKey)}</div>
                     <div className="truncate text-[10px] leading-snug text-white/60 sm:text-[11px]">{t(quickProduct.descriptionKey)}</div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
-                    <div className="font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]">{priceLabel}</div>
+                    {/* requirements 1.13.2 and 1.13.4: the price and the portal-currency icon of a
+                        paid SKU come straight from getCatalog(); an ad reward is labelled as one */}
+                    <div className="flex items-center gap-1.5 font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]" data-shop-quick-price="1">
+                      {offer.currencyIcon && <img src={offer.currencyIcon} alt="" className="h-3.5 w-3.5" referrerPolicy="no-referrer" />}
+                      {offer.priceLabel}
+                    </div>
                     <button
                       type="button"
-                      disabled={buying !== null}
-                      onClick={async () => {
-                        if (buying !== null) return;
-                        setBuying(quickProduct.id);
-                        setShopNotice(null);
-                        if (shopMode === 'developer') {
-                          const granted = await onDeveloperClaim(quickProduct.id);
-                          setBuying(null);
-                          if (granted) {
-                            setDevClaims(developerShopClaims());
-                            setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
-                            setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
-                          }
-                          return;
-                        }
-                        if (rewardedDrop) {
-                          const result = await onClaimRewardedDrop(quickProduct.id as RewardedDropId);
-                          setBuying(null);
-                          if (result.ok) {
-                            const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
-                            const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                            setShopNotice(`${notice}`);
-                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: t('rewardPackReadySub') });
-                          }
-                          return;
-                        }
-                        const result = await onBuyShopItem(quickProduct.id);
-                        setBuying(null);
-                        if (result.ok) {
-                          setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
-                        }
-                      }}
-                      className="notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 bg-[#f4b942] px-4 py-1.5 font-display text-[11px] font-bold tracking-wide text-black hover:brightness-110 disabled:opacity-60 sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs"
+                      disabled={!offer.purchasable || buying !== null}
+                      title={offer.buttonTitle}
+                      onClick={() => { void handleShopProduct(quickProduct, developerMode); }}
+                      className={`notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 px-4 py-1.5 font-display text-[11px] font-bold tracking-wide sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs ${
+                        offer.purchasable
+                          ? 'bg-[#f4b942] text-black hover:brightness-110 disabled:opacity-60'
+                          : 'cursor-not-allowed bg-[#3b3524] text-white/45'
+                      }`}
                     >
-                      {buying === quickProduct.id ? '...' : 'КУПИТЬ'}
+                      {offer.buttonLabel}
                     </button>
                   </div>
                 </div>
@@ -1303,55 +1504,11 @@ export function StartScreen({
                   className="shop-carousel"
                 >
                   {filteredShopProducts.map((product) => {
-                  const catalogPrice = shopPrices.get(product.id);
                   const promoted = promoProductId === product.id;
                   const developerMode = shopMode === 'developer';
-                  const rewardedDrop = isRewardedDrop(product.id);
-                  const dropStatus = rewardedDrop ? rewardedDrops[product.id as RewardedDropId] : null;
-                  const devAlreadyClaimed = devClaims.includes(product.id);
-                  const alreadyOwned = product.id === 'pet-wolf'
-                    ? wolfPetOwned
-                    : product.id === 'pet-cat'
-                      ? catPetOwned
-                      : product.id === 'pet-monkey'
-                        ? monkeyPetOwned
-                        : product.id === 'pet-parrot'
-                          ? parrotPetOwned
-                          : product.id === 'pet-owl' && owlPetOwned;
-                  const isPetProduct = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(product.id);
-                  const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(product.id);
-                  const isInfinite = !isPetProduct && !isBooster && !rewardedDrop;
-                  const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
-                    ? product.id === 'drop-daily'
-                      ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
-                      : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
-                    : '';
-                  // Fixed: real shop follows Yandex IAP docs only (paymentsAvailable && catalogPrice), dev shop bypasses for tests
-                  // - Pets: one-time ever
-                  // - Boosters: once per run (cleared after run start)
-                  // - Daily/weekly/monthly: cooldown via Yandex time
-                  // - Chests/armor/tools: infinite
-                  let purchasable: boolean;
-                  if (developerMode) {
-                    if (isPetProduct) purchasable = !alreadyOwned && !devAlreadyClaimed;
-                    else if (isBooster) purchasable = !devAlreadyClaimed;
-                    else if (rewardedDrop) purchasable = Boolean(dropStatus?.available);
-                    else purchasable = !alreadyOwned; // infinite always purchasable in dev shop
-                  } else {
-                    if (isPetProduct) purchasable = !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
-                    else if (isBooster) purchasable = paymentsAvailable && Boolean(catalogPrice);
-                    else if (rewardedDrop) purchasable = rewardedAdsEnabled && Boolean(dropStatus?.available);
-                    else purchasable = paymentsAvailable && Boolean(catalogPrice);
-                  }
-                  const priceLabel: React.ReactNode = developerMode
-                    ? isInfinite
-                      ? `${t('devShopPrice')} · ∞`
-                      : isBooster
-                        ? `${t('devShopPrice')} · 1/забег`
-                        : t('devShopPrice')
-                    : rewardedDrop
-                      ? t('shopRewardedPrice')
-                      : catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));
+                  // Requirements 1.13.2 / 1.13.4 / 1.13.6: the price, the currency icon and the
+                  // purchasability of a paid SKU come from the active getCatalog() row only.
+                  const offer = offerFor(product, developerMode, buying === product.id);
                   return (
                     <article
                       key={product.id}
@@ -1405,139 +1562,27 @@ export function StartScreen({
 
                       <div className="shop-product-footer mt-2 flex items-end justify-between gap-2 border-t border-white/10 pt-2">
                         <div>
-                          <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }}>
-                            {!developerMode && !rewardedDrop && catalogPrice?.currencyIcon && (
-                              <img src={catalogPrice.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
+                          {/* requirements 1.13.2 and 1.13.4: `IProduct.price` plus the SDK currency
+                              icon, verbatim from getCatalog() — never a hardcoded price */}
+                          <div className="flex items-center gap-1.5 font-display text-sm leading-tight" style={{ color: product.accent }} data-shop-price="1">
+                            {offer.currencyIcon && (
+                              <img src={offer.currencyIcon} alt="" className="h-4 w-4" referrerPolicy="no-referrer" />
                             )}
-                            {priceLabel}
+                            {offer.priceLabel}
                           </div>
                         </div>
                         <button
                           type="button"
-                          disabled={!purchasable || buying !== null}
-                          title={developerMode
-                            ? (devAlreadyClaimed || alreadyOwned ? t('devShopTaken') : t('devShopTake'))
-                            : alreadyOwned
-                              ? t('shopOwned')
-                              : rewardedDrop
-                              ? dropStatus?.available
-                                ? rewardedAdsEnabled ? t('shopWatchAd') : t('shopAdUnavailable')
-                                : dropStatusLabel
-                              : !product.freeDrop
-                                ? paymentsAvailable ? catalogPrice ? t('shopBuy') : t('shopPriceUnavailable') : t('shopPaymentsUnavailable')
-                                : t('shopItemUnavailable')}
-                          onClick={async () => {
-                            if (!purchasable || buying !== null) return;
-                            setBuying(product.id);
-                            setShopNotice(null);
-                            if (developerMode) {
-                              const granted = await onDeveloperClaim(product.id);
-                              setBuying(null);
-                              if (granted) {
-                                setDevClaims(developerShopClaims());
-                                // For free drops, also refresh rewarded drop statuses so chest tokens appear
-                                if (rewardedDrop) {
-                                  setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
-                                  setRewardedPopup({
-                                    title: t('rewardPackReadyTitle'),
-                                    message: t('shopDropGranted').replace('{reward}', t(product.titleKey)),
-                                    sub: t('rewardPackReadySub'),
-                                  });
-                                } else {
-                                  setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
-                                }
-                                setPurchasePopup({
-                                  icon: product.icon,
-                                  title: t(product.titleKey),
-                                  description: t(product.descriptionKey),
-                                  accent: product.accent,
-                                });
-                              } else {
-                                // For repeatable consumables, granted is true even if already claimed, so this branch is for pets already owned
-                                setShopNotice(t('devShopGrantFailed'));
-                              }
-                              return;
-                            }
-                            if (rewardedDrop) {
-                              const result = await onClaimRewardedDrop(product.id as RewardedDropId);
-                              setBuying(null);
-                              if (result.ok) {
-                                const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
-                                const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                                const deliveryNote = result.delivery === 'account'
-                                  ? t('shopDropAccountBound')
-                                  : result.delivery === 'own-world'
-                                    ? t('shopDropOwnWorld')
-                                    : t('shopDropNextRun');
-                                const popupMessage = `${notice} · ${deliveryNote}`;
-                                setShopNotice(popupMessage);
-                                setRewardedPopup({
-                                  title: t('rewardPackReadyTitle'),
-                                  message: notice,
-                                  sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote,
-                                });
-                              } else if (result.reason === 'ad') {
-                                setShopNotice(t('shopDropAdFailed'));
-                              } else if (result.reason === 'claimed') {
-                                setShopNotice(t('shopDropAlreadyClaimed'));
-                              } else {
-                                setShopNotice(t('shopDropSaveFailed'));
-                              }
-                              return;
-                            }
-                            const result = await onBuyShopItem(product.id);
-                            setBuying(null);
-                            if (result.ok) {
-                              setPurchasePopup({
-                                icon: product.icon,
-                                title: t(product.titleKey),
-                                description: t(product.descriptionKey),
-                                accent: product.accent,
-                              });
-                              setShopNotice(result.syncPending
-                                ? t('shopPurchasePending')
-                                : product.id === 'pet-wolf' || product.id === 'pet-cat' || product.id === 'pet-monkey' || product.id === 'pet-parrot' || product.id === 'pet-owl'
-                                  ? t('shopPetPurchaseDone')
-                                  : t('shopItemPurchaseDone').replace('{item}', t(product.titleKey)));
-                            } else {
-                              setShopNotice(result.reason === 'cancelled'
-                                ? t('shopPurchaseCancelled')
-                                : result.reason === 'unavailable'
-                                  ? t('shopItemUnavailable')
-                                  : t('shopPurchaseFailed'));
-                            }
-                          }}
+                          disabled={!offer.purchasable || buying !== null}
+                          title={offer.buttonTitle}
+                          onClick={() => { void handleShopProduct(product, developerMode); }}
                           className={`notch shrink-0 border-[3px] px-2.5 py-2 font-display text-[9px] tracking-wide sm:px-3 sm:text-[10px] ${
-                            purchasable
+                            offer.purchasable
                               ? 'border-black/70 bg-gradient-to-b from-[#5fd8cf] to-[#2f9c96] text-pit-950 hover:brightness-110 disabled:opacity-60'
                               : 'cursor-not-allowed border-black/70 bg-gradient-to-b from-[#36404a] to-[#222b33] text-white/45 opacity-80'
                           }`}
                         >
-                          {developerMode
-                            ? devAlreadyClaimed || alreadyOwned
-                              ? t('devShopTaken')
-                              : buying === product.id
-                                ? t('devShopTaking')
-                                : t('devShopTake')
-                            : alreadyOwned
-                              ? t('shopOwned')
-                              : rewardedDrop
-                                ? dropStatus?.available
-                                  ? !rewardedAdsEnabled
-                                    ? t('shopAdUnavailable')
-                                    : buying === product.id
-                                      ? t('shopBuying')
-                                      : t('shopWatchAd')
-                                  : dropStatusLabel
-                                : !product.freeDrop
-                                  ? buying === product.id
-                                    ? t('shopBuying')
-                                    : !paymentsAvailable
-                                      ? t('shopPaymentsUnavailable')
-                                      : catalogPrice
-                                        ? t('shopBuy')
-                                        : t('shopPriceUnavailable')
-                                  : t('shopItemUnavailable')}
+                          {offer.buttonLabel}
                         </button>
                       </div>
                     </article>
