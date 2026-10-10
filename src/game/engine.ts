@@ -15970,6 +15970,9 @@ if (tpClipActive > 0.5) {
     this.firstPersonParrotArm = null;
     this.clearWolfPetRig();
     this.clearCompanions();
+    // the sun loop belongs to this engine: a disposed engine must not leave it playing
+    setSpecialSunSound(false, sunSoundUrl);
+    this.sunSoundOn = false;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);

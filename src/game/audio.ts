@@ -7,6 +7,23 @@ let master: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
 let muted = false;
 
+// Dev hot reload re-evaluates this module while the previous copy's music timer and sun loop keep
+// running with no reference left to stop them. Each copy parks its live handles on globalThis; the
+// new copy stops whatever the previous one left behind.
+type AudioHandles = { timer?: number | null; sunSrc?: AudioBufferSourceNode | null };
+const audioGlobal = globalThis as unknown as { __oreRushAudioHandles?: AudioHandles };
+const previousHandles = audioGlobal.__oreRushAudioHandles;
+const parked: AudioHandles = {};
+audioGlobal.__oreRushAudioHandles = parked;
+if (previousHandles) {
+  if (previousHandles.timer != null) globalThis.clearInterval(previousHandles.timer);
+  try {
+    previousHandles.sunSrc?.stop();
+  } catch {
+    /* already stopped */
+  }
+}
+
 /**
  * Requirements 1.6.1.6 and 1.6.2.5: «В любых браузерах не отображается системный плеер, вызываемый
  * игрой» (https://yandex.ru/dev/games/doc/ru/requirements/1/6). The game synthesises every sound with
@@ -391,7 +408,10 @@ export function startMusic() {
   musicGain.gain.linearRampToValueAtTime(musicVolume, ctx.currentTime + 1.4);
   musicNext = ctx.currentTime + 0.08;
   scheduleMusic();
-  if (musicTimer === null) musicTimer = window.setInterval(scheduleMusic, 220);
+  if (musicTimer === null) {
+    musicTimer = window.setInterval(scheduleMusic, 220);
+    parked.timer = musicTimer;
+  }
 }
 
 export function stopMusic(fade = 0.5, forget = true) {
@@ -404,6 +424,7 @@ export function stopMusic(fade = 0.5, forget = true) {
   if (musicTimer !== null) {
     window.clearInterval(musicTimer);
     musicTimer = null;
+    parked.timer = null;
   }
 }
 
@@ -836,21 +857,32 @@ function loadSunBuffer(): Promise<void> {
   return sunLoading;
 }
 
+// Guard against overlapping starts: the buffer may still be decoding, and a second call in the same
+// tick (sound switched on, then unmuted) must not create a second loop that nothing would ever stop.
+let sunStarting = false;
+
 async function startSunSource() {
-  if (!sunWanted || muted || sunSrc) return;
+  if (!sunWanted || muted || sunSrc || sunStarting) return;
   initAudio();
-  await loadSunBuffer();
-  if (!sunWanted || muted || sunSrc || !sunBuf || !ctx || !master) return;
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, ctx.currentTime);
-  g.gain.linearRampToValueAtTime(sunGainTarget(), ctx.currentTime + 0.4);
-  const src = ctx.createBufferSource();
-  src.buffer = sunBuf;
-  src.loop = true;
-  src.connect(g).connect(master);
-  src.start();
-  sunSrc = src;
-  sunGain = g;
+  sunStarting = true;
+  try {
+    await loadSunBuffer();
+    // re-check after the await: the player may have switched the sound off or muted meanwhile
+    if (!sunWanted || muted || sunSrc || !sunBuf || !ctx || !master) return;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(sunGainTarget(), ctx.currentTime + 0.4);
+    const src = ctx.createBufferSource();
+    src.buffer = sunBuf;
+    src.loop = true;
+    src.connect(g).connect(master);
+    src.start();
+    sunSrc = src;
+    sunGain = g;
+    parked.sunSrc = src;
+  } finally {
+    sunStarting = false;
+  }
 }
 
 function stopSunSource(fade: number) {
@@ -863,6 +895,7 @@ function stopSunSource(fade: number) {
   const g = sunGain;
   sunSrc = null;
   sunGain = null;
+  parked.sunSrc = null;
   g.gain.cancelScheduledValues(ctx.currentTime);
   g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), ctx.currentTime);
   g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + fade);
