@@ -810,6 +810,44 @@ async function scenarioProgress() {
   await game.page.close();
 }
 
+/* ------------------------------ scenario: quick buy ------------------------------ */
+
+/**
+ * Requirement 1.13.6 from the other side: when the Console catalogue has no active offer the player
+ * can act on, the game must not offer anything at all — no «free» price, no enabled buy button.
+ */
+async function scenarioQuickBuy() {
+  const game = await openGame({
+    lang: 'ru',
+    name: 'QUICKBUY',
+    // empty catalogue (no active Console SKU) and rewarded ads switched off by remote config
+    flags: { 'shop.enabled': 'true', 'adv.rewarded.enabled': 'false' },
+    catalog: [],
+    purchases: [],
+  });
+
+  await game.waitFor('Меню игры', () => /ВОЙТИ ЧЕРЕЗ ЯНДЕКС|ЕЩЁ РАЗ|MINE NOW|НАЧАТЬ/i.test(document.body.innerText ?? ''));
+  await game.waitFor(
+    'Каталог товаров',
+    () => (window.__yaCalls ?? []).some((c) => c.name === 'payments.getCatalog'),
+    15_000,
+  );
+  await wait(500);
+  const menuStrip = await game.page.evaluate(() => Boolean(document.querySelector('[data-shop-quick]')));
+  check(!menuStrip, 'Без доступных предложений плашка быстрой покупки скрыта в меню (п. 1.13.6)');
+
+  await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
+  await game.waitFor('Диалог магазина', () => !!document.querySelector('.shop-dialog'), 10_000);
+  await wait(400);
+  const dialogStrip = await game.page.evaluate(() => Boolean(document.querySelector('.shop-dialog [data-shop-quick]')));
+  check(!dialogStrip, 'Без доступных предложений плашка быстрой покупки скрыта и в магазине');
+  const buyableCards = await game.page.evaluate(() =>
+    [...document.querySelectorAll('[data-shop-product]')].filter((card) => card.querySelector('button')?.disabled === false).length);
+  check(buyableCards === 0, 'При пустом каталоге ни одна кнопка покупки не активна', `активных карточек: ${buyableCards}`);
+
+  await game.page.close();
+}
+
 /* --------------------------------- scenario B --------------------------------- */
 
 async function scenarioShop() {
@@ -881,6 +919,37 @@ async function scenarioShop() {
   const adFreeBannerHidden = await game.page.evaluate(() => window.__yaBanner === false);
   check(adFreeBannerHidden, 'Покупка скрывает sticky-баннер, который платформа показывает в меню');
 
+  // «Quick buy» strip in the main menu: it promotes one SKU, so it has to carry that SKU's real
+  // price — a paid product may never be labelled «free» (requirements 1.13.2 and 1.13.4).
+  const menuQuickBuy = await game.page.evaluate(() => {
+    const banner = [...document.querySelectorAll('[data-shop-quick]')]
+      .find((node) => !node.closest('.shop-dialog'));
+    if (!banner) return null;
+    const price = banner.querySelector('[data-shop-quick-price]')?.textContent?.trim() ?? '';
+    return {
+      productId: banner.getAttribute('data-shop-quick-product'),
+      price,
+      currencyIcon: Boolean(banner.querySelector('[data-shop-quick-price] img[src]')),
+      buttonLabel: banner.querySelector('button')?.textContent?.trim() ?? '',
+      rewarded: (banner.getAttribute('data-shop-quick-product') ?? '').startsWith('drop-'),
+    };
+  });
+  check(Boolean(menuQuickBuy), 'Плашка быстрой покупки показана в главном меню');
+  check(
+    Boolean(menuQuickBuy)
+      && (menuQuickBuy.rewarded
+        ? !/\d/.test(menuQuickBuy.price)
+        : /\d/.test(menuQuickBuy.price) && menuQuickBuy.currencyIcon),
+    'В меню плашка быстрой покупки показывает цену и иконку валюты из каталога (или подпись рекламной награды)',
+    JSON.stringify(menuQuickBuy),
+  );
+  check(
+    Boolean(menuQuickBuy)
+      && (menuQuickBuy.rewarded || !/бесплатн|\bfree\b|gratuit|gratis/i.test(menuQuickBuy.price)),
+    'Платный SKU в плашке быстрой покупки не подписан «бесплатно»',
+    JSON.stringify(menuQuickBuy),
+  );
+
   const shopOpened = await game.clickByText(/МАГАЗИН|SHOP|BOUTIQUE/);
   check(shopOpened, 'Магазин открывается при включённом флаге');
   const shopCategories = await game.page.evaluate(async () => {
@@ -933,6 +1002,52 @@ async function scenarioShop() {
     !shopCategories?.hasUnfinishedProducts && !shopCategories?.hasUnfinishedLabels,
     'Незавершённые предложения и метки скрыты',
     JSON.stringify(shopCategories),
+  );
+
+  // The same strip inside the shop dialog must not disagree with the card of the SKU it promotes:
+  // one price source (getCatalog), one purchasability rule (requirements 1.13.2/1.13.4/1.13.6).
+  const quickBuy = await game.page.evaluate(() => {
+    const dialog = document.querySelector('.shop-dialog');
+    const banner = dialog?.querySelector('[data-shop-quick]');
+    if (!banner) return null;
+    const productId = banner.getAttribute('data-shop-quick-product') ?? '';
+    const card = dialog?.querySelector(`[data-shop-product="${productId}"]`);
+    const button = banner.querySelector('button');
+    const cardButton = card?.querySelector('button');
+    return {
+      productId,
+      price: banner.querySelector('[data-shop-quick-price]')?.textContent?.trim() ?? '',
+      currencyIcon: Boolean(banner.querySelector('[data-shop-quick-price] img[src]')),
+      buttonLabel: button?.textContent?.trim() ?? '',
+      buttonDisabled: button?.disabled ?? null,
+      cardPrice: card?.querySelector('[data-shop-price]')?.textContent?.trim() ?? '',
+      cardButtonLabel: cardButton?.textContent?.trim() ?? '',
+      cardButtonDisabled: cardButton?.disabled ?? null,
+      rewarded: productId.startsWith('drop-'),
+    };
+  });
+  check(Boolean(quickBuy), 'Плашка быстрой покупки видна в магазине');
+  check(
+    Boolean(quickBuy)
+      && quickBuy.price === quickBuy.cardPrice
+      && quickBuy.buttonLabel === quickBuy.cardButtonLabel
+      && quickBuy.buttonDisabled === quickBuy.cardButtonDisabled,
+    'Плашка быстрой покупки повторяет цену, подпись и доступность кнопки карточки того же SKU',
+    JSON.stringify(quickBuy),
+  );
+  check(
+    Boolean(quickBuy)
+      && (quickBuy.rewarded
+        ? !/\d/.test(quickBuy.price)
+        : /\d/.test(quickBuy.price) && quickBuy.currencyIcon),
+    'Цена в плашке быстрой покупки — из каталога SDK: цифры и иконка валюты, а не захардкоженная подпись',
+    JSON.stringify(quickBuy),
+  );
+  check(
+    Boolean(quickBuy)
+      && (quickBuy.rewarded || !/бесплатн|\bfree\b|gratuit|gratis/i.test(quickBuy.price)),
+    'Платный SKU в плашке быстрой покупки не подписан «бесплатно»',
+    JSON.stringify(quickBuy),
   );
 
   // Ordinary-store drops are an ad gate: a shown-but-unrewarded video must leave the claim untouched.
@@ -2847,6 +2962,7 @@ const wanted = (name) => !only || only === name;
 try {
   if (wanted('progress')) await scenarioProgress();
   if (wanted('shop')) await scenarioShop();
+  if (wanted('quickbuy')) await scenarioQuickBuy();
   if (wanted('promo')) await scenarioPromo();
   if (wanted('daily')) await scenarioDaily();
   if (wanted('device')) await scenarioDevice();

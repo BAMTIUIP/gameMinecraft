@@ -100,18 +100,18 @@ export function resetShopCatalog() {
 }
 
 /**
- * `payments.purchase()` resolves for a cancelled payment too, so it never throws on its own. The one
- * case where it must throw is a signature-only answer (`signed: true`): the player has paid, but the
- * encrypted receipt can only be processed on a server this game does not have. Reported as `failed`
- * — never as `cancelled`, which would call a real payment a cancellation.
+ * One `payments.purchase()` attempt, mapped onto what the shop is allowed to tell the player.
+ * The SDK rejects when no money moved (closed frame, unknown Console product, no authorization,
+ * timeout, insufficient funds) — that is a cancellation. A `signature-only` answer means the payment
+ * DID happen and only a server could process it: reported as `failed`, never as `cancelled`, which
+ * would call a real payment a cancellation.
  */
-async function purchaseOrFail(id: string, developerPayload: string): Promise<YaPurchase | null> {
-  try {
-    return await yaPurchase(id, developerPayload);
-  } catch (err) {
-    console.error('[shop] purchase could not be processed on the client', err);
-    return null;
-  }
+async function purchaseOrFail(id: string, developerPayload: string): Promise<YaPurchase | 'cancelled' | 'failed'> {
+  const result = await yaPurchase(id, developerPayload);
+  if (result.ok) return result.purchase;
+  if (result.reason === 'cancelled') return 'cancelled';
+  console.error('[shop] purchase could not be processed on the client', result.reason);
+  return 'failed';
 }
 
 type SettlementResult = {
@@ -199,7 +199,8 @@ export async function buyShopProduct(productId: string): Promise<ShopItemBuyResu
   if (!catalog.has(productId)) return { ok: false, productId, reason: 'unavailable' };
 
   const purchase = await purchaseOrFail(productId, JSON.stringify({ source: 'shop-item', v: 2 }));
-  if (!purchase) return { ok: false, productId, reason: 'cancelled' };
+  if (purchase === 'cancelled') return { ok: false, productId, reason: 'cancelled' };
+  if (purchase === 'failed') return { ok: false, productId, reason: 'failed' };
   if (purchase.productID !== productId) {
     // Do not consume an unexpected receipt. If it is a supported SKU, the startup restore path will
     // deliver exactly the product Yandex reports rather than trusting the button that was clicked.
@@ -229,7 +230,8 @@ export async function buyAdFree(): Promise<AdFreeBuyResult> {
   if (!catalog.has(AD_FREE_PRODUCT_ID)) return { ok: false, reason: 'unavailable' };
 
   const purchase = await purchaseOrFail(AD_FREE_PRODUCT_ID, JSON.stringify({ source: 'ad-free', v: 1 }));
-  if (!purchase) return { ok: false, reason: 'cancelled' };
+  if (purchase === 'cancelled') return { ok: false, reason: 'cancelled' };
+  if (purchase === 'failed') return { ok: false, reason: 'failed' };
   if (purchase.productID !== AD_FREE_PRODUCT_ID) {
     console.warn('[shop] ad-free purchase returned a different product id', purchase.productID);
     return { ok: false, reason: 'failed' };
