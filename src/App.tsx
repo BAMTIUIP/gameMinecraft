@@ -245,6 +245,8 @@ export default function App() {
   });
   useEffect(() => setMusicVolume(musicVolume), [musicVolume]);
   const [freeLook, setFreeLookUi] = useState(true);
+  // «особое солнце»: the Rick-and-Morty GIF sun + its looped sunrise sound (saved between sessions)
+  const [specialSun, setSpecialSunUi] = useState(() => storageGet('orerush.specialSun') === '1');
   const [isTouch, setIsTouch] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [lang, setLangUi] = useState<Lang>('en');
@@ -406,6 +408,7 @@ export default function App() {
     eng.setDom(domRef.current);
     // the remote-config knob (game.exploreMinutes) is applied by the effect below, once flags load
     eng.setSurvival(survival);
+    eng.setSpecialSun(storageGet('orerush.specialSun') === '1');
     setFreeLookUi(eng.freeLookEnabled);
     setEngine(eng);
 
@@ -598,6 +601,13 @@ export default function App() {
   const salvageItem = useCallback((id: number, instanceId?: number) => engineRef.current?.salvageItem(id, instanceId), []);
   const repairTool = useCallback((instanceId: number) => engineRef.current?.repairTool(instanceId), []);
   const openRewardPack = useCallback((id: number) => engineRef.current?.openRewardedPack(id) ?? false, []);
+
+  const toggleSpecialSun = useCallback(() => {
+    const next = !(engineRef.current?.specialSunEnabled ?? false);
+    engineRef.current?.setSpecialSun(next);
+    setSpecialSunUi(next);
+    storageSet('orerush.specialSun', next ? '1' : '0');
+  }, []);
 
   const toggleFreeLook = useCallback(() => {
     const next = !(engineRef.current?.freeLookEnabled ?? true);
@@ -1171,6 +1181,8 @@ export default function App() {
           onMute={toggleMute}
           freeLook={freeLook}
           onFreeLook={toggleFreeLook}
+          specialSun={specialSun}
+          onSpecialSun={toggleSpecialSun}
           isTouch={isTouch}
           lang={lang}
           onLang={pickLang}
@@ -1279,6 +1291,8 @@ export default function App() {
           onMusic={toggleMusic}
           musicVolume={musicVolume}
           onMusicVolume={changeMusicVolume}
+          specialSun={specialSun}
+          onSpecialSun={toggleSpecialSun}
           muted={muted}
           onMute={toggleMute}
           fullscreen={fullscreen}

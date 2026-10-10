@@ -124,8 +124,13 @@ export function resumeAudio() {
 export function setMuted(m: boolean) {
   muted = m;
   if (master && ctx) master.gain.setTargetAtTime(m ? 0 : 0.55, ctx.currentTime, 0.02);
-  if (m) stopMusic(0.25, false);
-  else if (musicEnabled && musicWanted) startMusic();
+  if (m) {
+    stopMusic(0.25, false);
+    stopSunSource(0.25);
+  } else {
+    if (musicEnabled && musicWanted) startMusic();
+    if (sunWanted) void startSunSource();
+  }
 }
 /** remembers that the current phase wants a soundtrack */
 let musicWanted = false;
@@ -793,3 +798,76 @@ export const sfx = {
     if (state.yelp > 0) yelp(bus.dest, bus.t0, ctxVoice.pitch, state.yelp);
   },
 };
+
+/* =======================================================================
+   SPECIAL SUN — a looped sunrise sound while the «особое солнце» setting is on.
+   The sample is decoded once and played through a single AudioBufferSourceNode with
+   `loop = true`, so the wrap-around is sample-accurate (no `<audio>` element, no gap or click at
+   the seam). The source only plays while the game is running: the engine calls
+   `setSpecialSunSound(false)` on pause, menu and game over.
+   ======================================================================= */
+
+let sunWanted = false;
+let sunUrl = '';
+let sunBuf: AudioBuffer | null = null;
+let sunLoading: Promise<void> | null = null;
+let sunSrc: AudioBufferSourceNode | null = null;
+let sunGain: GainNode | null = null;
+const SUN_SOUND_LEVEL = 0.5;
+
+function loadSunBuffer(): Promise<void> {
+  if (sunBuf) return Promise.resolve();
+  if (!sunLoading) {
+    sunLoading = (async () => {
+      initAudio();
+      if (!ctx) return;
+      const res = await fetch(sunUrl);
+      const data = await res.arrayBuffer();
+      sunBuf = await ctx.decodeAudioData(data);
+    })().catch(() => {
+      sunLoading = null; // allow a retry on the next request
+    });
+  }
+  return sunLoading;
+}
+
+async function startSunSource() {
+  if (!sunWanted || muted || sunSrc) return;
+  initAudio();
+  await loadSunBuffer();
+  if (!sunWanted || muted || sunSrc || !sunBuf || !ctx || !master) return;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, ctx.currentTime);
+  g.gain.linearRampToValueAtTime(SUN_SOUND_LEVEL, ctx.currentTime + 0.4);
+  const src = ctx.createBufferSource();
+  src.buffer = sunBuf;
+  src.loop = true;
+  src.connect(g).connect(master);
+  src.start();
+  sunSrc = src;
+  sunGain = g;
+}
+
+function stopSunSource(fade: number) {
+  if (!sunSrc || !sunGain || !ctx) {
+    sunSrc = null;
+    sunGain = null;
+    return;
+  }
+  const src = sunSrc;
+  const g = sunGain;
+  sunSrc = null;
+  sunGain = null;
+  g.gain.cancelScheduledValues(ctx.currentTime);
+  g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + fade);
+  src.stop(ctx.currentTime + fade + 0.05);
+}
+
+/** Turn the looped sunrise sound on or off. `url` is the bundled mp3 (imported by the engine). */
+export function setSpecialSunSound(on: boolean, url: string) {
+  sunWanted = on;
+  sunUrl = url;
+  if (on) void startSunSource();
+  else stopSunSource(0.3);
+}

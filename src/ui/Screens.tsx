@@ -28,6 +28,7 @@ import {
   CubeIcon,
   DepthIcon,
   EyeIcon,
+  SunIcon,
   HeartIcon,
   MusicIcon,
   PickIcon,
@@ -631,6 +632,8 @@ export function StartScreen({
   onMute,
   freeLook,
   onFreeLook,
+  specialSun,
+  onSpecialSun,
   isTouch,
   lang,
   onLang,
@@ -687,6 +690,8 @@ export function StartScreen({
   onMute: () => void;
   freeLook: boolean;
   onFreeLook: () => void;
+  specialSun: boolean;
+  onSpecialSun: () => void;
   isTouch: boolean;
   lang: Lang;
   onLang: (l: Lang) => void;
@@ -1783,6 +1788,12 @@ export function StartScreen({
                       label={freeLook ? t('freeLookOn') : t('freeLookOff')}
                     />
                   )}
+                  <Toggle
+                    on={specialSun}
+                    onClick={onSpecialSun}
+                    icon={<SunIcon size={14} />}
+                    label={specialSun ? t('specialSunOn') : t('specialSunOff')}
+                  />
                 </div>
               </div>
 
@@ -2200,6 +2211,8 @@ export function PauseScreen({
   onMusic,
   musicVolume,
   onMusicVolume,
+  specialSun,
+  onSpecialSun,
   muted,
   onMute,
   fullscreen,
@@ -2215,6 +2228,8 @@ export function PauseScreen({
   onMusic: () => void;
   musicVolume: number;
   onMusicVolume: (volume: number) => void;
+  specialSun: boolean;
+  onSpecialSun: () => void;
   muted: boolean;
   onMute: () => void;
   fullscreen: boolean;
@@ -2274,6 +2289,7 @@ export function PauseScreen({
           <div className="flex flex-wrap justify-center gap-2">
             <Toggle on={music} onClick={onMusic} icon={<MusicIcon off={!music} size={13} />} label={music ? t('musicOn') : t('musicOff')} />
             <Toggle on={!muted} onClick={onMute} icon={<SoundIcon muted={muted} size={13} />} label={muted ? t('sfxOff') : t('sfxOn')} />
+            <Toggle on={specialSun} onClick={onSpecialSun} icon={<SunIcon size={13} />} label={specialSun ? t('specialSunOn') : t('specialSunOff')} />
             {fullscreenAvailable() && (
               <button
                 type="button"

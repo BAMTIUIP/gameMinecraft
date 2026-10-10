@@ -50,6 +50,9 @@ for (const suite of suites) {
     target: 'node22',
     logLevel: 'warning',
     absWorkingDir: ROOT,
+    // binary assets imported by the game (sun sprite sheet, sunrise sound) — Vite handles them in the
+    // real build; the test bundle only needs an importable value
+    loader: { '.webp': 'dataurl', '.mp3': 'dataurl' },
   });
 
   const result = spawnSync(process.execPath, [outfile], { stdio: 'inherit' });
