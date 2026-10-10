@@ -699,22 +699,19 @@ export function StartScreen({
   };
 
   useEffect(() => {
+    if (!showShop) return;
     const products = filteredShopProducts;
     const targetIndex = products.findIndex((product) => product.id === promoProductId);
+    if (targetIndex < 0) return;
     const frame = window.requestAnimationFrame(() => {
       const carousel = shopCarouselRef.current;
       if (!carousel) return;
-      if (targetIndex >= 0) {
-        const promotedCard = carousel.querySelector<HTMLElement>(`[data-shop-product="${products[targetIndex].id}"]`);
-        if (promotedCard) centerShopCard(carousel, promotedCard);
-        setActiveShopCard(targetIndex);
-      } else {
-        carousel.scrollTo({ left: 0, behavior: 'auto' });
-        setActiveShopCard(0);
-      }
+      const promotedCard = carousel.querySelector<HTMLElement>(`[data-shop-product="${products[targetIndex].id}"]`);
+      if (promotedCard) centerShopCard(carousel, promotedCard);
+      setActiveShopCard(targetIndex);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [filteredShopProducts, promoProductId, showShop]);
+  }, [promoProductId, showShop]);
 
   const syncActiveShopCard = () => {
     const carousel = shopCarouselRef.current;
@@ -876,24 +873,21 @@ export function StartScreen({
                   return paymentsAvailable && Boolean(catalogPrice);
                 }
               };
-              // Infinite: if all priority finished, keep showing chests (regular and epic) as fallback
-              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? priority[0];
-              if (!quickId) return null;
+              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? 'chest-common';
               const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
               if (!quickProduct) return null;
-              const catalogPrice = shopPrices.get(quickProduct.id);
               const rewardedDrop = isRewardedDrop(quickProduct.id);
-              const priceLabel = developerShopEnabled && shopMode !== 'store' ? t('devShopPrice') : rewardedDrop ? t('shopRewardedPrice') : catalogPrice?.label ?? '';
+              const priceLabel = 'БЕСПЛАТНО';
               return (
-                <div className="shop-quick-banner mt-3 flex w-full max-w-[900px] items-center gap-2 border border-[#f4b942]/30 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-2.5 py-2 sm:gap-3 sm:px-3 sm:py-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#f4b942]/20 bg-[#f4b942]/10 text-sm sm:h-10 sm:w-10 sm:text-base" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
+                <div className="shop-quick-banner mt-3 flex w-full max-w-[900px] items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#f4b942]/30 bg-[#f4b942]/15 text-base sm:h-12 sm:w-12 sm:text-lg" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[9px] tracking-widest text-[#f4b942]/70 sm:text-[10px]">БЫСТРАЯ ПОКУПКА</div>
-                    <div className="truncate font-display text-xs text-white sm:text-sm">{t(quickProduct.titleKey)}</div>
-                    <div className="truncate text-[8px] text-white/50 sm:text-[9px]">{t(quickProduct.descriptionKey)}</div>
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="truncate font-display text-sm font-bold text-white sm:text-base">{t(quickProduct.titleKey)}</div>
+                    <div className="truncate text-[10px] leading-snug text-white/60 sm:text-[11px]">{t(quickProduct.descriptionKey)}</div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <div className="font-display text-[8px] text-white/40 sm:text-[9px]">{priceLabel}</div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <div className="font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]">{priceLabel}</div>
                     <button
                       type="button"
                       disabled={buying !== null}
@@ -901,7 +895,7 @@ export function StartScreen({
                         if (buying !== null) return;
                         setBuying(quickProduct.id);
                         setShopNotice(null);
-                        if (developerShopEnabled && shopMode !== 'store') {
+                        if (developerShopEnabled) {
                           const granted = await onDeveloperClaim(quickProduct.id);
                           setBuying(null);
                           if (granted) {
@@ -928,9 +922,9 @@ export function StartScreen({
                           setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
                         }
                       }}
-                      className="notch border-[2px] border-black/70 bg-gradient-to-b from-[#f4b942] to-[#c78a1f] px-2.5 py-1 font-display text-[9px] tracking-wide text-pit-950 hover:brightness-110 disabled:opacity-60 sm:px-3 sm:py-1.5 sm:text-[10px]"
+                      className="notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 bg-[#f4b942] px-4 py-1.5 font-display text-[11px] font-bold tracking-wide text-black hover:brightness-110 disabled:opacity-60 sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs"
                     >
-                      {buying === quickProduct.id ? t('shopBuying') : t('shopBuy')}
+                      {buying === quickProduct.id ? '...' : 'КУПИТЬ'}
                     </button>
                   </div>
                 </div>
@@ -1196,8 +1190,6 @@ export function StartScreen({
               const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
               const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
               const getPurch = (id: string) => {
-                const product = SHOP_PRODUCTS.find((p) => p.id === id);
-                if (!product) return false;
                 const devAlreadyClaimed = devClaims.includes(id);
                 const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
                 const catalogPrice = shopPrices.get(id);
@@ -1207,7 +1199,7 @@ export function StartScreen({
                   if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
                   if (isBooster(id)) return !devAlreadyClaimed;
                   if (rewardedDrop) return dropAvailable;
-                  return !alreadyOwned;
+                  return true;
                 } else {
                   if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
                   if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
@@ -1215,45 +1207,21 @@ export function StartScreen({
                   return paymentsAvailable && Boolean(catalogPrice);
                 }
               };
-              // Infinite fallback: if all priority finished, keep showing regular and epic chests
-              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? filteredShopProducts.find((p) => {
-                const devAlreadyClaimed = devClaims.includes(p.id);
-                const alreadyOwned = p.id === 'pet-wolf' ? wolfPetOwned : p.id === 'pet-cat' ? catPetOwned : p.id === 'pet-monkey' ? monkeyPetOwned : p.id === 'pet-parrot' ? parrotPetOwned : p.id === 'pet-owl' && owlPetOwned;
-                const catalogPrice = shopPrices.get(p.id);
-                const rewardedDrop = isRewardedDrop(p.id);
-                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[p.id as RewardedDropId]?.available) : false;
-                if (shopMode === 'developer') {
-                  if (['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(p.id)) return !alreadyOwned && !devAlreadyClaimed;
-                  if (['booster-start', 'booster-ore', 'booster-score'].includes(p.id)) return !devAlreadyClaimed;
-                  if (rewardedDrop) return dropAvailable;
-                  return true;
-                } else {
-                  if (['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(p.id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
-                  if (['booster-start', 'booster-ore', 'booster-score'].includes(p.id)) return paymentsAvailable && Boolean(catalogPrice);
-                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
-                  return paymentsAvailable && Boolean(catalogPrice);
-                }
-              })?.id;
+              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? 'chest-common';
               const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
               if (!quickProduct) return null;
-              const catalogPrice = shopPrices.get(quickProduct.id);
-              const developerMode = shopMode === 'developer';
               const rewardedDrop = isRewardedDrop(quickProduct.id);
-              const priceLabel = developerMode
-                ? t('devShopPrice')
-                : rewardedDrop
-                  ? t('shopRewardedPrice')
-                  : catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));
+              const priceLabel = 'БЕСПЛАТНО';
               return (
-                <div className="shop-quick-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#f4b942]/30 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-2.5 py-2 sm:mx-4 sm:gap-3 sm:px-3 sm:py-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#f4b942]/20 bg-[#f4b942]/10 text-sm sm:h-10 sm:w-10 sm:text-base" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
+                <div className="shop-quick-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:mx-4 sm:gap-3 sm:px-4 sm:py-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#f4b942]/30 bg-[#f4b942]/15 text-base sm:h-12 sm:w-12 sm:text-lg" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[10px] tracking-widest text-[#f4b942]/70 sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
-                    <div className="truncate font-display text-xs text-white sm:text-sm">{t(quickProduct.titleKey)}</div>
-                    <div className="truncate text-[9px] text-white/50 sm:text-[10px]">{t(quickProduct.descriptionKey)}</div>
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="truncate font-display text-sm font-bold text-white sm:text-base">{t(quickProduct.titleKey)}</div>
+                    <div className="truncate text-[10px] leading-snug text-white/60 sm:text-[11px]">{t(quickProduct.descriptionKey)}</div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <div className="font-display text-[9px] text-white/40 sm:text-[10px]">{priceLabel}</div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <div className="font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]">{priceLabel}</div>
                     <button
                       type="button"
                       disabled={buying !== null}
@@ -1261,15 +1229,13 @@ export function StartScreen({
                         if (buying !== null) return;
                         setBuying(quickProduct.id);
                         setShopNotice(null);
-                        if (developerMode) {
+                        if (shopMode === 'developer') {
                           const granted = await onDeveloperClaim(quickProduct.id);
                           setBuying(null);
                           if (granted) {
                             setDevClaims(developerShopClaims());
                             setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
                             setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
-                          } else {
-                            setShopNotice(t('devShopGrantFailed'));
                           }
                           return;
                         }
@@ -1279,26 +1245,20 @@ export function StartScreen({
                           if (result.ok) {
                             const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
                             const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                            const deliveryNote = result.delivery === 'account' ? t('shopDropAccountBound') : result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
-                            setShopNotice(`${notice} · ${deliveryNote}`);
-                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote });
-                          } else if (result.reason === 'ad') setShopNotice(t('shopDropAdFailed'));
-                          else if (result.reason === 'claimed') setShopNotice(t('shopDropAlreadyClaimed'));
-                          else setShopNotice(t('shopDropSaveFailed'));
+                            setShopNotice(`${notice}`);
+                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: t('rewardPackReadySub') });
+                          }
                           return;
                         }
                         const result = await onBuyShopItem(quickProduct.id);
                         setBuying(null);
                         if (result.ok) {
                           setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
-                          setShopNotice(result.syncPending ? t('shopPurchasePending') : quickProduct.id.startsWith('pet-') ? t('shopPetPurchaseDone') : t('shopItemPurchaseDone').replace('{item}', t(quickProduct.titleKey)));
-                        } else {
-                          setShopNotice(result.reason === 'cancelled' ? t('shopPurchaseCancelled') : result.reason === 'unavailable' ? t('shopItemUnavailable') : t('shopPurchaseFailed'));
                         }
                       }}
-                      className="notch border-[2px] border-black/70 bg-gradient-to-b from-[#f4b942] to-[#c78a1f] px-2.5 py-1 font-display text-[9px] tracking-wide text-pit-950 hover:brightness-110 disabled:opacity-60 sm:px-3 sm:py-1.5 sm:text-[10px]"
+                      className="notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 bg-[#f4b942] px-4 py-1.5 font-display text-[11px] font-bold tracking-wide text-black hover:brightness-110 disabled:opacity-60 sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs"
                     >
-                      {buying === quickProduct.id ? t('shopBuying') : t('shopBuy')}
+                      {buying === quickProduct.id ? '...' : 'КУПИТЬ'}
                     </button>
                   </div>
                 </div>
