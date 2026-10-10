@@ -713,6 +713,16 @@ export function StartScreen({
     return () => window.cancelAnimationFrame(frame);
   }, [promoProductId, showShop]);
 
+  useEffect(() => {
+    const carousel = shopCarouselRef.current;
+    if (!carousel) return;
+    const frame = window.requestAnimationFrame(() => {
+      carousel.scrollTo({ left: 0, behavior: 'auto' });
+      setActiveShopCard(0);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [shopTab]);
+
   const syncActiveShopCard = () => {
     const carousel = shopCarouselRef.current;
     if (!carousel) return;
