@@ -1113,22 +1113,36 @@ export function StartScreen({
                           ? parrotPetOwned
                           : product.id === 'pet-owl' && owlPetOwned;
                   const isPetProduct = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(product.id);
+                  const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(product.id);
+                  const isInfinite = !isPetProduct && !isBooster && !rewardedDrop;
                   const devEnabled = isDeveloperShopEnabled();
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
-                  // For QA: in dev build, allow infinite buying of chests/armor/tools/boosters even in real shop mode (bypass Yandex payments)
-                  const purchasable = !alreadyOwned && (developerMode
-                    ? isPetProduct ? !devAlreadyClaimed : true
-                    : rewardedDrop
-                      ? rewardedAdsEnabled && Boolean(dropStatus?.available)
-                      : devEnabled
-                        ? isPetProduct ? !devAlreadyClaimed : true
-                        : paymentsAvailable && Boolean(catalogPrice));
+                  // User request: everything infinite except pets (one-time), boosters (once per run), daily/weekly/monthly (once per Yandex period)
+                  // - Pets: !devAlreadyClaimed (or !alreadyOwned for real shop)
+                  // - Boosters: once per run — !devAlreadyClaimed in dev, cleared after run start
+                  // - Daily/weekly/monthly: cooldown via dropStatus.available (even in dev)
+                  // - Chests/armor/tools/weapons: infinite — always purchasable
+                  let purchasable: boolean;
+                  if (isPetProduct) {
+                    purchasable = !alreadyOwned && !devAlreadyClaimed && (developerMode || devEnabled || (paymentsAvailable && Boolean(catalogPrice)));
+                  } else if (isBooster) {
+                    purchasable = !devAlreadyClaimed && (developerMode || devEnabled || (paymentsAvailable && Boolean(catalogPrice)));
+                  } else if (rewardedDrop) {
+                    purchasable = Boolean(dropStatus?.available) && (developerMode || devEnabled || rewardedAdsEnabled);
+                  } else {
+                    // Infinite: chests, armor, pickaxe, weapons — always purchasable in dev, or if payments available in real shop
+                    purchasable = !alreadyOwned && (developerMode || devEnabled || (paymentsAvailable && Boolean(catalogPrice)));
+                  }
                   const priceLabel: React.ReactNode = developerMode || (devEnabled && !isPetProduct && !rewardedDrop)
-                    ? t('devShopPrice')
+                    ? isInfinite
+                      ? `${t('devShopPrice')} · ∞`
+                      : isBooster
+                        ? `${t('devShopPrice')} · 1/забег`
+                        : t('devShopPrice')
                     : rewardedDrop
                       ? t('shopRewardedPrice')
                       : catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
 import { requestGameReview, reviewOffer } from './game/review';
 import { requestShortcut, shortcutOffer } from './game/shortcut';
+import { storageSet } from './game/storage';
 import {
   coopEnabled,
   publishCoopSession,
@@ -109,13 +110,18 @@ function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
   if (pending && engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
   // Dev shop QA: grant all previously claimed dev products (except pets) at world start
-  // so that netherite pickaxe, chests, armor, boosters appear in inventory at start of explorer run.
-  // Purchases except pets are per-run (1 time per run, disappear on restart, infinite buying) — so we grant at each run start.
+  // Pets are permanent, boosters are per-run (once per run, cleared after grant), chests/armor/tools are infinite (granted each run if claimed, but can be bought many times per run)
   if (isDeveloperShopEnabled()) {
     const devClaims = developerShopClaims();
+    const boosterIds = ['booster-start', 'booster-ore', 'booster-score'];
     const nonPetClaims = devClaims.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
     if (nonPetClaims.length) {
       engine.grantShopProductRewards(nonPetClaims);
+      // Clear booster claims after granting so they are once-per-run and need re-buy next run
+      const remaining = devClaims.filter((id) => !boosterIds.includes(id));
+      if (remaining.length !== devClaims.length) {
+        storageSet('orerush.dev-shop.claims.v1', JSON.stringify(remaining));
+      }
     }
   }
 }
