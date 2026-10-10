@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Engine, EXPLORATION_RUN_TIME, type DomRefs, type HudState } from './game/engine';
 import { requestGameReview, reviewOffer } from './game/review';
 import { requestShortcut, shortcutOffer } from './game/shortcut';
-import { storageSet } from './game/storage';
 import {
   coopEnabled,
   publishCoopSession,
