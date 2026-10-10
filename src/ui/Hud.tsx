@@ -397,6 +397,16 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             >
               {hud.score.toLocaleString()}
             </div>
+            {(hud.scoreBoost > 1.01 || hud.oreBoost > 1.01) && (
+              <div className="mt-1 flex justify-end gap-1">
+                {hud.scoreBoost > 1.01 && (
+                  <span className="rounded bg-[#bd8cff]/20 px-1 py-0.5 font-display text-[8px] text-[#bd8cff]">SCORE x{hud.scoreBoost.toFixed(2)}</span>
+                )}
+                {hud.oreBoost > 1.01 && (
+                  <span className="rounded bg-[#62e8dc]/20 px-1 py-0.5 font-display text-[8px] text-[#62e8dc]">ORE x{hud.oreBoost.toFixed(1)}</span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 sm:px-3">

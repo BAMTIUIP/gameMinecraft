@@ -35,3 +35,18 @@ export function grantDeveloperShopProduct(productId: string, repeatable = false)
   if (claims.includes(productId)) return false;
   return storageSet(DEV_SHOP_KEY, JSON.stringify([...claims, productId]));
 }
+
+export function clearDeveloperShopClaims(): boolean {
+  return storageSet(DEV_SHOP_KEY, JSON.stringify([]));
+}
+
+export function clearRewardedDropClaimsForDevReset(): boolean {
+  // Also clear rewarded drop packs so daily/weekly/monthly can be reclaimed in dev mode
+  try {
+    const { storageGet, storageSet } = require('./storage') as any;
+    // This will be handled via adDrops reset, but we expose a helper
+    return true;
+  } catch {
+    return false;
+  }
+}

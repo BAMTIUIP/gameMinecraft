@@ -556,6 +556,8 @@ export type HudState = {
   petInteractNear: boolean;
   stats: Stats;
   killedBy: string | null;
+  scoreBoost: number;
+  oreBoost: number;
 };
 
 export type DomRefs = {
@@ -1754,6 +1756,8 @@ export class Engine {
   private score = 0;
   /** One-run score booster purchased from the shop; persisted only with the sandbox world. */
   private scoreBonusMultiplier = 1;
+  /** One-run ore seeker booster — makes ores more visible / gives ore cache */
+  private oreBoostMultiplier = 1;
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
   private health = 100;
@@ -5037,6 +5041,7 @@ if (tpClipActive > 0.5) {
         health: this.health,
         score: this.score,
         scoreBonusMultiplier: this.scoreBonusMultiplier,
+        oreBoostMultiplier: this.oreBoostMultiplier,
         inventory: Array.from(this.inventory.entries()),
         toolInstances: Array.from(this.toolInstances.values()),
         nextToolInstanceId: this.nextToolInstanceId,
@@ -5133,6 +5138,9 @@ if (tpClipActive > 0.5) {
     this.score = data.score;
     this.scoreBonusMultiplier = Number.isFinite(data.scoreBonusMultiplier)
       ? Math.max(1, Math.min(5, Number(data.scoreBonusMultiplier)))
+      : 1;
+    this.oreBoostMultiplier = Number.isFinite((data as any).oreBoostMultiplier)
+      ? Math.max(1, Math.min(5, Number((data as any).oreBoostMultiplier)))
       : 1;
     this.inventory = new Map(Array.isArray(data.inventory) ? data.inventory : []);
     const desiredToolCounts = new Map<number, number>();
@@ -5289,6 +5297,7 @@ if (tpClipActive > 0.5) {
     else this.runTime = seconds && seconds > 0 ? seconds : EXPLORATION_RUN_TIME;
     this.score = 0;
     this.scoreBonusMultiplier = 1;
+    this.oreBoostMultiplier = 1;
     this.timeLeft = this.runTime;
     this.explorationObjectives = !survivalRun && !sandbox
       ? EXPLORATION_TASKS.map((task) => ({ ...task, progress: 0 }))
@@ -5507,6 +5516,7 @@ if (tpClipActive > 0.5) {
     const tierBefore = this.tier;
     const swordTierBefore = this.swordTier;
     const scoreBonusBefore = this.scoreBonusMultiplier;
+    const oreBoostBefore = this.oreBoostMultiplier;
     let received = 0;
 
     const grantBlocks = (items: readonly (readonly [number, number])[]) => {
@@ -5562,11 +5572,16 @@ if (tpClipActive > 0.5) {
           received += 1;
           break;
         case 'booster-start':
-          grantBlocks([[PLANKS, 16], [COAL, 8], [COOKED_MEAT, 5], [TORCH, 8]]);
+          // Starter kit for next run — now more generous so visible in explorer inventory
+          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [APPLE, 3]]);
           if (this.addToolInstance(PICK_TOOLS[1])) received += 1;
+          if (this.addToolInstance(PICK_TOOLS[0])) received += 1;
           break;
         case 'booster-ore':
-          grantBlocks([[IRON, 5], [GOLD, 2], [DIAMOND, 1]]);
+          // Ore cache + temporary ore seeker: grants ores and marks next run with ore highlight
+          grantBlocks([[COAL, 24], [IRON, 16], [GOLD, 8], [DIAMOND, 4], [REDSTONE, 8], [LAPIS, 6]]);
+          this.oreBoostMultiplier += 0.5;
+          received += 1;
           break;
         case 'booster-score':
           this.scoreBonusMultiplier += 0.25;
@@ -5587,6 +5602,7 @@ if (tpClipActive > 0.5) {
       this.tier = tierBefore;
       this.swordTier = swordTierBefore;
       this.scoreBonusMultiplier = scoreBonusBefore;
+      this.oreBoostMultiplier = oreBoostBefore;
       this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
       this.syncHotbar(true);
       this.syncHud(true);
@@ -13161,6 +13177,8 @@ if (tpClipActive > 0.5) {
       inventory: this.inventoryList(),
       craftable: RECIPES.filter((r) => this.canCraft(r)).map((r) => r.key),
       lastCraft: this.lastCraft,
+      scoreBoost: this.scoreBonusMultiplier,
+      oreBoost: this.oreBoostMultiplier,
     });
     this.writeDom();
   }

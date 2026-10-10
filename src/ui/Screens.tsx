@@ -10,14 +10,15 @@ import type { LeaderboardView } from '../game/leaderboard';
 import { FitBox } from './FitBox';
 import { GAME_NAME_LINES } from '../game/brand';
 import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
-import { developerShopClaims } from '../game/devShop';
+import { developerShopClaims, clearDeveloperShopClaims } from '../game/devShop';
+import { resetRewardedDropState } from '../game/adDrops';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
 import { yaServerTime } from '../game/yandex';
 import { CHARACTER_COLORS, CHARACTER_EXPRESSIONS, CHARACTER_GLASSES, CHARACTER_HAIRSTYLES as SUPPORTED_HAIRSTYLES, type CharacterCustomization, type CharacterExpression, type CharacterGender, type CharacterGlasses, type CharacterHairstyle, type CharacterShoeType } from '../game/character';
 import { characterFacePixels } from '../game/characterVisuals';
 import { fullscreenAvailable } from '../game/params';
 import { BLOCKS } from '../game/blocks';
-import { isRewardedDrop, rewardedDropStatuses, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
+import { isRewardedDrop, rewardedDropStatuses, claimRewardedDrop, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
 import { ShopArtwork } from './ShopArtwork';
 import {
   BagIcon,
@@ -1039,6 +1040,23 @@ export function StartScreen({
                 <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{shopMode === 'developer' ? t('devShopTitle') : t('shop')}</h2>
                 <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{shopMode === 'developer' ? t('devShopSubtitle') : t('shopSubtitle')}</p>
               </div>
+              {shopMode === 'developer' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('Сбросить дев-магазин? Все покупки кроме питомцев пропадут и можно будет купить заново. Также сбросятся ежедневные/еженедельные сундуки.')) {
+                      clearDeveloperShopClaims();
+                      resetRewardedDropState();
+                      setDevClaims([]);
+                      setShopNotice('Дев-магазин сброшен — можно покупать заново');
+                    }
+                  }}
+                  className="btn-mc notch flex h-9 shrink-0 items-center justify-center bg-gradient-to-b from-[#3a2a2a] to-[#2a1a1a] px-3 text-[10px] text-[#ff8a7a] sm:h-11 sm:px-3 sm:text-xs"
+                  title="Сбросить все покупки дев-магазина"
+                >
+                  СБРОС
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={t('close')}
@@ -1188,6 +1206,33 @@ export function StartScreen({
                             setBuying(product.id);
                             setShopNotice(null);
                             if (developerMode) {
+                              if (rewardedDrop) {
+                                // Dev mode: claim daily/weekly/monthly without ad, so chest tokens appear
+                                const result = claimRewardedDrop(product.id as RewardedDropId);
+                                setBuying(null);
+                                if (result.ok) {
+                                  const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
+                                  const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                                  const deliveryNote = result.delivery === 'account' ? t('shopDropAccountBound') : result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
+                                  setShopNotice(`${notice} · ${deliveryNote}`);
+                                  setRewardedPopup({
+                                    title: t('rewardPackReadyTitle'),
+                                    message: notice,
+                                    sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote,
+                                  });
+                                  setPurchasePopup({
+                                    icon: product.icon,
+                                    title: t(product.titleKey),
+                                    description: t(product.descriptionKey),
+                                    accent: product.accent,
+                                  });
+                                } else if (result.reason === 'claimed') {
+                                  setShopNotice(t('shopDropAlreadyClaimed'));
+                                } else {
+                                  setShopNotice(t('shopDropSaveFailed'));
+                                }
+                                return;
+                              }
                               const granted = await onDeveloperClaim(product.id);
                               setBuying(null);
                               if (granted) {
