@@ -1018,7 +1018,30 @@ export default function App() {
   /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
   const buyInGameShopItem = useCallback(async (productId: string): Promise<ShopItemBuyResult> => {
     const result = await buyShopProduct(productId);
-    if ((productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
+    if (result.ok) {
+      if ([WOLF_PET_PRODUCT_ID, CAT_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID].includes(productId)) {
+        refreshPetOwnership();
+      } else {
+        // Immediately grant chests, armor, boosters etc into running world so they appear in inventory during the run
+        engineRef.current?.grantShopProductRewards([productId as any]);
+        // Mark as used for current run type (once per run type) so it doesn't grant again next same mode unless re-bought
+        try {
+          const eng = engineRef.current as any;
+          const mode = eng?.sandbox ? 'own-world' as const : eng?.survival ? 'survival' as const : 'exploration' as const;
+          const { pendingShopProductRewardsForMode, completePendingShopRewardsForMode } = await import('./game/shopRewards');
+          const pending = pendingShopProductRewardsForMode(mode);
+          if (pending) {
+            const keysForProduct = pending.keys.filter((_, idx) => pending.products[idx] === productId);
+            if (keysForProduct.length) {
+              // For boosters queue: only 1 per session, so complete only 1 key; for others complete all matching for this mode
+              const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(productId);
+              const keysToComplete = isBooster ? [keysForProduct[0]] : keysForProduct;
+              completePendingShopRewardsForMode(keysToComplete, mode);
+            }
+          }
+        } catch {}
+      }
+    }
     return result;
   }, [refreshPetOwnership]);
 
@@ -1072,6 +1095,15 @@ export default function App() {
         }
       } else {
         engineRef.current?.grantShopProductRewards([productId]);
+        // Mark as used for current run type so next run in same mode doesn't grant again unless re-bought
+        // One-time items are available once per run type (survival, exploration, own-world)
+        const eng = engineRef.current as any;
+        const mode = eng?.sandbox ? 'own-world' as const : eng?.survival ? 'survival' as const : 'exploration' as const;
+        if (!isPet) {
+          try {
+            completeDeveloperShopClaimsForMode([productId], mode);
+          } catch {}
+        }
       }
       if (isPet) {
         refreshPetOwnership();

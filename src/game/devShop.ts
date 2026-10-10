@@ -105,12 +105,9 @@ export function grantDeveloperShopProduct(productId: string, repeatable = false)
   }
   // For other one-time items (chests, armor, tools): allow infinite buying, but store once per mode for auto-grant
   if (repeatable) {
-    // For infinite (chests, armor) we allow re-buy even if already claimed, but keep one receipt for auto-grant per mode
-    if (!receipts.some((r) => r.productId === productId)) {
-      receipts.push({ receiptId: `${productId}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
-      return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
-    }
-    return true;
+    // For infinite (chests, armor) we allow re-buy even if already claimed, create new receipt each time for queue
+    receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
+    return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
   if (receipts.some((r) => r.productId === productId)) return false;
   receipts.push({ receiptId: `${productId}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
