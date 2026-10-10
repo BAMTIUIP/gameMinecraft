@@ -105,26 +105,20 @@ function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (!engine) return;
   engine.syncRewardedPackTokens(rewardedDropChestEntries(engine.rewardedDropMode()));
   const mode = engine.sandbox ? 'own-world' as const : (engine as any).survival ? 'survival' as const : 'exploration' as const;
-  console.log('[shop-deliver] mode', mode, 'devEnabled', isDeveloperShopEnabled());
   const purchases = pendingShopProductRewardsForMode(mode);
-  console.log('[shop-deliver] real shop pending', purchases);
   if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewardsForMode(purchases.keys, mode);
   // Fallback for old receipts without mode tracking
   const legacyPurchases = pendingShopProductRewards();
   if (legacyPurchases && engine.grantShopProductRewards(legacyPurchases.products)) completePendingShopRewards(legacyPurchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
-  console.log('[shop-deliver] adDrops pending', pending);
   if (pending && engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
   // Dev shop: one-time items (all except pets) available once per run type (survival, exploration, own-world)
   // In own-world they remain forever after save, in other modes they disappear after run
   if (isDeveloperShopEnabled()) {
     const devClaimsForMode = developerShopClaimsForMode(mode);
-    console.log('[shop-deliver] dev claims for mode', mode, devClaimsForMode);
     const nonPetClaims = devClaimsForMode.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
-    console.log('[shop-deliver] nonPetClaims', nonPetClaims);
     if (nonPetClaims.length) {
       if (engine.grantShopProductRewards(nonPetClaims)) {
-        console.log('[shop-deliver] granted dev shop', nonPetClaims);
         completeDeveloperShopClaimsForMode(nonPetClaims, mode);
       }
     }

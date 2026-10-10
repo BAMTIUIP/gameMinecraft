@@ -5511,7 +5511,6 @@ if (tpClipActive > 0.5) {
 
   /** Apply paid shop products after a run/world has loaded; the receipts stay queued on save failure. */
   grantShopProductRewards(products: readonly string[]): boolean {
-    console.log('[engine] grantShopProductRewards', products);
     const inventoryBefore = new Map(this.inventory);
     const hotbarBefore = this.hotbar.slice();
     const hotbarInstancesBefore = this.hotbarInstanceIds.slice();

@@ -5,6 +5,12 @@ import {
   isCookedMeatItem,
   isMeatItem,
   isRawMeatItem,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_WEEKLY,
+  REWARD_PACK_MONTHLY,
+  SHOP_CHEST_COMMON,
+  SHOP_CHEST_RARE,
+  SHOP_CHEST_EPIC,
 } from './blocks';
 import { bowArrowDamage, meleeAttackInterval, meleeDamage } from './combat';
 import { foodHeal } from './food';
@@ -122,8 +128,14 @@ export function getItemDetails(id: number, context: ItemDetailContext = {}): Ite
   const name = def ? blockName(id, def.name) : t('toolUnknown');
   const category = getItemInvCategory(id);
   const placeable = !!def && def.breakable && def.drop !== 0;
-  const description = recipeDescription(id)
+  let description = recipeDescription(id)
     ?? t(category === 'food' ? 'itemDescFood' : placeable ? 'itemDescBuilding' : 'itemDescResource');
+  if (id === REWARD_PACK_DAILY) description = t('itemDescRewardPackDaily');
+  else if (id === REWARD_PACK_WEEKLY) description = t('itemDescRewardPackWeekly');
+  else if (id === REWARD_PACK_MONTHLY) description = t('itemDescRewardPackMonthly');
+  else if (id === SHOP_CHEST_COMMON) description = t('itemDescShopChestCommon');
+  else if (id === SHOP_CHEST_RARE) description = t('itemDescShopChestRare');
+  else if (id === SHOP_CHEST_EPIC) description = t('itemDescShopChestEpic');
   const stats: ItemDetailStat[] = [quantityStat(context.count)];
   stats.push({ label: t('itemStatUse'), value: t(placeable ? 'itemUsePlace' : 'itemUseCraft') });
   if (placeable && def && Number.isFinite(def.hardness)) {

@@ -58,27 +58,19 @@ export function developerShopClaimsForMode(mode: Mode): string[] {
   if (!raw) return [];
   try {
     const value: unknown = JSON.parse(raw);
-    // For boosters: only 1 per product per session (queue), even if bought 10, only 1 used per session then burns and next applies
     const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
     const seenBooster = new Set<string>();
     const filtered: string[] = [];
-    const normalized = normalizeDevClaims(value);
-    console.log('[devShop] claimsForMode', mode, 'normalized', normalized);
-    for (const receipt of normalized) {
-      if (receipt.opened?.[mode]) {
-        console.log('[devShop] skip opened', receipt.productId, mode, receipt.opened);
-        continue;
-      }
+    for (const receipt of normalizeDevClaims(value)) {
+      if (receipt.opened?.[mode]) continue;
       if (boosterIds.has(receipt.productId)) {
         if (seenBooster.has(receipt.productId)) continue;
         seenBooster.add(receipt.productId);
       }
       filtered.push(receipt.productId);
     }
-    console.log('[devShop] filtered for mode', mode, filtered);
     return filtered;
-  } catch (e) {
-    console.log('[devShop] claimsForMode error', e);
+  } catch {
     return [];
   }
 }
@@ -90,7 +82,6 @@ export function developerShopClaimsForMode(mode: Mode): string[] {
  * For boosters: queue — if bought 10, only 1 per session, then burns and next applies.
  */
 export function grantDeveloperShopProduct(productId: string, repeatable = false): boolean {
-  console.log('[devShop] grant', productId, 'repeatable', repeatable);
   if (!PRODUCT_ID.test(productId)) return false;
   const raw = storageGet(DEV_SHOP_KEY);
   let receipts: DevReceipt[] = [];
@@ -104,30 +95,19 @@ export function grantDeveloperShopProduct(productId: string, repeatable = false)
   if (isPet) {
     if (receipts.some((r) => r.productId === productId)) return false;
     receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, productId, opened: {} });
-    const ok = storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
-    console.log('[devShop] pet granted', productId, ok, receipts);
-    return ok;
+    return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
   if (isBooster) {
-    // Queue: add new receipt each time, even if already claimed, so 10 bought = 10 sessions
     receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
-    const ok = storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
-    console.log('[devShop] booster granted', productId, ok, receipts);
-    return ok;
+    return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
-  // For other one-time items (chests, armor, tools): allow infinite buying, but store once per mode for auto-grant
   if (repeatable) {
-    // For infinite (chests, armor) we allow re-buy even if already claimed, create new receipt each time for queue
     receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
-    const ok = storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
-    console.log('[devShop] repeatable granted', productId, ok, receipts);
-    return ok;
+    return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
   if (receipts.some((r) => r.productId === productId)) return false;
   receipts.push({ receiptId: `${productId}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
-  const ok = storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
-  console.log('[devShop] one-time granted', productId, ok, receipts);
-  return ok;
+  return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
 }
 
 export function completeDeveloperShopClaimsForMode(productIds: string[], mode: Mode): boolean {
