@@ -22,7 +22,7 @@ const ok = (condition: boolean, label: string) => {
 };
 
 const THREE = await import('three');
-const { makeItem, gearColor } = await import('../../src/game/items');
+const { makeItem, gearColor, MATERIALS } = await import('../../src/game/items');
 const { Engine } = await import('../../src/game/engine');
 const { mulberry32 } = await import('../../src/game/noise');
 
@@ -78,7 +78,7 @@ engine.syncViewModel();
 const heldModel = engine.toolGear.children[0] as THREE.Group | undefined;
 const firstPersonGauntlet = engine.firstPersonGlove.children[0] as THREE.Group | undefined;
 ok(heldModel?.name === `dropped-armor-${heldItem.slot}-${heldItem.material}`, 'First-person held armor uses the same slot/material model builder as ground loot');
-ok(engine.toolGear.visible && gearColor(heldItem) === '#c85c2d', 'Held armor keeps the same primary-affix enamel as its inventory icon');
+ok(engine.toolGear.visible && gearColor(heldItem) === MATERIALS[heldItem.material].color, 'Held armor keeps the material colour shared with its inventory icon');
 ok(Boolean(firstPersonGauntlet && engine.firstPersonGlove.visible), 'Equipped gloves remain visible in the first-person view model');
 
 function surfaceMaterial(root: THREE.Object3D | undefined): THREE.MeshLambertMaterial | null {

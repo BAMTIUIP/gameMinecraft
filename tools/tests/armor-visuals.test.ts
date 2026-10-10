@@ -51,8 +51,8 @@ const highRarity = makeItem('chest', 'iron', 4, mulberry32(0x5eed));
 ok(highRarity.affixes.length === 4 && new Set(highRarity.affixes.map((affix) => affix.id)).size === 4, 'The red mythic tier rolls four independent affixes');
 const fireTint = gearColor({ material: 'iron', affixes: [{ id: 'fire', value: 4 }], crafted: false });
 const vampTint = gearColor({ material: 'iron', affixes: [{ id: 'vamp', value: 2 }], crafted: false });
-ok(fireTint === '#c85c2d' && fireTint !== MATERIALS.iron.color, 'The primary fire affix sets the armor enamel shared by icons and 3D models');
-ok(vampTint === '#9d334d' && vampTint !== MATERIALS.iron.color, 'The primary vampiric affix sets a matching crimson armor base');
+ok(fireTint === MATERIALS.iron.color, 'Armor base colour comes from the material (iron), not from the primary affix');
+ok(vampTint === MATERIALS.iron.color, 'Vampiric affix does not recolour the armor base; the material colour stays shared by icons and 3D models');
 ok(AFFIXES.fire.color === '#ff8a2b' && AFFIXES.vamp.color === '#ff5f7a', 'Primary color enamel remains distinct from animated fire and haze ornaments');
 
 const saleValues = RARITY.map((_, rarity) => gearSellPrice({ material: 'iron', slot: 'chest', rarity: rarity as 0 | 1 | 2 | 3 | 4, affixes: [] }));
