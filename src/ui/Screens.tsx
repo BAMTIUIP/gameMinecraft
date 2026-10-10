@@ -12,6 +12,8 @@ import { GAME_NAME_LINES } from '../game/brand';
 import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
 import { developerShopClaims, clearDeveloperShopClaims, isDeveloperShopEnabled } from '../game/devShop';
 import { resetRewardedDropState } from '../game/adDrops';
+import { resetShopRewards } from '../game/shopRewards';
+import { resetPetsForTests } from '../game/pets';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
 import { yaServerTime } from '../game/yandex';
 import { CHARACTER_COLORS, CHARACTER_EXPRESSIONS, CHARACTER_GLASSES, CHARACTER_HAIRSTYLES as SUPPORTED_HAIRSTYLES, type CharacterCustomization, type CharacterExpression, type CharacterGender, type CharacterGlasses, type CharacterHairstyle, type CharacterShoeType } from '../game/character';
@@ -736,19 +738,8 @@ export function StartScreen({
   const moveShopCarousel = (direction: -1 | 1) => {
     const carousel = shopCarouselRef.current;
     if (!carousel) return;
-    const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
-    if (!cards.length) return;
-    setActiveShopCard((current) => {
-      const next = Math.max(0, Math.min(filteredShopProducts.length - 1, current + direction));
-      const target = cards[next];
-      if (target) {
-        const left = target.offsetLeft - (carousel.clientWidth - target.clientWidth) / 2;
-        carousel.scrollTo({ left, behavior: 'smooth' });
-      } else {
-        carousel.scrollBy({ left: direction * carousel.clientWidth * 0.8, behavior: 'smooth' });
-      }
-      return next;
-    });
+    const amount = carousel.clientWidth * 0.85;
+    carousel.scrollBy({ left: direction * amount, behavior: 'smooth' });
   };
   const modes = [
     { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
@@ -864,7 +855,7 @@ export function StartScreen({
             </section>
 
             {(() => {
-              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score'];
+              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score', 'chest-common', 'chest-rare', 'chest-epic'];
               const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
               const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
               const getPurch = (id: string) => {
@@ -885,7 +876,8 @@ export function StartScreen({
                   return paymentsAvailable && Boolean(catalogPrice);
                 }
               };
-              const quickId = priority.find(getPurch);
+              // Infinite: if all priority finished, keep showing chests (regular and epic) as fallback
+              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? priority[0];
               if (!quickId) return null;
               const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
               if (!quickProduct) return null;
@@ -1153,17 +1145,20 @@ export function StartScreen({
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm('Сбросить дев-магазин? Все покупки кроме питомцев пропадут и можно будет купить заново. Также сбросятся ежедневные/еженедельные сундуки.')) {
+                    if (confirm('Сбросить все покупки? Дев-магазин, обычные покупки, питомцы и ежедневные/еженедельные сундуки будут сброшены — как будто ни одной покупки не было.')) {
                       clearDeveloperShopClaims();
                       resetRewardedDropState();
+                      resetShopRewards();
+                      resetPetsForTests();
+                      try { localStorage.removeItem('orerush.dev-shop.claims.v1'); localStorage.removeItem('orerush.shop-rewards.v1'); localStorage.removeItem('orerush.rewarded-drops.v1'); localStorage.removeItem('orerush.pets.v1'); } catch {}
                       setDevClaims([]);
-                      setShopNotice('Дев-магазин сброшен — можно покупать заново');
+                      setShopNotice('Все покупки сброшены — как будто ни одной покупки не было');
                     }
                   }}
                   className="btn-mc notch flex h-9 shrink-0 items-center justify-center bg-gradient-to-b from-[#3a2a2a] to-[#2a1a1a] px-3 text-[10px] text-[#ff8a7a] sm:h-11 sm:px-3 sm:text-xs"
-                  title="Сбросить все покупки дев-магазина"
+                  title="Сбросить все покупки — как будто ни одной не было"
                 >
-                  СБРОС
+                  СБРОС ВСЕ
                 </button>
               )}
               <button
@@ -1197,7 +1192,7 @@ export function StartScreen({
             )}
 
             {(() => {
-              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score'];
+              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score', 'chest-common', 'chest-rare', 'chest-epic'];
               const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
               const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
               const getPurch = (id: string) => {
@@ -1220,7 +1215,8 @@ export function StartScreen({
                   return paymentsAvailable && Boolean(catalogPrice);
                 }
               };
-              const quickId = priority.find(getPurch) ?? filteredShopProducts.find((p) => {
+              // Infinite fallback: if all priority finished, keep showing regular and epic chests
+              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? filteredShopProducts.find((p) => {
                 const devAlreadyClaimed = devClaims.includes(p.id);
                 const alreadyOwned = p.id === 'pet-wolf' ? wolfPetOwned : p.id === 'pet-cat' ? catPetOwned : p.id === 'pet-monkey' ? monkeyPetOwned : p.id === 'pet-parrot' ? parrotPetOwned : p.id === 'pet-owl' && owlPetOwned;
                 const catalogPrice = shopPrices.get(p.id);

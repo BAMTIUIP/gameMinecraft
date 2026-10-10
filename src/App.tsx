@@ -200,6 +200,27 @@ const INITIAL_HUD: HudState = {
 };
 
 export default function App() {
+  // QA reset: if URL has ?reset=1 or ?clearShop, clear all purchases as if no purchases yet
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('reset') || params.has('clearShop')) {
+        const { clearDeveloperShopClaims } = require('./game/devShop') as any;
+        const { resetRewardedDropState } = require('./game/adDrops') as any;
+        const { resetShopRewards } = require('./game/shopRewards') as any;
+        const { resetPetsForTests } = require('./game/pets') as any;
+        clearDeveloperShopClaims?.();
+        resetRewardedDropState?.();
+        resetShopRewards?.();
+        resetPetsForTests?.();
+        localStorage.removeItem('orerush.dev-shop.claims.v1');
+        localStorage.removeItem('orerush.shop-rewards.v1');
+        localStorage.removeItem('orerush.rewarded-drops.v1');
+        localStorage.removeItem('orerush.pets.v1');
+        console.log('[QA] All shop purchases reset via URL param');
+      }
+    } catch {}
+  }, []);
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const domRef = useRef<DomRefs>({});
