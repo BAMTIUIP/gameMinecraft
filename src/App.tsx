@@ -51,10 +51,10 @@ import {
   watchAndClaimRewardedDrop,
   type RewardedDropId,
 } from './game/adDrops';
-import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
+import { completePendingShopRewards, pendingShopProductRewards, pendingShopProductRewardsForMode, completePendingShopRewardsForMode } from './game/shopRewards';
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
-import { grantDeveloperShopProduct, setDeveloperShopEnabled, developerShopClaims, isDeveloperShopEnabled } from './game/devShop';
+import { grantDeveloperShopProduct, setDeveloperShopEnabled, developerShopClaims, developerShopClaimsForMode, completeDeveloperShopClaimsForMode, isDeveloperShopEnabled } from './game/devShop';
 import { CAT_PET_PRODUCT_ID, hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
@@ -104,22 +104,22 @@ function coopSink(engine: Engine): CoopSink {
 function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (!engine) return;
   engine.syncRewardedPackTokens(rewardedDropChestEntries(engine.rewardedDropMode()));
-  const purchases = pendingShopProductRewards();
-  if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewards(purchases.keys);
+  const mode = engine.sandbox ? 'own-world' as const : (engine as any).survival ? 'survival' as const : 'exploration' as const;
+  const purchases = pendingShopProductRewardsForMode(mode);
+  if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewardsForMode(purchases.keys, mode);
+  // Fallback for old receipts without mode tracking
+  const legacyPurchases = pendingShopProductRewards();
+  if (legacyPurchases && engine.grantShopProductRewards(legacyPurchases.products)) completePendingShopRewards(legacyPurchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
   if (pending && engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
-  // Dev shop QA: grant all previously claimed dev products (except pets) at world start
-  // Pets are permanent, boosters are per-run (once per run, cleared after grant), chests/armor/tools are infinite (granted each run if claimed, but can be bought many times per run)
+  // Dev shop: one-time items (all except pets) available once per run type (survival, exploration, own-world)
+  // In own-world they remain forever after save, in other modes they disappear after run
   if (isDeveloperShopEnabled()) {
-    const devClaims = developerShopClaims();
-    const boosterIds = ['booster-start', 'booster-ore', 'booster-score'];
-    const nonPetClaims = devClaims.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
+    const devClaimsForMode = developerShopClaimsForMode(mode);
+    const nonPetClaims = devClaimsForMode.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
     if (nonPetClaims.length) {
-      engine.grantShopProductRewards(nonPetClaims);
-      // Clear booster claims after granting so they are once-per-run and need re-buy next run
-      const remaining = devClaims.filter((id) => !boosterIds.includes(id));
-      if (remaining.length !== devClaims.length) {
-        storageSet('orerush.dev-shop.claims.v1', JSON.stringify(remaining));
+      if (engine.grantShopProductRewards(nonPetClaims)) {
+        completeDeveloperShopClaimsForMode(nonPetClaims, mode);
       }
     }
   }

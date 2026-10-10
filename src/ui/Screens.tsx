@@ -741,11 +741,14 @@ export function StartScreen({
     const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
     if (!cards.length) return;
     const next = Math.max(0, Math.min(cards.length - 1, activeShopCard + direction));
-    const currentRect = cards[activeShopCard]?.getBoundingClientRect();
-    const targetRect = cards[next]?.getBoundingClientRect();
-    if (currentRect && targetRect) {
-      const delta = targetRect.left + targetRect.width / 2 - (currentRect.left + currentRect.width / 2);
-      carousel.scrollLeft += delta;
+    const target = cards[next];
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      // Also adjust scrollLeft for browsers that don't center with scrollIntoView
+      const carouselRect = carousel.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const delta = targetRect.left + targetRect.width / 2 - (carouselRect.left + carouselRect.width / 2);
+      if (Math.abs(delta) > 1) carousel.scrollBy({ left: delta, behavior: 'smooth' });
     }
     setActiveShopCard(next);
   };
