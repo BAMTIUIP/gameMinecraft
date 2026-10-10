@@ -62,16 +62,23 @@ export function developerShopClaimsForMode(mode: Mode): string[] {
     const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
     const seenBooster = new Set<string>();
     const filtered: string[] = [];
-    for (const receipt of normalizeDevClaims(value)) {
-      if (receipt.opened?.[mode]) continue;
+    const normalized = normalizeDevClaims(value);
+    console.log('[devShop] claimsForMode', mode, 'normalized', normalized);
+    for (const receipt of normalized) {
+      if (receipt.opened?.[mode]) {
+        console.log('[devShop] skip opened', receipt.productId, mode, receipt.opened);
+        continue;
+      }
       if (boosterIds.has(receipt.productId)) {
         if (seenBooster.has(receipt.productId)) continue;
         seenBooster.add(receipt.productId);
       }
       filtered.push(receipt.productId);
     }
+    console.log('[devShop] filtered for mode', mode, filtered);
     return filtered;
-  } catch {
+  } catch (e) {
+    console.log('[devShop] claimsForMode error', e);
     return [];
   }
 }
