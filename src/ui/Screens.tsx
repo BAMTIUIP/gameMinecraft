@@ -1841,12 +1841,14 @@ export function StartScreen({
                   value={musicVolume}
                   onChange={onMusicVolume}
                 />
-                <VolumeSlider
-                  id="menu-sun-volume"
-                  label={t('sunVolume')}
-                  value={specialSunVolume}
-                  onChange={onSpecialSunVolume}
-                />
+                {specialSun && (
+                  <VolumeSlider
+                    id="menu-sun-volume"
+                    label={t('sunVolume')}
+                    value={specialSunVolume}
+                    onChange={onSpecialSunVolume}
+                  />
+                )}
               </div>
 
               {(canShortcut || shortcutNote || fullscreenAvailable()) && (
@@ -2342,12 +2344,14 @@ export function PauseScreen({
               className="h-2 w-full cursor-pointer accent-[#f4b942]"
             />
           </div>
-          <VolumeSlider
-            id="pause-sun-volume"
-            label={t('sunVolume')}
-            value={specialSunVolume}
-            onChange={onSpecialSunVolume}
-          />
+          {specialSun && (
+            <VolumeSlider
+              id="pause-sun-volume"
+              label={t('sunVolume')}
+              value={specialSunVolume}
+              onChange={onSpecialSunVolume}
+            />
+          )}
           <div className="flex flex-wrap justify-center gap-2">
             <Toggle on={music} onClick={onMusic} icon={<MusicIcon off={!music} size={13} />} label={music ? t('musicOn') : t('musicOff')} />
             <Toggle on={!muted} onClick={onMute} icon={<SoundIcon muted={muted} size={13} />} label={muted ? t('sfxOff') : t('sfxOn')} />
