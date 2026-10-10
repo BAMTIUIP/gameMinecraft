@@ -162,20 +162,16 @@ function shopTabForProduct(product: ShopProduct | undefined): ShopFilter {
 }
 
 const SHOP_PRODUCTS: readonly ShopProduct[] = [
-  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
-  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
-  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
-  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
-  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
+  { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
+  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '▣', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
+
   { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-cat', category: 'pets', titleKey: 'shopPetCatTitle', descriptionKey: 'shopPetCatDesc', icon: '🐱', accent: '#d98a57', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#4bc7a2', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '🦉', accent: '#d9a74a', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
 
-  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
-  { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
-  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '▣', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
   { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', rarityKey: 'shopRarityCommon' },
   { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
   { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
@@ -183,6 +179,12 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', badgeKey: 'shopNextRunBadge' },
   { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', badgeKey: 'shopNextRunBadge' },
   { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', badgeKey: 'shopNextRunBadge' },
+
+  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
+  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
+  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
+  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
 ];
 
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
@@ -651,6 +653,7 @@ export function StartScreen({
           t('dailyStreak').replace('{n}', String(daily.streak)),
         ].join(' · ');
   const adFreePrice = shopPrices.get(AD_FREE_PRODUCT_ID);
+  const rewardedDrops = rewardedDropStatuses(clockNow);
   // Requirement 1.13.6: a real-money offer must exist in the active Yandex catalogue. Do not show
   // stale/inactive Console SKUs as disabled pseudo-offers; outside Yandex the shop remains a preview.
   const visibleShopProducts = useMemo(
@@ -659,11 +662,34 @@ export function StartScreen({
     ),
     [shopMode, paymentsAvailable, shopPrices],
   );
-  const filteredShopProducts = useMemo(
+  const filteredShopProductsBase = useMemo(
     () => visibleShopProducts.filter((product) => productMatchesShopTab(product, shopTab)),
     [visibleShopProducts, shopTab],
   );
-  const rewardedDrops = rewardedDropStatuses(clockNow);
+  // Sort: purchasable first (daily/weekly/monthly when available pop to front, claimed fall to end), then by custom order
+  const filteredShopProducts = useMemo(() => {
+    const orderIndex = new Map(SHOP_PRODUCTS.map((p, i) => [p.id, i] as const));
+    const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
+    const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
+    const getPurchasable = (product: typeof SHOP_PRODUCTS[number]) => {
+      const devAlreadyClaimed = devClaims.includes(product.id);
+      const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-cat' ? catPetOwned : product.id === 'pet-monkey' ? monkeyPetOwned : product.id === 'pet-parrot' ? parrotPetOwned : product.id === 'pet-owl' && owlPetOwned;
+      if (isPet(product.id)) return !alreadyOwned && !devAlreadyClaimed;
+      if (isBooster(product.id)) return !devAlreadyClaimed;
+      if (isRewardedDrop(product.id)) {
+        const status = rewardedDrops[product.id as RewardedDropId];
+        return Boolean(status?.available);
+      }
+      // Infinite: chests, armor, tools — always purchasable
+      return !alreadyOwned;
+    };
+    return [...filteredShopProductsBase].sort((a, b) => {
+      const aPurch = getPurchasable(a) ? 0 : 1;
+      const bPurch = getPurchasable(b) ? 0 : 1;
+      if (aPurch !== bPurch) return aPurch - bPurch;
+      return (orderIndex.get(a.id) ?? 999) - (orderIndex.get(b.id) ?? 999);
+    });
+  }, [filteredShopProductsBase, devClaims, rewardedDrops, wolfPetOwned, catPetOwned, monkeyPetOwned, parrotPetOwned, owlPetOwned]);
 
   const centerShopCard = (carousel: HTMLElement, card: HTMLElement) => {
     const carouselRect = carousel.getBoundingClientRect();
@@ -673,7 +699,7 @@ export function StartScreen({
   };
 
   useEffect(() => {
-    const products = visibleShopProducts.filter((product) => productMatchesShopTab(product, shopTab));
+    const products = filteredShopProducts;
     const targetIndex = products.findIndex((product) => product.id === promoProductId);
     const frame = window.requestAnimationFrame(() => {
       const carousel = shopCarouselRef.current;
@@ -688,7 +714,7 @@ export function StartScreen({
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [visibleShopProducts, shopTab, promoProductId, showShop]);
+  }, [filteredShopProducts, promoProductId, showShop]);
 
   const syncActiveShopCard = () => {
     const carousel = shopCarouselRef.current;
@@ -1086,6 +1112,104 @@ export function StartScreen({
                 </span>
               </div>
             )}
+
+            {(() => {
+              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score'];
+              const orderMap = new Map(SHOP_PRODUCTS.map((p, i) => [p.id, i]));
+              const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
+              const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
+              const getPurch = (id: string) => {
+                const product = SHOP_PRODUCTS.find((p) => p.id === id);
+                if (!product) return false;
+                const devAlreadyClaimed = devClaims.includes(id);
+                const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
+                if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
+                if (isBooster(id)) return !devAlreadyClaimed;
+                if (isRewardedDrop(id)) {
+                  const st = rewardedDrops[id as RewardedDropId];
+                  return Boolean(st?.available);
+                }
+                return !alreadyOwned;
+              };
+              const quickId = priority.find(getPurch) ?? filteredShopProducts.find((p) => {
+                const devAlreadyClaimed = devClaims.includes(p.id);
+                const alreadyOwned = p.id === 'pet-wolf' ? wolfPetOwned : p.id === 'pet-cat' ? catPetOwned : p.id === 'pet-monkey' ? monkeyPetOwned : p.id === 'pet-parrot' ? parrotPetOwned : p.id === 'pet-owl' && owlPetOwned;
+                if (['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(p.id)) return !alreadyOwned && !devAlreadyClaimed;
+                if (['booster-start', 'booster-ore', 'booster-score'].includes(p.id)) return !devAlreadyClaimed;
+                if (isRewardedDrop(p.id)) return Boolean(rewardedDrops[p.id as RewardedDropId]?.available);
+                return true;
+              })?.id;
+              const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
+              if (!quickProduct) return null;
+              const catalogPrice = shopPrices.get(quickProduct.id);
+              const developerMode = shopMode === 'developer';
+              const rewardedDrop = isRewardedDrop(quickProduct.id);
+              const devEnabled = isDeveloperShopEnabled();
+              const priceLabel = developerMode || (devEnabled && !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(quickProduct.id) && !rewardedDrop)
+                ? t('devShopPrice')
+                : rewardedDrop
+                  ? t('shopRewardedPrice')
+                  : catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));
+              return (
+                <div className="shop-quick-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#f4b942]/30 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-2.5 py-2 sm:mx-4 sm:gap-3 sm:px-3 sm:py-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#f4b942]/20 bg-[#f4b942]/10 text-sm sm:h-10 sm:w-10 sm:text-base" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942]/70 sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="truncate font-display text-xs text-white sm:text-sm">{t(quickProduct.titleKey)}</div>
+                    <div className="truncate text-[9px] text-white/50 sm:text-[10px]">{t(quickProduct.descriptionKey)}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <div className="font-display text-[9px] text-white/40 sm:text-[10px]">{priceLabel}</div>
+                    <button
+                      type="button"
+                      disabled={buying !== null}
+                      onClick={async () => {
+                        if (buying !== null) return;
+                        setBuying(quickProduct.id);
+                        setShopNotice(null);
+                        if (developerMode || (isDeveloperShopEnabled() && !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(quickProduct.id) && !rewardedDrop)) {
+                          const granted = await onDeveloperClaim(quickProduct.id);
+                          setBuying(null);
+                          if (granted) {
+                            setDevClaims(developerShopClaims());
+                            setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
+                            setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                          } else {
+                            setShopNotice(t('devShopGrantFailed'));
+                          }
+                          return;
+                        }
+                        if (rewardedDrop) {
+                          const result = await onClaimRewardedDrop(quickProduct.id as RewardedDropId);
+                          setBuying(null);
+                          if (result.ok) {
+                            const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
+                            const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                            const deliveryNote = result.delivery === 'account' ? t('shopDropAccountBound') : result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
+                            setShopNotice(`${notice} · ${deliveryNote}`);
+                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote });
+                          } else if (result.reason === 'ad') setShopNotice(t('shopDropAdFailed'));
+                          else if (result.reason === 'claimed') setShopNotice(t('shopDropAlreadyClaimed'));
+                          else setShopNotice(t('shopDropSaveFailed'));
+                          return;
+                        }
+                        const result = await onBuyShopItem(quickProduct.id);
+                        setBuying(null);
+                        if (result.ok) {
+                          setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                          setShopNotice(result.syncPending ? t('shopPurchasePending') : quickProduct.id.startsWith('pet-') ? t('shopPetPurchaseDone') : t('shopItemPurchaseDone').replace('{item}', t(quickProduct.titleKey)));
+                        } else {
+                          setShopNotice(result.reason === 'cancelled' ? t('shopPurchaseCancelled') : result.reason === 'unavailable' ? t('shopItemUnavailable') : t('shopPurchaseFailed'));
+                        }
+                      }}
+                      className="notch border-[2px] border-black/70 bg-gradient-to-b from-[#f4b942] to-[#c78a1f] px-2.5 py-1 font-display text-[9px] tracking-wide text-pit-950 hover:brightness-110 disabled:opacity-60 sm:px-3 sm:py-1.5 sm:text-[10px]"
+                    >
+                      {buying === quickProduct.id ? t('shopBuying') : t('shopBuy')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div id="shop-catalog" className="shop-catalog min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3">
               <div className="shop-carousel-stage">
