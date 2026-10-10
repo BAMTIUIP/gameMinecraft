@@ -735,8 +735,26 @@ export function StartScreen({
   const moveShopCarousel = (direction: -1 | 1) => {
     const carousel = shopCarouselRef.current;
     if (!carousel) return;
-    const amount = carousel.clientWidth * 0.85;
-    carousel.scrollBy({ left: direction * amount, behavior: 'smooth' });
+    const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
+    if (!cards.length) return;
+    const scrollCenter = carousel.scrollLeft + carousel.clientWidth / 2;
+    let nearest = 0;
+    let nearestDist = Number.POSITIVE_INFINITY;
+    cards.forEach((card, idx) => {
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const d = Math.abs(cardCenter - scrollCenter);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearest = idx;
+      }
+    });
+    let target = nearest + direction;
+    target = Math.max(0, Math.min(cards.length - 1, target));
+    const targetCard = cards[target];
+    if (!targetCard) return;
+    const left = targetCard.offsetLeft - (carousel.clientWidth - targetCard.clientWidth) / 2;
+    carousel.scrollTo({ left, behavior: 'smooth' });
+    setActiveShopCard(target);
   };
   const modes = [
     { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
