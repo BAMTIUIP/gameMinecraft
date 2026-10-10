@@ -11,7 +11,7 @@ import {
   tickCoop,
   type CoopSink,
 } from './game/multiplayer';
-import { getMusicVolume, initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMusicVolume, setMuted, stopMusic } from './game/audio';
+import { getMusicVolume, initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMusicVolume, setMuted, setSpecialSunVolume, stopMusic } from './game/audio';
 import Hud from './ui/Hud';
 import TouchControls from './ui/TouchControls';
 import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Screens';
@@ -245,8 +245,14 @@ export default function App() {
   });
   useEffect(() => setMusicVolume(musicVolume), [musicVolume]);
   const [freeLook, setFreeLookUi] = useState(true);
-  // «особое солнце»: the Rick-and-Morty GIF sun + its looped sunrise sound (saved between sessions)
+  // «особое солнце»: animated sun + its looped sound (saved between sessions)
   const [specialSun, setSpecialSunUi] = useState(() => storageGet('orerush.specialSun') === '1');
+  const [specialSunVolume, setSpecialSunVolumeUi] = useState(() => {
+    const saved = storageGet('orerush.specialSunVolume');
+    const parsed = saved === null ? 1 : Number(saved);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 1;
+  });
+  useEffect(() => setSpecialSunVolume(specialSunVolume), [specialSunVolume]);
   const [isTouch, setIsTouch] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [lang, setLangUi] = useState<Lang>('en');
@@ -607,6 +613,12 @@ export default function App() {
     engineRef.current?.setSpecialSun(next);
     setSpecialSunUi(next);
     storageSet('orerush.specialSun', next ? '1' : '0');
+  }, []);
+
+  const changeSpecialSunVolume = useCallback((value: number) => {
+    const next = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
+    setSpecialSunVolumeUi(next);
+    storageSet('orerush.specialSunVolume', String(next));
   }, []);
 
   const toggleFreeLook = useCallback(() => {
@@ -1183,6 +1195,8 @@ export default function App() {
           onFreeLook={toggleFreeLook}
           specialSun={specialSun}
           onSpecialSun={toggleSpecialSun}
+          specialSunVolume={specialSunVolume}
+          onSpecialSunVolume={changeSpecialSunVolume}
           isTouch={isTouch}
           lang={lang}
           onLang={pickLang}
@@ -1293,6 +1307,8 @@ export default function App() {
           onMusicVolume={changeMusicVolume}
           specialSun={specialSun}
           onSpecialSun={toggleSpecialSun}
+          specialSunVolume={specialSunVolume}
+          onSpecialSunVolume={changeSpecialSunVolume}
           muted={muted}
           onMute={toggleMute}
           fullscreen={fullscreen}

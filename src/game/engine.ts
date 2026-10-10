@@ -1834,7 +1834,7 @@ export class Engine {
   private sunDir = new THREE.Vector3(0, 1, 0);
   private sunMesh!: THREE.Mesh;
   private sunHaloMat!: THREE.MeshBasicMaterial;
-  // «особое солнце»: the animated Rick-and-Morty sun (6x6 sprite sheet of the GIF frames) replaces the disc
+  // «особое солнце»: an animated sun (6x6 sprite sheet of frames) replaces the disc
   private specialSun = false;
   private sunSheetMesh!: THREE.Mesh;
   private sunSheetTex!: THREE.Texture;

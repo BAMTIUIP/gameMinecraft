@@ -816,6 +816,9 @@ let sunGain: GainNode | null = null;
 const SUN_SOUND_LEVEL = 0.5;
 // 0..1 multiplier from the engine: follows the sun's height (quiet at sunrise/sunset, silent at night)
 let sunLevel = 1;
+// 0..1 player's own volume for the sun sound (settings and pause)
+let sunVolume = 1;
+const sunGainTarget = () => SUN_SOUND_LEVEL * sunVolume * sunLevel;
 
 function loadSunBuffer(): Promise<void> {
   if (sunBuf) return Promise.resolve();
@@ -840,7 +843,7 @@ async function startSunSource() {
   if (!sunWanted || muted || sunSrc || !sunBuf || !ctx || !master) return;
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, ctx.currentTime);
-  g.gain.linearRampToValueAtTime(SUN_SOUND_LEVEL * sunLevel, ctx.currentTime + 0.4);
+  g.gain.linearRampToValueAtTime(sunGainTarget(), ctx.currentTime + 0.4);
   const src = ctx.createBufferSource();
   src.buffer = sunBuf;
   src.loop = true;
@@ -879,5 +882,11 @@ export function setSpecialSunLevel(level: number) {
   const next = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
   if (Math.abs(next - sunLevel) < 0.005) return;
   sunLevel = next;
-  if (sunGain && ctx) sunGain.gain.setTargetAtTime(SUN_SOUND_LEVEL * sunLevel, ctx.currentTime, 0.25);
+  if (sunGain && ctx) sunGain.gain.setTargetAtTime(sunGainTarget(), ctx.currentTime, 0.25);
+}
+
+/** Player's volume for the sun sound (0..1), from the settings and pause sliders. */
+export function setSpecialSunVolume(volume: number) {
+  sunVolume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1));
+  if (sunGain && ctx) sunGain.gain.setTargetAtTime(sunGainTarget(), ctx.currentTime, 0.06);
 }
