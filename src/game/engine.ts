@@ -5559,15 +5559,15 @@ if (tpClipActive > 0.5) {
           grantArmorSet('diamond', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
           break;
         case 'chest-common':
-          grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8]]);
+          grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8], [CHEST_STORAGE, 1]]);
           break;
         case 'chest-rare':
-          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2]]);
+          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2], [CHEST_STORAGE, 1]]);
           this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 1, Math.random)));
           received += 1;
           break;
         case 'chest-epic':
-          grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2]]);
+          grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2], [CHEST_STORAGE, 2]]);
           this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 2, Math.random)));
           received += 1;
           break;

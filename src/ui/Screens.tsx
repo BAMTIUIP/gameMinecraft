@@ -10,7 +10,7 @@ import type { LeaderboardView } from '../game/leaderboard';
 import { FitBox } from './FitBox';
 import { GAME_NAME_LINES } from '../game/brand';
 import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
-import { developerShopClaims, clearDeveloperShopClaims } from '../game/devShop';
+import { developerShopClaims, clearDeveloperShopClaims, isDeveloperShopEnabled } from '../game/devShop';
 import { resetRewardedDropState } from '../game/adDrops';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
 import { yaServerTime } from '../game/yandex';
@@ -1113,17 +1113,21 @@ export function StartScreen({
                           ? parrotPetOwned
                           : product.id === 'pet-owl' && owlPetOwned;
                   const isPetProduct = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(product.id);
+                  const devEnabled = isDeveloperShopEnabled();
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
+                  // For QA: in dev build, allow infinite buying of chests/armor/tools/boosters even in real shop mode (bypass Yandex payments)
                   const purchasable = !alreadyOwned && (developerMode
                     ? isPetProduct ? !devAlreadyClaimed : true
                     : rewardedDrop
                       ? rewardedAdsEnabled && Boolean(dropStatus?.available)
-                      : paymentsAvailable && Boolean(catalogPrice));
-                  const priceLabel: React.ReactNode = developerMode
+                      : devEnabled
+                        ? isPetProduct ? !devAlreadyClaimed : true
+                        : paymentsAvailable && Boolean(catalogPrice));
+                  const priceLabel: React.ReactNode = developerMode || (devEnabled && !isPetProduct && !rewardedDrop)
                     ? t('devShopPrice')
                     : rewardedDrop
                       ? t('shopRewardedPrice')
@@ -1206,14 +1210,13 @@ export function StartScreen({
                             if (!purchasable || buying !== null) return;
                             setBuying(product.id);
                             setShopNotice(null);
-                            if (developerMode) {
+                            if (developerMode || (isDeveloperShopEnabled() && !isPetProduct && !rewardedDrop)) {
                               const granted = await onDeveloperClaim(product.id);
                               setBuying(null);
                               if (granted) {
                                 setDevClaims(developerShopClaims());
                                 // For free drops, also refresh rewarded drop statuses so chest tokens appear
                                 if (rewardedDrop) {
-                                  const rewardParts = [[1, product.id]]; // placeholder
                                   setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
                                   setRewardedPopup({
                                     title: t('rewardPackReadyTitle'),
