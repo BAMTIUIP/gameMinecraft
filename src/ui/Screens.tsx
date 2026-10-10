@@ -1112,13 +1112,14 @@ export function StartScreen({
                         : product.id === 'pet-parrot'
                           ? parrotPetOwned
                           : product.id === 'pet-owl' && owlPetOwned;
+                  const isPetProduct = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(product.id);
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
                   const purchasable = !alreadyOwned && (developerMode
-                    ? !devAlreadyClaimed
+                    ? isPetProduct ? !devAlreadyClaimed : true
                     : rewardedDrop
                       ? rewardedAdsEnabled && Boolean(dropStatus?.available)
                       : paymentsAvailable && Boolean(catalogPrice));
@@ -1206,38 +1207,22 @@ export function StartScreen({
                             setBuying(product.id);
                             setShopNotice(null);
                             if (developerMode) {
-                              if (rewardedDrop) {
-                                // Dev mode: claim daily/weekly/monthly without ad, so chest tokens appear
-                                const result = claimRewardedDrop(product.id as RewardedDropId);
-                                setBuying(null);
-                                if (result.ok) {
-                                  const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
-                                  const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
-                                  const deliveryNote = result.delivery === 'account' ? t('shopDropAccountBound') : result.delivery === 'own-world' ? t('shopDropOwnWorld') : t('shopDropNextRun');
-                                  setShopNotice(`${notice} · ${deliveryNote}`);
-                                  setRewardedPopup({
-                                    title: t('rewardPackReadyTitle'),
-                                    message: notice,
-                                    sub: result.delivery === 'account' ? t('rewardPackReadySub') : deliveryNote,
-                                  });
-                                  setPurchasePopup({
-                                    icon: product.icon,
-                                    title: t(product.titleKey),
-                                    description: t(product.descriptionKey),
-                                    accent: product.accent,
-                                  });
-                                } else if (result.reason === 'claimed') {
-                                  setShopNotice(t('shopDropAlreadyClaimed'));
-                                } else {
-                                  setShopNotice(t('shopDropSaveFailed'));
-                                }
-                                return;
-                              }
                               const granted = await onDeveloperClaim(product.id);
                               setBuying(null);
                               if (granted) {
                                 setDevClaims(developerShopClaims());
-                                setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                // For free drops, also refresh rewarded drop statuses so chest tokens appear
+                                if (rewardedDrop) {
+                                  const rewardParts = [[1, product.id]]; // placeholder
+                                  setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                  setRewardedPopup({
+                                    title: t('rewardPackReadyTitle'),
+                                    message: t('shopDropGranted').replace('{reward}', t(product.titleKey)),
+                                    sub: t('rewardPackReadySub'),
+                                  });
+                                } else {
+                                  setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                }
                                 setPurchasePopup({
                                   icon: product.icon,
                                   title: t(product.titleKey),
@@ -1245,6 +1230,7 @@ export function StartScreen({
                                   accent: product.accent,
                                 });
                               } else {
+                                // For repeatable consumables, granted is true even if already claimed, so this branch is for pets already owned
                                 setShopNotice(t('devShopGrantFailed'));
                               }
                               return;

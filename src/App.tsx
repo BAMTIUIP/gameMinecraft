@@ -108,21 +108,14 @@ function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewards(purchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
   if (pending && engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
-  // Dev shop QA: grant all previously claimed dev products (except pets which are handled via pet state) at world start
-  // so that netherite pickaxe, chests, armor etc appear in inventory as chests/items, not just pets.
+  // Dev shop QA: grant all previously claimed dev products (except pets) at world start
+  // so that netherite pickaxe, chests, armor, boosters appear in inventory at start of explorer run.
+  // Purchases except pets are per-run (1 time per run, disappear on restart, infinite buying) — so we grant at each run start.
   if (isDeveloperShopEnabled()) {
     const devClaims = developerShopClaims();
     const nonPetClaims = devClaims.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
     if (nonPetClaims.length) {
-      // Grant only if not already present to avoid infinite duplication on every load
-      // For pickaxe/armor we check tool tier / bag, for chests we check if inventory already has reward blocks
-      const hasPickaxe = (engine as any).toolInstances && Array.from((engine as any).toolInstances.values()).some((inst: any) => inst && inst.id >= 240);
-      const hasArmor = (engine as any).bagItems && (engine as any).bagItems.length > 0;
-      const hasChestBlocks = (engine as any).inventory && (engine as any).inventory.size > 5;
-      // If world is fresh (few items), grant all; otherwise grant only missing types
-      if (!hasChestBlocks || !hasPickaxe || !hasArmor) {
-        engine.grantShopProductRewards(nonPetClaims);
-      }
+      engine.grantShopProductRewards(nonPetClaims);
     }
   }
 }
@@ -1026,23 +1019,38 @@ export default function App() {
 
   /** A shop drop is committed only after the SDK confirms the rewarded video was counted. */
   const claimShopDrop = useCallback(async (dropId: RewardedDropId) => {
-    return watchAndClaimRewardedDrop(dropId);
+    const result = await watchAndClaimRewardedDrop(dropId);
+    if (result.ok) {
+      // Immediately sync chest tokens so they appear in inventory without needing a new run
+      const { rewardedDropChestEntries } = await import('./game/adDrops');
+      engineRef.current?.syncRewardedPackTokens(rewardedDropChestEntries(engineRef.current?.rewardedDropMode() as any ?? 'exploration'));
+    }
+    return result;
   }, []);
 
   /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!DEVELOPER_TOOLS_ENABLED || isTvRef.current || tvMode()) return false;
-    const granted = grantDeveloperShopProduct(productId);
+    const isPet = [WOLF_PET_PRODUCT_ID, CAT_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID].includes(productId);
+    // Pets are one-time, everything else (chests, armor, pickaxe, boosters, daily/weekly/monthly) is repeatable for infinite buying
+    const granted = grantDeveloperShopProduct(productId, !isPet);
     if (granted) {
       // Immediately deliver the claimed product into the running world (pickaxe, chests, armor etc)
-      // Pets are handled via refreshPetOwnership, other products via shop reward grant.
-      engineRef.current?.grantShopProductRewards([productId]);
-      if (productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) {
+      // For free drops (daily/weekly/monthly) we need to create pack receipt, not just grant blocks
+      if (['drop-daily', 'drop-weekly', 'drop-monthly'].includes(productId)) {
+        // Direct claim without ad for dev mode — creates chest token
+        const { claimRewardedDrop } = await import('./game/adDrops');
+        const res = claimRewardedDrop(productId as any);
+        if (res.ok) {
+          engineRef.current?.syncRewardedPackTokens((await import('./game/adDrops')).rewardedDropChestEntries(engineRef.current?.rewardedDropMode() as any ?? 'exploration'));
+        }
+      } else {
+        engineRef.current?.grantShopProductRewards([productId]);
+      }
+      if (isPet) {
         refreshPetOwnership();
       }
-      // Show congrats popup (purchasePopup) for dev shop too — previously only paid shop showed it
-      // The Screens component already shows shopNotice, but we also push a banner for visibility
-      engineRef.current?.pushBanner?.(t('devShopGranted').replace('{item}', t(`shop${productId.charAt(0).toUpperCase()+productId.slice(1).replace(/-([a-z])/g, (_,c)=>c.toUpperCase())}Title` as never) || productId), t('shopItemBannerSub'), '#f4b942');
+      engineRef.current?.pushBanner?.(t('devShopGranted').replace('{item}', productId), t('shopItemBannerSub'), '#f4b942');
     }
     return granted;
   }, [refreshPetOwnership]);

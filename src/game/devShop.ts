@@ -27,10 +27,19 @@ export function developerShopClaims(): string[] {
   }
 }
 
-/** Grant a catalogue product locally once; this path never opens the payment flow. */
+/** Grant a catalogue product locally once; this path never opens the payment flow.
+ * For repeatable consumables (chests, boosters, armor, tools) we store the claim for auto-grant at next run
+ * but still return true even if already claimed, allowing infinite buying.
+ */
 export function grantDeveloperShopProduct(productId: string, repeatable = false): boolean {
   if (!PRODUCT_ID.test(productId)) return false;
-  if (repeatable) return true;
+  if (repeatable) {
+    const claims = developerShopClaims();
+    if (!claims.includes(productId)) {
+      storageSet(DEV_SHOP_KEY, JSON.stringify([...claims, productId]));
+    }
+    return true;
+  }
   const claims = developerShopClaims();
   if (claims.includes(productId)) return false;
   return storageSet(DEV_SHOP_KEY, JSON.stringify([...claims, productId]));
@@ -38,15 +47,4 @@ export function grantDeveloperShopProduct(productId: string, repeatable = false)
 
 export function clearDeveloperShopClaims(): boolean {
   return storageSet(DEV_SHOP_KEY, JSON.stringify([]));
-}
-
-export function clearRewardedDropClaimsForDevReset(): boolean {
-  // Also clear rewarded drop packs so daily/weekly/monthly can be reclaimed in dev mode
-  try {
-    const { storageGet, storageSet } = require('./storage') as any;
-    // This will be handled via adDrops reset, but we expose a helper
-    return true;
-  } catch {
-    return false;
-  }
 }
