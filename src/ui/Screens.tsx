@@ -740,17 +740,17 @@ export function StartScreen({
     if (!carousel) return;
     const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
     if (!cards.length) return;
-    const next = Math.max(0, Math.min(cards.length - 1, activeShopCard + direction));
-    const target = cards[next];
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      // Also adjust scrollLeft for browsers that don't center with scrollIntoView
-      const carouselRect = carousel.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const delta = targetRect.left + targetRect.width / 2 - (carouselRect.left + carouselRect.width / 2);
-      if (Math.abs(delta) > 1) carousel.scrollBy({ left: delta, behavior: 'smooth' });
-    }
-    setActiveShopCard(next);
+    setActiveShopCard((current) => {
+      const next = Math.max(0, Math.min(cards.length - 1, current + direction));
+      const target = cards[next];
+      if (target) {
+        // Use offsetLeft for reliable centering, fallback to scrollIntoView
+        const left = target.offsetLeft - (carousel.clientWidth - target.clientWidth) / 2;
+        carousel.scrollTo({ left, behavior: 'smooth' });
+        target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+      return next;
+    });
   };
   const modes = [
     { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
@@ -864,6 +864,88 @@ export function StartScreen({
                 )}
               </div>
             </section>
+
+            {(() => {
+              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score'];
+              const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
+              const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
+              const getPurch = (id: string) => {
+                const devAlreadyClaimed = devClaims.includes(id);
+                const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
+                const catalogPrice = shopPrices.get(id);
+                const rewardedDrop = isRewardedDrop(id);
+                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[id as RewardedDropId]?.available) : false;
+                if (developerShopEnabled) {
+                  if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
+                  if (isBooster(id)) return !devAlreadyClaimed;
+                  if (rewardedDrop) return dropAvailable;
+                  return true;
+                } else {
+                  if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                  if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
+                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
+                  return paymentsAvailable && Boolean(catalogPrice);
+                }
+              };
+              const quickId = priority.find(getPurch);
+              if (!quickId) return null;
+              const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
+              if (!quickProduct) return null;
+              const catalogPrice = shopPrices.get(quickProduct.id);
+              const rewardedDrop = isRewardedDrop(quickProduct.id);
+              const priceLabel = developerShopEnabled && shopMode !== 'store' ? t('devShopPrice') : rewardedDrop ? t('shopRewardedPrice') : catalogPrice?.label ?? '';
+              return (
+                <div className="shop-quick-banner mt-3 flex w-full max-w-[900px] items-center gap-2 border border-[#f4b942]/30 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-2.5 py-2 sm:gap-3 sm:px-3 sm:py-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-[#f4b942]/20 bg-[#f4b942]/10 text-sm sm:h-10 sm:w-10 sm:text-base" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[9px] tracking-widest text-[#f4b942]/70 sm:text-[10px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="truncate font-display text-xs text-white sm:text-sm">{t(quickProduct.titleKey)}</div>
+                    <div className="truncate text-[8px] text-white/50 sm:text-[9px]">{t(quickProduct.descriptionKey)}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <div className="font-display text-[8px] text-white/40 sm:text-[9px]">{priceLabel}</div>
+                    <button
+                      type="button"
+                      disabled={buying !== null}
+                      onClick={async () => {
+                        if (buying !== null) return;
+                        setBuying(quickProduct.id);
+                        setShopNotice(null);
+                        if (developerShopEnabled && shopMode !== 'store') {
+                          const granted = await onDeveloperClaim(quickProduct.id);
+                          setBuying(null);
+                          if (granted) {
+                            setDevClaims(developerShopClaims());
+                            setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
+                            setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                          }
+                          return;
+                        }
+                        if (rewardedDrop) {
+                          const result = await onClaimRewardedDrop(quickProduct.id as RewardedDropId);
+                          setBuying(null);
+                          if (result.ok) {
+                            const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
+                            const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                            setShopNotice(`${notice}`);
+                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: t('rewardPackReadySub') });
+                          }
+                          return;
+                        }
+                        const result = await onBuyShopItem(quickProduct.id);
+                        setBuying(null);
+                        if (result.ok) {
+                          setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                        }
+                      }}
+                      className="notch border-[2px] border-black/70 bg-gradient-to-b from-[#f4b942] to-[#c78a1f] px-2.5 py-1 font-display text-[9px] tracking-wide text-pit-950 hover:brightness-110 disabled:opacity-60 sm:px-3 sm:py-1.5 sm:text-[10px]"
+                    >
+                      {buying === quickProduct.id ? t('shopBuying') : t('shopBuy')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             <button
               type="button"

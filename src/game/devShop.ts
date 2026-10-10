@@ -5,7 +5,7 @@ const PRODUCT_ID = /^[a-z0-9][a-z0-9-]{0,63}$/i;
 let developerShopEnabled = false;
 
 type Mode = 'survival' | 'exploration' | 'own-world';
-type DevReceipt = { id: string; opened?: Partial<Record<Mode, true>> };
+type DevReceipt = { receiptId: string; productId: string; opened?: Partial<Record<Mode, true>> };
 
 /** Runtime gate for free local QA claims; the application keeps these controls off on TV devices. */
 export function setDeveloperShopEnabled(enabled: boolean): void {
@@ -21,35 +21,24 @@ function normalizeDevClaims(value: unknown): DevReceipt[] {
   const out: DevReceipt[] = [];
   for (const entry of value) {
     if (typeof entry === 'string' && PRODUCT_ID.test(entry)) {
-      out.push({ id: entry, opened: {} });
+      out.push({ receiptId: `${entry}-${Math.random().toString(36).slice(2, 8)}`, productId: entry, opened: {} });
       continue;
     }
     if (entry && typeof entry === 'object') {
-      const raw = entry as { id?: unknown; opened?: unknown };
-      if (typeof raw.id !== 'string' || !PRODUCT_ID.test(raw.id)) continue;
+      const raw = entry as { id?: unknown; receiptId?: unknown; productId?: unknown; opened?: unknown };
+      const productId = typeof raw.productId === 'string' ? raw.productId : typeof raw.id === 'string' ? raw.id : null;
+      if (!productId || !PRODUCT_ID.test(productId)) continue;
+      const receiptId = typeof raw.receiptId === 'string' ? raw.receiptId : typeof raw.id === 'string' && raw.id.includes('-') ? raw.id : `${productId}-${Math.random().toString(36).slice(2, 8)}`;
       const opened: Partial<Record<Mode, true>> = {};
       if (raw.opened && typeof raw.opened === 'object') {
         for (const mode of ['survival', 'exploration', 'own-world'] as const) {
           if ((raw.opened as Record<string, unknown>)[mode] === true) opened[mode] = true;
         }
       }
-      out.push({ id: raw.id, opened });
+      out.push({ receiptId, productId, opened });
     }
   }
-  // Deduplicate by id, merging opened
-  const byId = new Map<string, DevReceipt>();
-  for (const receipt of out) {
-    const existing = byId.get(receipt.id);
-    if (!existing) {
-      byId.set(receipt.id, receipt);
-      continue;
-    }
-    byId.set(receipt.id, {
-      id: receipt.id,
-      opened: { ...(existing.opened ?? {}), ...(receipt.opened ?? {}) },
-    });
-  }
-  return [...byId.values()];
+  return out;
 }
 
 /** Developer-only test entitlements live on this device and are intentionally not added to the cloud profile. */
@@ -58,7 +47,7 @@ export function developerShopClaims(): string[] {
   if (!raw) return [];
   try {
     const value: unknown = JSON.parse(raw);
-    return normalizeDevClaims(value).map((r) => r.id);
+    return [...new Set(normalizeDevClaims(value).map((r) => r.productId))];
   } catch {
     return [];
   }
@@ -69,9 +58,19 @@ export function developerShopClaimsForMode(mode: Mode): string[] {
   if (!raw) return [];
   try {
     const value: unknown = JSON.parse(raw);
-    return normalizeDevClaims(value)
-      .filter((r) => !r.opened?.[mode])
-      .map((r) => r.id);
+    // For boosters: only 1 per product per session (queue), even if bought 10, only 1 used per session then burns and next applies
+    const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
+    const seenBooster = new Set<string>();
+    const filtered: string[] = [];
+    for (const receipt of normalizeDevClaims(value)) {
+      if (receipt.opened?.[mode]) continue;
+      if (boosterIds.has(receipt.productId)) {
+        if (seenBooster.has(receipt.productId)) continue;
+        seenBooster.add(receipt.productId);
+      }
+      filtered.push(receipt.productId);
+    }
+    return filtered;
   } catch {
     return [];
   }
@@ -81,6 +80,7 @@ export function developerShopClaimsForMode(mode: Mode): string[] {
  * For one-time items (all except pets) we store claim per mode, available once per run type (survival, exploration, own-world).
  * In own-world they remain forever after save, in other modes they disappear after run and need re-buy per mode.
  * Pets are permanent (never cleared).
+ * For boosters: queue — if bought 10, only 1 per session, then burns and next applies.
  */
 export function grantDeveloperShopProduct(productId: string, repeatable = false): boolean {
   if (!PRODUCT_ID.test(productId)) return false;
@@ -91,20 +91,30 @@ export function grantDeveloperShopProduct(productId: string, repeatable = false)
   } catch {
     receipts = [];
   }
-  const existing = receipts.find((r) => r.id === productId);
-  if (!existing) {
-    receipts.push({ id: productId, opened: {} });
+  const isPet = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(productId);
+  const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(productId);
+  if (isPet) {
+    if (receipts.some((r) => r.productId === productId)) return false;
+    receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, productId, opened: {} });
     return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
+  if (isBooster) {
+    // Queue: add new receipt each time, even if already claimed, so 10 bought = 10 sessions
+    receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
+    return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
+  }
+  // For other one-time items (chests, armor, tools): allow infinite buying, but store once per mode for auto-grant
   if (repeatable) {
-    // For repeatable (infinite) we allow re-buy even if already claimed, but keep receipt for auto-grant per mode
+    // For infinite (chests, armor) we allow re-buy even if already claimed, but keep one receipt for auto-grant per mode
+    if (!receipts.some((r) => r.productId === productId)) {
+      receipts.push({ receiptId: `${productId}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
+      return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
+    }
     return true;
   }
-  // For pets (non-repeatable) return false if already claimed ever
-  const isPet = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(productId);
-  if (isPet) return false;
-  // For one-time items, if already claimed in all modes, allow re-buy? Actually one-time per mode, so if not yet opened in all modes, return false? For simplicity, return true to allow re-buy per mode
-  return true;
+  if (receipts.some((r) => r.productId === productId)) return false;
+  receipts.push({ receiptId: `${productId}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
+  return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
 }
 
 export function completeDeveloperShopClaimsForMode(productIds: string[], mode: Mode): boolean {
@@ -117,25 +127,32 @@ export function completeDeveloperShopClaimsForMode(productIds: string[], mode: M
   }
   let changed = false;
   const remaining: DevReceipt[] = [];
+  const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
+  const handledBooster = new Set<string>();
   for (const receipt of receipts) {
-    if (!productIds.includes(receipt.id)) {
+    if (!productIds.includes(receipt.productId)) {
       remaining.push(receipt);
       continue;
     }
-    const isPet = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(receipt.id);
+    const isPet = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(receipt.productId);
     if (isPet) {
-      // Pets permanent, never clear
       remaining.push(receipt);
       continue;
+    }
+    if (boosterIds.has(receipt.productId)) {
+      if (handledBooster.has(receipt.productId)) {
+        remaining.push(receipt);
+        continue;
+      }
+      handledBooster.add(receipt.productId);
     }
     const opened = { ...(receipt.opened ?? {}), [mode]: true as const };
     const allOpened = (['survival', 'exploration', 'own-world'] as const).every((m) => opened[m]);
     if (allOpened) {
-      // All 3 modes granted, remove (one-time per each type done)
       changed = true;
       continue;
     }
-    remaining.push({ id: receipt.id, opened });
+    remaining.push({ ...receipt, opened });
     changed = true;
   }
   if (!changed) return false;

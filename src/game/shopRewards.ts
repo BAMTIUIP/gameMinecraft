@@ -134,7 +134,19 @@ export function pendingShopProductRewards(): { keys: string[]; products: ShopRew
 
 export function pendingShopProductRewardsForMode(mode: Mode): { keys: string[]; products: ShopRewardProductId[] } | null {
   const current = state();
-  const filtered = current.pending.filter((entry) => !entry.opened?.[mode]);
+  const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
+  // For boosters: only 1 per product per session (queue), even if bought 10, only 1 used per session then burns and next applies
+  // For other one-time items (armor, chests, tools): all pending for that mode at once (once per run type per purchase)
+  const filtered: Receipt[] = [];
+  const seenBooster = new Set<string>();
+  for (const entry of current.pending) {
+    if (entry.opened?.[mode]) continue;
+    if (boosterIds.has(entry.productId)) {
+      if (seenBooster.has(entry.productId)) continue;
+      seenBooster.add(entry.productId);
+    }
+    filtered.push(entry);
+  }
   if (!filtered.length) return null;
   return {
     keys: filtered.map((entry) => entry.id),
