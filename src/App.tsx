@@ -1029,11 +1029,12 @@ export default function App() {
         refreshPetOwnership();
       } else {
         // Only grant immediately if in a run; if bought in main menu, leave receipt pending for next run start
-        if (engineRef.current) {
-          engineRef.current.grantShopProductRewards([productId as any]);
+        const eng = engineRef.current as any;
+        const inRun = eng && (eng.phase === 'playing' || eng.phase === 'paused');
+        if (inRun) {
+          eng.grantShopProductRewards([productId as any]);
           // Mark as used for current run type so next run in same mode doesn't grant again unless re-bought
           try {
-            const eng = engineRef.current as any;
             const mode = eng?.sandbox ? 'own-world' as const : eng?.survival ? 'survival' as const : 'exploration' as const;
             const { pendingShopProductRewardsForMode, completePendingShopRewardsForMode } = await import('./game/shopRewards');
             const pending = pendingShopProductRewardsForMode(mode);
@@ -1102,11 +1103,12 @@ export default function App() {
         }
       } else {
         // Only grant immediately if we are in a run; if bought in main menu, leave receipt pending for next run start
-        if (engineRef.current) {
-          engineRef.current.grantShopProductRewards([productId]);
+        const eng = engineRef.current as any;
+        const inRun = eng && (eng.phase === 'playing' || eng.phase === 'paused');
+        if (inRun) {
+          eng.grantShopProductRewards([productId]);
           // Mark as used for current run type so next run in same mode doesn't grant again unless re-bought
           // One-time items are available once per run type (survival, exploration, own-world)
-          const eng = engineRef.current as any;
           const mode = eng?.sandbox ? 'own-world' as const : eng?.survival ? 'survival' as const : 'exploration' as const;
           if (!isPet) {
             try {
