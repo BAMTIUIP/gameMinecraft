@@ -102,6 +102,12 @@ import {
   STONE_BRICK,
   TALL_GRASS,
   FERN,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_WEEKLY,
+  REWARD_PACK_MONTHLY,
+  SHOP_CHEST_COMMON,
+  SHOP_CHEST_RARE,
+  SHOP_CHEST_EPIC,
 } from './blocks';
 import { drawArrowIcon, isArrowId } from './arrowVisuals';
 
@@ -2474,6 +2480,102 @@ export function getBlockIcon(id: number): string {
     }
     fill(7, 41, 8, 4, '#30231b');
     fill(33, 41, 8, 4, '#30231b');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
+  if (id === REWARD_PACK_DAILY || id === REWARD_PACK_WEEKLY || id === REWARD_PACK_MONTHLY || id === SHOP_CHEST_COMMON || id === SHOP_CHEST_RARE || id === SHOP_CHEST_EPIC) {
+    const fill = (x: number, y: number, w: number, h: number, color: string) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+    };
+    if (id === REWARD_PACK_DAILY) {
+      // Daily bag - burlap sack with yellow top and drawstring
+      fill(12, 8, 24, 6, '#d4a84b');
+      fill(14, 10, 20, 2, '#f0d060');
+      fill(10, 14, 28, 22, '#a67c3a');
+      fill(12, 16, 24, 16, '#c49a4a');
+      fill(14, 18, 20, 10, '#d4b45a');
+      fill(18, 20, 12, 4, '#8a6a30');
+      fill(19, 21, 10, 2, '#5a4a20');
+      fill(10, 36, 28, 3, '#7a5a2a');
+      fill(12, 38, 24, 2, '#5a3a1a');
+    } else if (id === REWARD_PACK_WEEKLY) {
+      fill(6, 12, 36, 24, '#6b4a2e');
+      fill(8, 14, 32, 20, '#8a6a3a');
+      fill(10, 16, 28, 14, '#a67c4a');
+      fill(6, 12, 36, 6, '#9a6a3a');
+      fill(8, 10, 32, 4, '#b07a4a');
+      fill(10, 12, 28, 2, '#d4a050');
+      fill(12, 18, 4, 18, '#4a3a2a');
+      fill(32, 18, 4, 18, '#4a3a2a');
+      fill(13, 20, 2, 14, '#6a5a4a');
+      fill(33, 20, 2, 14, '#6a5a4a');
+      fill(20, 22, 8, 8, '#3a2a1a');
+      fill(22, 24, 4, 4, '#f0d060');
+      fill(6, 36, 36, 3, '#4a3a2a');
+    } else if (id === REWARD_PACK_MONTHLY) {
+      fill(4, 10, 40, 26, '#3a2a1a');
+      fill(6, 12, 36, 22, '#5a4a3a');
+      fill(8, 14, 32, 18, '#7a6a5a');
+      fill(4, 10, 40, 8, '#2a1a0a');
+      fill(6, 8, 36, 6, '#4a3a2a');
+      fill(8, 6, 32, 4, '#6a5a4a');
+      fill(6, 10, 36, 2, '#d4b060');
+      fill(6, 32, 36, 2, '#d4b060');
+      fill(10, 16, 4, 20, '#d4b060');
+      fill(34, 16, 4, 20, '#d4b060');
+      fill(12, 18, 2, 16, '#f0d080');
+      fill(34, 18, 2, 16, '#f0d080');
+      fill(20, 20, 8, 10, '#1a2a4a');
+      fill(22, 22, 4, 6, '#4a8ad4');
+      fill(23, 23, 2, 2, '#8ac4ff');
+      fill(4, 36, 40, 4, '#1a0a0a');
+    } else if (id === SHOP_CHEST_COMMON) {
+      // Common supply chest - simple wooden with light brown
+      fill(8, 14, 32, 20, '#7a5a3a');
+      fill(10, 16, 28, 16, '#9a7a4a');
+      fill(12, 18, 24, 10, '#b89a5a');
+      fill(8, 14, 32, 4, '#8a6a4a');
+      fill(10, 12, 28, 4, '#a67c4a');
+      fill(12, 10, 24, 2, '#c49a5a');
+      fill(14, 20, 4, 12, '#5a4a2a');
+      fill(26, 20, 4, 12, '#5a4a2a');
+      fill(20, 22, 4, 6, '#3a2a1a');
+      fill(21, 23, 2, 2, '#d4a84b');
+      fill(8, 34, 32, 2, '#5a4a2a');
+    } else if (id === SHOP_CHEST_RARE) {
+      // Rare chest - blue tint with silver bands
+      fill(6, 12, 36, 24, '#2a4a5a');
+      fill(8, 14, 32, 20, '#4a6a8a');
+      fill(10, 16, 28, 16, '#6a8aaa');
+      fill(12, 18, 24, 10, '#8aaaca');
+      fill(8, 18, 24, 10, '#7a9aba');
+      fill(6, 12, 36, 6, '#3a5a7a');
+      fill(8, 10, 32, 4, '#5a7aaa');
+      fill(12, 18, 4, 18, '#6a7a8a');
+      fill(32, 18, 4, 18, '#6a7a8a');
+      fill(20, 22, 8, 8, '#2a3a4a');
+      fill(22, 24, 4, 4, '#a0c0e0');
+      fill(6, 36, 36, 2, '#2a4a5a');
+    } else {
+      // Epic chest - purple ornate with gold and magenta gem
+      fill(4, 10, 40, 26, '#3a1a4a');
+      fill(6, 12, 36, 22, '#5a3a6a');
+      fill(8, 14, 32, 18, '#7a5a8a');
+      fill(10, 16, 28, 12, '#9a7aaa');
+      fill(4, 10, 40, 8, '#2a0a3a');
+      fill(6, 8, 36, 6, '#4a2a5a');
+      fill(6, 10, 36, 2, '#d4a0ff');
+      fill(6, 32, 36, 2, '#d4a0ff');
+      fill(10, 16, 4, 20, '#d4a0ff');
+      fill(34, 16, 4, 20, '#d4a0ff');
+      fill(20, 20, 8, 10, '#4a1a5a');
+      fill(22, 22, 4, 6, '#c040c0');
+      fill(23, 23, 2, 2, '#ff80ff');
+      fill(4, 36, 40, 4, '#1a0a2a');
+    }
     const url = c.toDataURL();
     iconCache.set(id, url);
     return url;

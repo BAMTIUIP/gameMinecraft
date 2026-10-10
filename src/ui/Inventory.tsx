@@ -23,6 +23,7 @@ import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { CAT_COATS, MONKEY_COATS, OWL_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { isRewardedDropChestItem } from '../game/adDrops';
+import { SHOP_CHEST_COMMON, SHOP_CHEST_RARE, SHOP_CHEST_EPIC } from '../game/blocks';
 import { CatIcon } from './CatIcon';
 import { MonkeyIcon } from './MonkeyIcon';
 import { OwlIcon } from './OwlIcon';
@@ -394,7 +395,7 @@ export default function Inventory({
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
-                  const rewardPack = isRewardedDropChestItem(it.id);
+                  const rewardPack = isRewardedDropChestItem(it.id) || it.id === SHOP_CHEST_COMMON || it.id === SHOP_CHEST_RARE || it.id === SHOP_CHEST_EPIC;
                   const details = itemDetails(it.id, { count: it.count, durability: it.durability, maxDurability: it.maxDurability });
                   return (
                     <button
@@ -1327,7 +1328,7 @@ function TradePanel({
   onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && isInventoryBlockId(it.id));
+  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && it.id !== SHOP_CHEST_COMMON && it.id !== SHOP_CHEST_RARE && it.id !== SHOP_CHEST_EPIC && isInventoryBlockId(it.id));
   const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">

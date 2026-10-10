@@ -153,6 +153,9 @@ export const WHEAT_CROP_IDS = [WHEAT_CROP_1, WHEAT_CROP_2, WHEAT_CROP_3] as cons
 export const REWARD_PACK_DAILY = 273;
 export const REWARD_PACK_WEEKLY = 274;
 export const REWARD_PACK_MONTHLY = 275;
+export const SHOP_CHEST_COMMON = 322;
+export const SHOP_CHEST_RARE = 323;
+export const SHOP_CHEST_EPIC = 324;
 
 /** Expanded flora and ruins for forest biomes (reference photos) */
 export const FLOWER_TULIP_RED = 276;
@@ -1266,6 +1269,9 @@ const BLOCK_DEFS: BlockDef[] = [
   d({ id: REWARD_PACK_DAILY, name: 'Daily Resource Bag', side: T.rewardBag, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [214, 165, 95] }),
   d({ id: REWARD_PACK_WEEKLY, name: 'Weekly Supply Chest', side: T.rewardChest, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [167, 120, 74] }),
   d({ id: REWARD_PACK_MONTHLY, name: 'Monthly Rich Chest', side: T.rewardChestOrnate, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [126, 154, 198] }),
+  d({ id: SHOP_CHEST_COMMON, name: 'Common Supply Chest', side: T.rewardChest, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [140, 110, 70] }),
+  d({ id: SHOP_CHEST_RARE, name: 'Rare Supply Chest', side: T.rewardChest, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [80, 140, 180] }),
+  d({ id: SHOP_CHEST_EPIC, name: 'Epic Supply Chest', side: T.rewardChestOrnate, hardness: 1, score: 0, solid: false, breakable: false, drop: 0, tint: [180, 80, 200] }),
   // ---- Expanded forest flora & ruin materials (reference photos) ----
   d({ id: FLOWER_TULIP_RED, name: 'Red Tulip', side: T.flowerTulipRed, hardness: 0.1, score: 3, solid: false, tint: [212, 42, 42] }),
   d({ id: FLOWER_TULIP_YELLOW, name: 'Yellow Tulip', side: T.flowerTulipYellow, hardness: 0.1, score: 3, solid: false, tint: [232, 198, 40] }),

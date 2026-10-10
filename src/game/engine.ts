@@ -46,6 +46,10 @@ import {
   QUARTZ,
   REWARD_PACK_DAILY,
   REWARD_PACK_WEEKLY,
+  REWARD_PACK_MONTHLY,
+  SHOP_CHEST_COMMON,
+  SHOP_CHEST_RARE,
+  SHOP_CHEST_EPIC,
   GRASS,
   LAVA,
   LEAVES,
@@ -5559,7 +5563,7 @@ if (tpClipActive > 0.5) {
           grantArmorSet('diamond', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
           break;
         case 'chest-common':
-          grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8], [CHEST_STORAGE, 1]]);
+          grantBlocks([[SHOP_CHEST_COMMON, 1]]);
           break;
         case 'chest-rare':
           grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2], [CHEST_STORAGE, 1]]);
@@ -5616,8 +5620,9 @@ if (tpClipActive > 0.5) {
   }
 
   openRewardedPack(itemId: number): boolean {
+    const isShopChest = itemId === SHOP_CHEST_COMMON || itemId === SHOP_CHEST_RARE || itemId === SHOP_CHEST_EPIC;
     const dropId = rewardedDropIdFromChestItem(itemId);
-    if (this.phase !== 'playing' || !dropId) {
+    if (this.phase !== 'playing' || (!dropId && !isShopChest)) {
       sfx.ui(false);
       return false;
     }
@@ -5627,8 +5632,70 @@ if (tpClipActive > 0.5) {
       return false;
     }
 
+    // Shop chests: fixed loot, no adDrop receipt needed
+    if (isShopChest) {
+      const inventoryBefore = new Map(this.inventory);
+      const hotbarBefore = this.hotbar.slice();
+      const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+      const bagBefore = this.bagItems.slice();
+      const toolsBefore = new Map(this.toolInstances);
+      const nextToolIdBefore = this.nextToolInstanceId;
+      const tierBefore = this.tier;
+      const swordTierBefore = this.swordTier;
+
+      const grantBlocks = (items: readonly (readonly [number, number])[]) => {
+        for (const [id, count] of items) {
+          if (!BLOCKS[id] || count <= 0) continue;
+          this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+          this.addToHotbar(id);
+        }
+      };
+
+      if (itemId === SHOP_CHEST_COMMON) {
+        grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8], [CHEST_STORAGE, 1]] as any);
+      } else if (itemId === SHOP_CHEST_RARE) {
+        grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2], [CHEST_STORAGE, 1]] as any);
+        this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 1, Math.random())));
+      } else if (itemId === SHOP_CHEST_EPIC) {
+        grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2], [CHEST_STORAGE, 2]] as any);
+        this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 2, Math.random())));
+      }
+
+      if (owned - 1 > 0) this.inventory.set(itemId, owned - 1);
+      else this.inventory.delete(itemId);
+      if ((this.inventory.get(itemId) ?? 0) <= 0) {
+        for (let i = 0; i < this.hotbar.length; i += 1) {
+          if (this.hotbar[i] === itemId) {
+            this.hotbar[i] = undefined;
+            this.hotbarInstanceIds[i] = undefined;
+          }
+        }
+      }
+      this.recalcOwnedToolTiers();
+      if (this.sandbox && !this.saveWorld(true)) {
+        this.inventory = inventoryBefore;
+        this.hotbar = hotbarBefore;
+        this.hotbarInstanceIds = hotbarInstancesBefore;
+        this.toolInstances = toolsBefore;
+        this.bagItems = bagBefore;
+        this.nextToolInstanceId = nextToolIdBefore;
+        this.tier = tierBefore;
+        this.swordTier = swordTierBefore;
+        this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+        this.syncHotbar(true);
+        this.syncHud(true);
+        return false;
+      }
+      const accent = itemId === SHOP_CHEST_COMMON ? '#c4a060' : itemId === SHOP_CHEST_RARE ? '#6ab0e0' : '#c080ff';
+      this.pushBanner(t('rewardPackOpenedTitle'), blockName(itemId, BLOCKS[itemId]?.name ?? ''), accent);
+      this.popup(this.pos.x, this.pos.y + 1.45, this.pos.z, t('rewardPackOpenedPopup'), accent, true);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return true;
+    }
+
     const mode = this.rewardedDropMode();
-    const opened = openRewardedDropPack(dropId, mode);
+    const opened = openRewardedDropPack(dropId!, mode);
     if (!opened.ok) {
       if (opened.reason === 'storage') this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
       else sfx.ui(false);
