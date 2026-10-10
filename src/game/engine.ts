@@ -2274,13 +2274,41 @@ if (tpClipActive > 0.5) {
     const sheetTex = new THREE.TextureLoader().load(sunSheetUrl, () => {
       this.sunSheetReady = true;
     });
-    sheetTex.repeat.set(1 / 6, 1 / 6);
     sheetTex.colorSpace = THREE.SRGBColorSpace;
     this.sunSheetTex = sheetTex;
-    const sheet = new THREE.Mesh(
-      new THREE.PlaneGeometry(46, 46),
-      new THREE.MeshBasicMaterial({ map: sheetTex, transparent: true, fog: false, depthWrite: false }),
-    );
+    // the disc's round silhouette is computed here, not taken from the texture's alpha: the frame
+    // cells are 1/6 of the sheet and the disc fills 79% of the plane, so the square never shows
+    const sheetMat = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: sheetTex },
+        cellOffset: { value: new THREE.Vector2(0, 0) },
+        cellScale: { value: 1 / 6 },
+        opacity: { value: 1 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform vec2 cellOffset;
+        uniform float cellScale;
+        uniform float opacity;
+        varying vec2 vUv;
+        void main() {
+          vec4 texel = texture2D(map, cellOffset + vUv * cellScale);
+          float d = length(vUv - 0.5);
+          float disc = 1.0 - smoothstep(0.385, 0.395, d);
+          gl_FragColor = vec4(texel.rgb, disc * opacity);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    });
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(46, 46), sheetMat);
     sheet.visible = false;
     sheet.frustumCulled = false;
     this.scene.add(sheet);
@@ -4710,7 +4738,7 @@ if (tpClipActive > 0.5) {
     const frame = Math.floor(this.time / 0.04) % 36;
     const col = frame % 6;
     const row = Math.floor(frame / 6);
-    this.sunSheetTex.offset.set(col / 6, 1 - (row + 1) / 6);
+    (this.sunSheetMesh.material as THREE.ShaderMaterial).uniforms.cellOffset.value.set(col / 6, 1 - (row + 1) / 6);
   }
   /** the sun sound loops only while the game is running: not in menus, pauses or game over */
   private syncSpecialSunSound() {
@@ -10985,7 +11013,7 @@ if (tpClipActive > 0.5) {
         this.sunSheetMesh.position.copy(this.sunMesh.position);
         this.sunSheetMesh.lookAt(this.camera.position);
         this.sunSheetMesh.visible = this.specialSun && this.sunMesh.visible && this.sunSheetReady;
-        (this.sunSheetMesh.material as THREE.MeshBasicMaterial).opacity = sunOpacity;
+        (this.sunSheetMesh.material as THREE.ShaderMaterial).uniforms.opacity.value = sunOpacity;
         // a small breathing pulse on top of the GIF's own animation
         this.sunSheetMesh.scale.setScalar(sc * (1 + 0.035 * Math.sin(this.time * 6)));
       }
