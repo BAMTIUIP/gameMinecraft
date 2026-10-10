@@ -311,11 +311,12 @@ import {
   suspendAudio,
   setMusicMood,
   setSpecialSunSound,
+  setSpecialSunLevel,
   type CreatureVoice,
   type VoiceState,
 } from './audio';
 import sunSheetUrl from './assets/sun/sun-sheet.webp';
-import sunSoundUrl from './assets/sun/Звук восхода Солнца в Рик и Морти.mp3';
+import sunSoundUrl from './assets/sun/sunrise-loop.mp3';
 
 export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
 
@@ -4714,9 +4715,20 @@ if (tpClipActive > 0.5) {
   /** the sun sound loops only while the game is running: not in menus, pauses or game over */
   private syncSpecialSunSound() {
     const want = this.specialSun && this.phase === 'playing';
-    if (want === this.sunSoundOn) return;
-    this.sunSoundOn = want;
-    setSpecialSunSound(want, sunSoundUrl);
+    if (want !== this.sunSoundOn) {
+      this.sunSoundOn = want;
+      setSpecialSunSound(want, sunSoundUrl);
+    }
+    if (this.sunSoundOn) setSpecialSunLevel(this.specialSunSoundLevel());
+  }
+  /** full volume when the sun is high, quieter near the horizon (sunrise/sunset), silent once it sets */
+  private specialSunSoundLevel() {
+    const smooth = (a: number, b: number, v: number) => {
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    const h = this.sunDir.y;
+    return smooth(-0.12, 0, h) * (0.35 + 0.65 * smooth(0, 0.5, h));
   }
 
   setFreeLook(v: boolean) {

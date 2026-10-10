@@ -814,6 +814,8 @@ let sunLoading: Promise<void> | null = null;
 let sunSrc: AudioBufferSourceNode | null = null;
 let sunGain: GainNode | null = null;
 const SUN_SOUND_LEVEL = 0.5;
+// 0..1 multiplier from the engine: follows the sun's height (quiet at sunrise/sunset, silent at night)
+let sunLevel = 1;
 
 function loadSunBuffer(): Promise<void> {
   if (sunBuf) return Promise.resolve();
@@ -838,7 +840,7 @@ async function startSunSource() {
   if (!sunWanted || muted || sunSrc || !sunBuf || !ctx || !master) return;
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, ctx.currentTime);
-  g.gain.linearRampToValueAtTime(SUN_SOUND_LEVEL, ctx.currentTime + 0.4);
+  g.gain.linearRampToValueAtTime(SUN_SOUND_LEVEL * sunLevel, ctx.currentTime + 0.4);
   const src = ctx.createBufferSource();
   src.buffer = sunBuf;
   src.loop = true;
@@ -870,4 +872,12 @@ export function setSpecialSunSound(on: boolean, url: string) {
   sunUrl = url;
   if (on) void startSunSource();
   else stopSunSource(0.3);
+}
+
+/** Engine hook: the sun sound's volume follows the sun (called every frame while the sound is on). */
+export function setSpecialSunLevel(level: number) {
+  const next = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
+  if (Math.abs(next - sunLevel) < 0.005) return;
+  sunLevel = next;
+  if (sunGain && ctx) sunGain.gain.setTargetAtTime(SUN_SOUND_LEVEL * sunLevel, ctx.currentTime, 0.25);
 }
