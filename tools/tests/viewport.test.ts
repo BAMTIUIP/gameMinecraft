@@ -119,6 +119,7 @@ const dispose = lockViewport();
 ok(htmlNode.style.overscrollBehavior === 'none', 'Прокрутка страницы отключается на html (overscroll-behavior)');
 ok(bodyNode.style.overscrollBehavior === 'none', 'И на body');
 ok((listeners.get('touchmove') ?? []).length === 1, 'Слушатель touchmove установлен один');
+ok((listeners.get('contextmenu') ?? []).length === 1, 'Контекстное меню отключается на всей странице игры');
 ok((listeners.get('touchmove') ?? [])[0]?.options === undefined || JSON.stringify((listeners.get('touchmove') ?? [])[0]?.options) === '{"passive":false}', 'Слушатель не passive — preventDefault сработает', JSON.stringify((listeners.get('touchmove') ?? [])[0]?.options));
 
 const fire = (event: string, payload: Record<string, unknown>) => {
@@ -134,9 +135,11 @@ ok(
 );
 ok(!fire('touchmove', { target: row, touches: [{}] }), 'Свайп внутри игровой панели не гасится и там работает своя прокрутка');
 ok(fire('gesturestart', {}) && fire('gesturechange', {}), 'Жесты масштабирования Safari гасятся');
+ok(fire('contextmenu', {}), 'Контекстное меню предотвращается на всей странице');
 
 dispose();
-ok((listeners.get('touchmove') ?? []).length === 0, 'Отключение снимает обработчики');
+ok((listeners.get('touchmove') ?? []).length === 0, 'Отключение снимает обработчик touchmove');
+ok((listeners.get('contextmenu') ?? []).length === 0, 'Отключение снимает обработчик contextmenu');
 
 /* ---- 3. the layout rules in the sources ---- */
 
@@ -145,6 +148,7 @@ ok(/html,\s*body,\s*#root\s*\{[^}]*overflow:\s*hidden/s.test(css), 'Страни
 ok(/overscroll-behavior:\s*none/.test(css), 'Swipe-to-refresh выключен в CSS (overscroll-behavior: none)');
 ok(/height:\s*100dvh/.test(css), 'Высота считается в dvh — мобильная адресная строка не обрезает интерфейс');
 ok(/canvas\s*\{[^}]*touch-action:\s*none/s.test(css), 'На игровом поле жесты прокрутки и масштаба запрещены (touch-action: none)');
+ok(/-webkit-touch-callout:\s*none/.test(css), 'Долгое нажатие не открывает системный iOS callout');
 
 const main = readFileSync(path.join(root, 'src/main.tsx'), 'utf8');
 ok(/lockViewport\(\)/.test(main), 'Защита от свайпа включается при запуске игры');
@@ -154,8 +158,15 @@ ok(/clientWidth \|\| window\.innerWidth/.test(engine) && /renderer\.setSize/.tes
 
 const screens = readFileSync(path.join(root, 'src/ui/Screens.tsx'), 'utf8');
 ok((screens.match(/<FitBox/g) ?? []).length >= 2, 'Стартовое меню и экран итогов ужимаются под окно (FitBox)');
+const fitBox = readFileSync(path.join(root, 'src/ui/FitBox.tsx'), 'utf8');
+ok(/outer\.classList\.contains\('menu-fitbox'\)[\s\S]*min-width: 640px[\s\S]*max-height: 520px/.test(fitBox), 'Короткое альбомное меню шириной от 640px сохраняет сенсорные кнопки без масштабирующего FitBox');
+ok(/menu-daily[^`]*min-h-\[54px\]/s.test(screens), 'Кнопка дневной награды имеет высоту touch target не меньше 44px');
+ok((screens.match(/h-9 min-h-\[54px\] min-w-\[84px\]/g) ?? []).length >= 2, 'Кнопки покупки в меню и магазине имеют touch target не меньше 44px');
+ok(/inline-flex min-h-\[54px\] max-w-full/.test(screens), 'Кнопка отключения рекламы имеет touch target не меньше 44px');
+ok(/notch min-h-\[54px\] flex-1 px-2 py-1/.test(screens), 'Вкладки лидерборда имеют touch target не меньше 44px');
 ok(/menu-grid/.test(screens) && /menu-aside/.test(screens), 'Меню помечено классами адаптивной раскладки');
 ok(/menu-guide/.test(screens), 'Подсказки в меню помечены и уступают место на узких экранах (menu-guide)');
+ok(/menu-fitbox/.test(screens) && /\.menu-fitbox\s*\{[^}]*padding-block:\s*0\.375rem/s.test(readFileSync(path.join(root, 'src/index.css'), 'utf8')), 'На коротком альбомном экране внешний отступ FitBox уменьшается вместо сжатия кнопок');
 
 const layoutCss = readFileSync(path.join(root, 'src/index.css'), 'utf8');
 ok(/\.hotbar-row\s*\{[^}]*width:\s*min\(/s.test(layoutCss), 'Хотбар занимает доступную ширину (десять слотов не вылезают за экран)');
@@ -167,6 +178,8 @@ ok(/max-width:\s*700px/.test(layoutCss), 'Для узких экранов ес�
 ok(/@media \(orientation: portrait\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*flex-direction: column-reverse/.test(layoutCss), 'На сенсорном телефоне в портрете хотбар выстраивается слева, слот 1 остаётся снизу');
 ok(/@media \(orientation: landscape\)[\s\S]*\.hud-touch \.hud-hotbar[\s\S]*width: min\(calc\(100vw - 23rem\)/.test(layoutCss), 'В альбомной ориентации хотбар занимает центральный ряд между сенсорными блоками');
 ok(/\.shop-dialog[\s\S]*height: min\(92dvh/.test(layoutCss) && /\.shop-catalog[\s\S]*flex: 1 1 0[\s\S]*overflow: hidden/.test(layoutCss) && /\.shop-carousel[\s\S]*scroll-snap-type: x mandatory[\s\S]*touch-action: pan-x/.test(layoutCss) && /\.shop-category-button/.test(layoutCss), 'Магазин держит категории снизу и листает карточки по горизонтали');
+ok(/\.shop-dialog \.shop-quick-banner \{ display: none; \}/.test(layoutCss), 'В коротком альбомном магазине убран дублирующий быстрый товар, чтобы карточки не схлопывались');
+ok(/carousel\.scrollTo\(\{ left, behavior: 'auto' \}\)/.test(screens), 'Стрелка каталога листает карточки без зависящей от WebView анимации');
 
 const inventory = readFileSync(path.join(root, 'src/ui/Inventory.tsx'), 'utf8');
 ok(/recipe-card[^`]*flex-wrap/.test(inventory) && /recipe-costs[^`]*flex-wrap/.test(inventory) && /recipe-craft/.test(inventory), 'Карточки крафта переносят ресурсы и кнопку на узкой ширине');

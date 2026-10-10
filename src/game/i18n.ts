@@ -452,6 +452,10 @@ const EN = {
   lockNote:
     'If the browser blocks pointer lock, free-look takes over: just move the mouse — the further from the centre, the faster the camera turns.',
   // loading
+  webglUnavailableTitle: 'WebGL 2 is not supported',
+  webglUnavailableBody: 'This game needs WebGL 2, but it could not start in this browser or on this device.',
+  webglUnavailableHelp: 'Update your browser, enable hardware acceleration, or try a device that supports WebGL 2.',
+  webglUnavailableRetry: 'RELOAD GAME',
   carving: 'CARVING WORLD',
   loadSub: 'INFINITE WORLD · CHUNKS STREAM IN AS YOU WALK',
   stTerrain: 'RAISING TERRAIN',
@@ -1267,6 +1271,10 @@ const RU: Dict = {
   hopBlock: 'Запрыгнуть на блок',
   lockNote:
     'Если браузер блокирует захват курсора, включается свободный обзор: просто води мышью — чем дальше от центра, тем быстрее поворот.',
+  webglUnavailableTitle: 'WebGL 2 не поддерживается',
+  webglUnavailableBody: 'Для этой игры нужен WebGL 2, но браузер или устройство не смогли его запустить.',
+  webglUnavailableHelp: 'Обновите браузер, включите аппаратное ускорение или попробуйте устройство с поддержкой WebGL 2.',
+  webglUnavailableRetry: 'ПЕРЕЗАПУСТИТЬ ИГРУ',
   carving: 'СОЗДАНИЕ МИРА',
   loadSub: 'БЕСКОНЕЧНЫЙ МИР · ЧАНКИ ПОДГРУЖАЮТСЯ НА ХОДУ',
   stTerrain: 'ПОДНИМАЕМ РЕЛЬЕФ',
@@ -2064,6 +2072,10 @@ const FR: Dict = {
   hopBlock: 'Franchir un bloc',
   lockNote:
     "Si le navigateur bloque le verrouillage du pointeur, la vue libre prend le relais : bougez la souris — plus loin du centre, plus la caméra tourne vite.",
+  webglUnavailableTitle: 'WebGL 2 non pris en charge',
+  webglUnavailableBody: 'Ce jeu nécessite WebGL 2, mais ce navigateur ou cet appareil ne peut pas le démarrer.',
+  webglUnavailableHelp: 'Mettez votre navigateur à jour, activez l’accélération matérielle ou essayez un appareil compatible avec WebGL 2.',
+  webglUnavailableRetry: 'RECHARGER LE JEU',
   carving: 'CRÉATION DU MONDE',
   loadSub: 'MONDE INFINI · LES TRONÇONS ARRIVENT EN MARCHANT',
   stTerrain: 'ÉLÉVATION DU RELIEF',
@@ -2861,6 +2873,10 @@ const DE: Dict = {
   hopBlock: 'Auf einen Block springen',
   lockNote:
     'Falls der Browser die Maus-Sperre blockiert, übernimmt die freie Sicht: einfach die Maus bewegen — je weiter vom Zentrum, desto schneller dreht die Kamera.',
+  webglUnavailableTitle: 'WebGL 2 wird nicht unterstützt',
+  webglUnavailableBody: 'Dieses Spiel benötigt WebGL 2, kann es in diesem Browser oder auf diesem Gerät aber nicht starten.',
+  webglUnavailableHelp: 'Aktualisiere deinen Browser, aktiviere die Hardwarebeschleunigung oder verwende ein Gerät mit WebGL-2-Unterstützung.',
+  webglUnavailableRetry: 'SPIEL NEU LADEN',
   carving: 'WELT WIRD GESCHAFFEN',
   loadSub: 'UNENDLICHE WELT · CHUNKS LADEN BEIM GEHEN',
   stTerrain: 'GELÄNDE WIRD GEHOBEN',
