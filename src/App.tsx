@@ -51,10 +51,10 @@ import {
   watchAndClaimRewardedDrop,
   type RewardedDropId,
 } from './game/adDrops';
-import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
+import { completePendingShopRewards, pendingShopProductRewards, pendingShopProductRewardsForMode, completePendingShopRewardsForMode } from './game/shopRewards';
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
-import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
+import { grantDeveloperShopProduct, setDeveloperShopEnabled, developerShopClaims, developerShopClaimsForMode, completeDeveloperShopClaimsForMode, isDeveloperShopEnabled } from './game/devShop';
 import { CAT_PET_PRODUCT_ID, hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
@@ -104,10 +104,25 @@ function coopSink(engine: Engine): CoopSink {
 function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (!engine) return;
   engine.syncRewardedPackTokens(rewardedDropChestEntries(engine.rewardedDropMode()));
-  const purchases = pendingShopProductRewards();
-  if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewards(purchases.keys);
+  const mode = engine.sandbox ? 'own-world' as const : (engine as any).survival ? 'survival' as const : 'exploration' as const;
+  const purchases = pendingShopProductRewardsForMode(mode);
+  if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewardsForMode(purchases.keys, mode);
+  // Fallback for old receipts without mode tracking
+  const legacyPurchases = pendingShopProductRewards();
+  if (legacyPurchases && engine.grantShopProductRewards(legacyPurchases.products)) completePendingShopRewards(legacyPurchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
   if (pending && engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
+  // Dev shop: one-time items (all except pets) available once per run type (survival, exploration, own-world)
+  // In own-world they remain forever after save, in other modes they disappear after run
+  if (isDeveloperShopEnabled()) {
+    const devClaimsForMode = developerShopClaimsForMode(mode);
+    const nonPetClaims = devClaimsForMode.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
+    if (nonPetClaims.length) {
+      if (engine.grantShopProductRewards(nonPetClaims)) {
+        completeDeveloperShopClaimsForMode(nonPetClaims, mode);
+      }
+    }
+  }
 }
 
 const INITIAL_HUD: HudState = {
@@ -185,6 +200,27 @@ const INITIAL_HUD: HudState = {
 };
 
 export default function App() {
+  // QA reset: if URL has ?reset=1 or ?clearShop, clear all purchases as if no purchases yet
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('reset') || params.has('clearShop')) {
+        const { clearDeveloperShopClaims } = require('./game/devShop') as any;
+        const { resetRewardedDropState } = require('./game/adDrops') as any;
+        const { resetShopRewards } = require('./game/shopRewards') as any;
+        const { resetPetsForTests } = require('./game/pets') as any;
+        clearDeveloperShopClaims?.();
+        resetRewardedDropState?.();
+        resetShopRewards?.();
+        resetPetsForTests?.();
+        localStorage.removeItem('orerush.dev-shop.claims.v1');
+        localStorage.removeItem('orerush.shop-rewards.v1');
+        localStorage.removeItem('orerush.rewarded-drops.v1');
+        localStorage.removeItem('orerush.pets.v1');
+        console.log('[QA] All shop purchases reset via URL param');
+      }
+    } catch {}
+  }, []);
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const domRef = useRef<DomRefs>({});
@@ -982,7 +1018,32 @@ export default function App() {
   /** Buy a shop SKU directly through the Yandex Games payment catalogue. */
   const buyInGameShopItem = useCallback(async (productId: string): Promise<ShopItemBuyResult> => {
     const result = await buyShopProduct(productId);
-    if ((productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) && result.ok) refreshPetOwnership();
+    if (result.ok) {
+      if ([WOLF_PET_PRODUCT_ID, CAT_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID].includes(productId)) {
+        refreshPetOwnership();
+      } else {
+        // Only grant immediately if in a run; if bought in main menu, leave receipt pending for next run start
+        const eng = engineRef.current as any;
+        const inRun = eng && (eng.phase === 'playing' || eng.phase === 'paused');
+        if (inRun) {
+          eng.grantShopProductRewards([productId as any]);
+          // Mark as used for current run type so next run in same mode doesn't grant again unless re-bought
+          try {
+            const mode = eng?.sandbox ? 'own-world' as const : eng?.survival ? 'survival' as const : 'exploration' as const;
+            const { pendingShopProductRewardsForMode, completePendingShopRewardsForMode } = await import('./game/shopRewards');
+            const pending = pendingShopProductRewardsForMode(mode);
+            if (pending) {
+              const keysForProduct = pending.keys.filter((_, idx) => pending.products[idx] === productId);
+              if (keysForProduct.length) {
+                const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(productId);
+                const keysToComplete = isBooster ? [keysForProduct[0]] : keysForProduct;
+                completePendingShopRewardsForMode(keysToComplete, mode);
+              }
+            }
+          } catch {}
+        }
+      }
+    }
     return result;
   }, [refreshPetOwnership]);
 
@@ -1009,14 +1070,52 @@ export default function App() {
 
   /** A shop drop is committed only after the SDK confirms the rewarded video was counted. */
   const claimShopDrop = useCallback(async (dropId: RewardedDropId) => {
-    return watchAndClaimRewardedDrop(dropId);
+    const result = await watchAndClaimRewardedDrop(dropId);
+    if (result.ok) {
+      // Immediately sync chest tokens so they appear in inventory without needing a new run
+      const { rewardedDropChestEntries } = await import('./game/adDrops');
+      engineRef.current?.syncRewardedPackTokens(rewardedDropChestEntries(engineRef.current?.rewardedDropMode() as any ?? 'exploration'));
+    }
+    return result;
   }, []);
 
   /** Temporary local grant path for the developer shop; never opens or calls a payment flow. */
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!DEVELOPER_TOOLS_ENABLED || isTvRef.current || tvMode()) return false;
-    const granted = grantDeveloperShopProduct(productId);
-    if (productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) refreshPetOwnership();
+    const isPet = [WOLF_PET_PRODUCT_ID, CAT_PET_PRODUCT_ID, MONKEY_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID].includes(productId);
+    // Pets are one-time, everything else (chests, armor, pickaxe, boosters, daily/weekly/monthly) is repeatable for infinite buying
+    const granted = grantDeveloperShopProduct(productId, !isPet);
+    if (granted) {
+      // Immediately deliver the claimed product into the running world (pickaxe, chests, armor etc)
+      // For free drops (daily/weekly/monthly) we need to create pack receipt, not just grant blocks
+      if (['drop-daily', 'drop-weekly', 'drop-monthly'].includes(productId)) {
+        // Direct claim without ad for dev mode — creates chest token
+        const { claimRewardedDrop } = await import('./game/adDrops');
+        const res = claimRewardedDrop(productId as any);
+        if (res.ok) {
+          engineRef.current?.syncRewardedPackTokens((await import('./game/adDrops')).rewardedDropChestEntries(engineRef.current?.rewardedDropMode() as any ?? 'exploration'));
+        }
+      } else {
+        // Only grant immediately if we are in a run; if bought in main menu, leave receipt pending for next run start
+        const eng = engineRef.current as any;
+        const inRun = eng && (eng.phase === 'playing' || eng.phase === 'paused');
+        if (inRun) {
+          eng.grantShopProductRewards([productId]);
+          // Mark as used for current run type so next run in same mode doesn't grant again unless re-bought
+          // One-time items are available once per run type (survival, exploration, own-world)
+          const mode = eng?.sandbox ? 'own-world' as const : eng?.survival ? 'survival' as const : 'exploration' as const;
+          if (!isPet) {
+            try {
+              completeDeveloperShopClaimsForMode([productId], mode);
+            } catch {}
+          }
+        }
+      }
+      if (isPet) {
+        refreshPetOwnership();
+      }
+      engineRef.current?.pushBanner?.(t('devShopGranted').replace('{item}', productId), t('shopItemBannerSub'), '#f4b942');
+    }
     return granted;
   }, [refreshPetOwnership]);
 

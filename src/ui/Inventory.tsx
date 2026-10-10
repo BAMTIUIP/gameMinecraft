@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { HudState } from '../game/engine';
 import {
   RECIPES,
@@ -13,7 +13,7 @@ import {
   getSalvageForGear,
   type InvCategory,
 } from '../game/recipes';
-import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW, isArrowId, isMeatItem } from '../game/blocks';
+import { BLOCKS, PICKAXE_TIERS, ARROW_ITEM, STONE_ARROW, IRON_ARROW, GOLD_ARROW, NETHERITE_ARROW, FIRE_ARROW, POISON_ARROW, FREEZE_ARROW, STUN_ARROW, isArrowId, isMeatItem, isInventoryBlockId } from '../game/blocks';
 import { getBlockIcon } from '../game/textures';
 import { BagIcon, CloseIcon } from './icons';
 import { AFFIXES, gearColor, gearSellPrice, isGearHotbarId, MATERIALS, RARITY, SLOTS, SLOT_KEY, type Item, type Slot } from '../game/items';
@@ -23,6 +23,7 @@ import { getToolSpec, toolRepairCost } from '../game/tools';
 import { DurabilityBar, ToolSprite } from './ToolSprite';
 import { CAT_COATS, MONKEY_COATS, OWL_COATS, PARROT_COATS, WOLF_COATS, type PetKind } from '../game/pets';
 import { isRewardedDropChestItem } from '../game/adDrops';
+import { SHOP_CHEST_COMMON, SHOP_CHEST_RARE, SHOP_CHEST_EPIC } from '../game/blocks';
 import { CatIcon } from './CatIcon';
 import { MonkeyIcon } from './MonkeyIcon';
 import { OwlIcon } from './OwlIcon';
@@ -208,8 +209,36 @@ export default function Inventory({
   const petDisplayOwned = hud.petOwnedKinds.includes(petDisplayKind);
   const petDisplayCoatIndex = hud.petCoatIndices[petDisplayKind];
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const handleDragAutoScroll = (e: React.DragEvent) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const edge = 140;
+    const speed = 18;
+    if (e.clientY > rect.bottom - edge) {
+      el.scrollTop += speed;
+    } else if (e.clientY < rect.top + edge) {
+      el.scrollTop -= speed;
+    }
+  };
+
   return (
-    <div className="inventory-screen absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px]">
+    <div
+      ref={scrollRef}
+      className="inventory-screen absolute inset-0 z-30 overflow-y-auto overscroll-contain bg-pit-950/85 backdrop-blur-[3px] touch-pan-y"
+      onDragOver={(e) => {
+        e.preventDefault();
+        handleDragAutoScroll(e);
+      }}
+      onWheel={(e) => {
+        // allow wheel to scroll even while dragging — native scroll already works, but ensure it bubbles
+        const el = scrollRef.current;
+        if (el && e.deltaY !== 0) {
+          // let native scroll happen; no preventDefault
+        }
+      }}
+    >
       <div className="pointer-events-none absolute inset-0 grain opacity-30" />
       <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-5xl flex-col p-2 sm:p-6">
         {/* ---------- header ---------- */}
@@ -261,11 +290,12 @@ export default function Inventory({
         <div className="grid flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_1.55fr]">
           {/* ---------- general inventory + equipment + hotbar ---------- */}
           <div
-            className="anim-rise bevel-flat notch flex flex-col p-3 lg:col-span-2"
+            className="anim-rise bevel-flat notch flex max-h-[85vh] flex-col overflow-y-auto overscroll-contain p-3 lg:col-span-2 touch-pan-y"
             style={{ animationDelay: '60ms' }}
             onDragOver={(e) => {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
+              handleDragAutoScroll(e);
             }}
             onDrop={(e) => {
               const data = e.dataTransfer.getData('text/plain');
@@ -365,7 +395,7 @@ export default function Inventory({
                   const inBar = hud.hotbar.some((h) => h !== null && (spec ? h.instanceId === it.instanceId : h.id === it.id));
                   const label = isTool ? toolLabel(it.id) : (meatItemLabel(it.id) ?? blockName(it.id, BLOCKS[it.id]?.name ?? ''));
                   const condition = spec ? `${it.durability ?? spec.maxDurability}/${spec.maxDurability || '∞'}` : '';
-                  const rewardPack = isRewardedDropChestItem(it.id);
+                  const rewardPack = isRewardedDropChestItem(it.id) || it.id === SHOP_CHEST_COMMON || it.id === SHOP_CHEST_RARE || it.id === SHOP_CHEST_EPIC;
                   const details = itemDetails(it.id, { count: it.count, durability: it.durability, maxDurability: it.maxDurability });
                   return (
                     <button
@@ -471,7 +501,7 @@ export default function Inventory({
                         boxShadow: `inset 2px 2px 0 rgba(255,255,255,.1), 0 0 10px ${rar.color}22`,
                       }}
                     >
-                      <GearIcon slot={it.slot} color={armorTint} size={30} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
+                      <GearIcon slot={it.slot} color={armorTint} affixes={it.affixes} size={30} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
                       <span className="mt-0.5 max-w-full truncate font-display text-[8px] leading-none" style={{ color: rar.color }}>
                         {t(SLOT_KEY[it.slot])}
                       </span>
@@ -559,7 +589,7 @@ export default function Inventory({
                         title={it ? t('unequip') : t('emptySlot')}
                       >
                         <div className="flex min-w-0 items-center gap-1">
-                          {it && <GearIcon slot={it.slot} color={gearColor(it)} size={20} className="shrink-0" />}
+                          {it && <GearIcon slot={it.slot} color={gearColor(it)} affixes={it.affixes} size={20} className="shrink-0" />}
                           <div className="min-w-0">
                             <div className="font-display text-[9px] tracking-wider text-white/40">{t(SLOT_KEY[slot])}</div>
                             <div className="truncate font-display text-[11px] leading-tight" style={{ color: it ? gearColor(it) : '#3f4c44' }}>
@@ -663,8 +693,8 @@ export default function Inventory({
                 </div>
               )}
 
-              {/* ---------- hotbar management: 10 quick slots (sparse, drag & drop) ---------- */}
-              <div className="mt-3 border-t border-white/10 pt-2.5">
+              {/* ---------- hotbar management: 10 quick slots (sparse, drag & drop) — sticky so reachable when inventory overflows ---------- */}
+              <div className="mt-3 border-t border-white/10 pt-2.5 sticky bottom-0 z-20 -mx-3 bg-pit-950/92 px-3 pb-3 pt-3 backdrop-blur-[4px] shadow-[0_-8px_24px_rgba(0,0,0,0.45)]">
                 <div className="mb-1.5 flex items-baseline justify-between">
                   <span className="font-display text-xs tracking-widest text-torch">{t('hotbarTitle')}</span>
                   <span className="font-display text-[10px] text-white/40">
@@ -690,6 +720,7 @@ export default function Inventory({
                           e.preventDefault();
                           e.stopPropagation();
                           e.dataTransfer.dropEffect = 'move';
+                          handleDragAutoScroll(e);
                         }}
                         onDrop={(e) => {
                           e.preventDefault();
@@ -741,6 +772,7 @@ export default function Inventory({
                                 <GearIcon
                                   slot={gearInSlot.slot}
                                   color={gearColor(gearInSlot)}
+                                  affixes={gearInSlot.affixes}
                                   size={34}
                                   className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]"
                                 />
@@ -781,7 +813,7 @@ export default function Inventory({
                               className="absolute bottom-1 left-1 right-1 h-[2px]"
                             />
                           )}
-                          {slot && (slot.id < 200 || isArrowId(slot.id) || isMeatItem(slot.id)) && slot.id !== HAND && (
+                          {slot && isInventoryBlockId(slot.id) && slot.id !== HAND && (
                             <span className="absolute bottom-0 right-0.5 font-display text-[8px] leading-none text-white text-shadow-hard">
                               {slot.count}
                             </span>
@@ -1016,6 +1048,7 @@ function WorkbenchDismantlePanel({
                 <GearIcon
                   slot={resolvedGear.slot}
                   color={gearColor(resolvedGear)}
+                  affixes={resolvedGear.affixes}
                   size={44}
                   className="drop-shadow-[0_0_8px_rgba(255,255,255,.18)]"
                 />
@@ -1295,7 +1328,7 @@ function TradePanel({
   onSellTool: (id: number, instanceId?: number) => void;
   onSellGear: (uid: string) => void;
 }) {
-  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && (it.id < 200 || isArrowId(it.id) || isMeatItem(it.id)));
+  const sellable = hud.inventory.filter((it) => it.count > 0 && !isRewardedDropChestItem(it.id) && it.id !== SHOP_CHEST_COMMON && it.id !== SHOP_CHEST_RARE && it.id !== SHOP_CHEST_EPIC && isInventoryBlockId(it.id));
   const tools = hud.inventory.filter((it) => isToolId(it.id));
   return (
     <div className="flex flex-col gap-3 overflow-y-auto pr-1">

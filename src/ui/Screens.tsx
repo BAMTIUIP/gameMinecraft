@@ -10,14 +10,17 @@ import type { LeaderboardView } from '../game/leaderboard';
 import { FitBox } from './FitBox';
 import { GAME_NAME_LINES } from '../game/brand';
 import { AD_FREE_PRODUCT_ID, type ShopCatalog, type ShopItemBuyResult } from '../game/shop';
-import { developerShopClaims } from '../game/devShop';
+import { developerShopClaims, clearDeveloperShopClaims, isDeveloperShopEnabled } from '../game/devShop';
+import { resetRewardedDropState } from '../game/adDrops';
+import { resetShopRewards } from '../game/shopRewards';
+import { resetPetsForTests } from '../game/pets';
 import { dailyReward, dailySecondsUntilReset } from '../game/daily';
 import { yaServerTime } from '../game/yandex';
 import { CHARACTER_COLORS, CHARACTER_EXPRESSIONS, CHARACTER_GLASSES, CHARACTER_HAIRSTYLES as SUPPORTED_HAIRSTYLES, type CharacterCustomization, type CharacterExpression, type CharacterGender, type CharacterGlasses, type CharacterHairstyle, type CharacterShoeType } from '../game/character';
 import { characterFacePixels } from '../game/characterVisuals';
 import { fullscreenAvailable } from '../game/params';
 import { BLOCKS } from '../game/blocks';
-import { isRewardedDrop, rewardedDropStatuses, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
+import { isRewardedDrop, rewardedDropStatuses, claimRewardedDrop, type RewardedDropClaimResult, type RewardedDropId } from '../game/adDrops';
 import { ShopArtwork } from './ShopArtwork';
 import {
   BagIcon,
@@ -161,20 +164,16 @@ function shopTabForProduct(product: ShopProduct | undefined): ShopFilter {
 }
 
 const SHOP_PRODUCTS: readonly ShopProduct[] = [
-  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
-  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
-  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
-  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
-  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
+  { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
+  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '▣', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
+
   { id: 'pet-wolf', category: 'pets', titleKey: 'shopPetWolfTitle', descriptionKey: 'shopPetWolfDesc', icon: '🐺', accent: '#c59b66', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-cat', category: 'pets', titleKey: 'shopPetCatTitle', descriptionKey: 'shopPetCatDesc', icon: '🐱', accent: '#d98a57', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-monkey', category: 'pets', titleKey: 'shopPetMonkeyTitle', descriptionKey: 'shopPetMonkeyDesc', icon: '🐒', accent: '#bf8c56', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-parrot', category: 'pets', titleKey: 'shopPetParrotTitle', descriptionKey: 'shopPetParrotDesc', icon: '🦜', accent: '#4bc7a2', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
   { id: 'pet-owl', category: 'pets', titleKey: 'shopPetOwlTitle', descriptionKey: 'shopPetOwlDesc', icon: '🦉', accent: '#d9a74a', badgeKey: 'shopPermanentBadge', anyMode: true, accountBound: true },
 
-  { id: 'drop-daily', category: 'drops', titleKey: 'shopDailyStarterTitle', descriptionKey: 'shopDailyStarterDesc', icon: '▣', accent: '#f4b942', freeDrop: true, badgeKey: 'shopDaily' },
-  { id: 'drop-weekly', category: 'drops', titleKey: 'shopWeeklyDropTitle', descriptionKey: 'shopWeeklyDropDesc', icon: '✦', accent: '#62e8dc', freeDrop: true, badgeKey: 'shopWeekly' },
-  { id: 'drop-monthly', category: 'drops', titleKey: 'shopMonthlyDropTitle', descriptionKey: 'shopMonthlyDropDesc', icon: '▣', accent: '#bd8cff', freeDrop: true, badgeKey: 'shopMonthly', rarityKey: 'shopRarityEpic' },
   { id: 'chest-common', category: 'drops', titleKey: 'shopChestCommonTitle', descriptionKey: 'shopChestCommonDesc', icon: '▣', accent: '#9ca9ba', rarityKey: 'shopRarityCommon' },
   { id: 'chest-rare', category: 'drops', titleKey: 'shopChestRareTitle', descriptionKey: 'shopChestRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
   { id: 'chest-epic', category: 'drops', titleKey: 'shopChestEpicTitle', descriptionKey: 'shopChestEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
@@ -182,6 +181,12 @@ const SHOP_PRODUCTS: readonly ShopProduct[] = [
   { id: 'booster-start', category: 'boosters', titleKey: 'shopBoosterStartTitle', descriptionKey: 'shopBoosterStartDesc', icon: '⚡', accent: '#f4b942', badgeKey: 'shopNextRunBadge' },
   { id: 'booster-ore', category: 'boosters', titleKey: 'shopBoosterOreTitle', descriptionKey: 'shopBoosterOreDesc', icon: '⛏', accent: '#62e8dc', badgeKey: 'shopNextRunBadge' },
   { id: 'booster-score', category: 'boosters', titleKey: 'shopBoosterScoreTitle', descriptionKey: 'shopBoosterScoreDesc', icon: '✦', accent: '#bd8cff', badgeKey: 'shopNextRunBadge' },
+
+  { id: 'armor-uncommon', category: 'gear', titleKey: 'shopArmorUncommonTitle', descriptionKey: 'shopArmorUncommonDesc', icon: '▣', accent: '#75c884', rarityKey: 'shopRarityCommon' },
+  { id: 'armor-rare', category: 'gear', titleKey: 'shopArmorRareTitle', descriptionKey: 'shopArmorRareDesc', icon: '▣', accent: '#6ca7ff', rarityKey: 'shopRarityRare' },
+  { id: 'armor-epic', category: 'gear', titleKey: 'shopArmorEpicTitle', descriptionKey: 'shopArmorEpicDesc', icon: '▣', accent: '#bd8cff', rarityKey: 'shopRarityEpic' },
+  { id: 'netherite-pickaxe', category: 'gear', titleKey: 'shopNetheritePickaxeTitle', descriptionKey: 'shopNetheritePickaxeDesc', icon: '⛏', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
+  { id: 'netherite-armor', category: 'gear', titleKey: 'shopNetheriteArmorTitle', descriptionKey: 'shopNetheriteArmorDesc', icon: '▣', accent: '#edaa77', rarityKey: 'shopRarityLegendary' },
 ];
 
 function ScoreTable({ scores, highlight }: { scores: ScoreEntry[]; highlight?: string }) {
@@ -650,6 +655,7 @@ export function StartScreen({
           t('dailyStreak').replace('{n}', String(daily.streak)),
         ].join(' · ');
   const adFreePrice = shopPrices.get(AD_FREE_PRODUCT_ID);
+  const rewardedDrops = rewardedDropStatuses(clockNow);
   // Requirement 1.13.6: a real-money offer must exist in the active Yandex catalogue. Do not show
   // stale/inactive Console SKUs as disabled pseudo-offers; outside Yandex the shop remains a preview.
   const visibleShopProducts = useMemo(
@@ -658,48 +664,76 @@ export function StartScreen({
     ),
     [shopMode, paymentsAvailable, shopPrices],
   );
-  const filteredShopProducts = useMemo(
+  const filteredShopProductsBase = useMemo(
     () => visibleShopProducts.filter((product) => productMatchesShopTab(product, shopTab)),
     [visibleShopProducts, shopTab],
   );
-  const rewardedDrops = rewardedDropStatuses(clockNow);
+  // Sort: purchasable first (daily/weekly/monthly when available pop to front, claimed fall to end), then by custom order
+  const filteredShopProducts = useMemo(() => {
+    const orderIndex = new Map(SHOP_PRODUCTS.map((p, i) => [p.id, i] as const));
+    const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
+    const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
+    const getPurchasable = (product: typeof SHOP_PRODUCTS[number]) => {
+      const devAlreadyClaimed = devClaims.includes(product.id);
+      const alreadyOwned = product.id === 'pet-wolf' ? wolfPetOwned : product.id === 'pet-cat' ? catPetOwned : product.id === 'pet-monkey' ? monkeyPetOwned : product.id === 'pet-parrot' ? parrotPetOwned : product.id === 'pet-owl' && owlPetOwned;
+      if (isPet(product.id)) return !alreadyOwned && !devAlreadyClaimed;
+      if (isBooster(product.id)) return !devAlreadyClaimed;
+      if (isRewardedDrop(product.id)) {
+        const status = rewardedDrops[product.id as RewardedDropId];
+        return Boolean(status?.available);
+      }
+      // Infinite: chests, armor, tools — always purchasable
+      return !alreadyOwned;
+    };
+    return [...filteredShopProductsBase].sort((a, b) => {
+      const aPurch = getPurchasable(a) ? 0 : 1;
+      const bPurch = getPurchasable(b) ? 0 : 1;
+      if (aPurch !== bPurch) return aPurch - bPurch;
+      return (orderIndex.get(a.id) ?? 999) - (orderIndex.get(b.id) ?? 999);
+    });
+  }, [filteredShopProductsBase, devClaims, rewardedDrops, wolfPetOwned, catPetOwned, monkeyPetOwned, parrotPetOwned, owlPetOwned]);
 
   const centerShopCard = (carousel: HTMLElement, card: HTMLElement) => {
-    const carouselRect = carousel.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const delta = cardRect.left + cardRect.width / 2 - (carouselRect.left + carousel.clientWidth / 2);
-    carousel.scrollLeft += delta;
+    const left = card.offsetLeft - (carousel.clientWidth - card.clientWidth) / 2;
+    carousel.scrollTo({ left, behavior: 'smooth' });
   };
 
   useEffect(() => {
-    const products = visibleShopProducts.filter((product) => productMatchesShopTab(product, shopTab));
+    if (!showShop) return;
+    const products = filteredShopProducts;
     const targetIndex = products.findIndex((product) => product.id === promoProductId);
+    if (targetIndex < 0) return;
     const frame = window.requestAnimationFrame(() => {
       const carousel = shopCarouselRef.current;
       if (!carousel) return;
-      if (targetIndex >= 0) {
-        const promotedCard = carousel.querySelector<HTMLElement>(`[data-shop-product="${products[targetIndex].id}"]`);
-        if (promotedCard) centerShopCard(carousel, promotedCard);
-        setActiveShopCard(targetIndex);
-      } else {
-        carousel.scrollTo({ left: 0, behavior: 'auto' });
-        setActiveShopCard(0);
-      }
+      const promotedCard = carousel.querySelector<HTMLElement>(`[data-shop-product="${products[targetIndex].id}"]`);
+      if (promotedCard) centerShopCard(carousel, promotedCard);
+      setActiveShopCard(targetIndex);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [visibleShopProducts, shopTab, promoProductId, showShop]);
+  }, [promoProductId, showShop]);
+
+  useEffect(() => {
+    const carousel = shopCarouselRef.current;
+    if (!carousel) return;
+    const frame = window.requestAnimationFrame(() => {
+      carousel.scrollTo({ left: 0, behavior: 'auto' });
+      setActiveShopCard(0);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [shopTab]);
 
   const syncActiveShopCard = () => {
     const carousel = shopCarouselRef.current;
     if (!carousel) return;
     const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
     if (!cards.length) return;
-    const center = carousel.getBoundingClientRect().left + carousel.clientWidth / 2;
+    const scrollCenter = carousel.scrollLeft + carousel.clientWidth / 2;
     let nearest = 0;
     let nearestDistance = Number.POSITIVE_INFINITY;
     cards.forEach((card, index) => {
-      const rect = card.getBoundingClientRect();
-      const distance = Math.abs(rect.left + rect.width / 2 - center);
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const distance = Math.abs(cardCenter - scrollCenter);
       if (distance < nearestDistance) {
         nearest = index;
         nearestDistance = distance;
@@ -713,14 +747,24 @@ export function StartScreen({
     if (!carousel) return;
     const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
     if (!cards.length) return;
-    const next = Math.max(0, Math.min(cards.length - 1, activeShopCard + direction));
-    const currentRect = cards[activeShopCard]?.getBoundingClientRect();
-    const targetRect = cards[next]?.getBoundingClientRect();
-    if (currentRect && targetRect) {
-      const delta = targetRect.left + targetRect.width / 2 - (currentRect.left + currentRect.width / 2);
-      carousel.scrollLeft += delta;
-    }
-    setActiveShopCard(next);
+    const scrollCenter = carousel.scrollLeft + carousel.clientWidth / 2;
+    let nearest = 0;
+    let nearestDist = Number.POSITIVE_INFINITY;
+    cards.forEach((card, idx) => {
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const d = Math.abs(cardCenter - scrollCenter);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearest = idx;
+      }
+    });
+    let target = nearest + direction;
+    target = Math.max(0, Math.min(cards.length - 1, target));
+    const targetCard = cards[target];
+    if (!targetCard) return;
+    const left = targetCard.offsetLeft - (carousel.clientWidth - targetCard.clientWidth) / 2;
+    carousel.scrollTo({ left, behavior: 'smooth' });
+    setActiveShopCard(target);
   };
   const modes = [
     { id: 'survival', on: true, label: t('survival'), sub: t('survivalSub'), accent: '#e2564a', icon: '☠' },
@@ -834,6 +878,86 @@ export function StartScreen({
                 )}
               </div>
             </section>
+
+            {(() => {
+              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score', 'chest-common', 'chest-rare', 'chest-epic'];
+              const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
+              const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
+              const getPurch = (id: string) => {
+                const devAlreadyClaimed = devClaims.includes(id);
+                const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
+                const catalogPrice = shopPrices.get(id);
+                const rewardedDrop = isRewardedDrop(id);
+                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[id as RewardedDropId]?.available) : false;
+                if (developerShopEnabled) {
+                  if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
+                  if (isBooster(id)) return !devAlreadyClaimed;
+                  if (rewardedDrop) return dropAvailable;
+                  return true;
+                } else {
+                  if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                  if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
+                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
+                  return paymentsAvailable && Boolean(catalogPrice);
+                }
+              };
+              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? 'chest-common';
+              const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
+              if (!quickProduct) return null;
+              const rewardedDrop = isRewardedDrop(quickProduct.id);
+              const priceLabel = 'БЕСПЛАТНО';
+              return (
+                <div className="shop-quick-banner mt-3 flex w-full max-w-[900px] items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#f4b942]/30 bg-[#f4b942]/15 text-base sm:h-12 sm:w-12 sm:text-lg" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="truncate font-display text-sm font-bold text-white sm:text-base">{t(quickProduct.titleKey)}</div>
+                    <div className="truncate text-[10px] leading-snug text-white/60 sm:text-[11px]">{t(quickProduct.descriptionKey)}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <div className="font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]">{priceLabel}</div>
+                    <button
+                      type="button"
+                      disabled={buying !== null}
+                      onClick={async () => {
+                        if (buying !== null) return;
+                        setBuying(quickProduct.id);
+                        setShopNotice(null);
+                        if (developerShopEnabled) {
+                          const granted = await onDeveloperClaim(quickProduct.id);
+                          setBuying(null);
+                          if (granted) {
+                            setDevClaims(developerShopClaims());
+                            setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
+                            setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                          }
+                          return;
+                        }
+                        if (rewardedDrop) {
+                          const result = await onClaimRewardedDrop(quickProduct.id as RewardedDropId);
+                          setBuying(null);
+                          if (result.ok) {
+                            const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
+                            const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                            setShopNotice(`${notice}`);
+                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: t('rewardPackReadySub') });
+                          }
+                          return;
+                        }
+                        const result = await onBuyShopItem(quickProduct.id);
+                        setBuying(null);
+                        if (result.ok) {
+                          setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                        }
+                      }}
+                      className="notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 bg-[#f4b942] px-4 py-1.5 font-display text-[11px] font-bold tracking-wide text-black hover:brightness-110 disabled:opacity-60 sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs"
+                    >
+                      {buying === quickProduct.id ? '...' : 'КУПИТЬ'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             <button
               type="button"
@@ -1039,6 +1163,26 @@ export function StartScreen({
                 <h2 id="shop-title" className="font-display text-xl leading-none text-white sm:text-3xl">{shopMode === 'developer' ? t('devShopTitle') : t('shop')}</h2>
                 <p className="mt-1 text-[10px] leading-snug text-white/55 sm:text-sm">{shopMode === 'developer' ? t('devShopSubtitle') : t('shopSubtitle')}</p>
               </div>
+              {shopMode === 'developer' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('Сбросить все покупки? Дев-магазин, обычные покупки, питомцы и ежедневные/еженедельные сундуки будут сброшены — как будто ни одной покупки не было.')) {
+                      clearDeveloperShopClaims();
+                      resetRewardedDropState();
+                      resetShopRewards();
+                      resetPetsForTests();
+                      try { localStorage.removeItem('orerush.dev-shop.claims.v1'); localStorage.removeItem('orerush.shop-rewards.v1'); localStorage.removeItem('orerush.rewarded-drops.v1'); localStorage.removeItem('orerush.pets.v1'); } catch {}
+                      setDevClaims([]);
+                      setShopNotice('Все покупки сброшены — как будто ни одной покупки не было');
+                    }
+                  }}
+                  className="btn-mc notch flex h-9 shrink-0 items-center justify-center bg-gradient-to-b from-[#3a2a2a] to-[#2a1a1a] px-3 text-[10px] text-[#ff8a7a] sm:h-11 sm:px-3 sm:text-xs"
+                  title="Сбросить все покупки — как будто ни одной не было"
+                >
+                  СБРОС ВСЕ
+                </button>
+              )}
               <button
                 type="button"
                 aria-label={t('close')}
@@ -1069,6 +1213,86 @@ export function StartScreen({
               </div>
             )}
 
+            {(() => {
+              const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score', 'chest-common', 'chest-rare', 'chest-epic'];
+              const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
+              const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
+              const getPurch = (id: string) => {
+                const devAlreadyClaimed = devClaims.includes(id);
+                const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
+                const catalogPrice = shopPrices.get(id);
+                const rewardedDrop = isRewardedDrop(id);
+                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[id as RewardedDropId]?.available) : false;
+                if (shopMode === 'developer') {
+                  if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
+                  if (isBooster(id)) return !devAlreadyClaimed;
+                  if (rewardedDrop) return dropAvailable;
+                  return true;
+                } else {
+                  if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                  if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
+                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
+                  return paymentsAvailable && Boolean(catalogPrice);
+                }
+              };
+              const quickId = priority.find(getPurch) ?? ['chest-common', 'chest-rare', 'chest-epic'].find(getPurch) ?? 'chest-common';
+              const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
+              if (!quickProduct) return null;
+              const rewardedDrop = isRewardedDrop(quickProduct.id);
+              const priceLabel = 'БЕСПЛАТНО';
+              return (
+                <div className="shop-quick-banner mx-2 mt-2 flex shrink-0 items-center gap-2 border border-[#f4b942]/40 bg-gradient-to-r from-[#2a2410] to-[#1a2a2a] px-3 py-2.5 sm:mx-4 sm:gap-3 sm:px-4 sm:py-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#f4b942]/30 bg-[#f4b942]/15 text-base sm:h-12 sm:w-12 sm:text-lg" style={{ color: quickProduct.accent }}>{quickProduct.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[10px] tracking-widest text-[#f4b942] sm:text-[11px]">БЫСТРАЯ ПОКУПКА</div>
+                    <div className="truncate font-display text-sm font-bold text-white sm:text-base">{t(quickProduct.titleKey)}</div>
+                    <div className="truncate text-[10px] leading-snug text-white/60 sm:text-[11px]">{t(quickProduct.descriptionKey)}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <div className="font-display text-[10px] font-bold tracking-widest text-[#f4b942] sm:text-[11px]">{priceLabel}</div>
+                    <button
+                      type="button"
+                      disabled={buying !== null}
+                      onClick={async () => {
+                        if (buying !== null) return;
+                        setBuying(quickProduct.id);
+                        setShopNotice(null);
+                        if (shopMode === 'developer') {
+                          const granted = await onDeveloperClaim(quickProduct.id);
+                          setBuying(null);
+                          if (granted) {
+                            setDevClaims(developerShopClaims());
+                            setShopNotice(t('devShopGranted').replace('{item}', t(quickProduct.titleKey)));
+                            setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                          }
+                          return;
+                        }
+                        if (rewardedDrop) {
+                          const result = await onClaimRewardedDrop(quickProduct.id as RewardedDropId);
+                          setBuying(null);
+                          if (result.ok) {
+                            const rewardParts = result.items.map(([id, count]) => `${count}× ${blockName(id, BLOCKS[id]?.name ?? 'item')}`);
+                            const notice = t('shopDropGranted').replace('{reward}', rewardParts.join(' · '));
+                            setShopNotice(`${notice}`);
+                            setRewardedPopup({ title: t('rewardPackReadyTitle'), message: notice, sub: t('rewardPackReadySub') });
+                          }
+                          return;
+                        }
+                        const result = await onBuyShopItem(quickProduct.id);
+                        setBuying(null);
+                        if (result.ok) {
+                          setPurchasePopup({ icon: quickProduct.icon, title: t(quickProduct.titleKey), description: t(quickProduct.descriptionKey), accent: quickProduct.accent });
+                        }
+                      }}
+                      className="notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 bg-[#f4b942] px-4 py-1.5 font-display text-[11px] font-bold tracking-wide text-black hover:brightness-110 disabled:opacity-60 sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs"
+                    >
+                      {buying === quickProduct.id ? '...' : 'КУПИТЬ'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div id="shop-catalog" className="shop-catalog min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2 sm:px-4 sm:pb-3 sm:pt-3">
               <div className="shop-carousel-stage">
                 <div
@@ -1094,18 +1318,37 @@ export function StartScreen({
                         : product.id === 'pet-parrot'
                           ? parrotPetOwned
                           : product.id === 'pet-owl' && owlPetOwned;
+                  const isPetProduct = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(product.id);
+                  const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(product.id);
+                  const isInfinite = !isPetProduct && !isBooster && !rewardedDrop;
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
-                  const purchasable = !alreadyOwned && (developerMode
-                    ? !devAlreadyClaimed
-                    : rewardedDrop
-                      ? rewardedAdsEnabled && Boolean(dropStatus?.available)
-                      : paymentsAvailable && Boolean(catalogPrice));
+                  // Fixed: real shop follows Yandex IAP docs only (paymentsAvailable && catalogPrice), dev shop bypasses for tests
+                  // - Pets: one-time ever
+                  // - Boosters: once per run (cleared after run start)
+                  // - Daily/weekly/monthly: cooldown via Yandex time
+                  // - Chests/armor/tools: infinite
+                  let purchasable: boolean;
+                  if (developerMode) {
+                    if (isPetProduct) purchasable = !alreadyOwned && !devAlreadyClaimed;
+                    else if (isBooster) purchasable = !devAlreadyClaimed;
+                    else if (rewardedDrop) purchasable = Boolean(dropStatus?.available);
+                    else purchasable = !alreadyOwned; // infinite always purchasable in dev shop
+                  } else {
+                    if (isPetProduct) purchasable = !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                    else if (isBooster) purchasable = paymentsAvailable && Boolean(catalogPrice);
+                    else if (rewardedDrop) purchasable = rewardedAdsEnabled && Boolean(dropStatus?.available);
+                    else purchasable = paymentsAvailable && Boolean(catalogPrice);
+                  }
                   const priceLabel: React.ReactNode = developerMode
-                    ? t('devShopPrice')
+                    ? isInfinite
+                      ? `${t('devShopPrice')} · ∞`
+                      : isBooster
+                        ? `${t('devShopPrice')} · 1/забег`
+                        : t('devShopPrice')
                     : rewardedDrop
                       ? t('shopRewardedPrice')
                       : catalogPrice?.label ?? (paymentsAvailable ? t('shopPriceUnavailable') : t('shopPaymentsUnavailable'));
@@ -1192,8 +1435,25 @@ export function StartScreen({
                               setBuying(null);
                               if (granted) {
                                 setDevClaims(developerShopClaims());
-                                setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                // For free drops, also refresh rewarded drop statuses so chest tokens appear
+                                if (rewardedDrop) {
+                                  setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                  setRewardedPopup({
+                                    title: t('rewardPackReadyTitle'),
+                                    message: t('shopDropGranted').replace('{reward}', t(product.titleKey)),
+                                    sub: t('rewardPackReadySub'),
+                                  });
+                                } else {
+                                  setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                }
+                                setPurchasePopup({
+                                  icon: product.icon,
+                                  title: t(product.titleKey),
+                                  description: t(product.descriptionKey),
+                                  accent: product.accent,
+                                });
                               } else {
+                                // For repeatable consumables, granted is true even if already claimed, so this branch is for pets already owned
                                 setShopNotice(t('devShopGrantFailed'));
                               }
                               return;

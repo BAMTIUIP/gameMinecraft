@@ -30,7 +30,8 @@ export function isShopProductId(id: string): id is ShopProductId {
   return (SHOP_PRODUCT_IDS as readonly string[]).includes(id);
 }
 
-type Receipt = { id: string; productId: ShopRewardProductId };
+type Mode = 'survival' | 'exploration' | 'own-world';
+type Receipt = { id: string; productId: ShopRewardProductId; opened?: Partial<Record<Mode, true>> };
 type ShopRewardState = { pending: Receipt[]; delivered: string[] };
 
 const STORAGE_KEY = 'orerush.shop-rewards.v1';
@@ -50,10 +51,15 @@ function normalizeState(value: unknown): ShopRewardState {
   const pending = Array.isArray(raw.pending)
     ? raw.pending.flatMap((entry): Receipt[] => {
         if (!entry || typeof entry !== 'object') return [];
-        const item = entry as Partial<Receipt>;
-        return typeof item.id === 'string' && item.id.length <= 96 && isShopRewardProduct(String(item.productId))
-          ? [{ id: item.id, productId: item.productId as ShopRewardProductId }]
-          : [];
+        const item = entry as Partial<Receipt> & { opened?: unknown };
+        if (typeof item.id !== 'string' || item.id.length > 96 || !isShopRewardProduct(String(item.productId))) return [];
+        const opened: Partial<Record<Mode, true>> = {};
+        if (item.opened && typeof item.opened === 'object') {
+          for (const mode of ['survival', 'exploration', 'own-world'] as const) {
+            if ((item.opened as Record<string, unknown>)[mode] === true) opened[mode] = true;
+          }
+        }
+        return [{ id: item.id, productId: item.productId as ShopRewardProductId, opened }];
       })
     : [];
   const delivered = Array.isArray(raw.delivered)
@@ -76,7 +82,7 @@ function state(): ShopRewardState {
 
 function cloudState(source: ShopRewardState) {
   return {
-    pending: source.pending.map((entry) => ({ ...entry })),
+    pending: source.pending.map((entry) => ({ id: entry.id, productId: entry.productId, opened: entry.opened ? { ...entry.opened } : {} })),
     delivered: source.delivered.slice(),
   };
 }
@@ -126,7 +132,33 @@ export function pendingShopProductRewards(): { keys: string[]; products: ShopRew
   };
 }
 
-/** Acknowledge receipts only after the engine successfully applied (and, in a sandbox, saved) them. */
+export function pendingShopProductRewardsForMode(mode: Mode): { keys: string[]; products: ShopRewardProductId[] } | null {
+  const current = state();
+  const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
+  // For boosters: only 1 per product per session (queue), even if bought 10, only 1 used per session then burns and next applies
+  // For other one-time items (armor, chests, tools): all pending for that mode at once (once per run type per purchase)
+  const filtered: Receipt[] = [];
+  const seenBooster = new Set<string>();
+  for (const entry of current.pending) {
+    if (entry.opened?.[mode]) continue;
+    if (boosterIds.has(entry.productId)) {
+      if (seenBooster.has(entry.productId)) continue;
+      seenBooster.add(entry.productId);
+    }
+    filtered.push(entry);
+  }
+  if (!filtered.length) return null;
+  return {
+    keys: filtered.map((entry) => entry.id),
+    products: filtered.map((entry) => entry.productId),
+  };
+}
+
+/** Acknowledge receipts only after the engine successfully applied (and, in a sandbox, saved) them.
+ * One-time items (all except pets) are available once per run type (survival, exploration, own-world).
+ * For own-world they remain forever after save, for other modes they disappear after run and need re-buy per mode.
+ * We track opened per mode, and only move to delivered when all 3 modes have been granted.
+ */
 export function completePendingShopRewards(keys: string[]): boolean {
   const current = state();
   const ready = new Set(keys.filter((id) => current.pending.some((entry) => entry.id === id)));
@@ -134,6 +166,34 @@ export function completePendingShopRewards(keys: string[]): boolean {
   const next: ShopRewardState = {
     pending: current.pending.filter((entry) => !ready.has(entry.id)),
     delivered: [...new Set([...current.delivered, ...ready])].slice(-RECEIPT_LIMIT),
+  };
+  if (!write(next)) return false;
+  saveProgressNow();
+  return true;
+}
+
+export function completePendingShopRewardsForMode(keys: string[], mode: Mode): boolean {
+  const current = state();
+  const ready = new Set(keys.filter((id) => current.pending.some((entry) => entry.id === id)));
+  if (!ready.size) return false;
+  const toDeliver: string[] = [];
+  const toKeep: Receipt[] = [];
+  for (const entry of current.pending) {
+    if (!ready.has(entry.id)) {
+      toKeep.push(entry);
+      continue;
+    }
+    const opened = { ...(entry.opened ?? {}), [mode]: true as const };
+    const allModesOpened = (['survival', 'exploration', 'own-world'] as const).every((m) => opened[m]);
+    if (allModesOpened) {
+      toDeliver.push(entry.id);
+    } else {
+      toKeep.push({ ...entry, opened });
+    }
+  }
+  const next: ShopRewardState = {
+    pending: toKeep,
+    delivered: [...new Set([...current.delivered, ...toDeliver])].slice(-RECEIPT_LIMIT),
   };
   if (!write(next)) return false;
   saveProgressNow();

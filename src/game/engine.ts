@@ -46,6 +46,10 @@ import {
   QUARTZ,
   REWARD_PACK_DAILY,
   REWARD_PACK_WEEKLY,
+  REWARD_PACK_MONTHLY,
+  SHOP_CHEST_COMMON,
+  SHOP_CHEST_RARE,
+  SHOP_CHEST_EPIC,
   GRASS,
   LAVA,
   LEAVES,
@@ -96,6 +100,51 @@ import {
   FERN,
   DEAD_BUSH,
   MUSHROOM,
+  FLOWER_TULIP_RED,
+  FLOWER_TULIP_YELLOW,
+  FLOWER_TULIP_PINK,
+  FLOWER_TULIP_ORANGE,
+  FLOWER_TULIP_WHITE,
+  FLOWER_SUNFLOWER,
+  FLOWER_ROSE,
+  FLOWER_LAVENDER,
+  FLOWER_WISTERIA,
+  FLOWER_DAISY,
+  FLOWER_ORCHID,
+  FLOWER_PEONY,
+  BUSH,
+  BUSH_FLOWERING,
+  BERRY_BUSH,
+  TALL_LAVENDER,
+  TALL_SUNFLOWER,
+  WISTERIA_VINE,
+  MOSS_CARPET,
+  LEAF_PILE,
+  MOSSY_COBBLE,
+  MOSSY_STONE_BRICK,
+  CRACKED_STONE_BRICK,
+  STONE_BRICK,
+  CAVE_MOSS_BLOCK,
+  CAVE_VINE,
+  CAVE_VINE_GLOW,
+  GLOW_BERRY,
+  DRIPSTONE_BLOCK,
+  POINTED_DRIPSTONE,
+  HANGING_ROOTS,
+  ROOTED_DIRT,
+  DEEPSLATE,
+  DEEPSLATE_BRICKS,
+  AMETHYST_BLOCK,
+  GLOW_LICHEN,
+  SPORE_BLOSSOM,
+  AZALEA_LEAVES,
+  AZALEA_FLOWERING,
+  CLAY,
+  MUSHROOM_BLOCK_RED,
+  MUSHROOM_BLOCK_BROWN,
+  MUSHROOM_STEM,
+  STALACTITE,
+  STALAGMITE,
   isFlower,
   isPlant,
   isInstaBreak,
@@ -123,6 +172,7 @@ import {
   openChestId,
   isUnderwaterChest,
   baseChestId,
+  isInventoryBlockId,
 } from './blocks';
 import { resourceSellPrice } from './economy';
 import { cookedMeatForRaw, foodHeal, meatDropForAnimal } from './food';
@@ -236,7 +286,7 @@ const AFFIX_KEY = Object.fromEntries(
   (Object.keys(AFFIXES) as AffixId[]).map((k) => [k, AFFIXES[k].nameKey]),
 ) as Record<AffixId, Parameters<typeof t>[0]>;
 const RARITY_COLORS = RARITY.map((r) => r.color);
-const CAMPFIRE_SMOKE_PUFFS = 12;
+const CAMPFIRE_SMOKE_PUFFS = 20;
 
 import {
   buildChunkGeometrySteps,
@@ -346,42 +396,66 @@ export type HudObjective = {
 };
 
 export const EXPLORATION_TASKS: readonly ExplorationTaskDefinition[] = [
+  // ---- Phase 1: Surface basics (wood + tools) - 17 missions, early chain preserved ----
   { id: 'wood', titleKey: 'objectiveGatherWood', target: 5, rewardScore: 100, rewardSeconds: 20, mineBlockIds: [LOG, BIRCH_LOG, PALM_LOG] },
   { id: 'planks', titleKey: 'objectiveCraftPlanks', target: 1, rewardScore: 80, rewardSeconds: 15, craftRecipeKey: 'planks' },
   { id: 'wood-pick', titleKey: 'objectiveCraftWoodPickaxe', target: 1, rewardScore: 130, rewardSeconds: 20, craftPickaxeTier: 0 },
+  { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
+  { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
   { id: 'wood-sword', titleKey: 'objectiveCraftWoodSword', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'weapon', craftTier: 0 },
   { id: 'bird-feather', titleKey: 'objectiveHuntFeather', target: 1, rewardScore: 160, rewardSeconds: 25, collectItemId: FEATHER },
   { id: 'wood-bow', titleKey: 'objectiveCraftBow', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'bow', craftTier: 0 },
   { id: 'stone', titleKey: 'objectiveMineStone', target: 10, rewardScore: 160, rewardSeconds: 25, mineBlockIds: [STONE, COBBLE] },
   { id: 'stone-pick', titleKey: 'objectiveCraftStonePickaxe', target: 1, rewardScore: 220, rewardSeconds: 30, craftPickaxeTier: 1 },
+  { id: 'stone-axe', titleKey: 'objectiveCraftStoneAxe', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'axe', craftTier: 1 },
+  { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
   { id: 'coal', titleKey: 'objectiveMineCoal', target: 5, rewardScore: 250, rewardSeconds: 30, mineBlockIds: [COAL_ORE] },
   { id: 'arrows', titleKey: 'objectiveCraftArrows', target: 1, rewardScore: 160, rewardSeconds: 25, craftRecipeKey: 'arrows' },
   { id: 'hunt-meat', titleKey: 'objectiveHuntMeat', target: 3, rewardScore: 220, rewardSeconds: 35, collectRawMeat: true },
   { id: 'campfire', titleKey: 'objectiveCraftCampfire', target: 1, rewardScore: 100, rewardSeconds: 20, craftRecipeKeys: ['campfire', 'campfire_birch', 'campfire_palm'] },
   { id: 'cooked-meat', titleKey: 'objectiveCookMeat', target: 1, rewardScore: 140, rewardSeconds: 25, craftKind: 'cook' },
-  { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
-  { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
-  { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
-  { id: 'netherite-sword', titleKey: 'objectiveCraftNetheriteSword', target: 1, rewardScore: 700, rewardSeconds: 65, craftKind: 'weapon', craftTier: 5 },
-  { id: 'netherite-arrows', titleKey: 'objectiveCraftNetheriteArrows', target: 1, rewardScore: 800, rewardSeconds: 75, craftRecipeKey: 'arrows_netherite' },
-  { id: 'fire-arrows', titleKey: 'objectiveCraftFireArrows', target: 1, rewardScore: 300, rewardSeconds: 35, craftRecipeKey: 'arrows_fire' },
-  { id: 'poison-arrows', titleKey: 'objectiveCraftPoisonArrows', target: 1, rewardScore: 320, rewardSeconds: 35, craftRecipeKey: 'arrows_poison' },
-  { id: 'freeze-arrows', titleKey: 'objectiveCraftFreezeArrows', target: 1, rewardScore: 340, rewardSeconds: 35, craftRecipeKey: 'arrows_freeze' },
-  { id: 'stun-arrows', titleKey: 'objectiveCraftStunArrows', target: 1, rewardScore: 360, rewardSeconds: 35, craftRecipeKey: 'arrows_stun' },
+
+  // ---- Phase 2: Early underground - chest early, iron, separated arrow types ----
   { id: 'secret-chest', titleKey: 'objectiveFindChest', target: 1, rewardScore: 220, rewardSeconds: 35, openChest: true },
-  { id: 'wood-axe', titleKey: 'objectiveCraftWoodAxe', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'axe', craftTier: 0 },
-  { id: 'wood-shovel', titleKey: 'objectiveCraftWoodShovel', target: 1, rewardScore: 120, rewardSeconds: 20, craftKind: 'shovel', craftTier: 0 },
-  { id: 'stone-sword', titleKey: 'objectiveCraftStoneSword', target: 1, rewardScore: 180, rewardSeconds: 25, craftKind: 'weapon', craftTier: 1 },
-  { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
   { id: 'iron', titleKey: 'objectiveMineIron', target: 4, rewardScore: 320, rewardSeconds: 35, mineBlockIds: [IRON_ORE] },
   { id: 'iron-pick', titleKey: 'objectiveCraftIronPickaxe', target: 1, rewardScore: 380, rewardSeconds: 40, craftPickaxeTier: 2 },
+  { id: 'stone-arrows', titleKey: 'objectiveCraftStoneArrows', target: 1, rewardScore: 180, rewardSeconds: 25, craftRecipeKey: 'arrows_stone' },
+  { id: 'iron-axe', titleKey: 'objectiveCraftIronAxe', target: 1, rewardScore: 240, rewardSeconds: 30, craftKind: 'axe', craftTier: 2 },
+  { id: 'iron-gear', titleKey: 'objectiveCraftIronGear', target: 2, rewardScore: 260, rewardSeconds: 35, craftKind: 'gear', craftTier: 2 },
+  { id: 'iron-arrows', titleKey: 'objectiveCraftIronArrows', target: 1, rewardScore: 220, rewardSeconds: 30, craftRecipeKey: 'arrows_iron' },
+
+  // ---- Phase 3: Gold + farming smoke boost - gold before gold arrows, hay for visible smoke ----
   { id: 'gold', titleKey: 'objectiveMineGold', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [GOLD_ORE] },
   { id: 'gold-pick', titleKey: 'objectiveCraftGoldPickaxe', target: 1, rewardScore: 600, rewardSeconds: 50, craftPickaxeTier: 3 },
+  { id: 'hay-bale', titleKey: 'objectiveCraftHayBale', target: 1, rewardScore: 200, rewardSeconds: 30, craftRecipeKey: 'hay_bale' },
+  { id: 'gold-gear', titleKey: 'objectiveCraftGoldGear', target: 2, rewardScore: 320, rewardSeconds: 40, craftKind: 'gear', craftTier: 3 },
+  { id: 'gold-arrows', titleKey: 'objectiveCraftGoldArrows', target: 1, rewardScore: 260, rewardSeconds: 35, craftRecipeKey: 'arrows_gold' },
+  { id: 'quartz', titleKey: 'objectiveMineQuartz', target: 3, rewardScore: 450, rewardSeconds: 40, mineBlockIds: [QUARTZ_ORE] },
+  { id: 'redstone', titleKey: 'objectiveMineRedstone', target: 3, rewardScore: 480, rewardSeconds: 40, mineBlockIds: [REDSTONE_ORE] },
+
+  // ---- Phase 4: Diamond + rare ores ----
   { id: 'diamond', titleKey: 'objectiveMineDiamond', target: 2, rewardScore: 700, rewardSeconds: 55, mineBlockIds: [DIAMOND_ORE] },
   { id: 'diamond-pick', titleKey: 'objectiveCraftDiamondPickaxe', target: 1, rewardScore: 850, rewardSeconds: 65, craftPickaxeTier: 4 },
+  { id: 'diamond-axe', titleKey: 'objectiveCraftDiamondAxe', target: 1, rewardScore: 600, rewardSeconds: 50, craftKind: 'axe', craftTier: 4 },
+  { id: 'diamond-sword', titleKey: 'objectiveCraftDiamondSword', target: 1, rewardScore: 650, rewardSeconds: 55, craftKind: 'weapon', craftTier: 4 },
+  { id: 'chest-hoard', titleKey: 'objectiveFindChestHoard', target: 3, rewardScore: 400, rewardSeconds: 45, openChest: true },
+  { id: 'lapis', titleKey: 'objectiveMineLapis', target: 3, rewardScore: 500, rewardSeconds: 45, mineBlockIds: [LAPIS_ORE] },
+  { id: 'emerald', titleKey: 'objectiveMineEmerald', target: 3, rewardScore: 550, rewardSeconds: 45, mineBlockIds: [EMERALD_ORE] },
+  { id: 'diamond-gear', titleKey: 'objectiveCraftDiamondGear', target: 2, rewardScore: 700, rewardSeconds: 60, craftKind: 'gear', craftTier: 4 },
   { id: 'rare-ores', titleKey: 'objectiveMineRareOres', target: 3, rewardScore: 1000, rewardSeconds: 70, mineBlockIds: [REDSTONE_ORE, LAPIS_ORE, EMERALD_ORE] },
-  { id: 'ancient-debris', titleKey: 'objectiveMineAncientDebris', target: 12, rewardScore: 1400, rewardSeconds: 120, mineBlockIds: [NETHERITE_ORE] },
-  { id: 'netherite-ingots', titleKey: 'objectiveCraftNetheriteIngot', target: 3, rewardScore: 1800, rewardSeconds: 150, craftRecipeKey: 'netherite_ingot' },
+
+  // ---- Phase 5: Netherite tier - spawns y<32, protected from cave carving ----
+  { id: 'ancient-debris', titleKey: 'objectiveMineAncientDebris', target: 6, rewardScore: 1200, rewardSeconds: 100, mineBlockIds: [NETHERITE_ORE] },
+  { id: 'netherite-ingots', titleKey: 'objectiveCraftNetheriteIngot', target: 2, rewardScore: 1400, rewardSeconds: 120, craftRecipeKey: 'netherite_ingot' },
+
+  // ---- Phase 6: Special arrows interleaved with netherite gear to avoid 3 arrows in a row ----
+  { id: 'fire-arrows', titleKey: 'objectiveCraftFireArrows', target: 1, rewardScore: 300, rewardSeconds: 35, craftRecipeKey: 'arrows_fire' },
+  { id: 'poison-arrows', titleKey: 'objectiveCraftPoisonArrows', target: 1, rewardScore: 320, rewardSeconds: 35, craftRecipeKey: 'arrows_poison' },
+  { id: 'netherite-sword', titleKey: 'objectiveCraftNetheriteSword', target: 1, rewardScore: 900, rewardSeconds: 75, craftKind: 'weapon', craftTier: 5 },
+  { id: 'freeze-arrows', titleKey: 'objectiveCraftFreezeArrows', target: 1, rewardScore: 340, rewardSeconds: 35, craftRecipeKey: 'arrows_freeze' },
+  { id: 'stun-arrows', titleKey: 'objectiveCraftStunArrows', target: 1, rewardScore: 360, rewardSeconds: 35, craftRecipeKey: 'arrows_stun' },
+  { id: 'netherite-gear', titleKey: 'objectiveCraftNetheriteGear', target: 2, rewardScore: 1000, rewardSeconds: 80, craftKind: 'gear', craftTier: 5 },
+  { id: 'netherite-arrows', titleKey: 'objectiveCraftNetheriteArrows', target: 1, rewardScore: 1000, rewardSeconds: 85, craftRecipeKey: 'arrows_netherite' },
   { id: 'netherite-pick', titleKey: 'objectiveCraftNetheritePickaxe', target: 1, rewardScore: 3000, rewardSeconds: 180, craftPickaxeTier: 5 },
 ];
 
@@ -418,6 +492,7 @@ export type HudState = {
   arrowLoadout: number | null;
   airBubbles: number;
   inWater: boolean;
+  headUnderwater: boolean;
   breathVisible: boolean;
   combo: number;
   comboMult: number;
@@ -485,6 +560,8 @@ export type HudState = {
   petInteractNear: boolean;
   stats: Stats;
   killedBy: string | null;
+  scoreBoost: number;
+  oreBoost: number;
 };
 
 export type DomRefs = {
@@ -1560,10 +1637,10 @@ export class Engine {
   private campfireDummy = new THREE.Object3D();
   private campfireOuterGeometry = new THREE.ConeGeometry(0.19, 0.74, 6);
   private campfireInnerGeometry = new THREE.ConeGeometry(0.12, 0.48, 6);
-  private campfireSmokeGeometry = new THREE.SphereGeometry(0.13, 5, 4);
+  private campfireSmokeGeometry = new THREE.SphereGeometry(0.21, 6, 5);
   private campfireOuterMaterial = new THREE.MeshBasicMaterial({ color: 0xff641b, transparent: true, opacity: 0.92, depthWrite: false, toneMapped: false });
   private campfireInnerMaterial = new THREE.MeshBasicMaterial({ color: 0xffc64b, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false });
-  private campfireSmokeMaterial = new THREE.MeshBasicMaterial({ color: 0x99938d, transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false });
+  private campfireSmokeMaterial = new THREE.MeshBasicMaterial({ color: 0xc4bdb5, transparent: true, opacity: 0.42, depthWrite: false, toneMapped: false });
   private campfireVisualClock = 0;
   private campfireDamageCooldown = new WeakMap<Mob, number>();
   /** hinged chest lids, kept per chunk next to the meshes they belong to */
@@ -1683,6 +1760,8 @@ export class Engine {
   private score = 0;
   /** One-run score booster purchased from the shop; persisted only with the sandbox world. */
   private scoreBonusMultiplier = 1;
+  /** One-run ore seeker booster — makes ores more visible / gives ore cache */
+  private oreBoostMultiplier = 1;
   private runTime = RUN_TIME;
   private timeLeft = RUN_TIME;
   private health = 100;
@@ -4149,16 +4228,20 @@ if (tpClipActive > 0.5) {
 
         for (let puffIndex = 0; puffIndex < CAMPFIRE_SMOKE_PUFFS; puffIndex++) {
           const offset = puffIndex / CAMPFIRE_SMOKE_PUFFS;
-          const progress = (this.campfireVisualClock * 0.072 + offset) % 1;
-          const drift = 0.08 + progress * 0.48;
-          const theta = this.campfireVisualClock * 0.85 + offset * Math.PI * 2 + phase;
+          // slower rise so puffs linger and the column reads clearly
+          const progress = (this.campfireVisualClock * 0.055 + offset) % 1;
+          const drift = 0.12 + progress * 0.72;
+          const theta = this.campfireVisualClock * 0.62 + offset * Math.PI * 2 + phase;
+          const swayX = Math.sin(this.campfireVisualClock * 0.9 + phase + offset * 3.1) * (0.08 + progress * 0.22);
+          const swayZ = Math.cos(this.campfireVisualClock * 0.75 + phase * 1.3 + offset * 2.7) * (0.08 + progress * 0.22);
           dummy.position.set(
-            fire.x + 0.5 + Math.cos(theta) * drift,
+            fire.x + 0.5 + Math.cos(theta) * drift + swayX,
             fire.y + 0.16 + 0.35 + progress * (fire.smokeHeight - 0.35),
-            fire.z + 0.5 + Math.sin(theta) * drift,
+            fire.z + 0.5 + Math.sin(theta) * drift + swayZ,
           );
           dummy.rotation.set(0, theta, 0);
-          const puffSize = 0.46 + progress * 1.55;
+          // larger, more readable puffs: dense near fire, big soft cloud high up
+          const puffSize = 0.78 + progress * 2.6;
           dummy.scale.setScalar(puffSize);
           dummy.updateMatrix();
           visual.smoke.setMatrixAt(fire.smokeIndex + puffIndex, dummy.matrix);
@@ -4903,7 +4986,7 @@ if (tpClipActive > 0.5) {
     }
   }
 
-  private static rleEnc(arr: Uint8Array | Int16Array): number[] {
+  private static rleEnc(arr: Uint8Array | Uint16Array | Int16Array): number[] {
     const out: number[] = [];
     let i = 0;
     while (i < arr.length) {
@@ -4916,7 +4999,7 @@ if (tpClipActive > 0.5) {
     return out;
   }
 
-  private static rleDec(pairs: number[], len: number, into: Uint8Array | Int16Array) {
+  private static rleDec(pairs: number[], len: number, into: Uint8Array | Uint16Array | Int16Array) {
     let idx = 0;
     for (let i = 0; i < pairs.length && idx < len; i += 2) {
       const n = pairs[i];
@@ -4962,6 +5045,7 @@ if (tpClipActive > 0.5) {
         health: this.health,
         score: this.score,
         scoreBonusMultiplier: this.scoreBonusMultiplier,
+        oreBoostMultiplier: this.oreBoostMultiplier,
         inventory: Array.from(this.inventory.entries()),
         toolInstances: Array.from(this.toolInstances.values()),
         nextToolInstanceId: this.nextToolInstanceId,
@@ -5019,7 +5103,7 @@ if (tpClipActive > 0.5) {
     this.chestBonusGear.clear();
     this.activeChest = null;
     for (const [key, state, blocksRLE, heightRLE] of data.chunks) {
-      const blocks = new Uint8Array(CHUNK * WY * CHUNK);
+      const blocks = new Uint16Array(CHUNK * WY * CHUNK);
       const height = new Int16Array(CHUNK * CHUNK);
       Engine.rleDec(blocksRLE, blocks.length, blocks);
       Engine.rleDec(heightRLE, height.length, height);
@@ -5058,6 +5142,9 @@ if (tpClipActive > 0.5) {
     this.score = data.score;
     this.scoreBonusMultiplier = Number.isFinite(data.scoreBonusMultiplier)
       ? Math.max(1, Math.min(5, Number(data.scoreBonusMultiplier)))
+      : 1;
+    this.oreBoostMultiplier = Number.isFinite((data as any).oreBoostMultiplier)
+      ? Math.max(1, Math.min(5, Number((data as any).oreBoostMultiplier)))
       : 1;
     this.inventory = new Map(Array.isArray(data.inventory) ? data.inventory : []);
     const desiredToolCounts = new Map<number, number>();
@@ -5214,6 +5301,7 @@ if (tpClipActive > 0.5) {
     else this.runTime = seconds && seconds > 0 ? seconds : EXPLORATION_RUN_TIME;
     this.score = 0;
     this.scoreBonusMultiplier = 1;
+    this.oreBoostMultiplier = 1;
     this.timeLeft = this.runTime;
     this.explorationObjectives = !survivalRun && !sandbox
       ? EXPLORATION_TASKS.map((task) => ({ ...task, progress: 0 }))
@@ -5432,6 +5520,7 @@ if (tpClipActive > 0.5) {
     const tierBefore = this.tier;
     const swordTierBefore = this.swordTier;
     const scoreBonusBefore = this.scoreBonusMultiplier;
+    const oreBoostBefore = this.oreBoostMultiplier;
     let received = 0;
 
     const grantBlocks = (items: readonly (readonly [number, number])[]) => {
@@ -5474,24 +5563,29 @@ if (tpClipActive > 0.5) {
           grantArmorSet('diamond', 3, ['head', 'chest', 'legs', 'feet', 'hands', 'offhand']);
           break;
         case 'chest-common':
-          grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8]]);
+          grantBlocks([[SHOP_CHEST_COMMON, 1]]);
           break;
         case 'chest-rare':
-          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2]]);
+          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2], [CHEST_STORAGE, 1]]);
           this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 1, Math.random)));
           received += 1;
           break;
         case 'chest-epic':
-          grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2]]);
+          grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2], [CHEST_STORAGE, 2]]);
           this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 2, Math.random)));
           received += 1;
           break;
         case 'booster-start':
-          grantBlocks([[PLANKS, 16], [COAL, 8], [COOKED_MEAT, 5], [TORCH, 8]]);
+          // Starter kit for next run — now more generous so visible in explorer inventory
+          grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [APPLE, 3]]);
           if (this.addToolInstance(PICK_TOOLS[1])) received += 1;
+          if (this.addToolInstance(PICK_TOOLS[0])) received += 1;
           break;
         case 'booster-ore':
-          grantBlocks([[IRON, 5], [GOLD, 2], [DIAMOND, 1]]);
+          // Ore cache + temporary ore seeker: grants ores and marks next run with ore highlight
+          grantBlocks([[COAL, 24], [IRON, 16], [GOLD, 8], [DIAMOND, 4], [REDSTONE, 8], [LAPIS, 6]]);
+          this.oreBoostMultiplier += 0.5;
+          received += 1;
           break;
         case 'booster-score':
           this.scoreBonusMultiplier += 0.25;
@@ -5512,6 +5606,7 @@ if (tpClipActive > 0.5) {
       this.tier = tierBefore;
       this.swordTier = swordTierBefore;
       this.scoreBonusMultiplier = scoreBonusBefore;
+      this.oreBoostMultiplier = oreBoostBefore;
       this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
       this.syncHotbar(true);
       this.syncHud(true);
@@ -5525,8 +5620,9 @@ if (tpClipActive > 0.5) {
   }
 
   openRewardedPack(itemId: number): boolean {
+    const isShopChest = itemId === SHOP_CHEST_COMMON || itemId === SHOP_CHEST_RARE || itemId === SHOP_CHEST_EPIC;
     const dropId = rewardedDropIdFromChestItem(itemId);
-    if (this.phase !== 'playing' || !dropId) {
+    if (this.phase !== 'playing' || (!dropId && !isShopChest)) {
       sfx.ui(false);
       return false;
     }
@@ -5536,8 +5632,70 @@ if (tpClipActive > 0.5) {
       return false;
     }
 
+    // Shop chests: fixed loot, no adDrop receipt needed
+    if (isShopChest) {
+      const inventoryBefore = new Map(this.inventory);
+      const hotbarBefore = this.hotbar.slice();
+      const hotbarInstancesBefore = this.hotbarInstanceIds.slice();
+      const bagBefore = this.bagItems.slice();
+      const toolsBefore = new Map(this.toolInstances);
+      const nextToolIdBefore = this.nextToolInstanceId;
+      const tierBefore = this.tier;
+      const swordTierBefore = this.swordTier;
+
+      const grantBlocks = (items: readonly (readonly [number, number])[]) => {
+        for (const [id, count] of items) {
+          if (!BLOCKS[id] || count <= 0) continue;
+          this.inventory.set(id, (this.inventory.get(id) ?? 0) + count);
+          this.addToHotbar(id);
+        }
+      };
+
+      if (itemId === SHOP_CHEST_COMMON) {
+        grantBlocks([[PLANKS, 16], [COAL, 10], [COOKED_MEAT, 5], [TORCH, 8], [CHEST_STORAGE, 1]] as any);
+      } else if (itemId === SHOP_CHEST_RARE) {
+        grantBlocks([[PLANKS, 24], [COAL, 12], [COOKED_MEAT, 8], [TORCH, 12], [IRON, 5], [GOLD, 2], [CHEST_STORAGE, 1]] as any);
+        this.bagItems.push(ensureGearHid(makeItem('chest', 'iron', 1, Math.random())));
+      } else if (itemId === SHOP_CHEST_EPIC) {
+        grantBlocks([[PLANKS, 32], [TORCH, 16], [IRON, 10], [GOLD, 5], [DIAMOND, 2], [CHEST_STORAGE, 2]] as any);
+        this.bagItems.push(ensureGearHid(makeItem('chest', 'netherite', 2, Math.random())));
+      }
+
+      if (owned - 1 > 0) this.inventory.set(itemId, owned - 1);
+      else this.inventory.delete(itemId);
+      if ((this.inventory.get(itemId) ?? 0) <= 0) {
+        for (let i = 0; i < this.hotbar.length; i += 1) {
+          if (this.hotbar[i] === itemId) {
+            this.hotbar[i] = undefined;
+            this.hotbarInstanceIds[i] = undefined;
+          }
+        }
+      }
+      this.recalcOwnedToolTiers();
+      if (this.sandbox && !this.saveWorld(true)) {
+        this.inventory = inventoryBefore;
+        this.hotbar = hotbarBefore;
+        this.hotbarInstanceIds = hotbarInstancesBefore;
+        this.toolInstances = toolsBefore;
+        this.bagItems = bagBefore;
+        this.nextToolInstanceId = nextToolIdBefore;
+        this.tier = tierBefore;
+        this.swordTier = swordTierBefore;
+        this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
+        this.syncHotbar(true);
+        this.syncHud(true);
+        return false;
+      }
+      const accent = itemId === SHOP_CHEST_COMMON ? '#c4a060' : itemId === SHOP_CHEST_RARE ? '#6ab0e0' : '#c080ff';
+      this.pushBanner(t('rewardPackOpenedTitle'), blockName(itemId, BLOCKS[itemId]?.name ?? ''), accent);
+      this.popup(this.pos.x, this.pos.y + 1.45, this.pos.z, t('rewardPackOpenedPopup'), accent, true);
+      this.syncHotbar(true);
+      this.syncHud(true);
+      return true;
+    }
+
     const mode = this.rewardedDropMode();
-    const opened = openRewardedDropPack(dropId, mode);
+    const opened = openRewardedDropPack(dropId!, mode);
     if (!opened.ok) {
       if (opened.reason === 'storage') this.pushBanner(t('saveFailed'), t('saveFailedSub'), '#e2564a');
       else sfx.ui(false);
@@ -9790,11 +9948,170 @@ if (tpClipActive > 0.5) {
         }
         break;
       }
-      case TALL_GRASS:
+      case FLOWER_TULIP_RED:
+      case FLOWER_TULIP_YELLOW:
+      case FLOWER_TULIP_PINK:
+      case FLOWER_TULIP_ORANGE:
+      case FLOWER_TULIP_WHITE: {
+        const cmap: Record<number, number> = {
+          [FLOWER_TULIP_RED]: 0xd42a2a,
+          [FLOWER_TULIP_YELLOW]: 0xe8c628,
+          [FLOWER_TULIP_PINK]: 0xe46a9a,
+          [FLOWER_TULIP_ORANGE]: 0xe86a18,
+          [FLOWER_TULIP_WHITE]: 0xf0f0e8,
+        };
+        const col = cmap[id] ?? 0xd42a2a;
+        B(g, 0, -0.14, 0, 0.04, 0.28, 0.04, 0x4a8a2a);
+        B(g, 0, 0.02, 0, 0.14, 0.16, 0.14, col);
+        B(g, 0, 0.12, 0, 0.10, 0.08, 0.10, col ^ 0x222222);
+        B(g, 0, -0.08, 0, 0.03, 0.12, 0.03, 0x5a9a3a);
+        break;
+      }
+      case FLOWER_SUNFLOWER:
+      case TALL_SUNFLOWER: {
+        const tall = id === TALL_SUNFLOWER;
+        B(g, 0, -0.16, 0, 0.04, tall?0.36:0.28, 0.04, 0x4a8a2a);
+        B(g, 0.05, -0.06, 0, 0.06, 0.08, 0.06, 0x5a9a3a);
+        B(g, 0, 0.08, 0, 0.18, 0.05, 0.18, 0xe8c628);
+        B(g, 0, 0.08, 0, 0.10, 0.10, 0.10, 0x8a6018);
+        B(g, 0, 0.16, 0, 0.12, 0.04, 0.12, 0xffea4a);
+        break;
+      }
+      case FLOWER_ROSE: {
+        B(g, 0, -0.14, 0, 0.04, 0.28, 0.04, 0x4a8a2a);
+        B(g, 0, 0.04, 0, 0.12, 0.14, 0.12, 0xb81e12);
+        B(g, 0, 0.12, 0, 0.10, 0.08, 0.10, 0xe23628);
+        B(g, 0.06, 0.06, 0, 0.06, 0.06, 0.06, 0xff7a6a);
+        break;
+      }
+      case FLOWER_LAVENDER:
+      case TALL_LAVENDER: {
+        const tall = id === TALL_LAVENDER;
+        B(g, 0, -0.16, 0, 0.03, tall?0.38:0.30, 0.03, 0x5a7a4a);
+        for(let k=0;k<(tall?5:3);k++){
+          const y = -0.04 + k*0.09;
+          B(g, 0, y, 0, 0.09, 0.07, 0.09, 0x8a6ab8);
+          B(g, 0.04, y+0.02, 0, 0.05, 0.05, 0.05, 0xb89ae0);
+        }
+        break;
+      }
+      case FLOWER_WISTERIA:
+      case WISTERIA_VINE: {
+        B(g, 0, 0.12, 0, 0.04, 0.18, 0.04, 0x6a5a4a);
+        for(let k=0;k<4;k++){
+          const y = 0.06 - k*0.11;
+          B(g, (k%2?0.06:-0.06), y, 0, 0.11, 0.07, 0.11, 0x9a7ac8);
+          B(g, (k%2?-0.04:0.04), y-0.02, 0.02, 0.07, 0.05, 0.07, 0xc8a0f0);
+        }
+        break;
+      }
+      case FLOWER_DAISY: {
+        B(g, 0, -0.14, 0, 0.04, 0.28, 0.04, 0x4a8a2a);
+        B(g, 0, 0.02, 0, 0.08, 0.08, 0.08, 0xe8c628);
+        B(g, 0.12, 0.02, 0, 0.09, 0.07, 0.09, 0xf0f0e8);
+        B(g, -0.12, 0.02, 0, 0.09, 0.07, 0.09, 0xf0f0e8);
+        B(g, 0, 0.02, 0.12, 0.09, 0.07, 0.09, 0xf0f0e8);
+        B(g, 0, 0.02, -0.12, 0.09, 0.07, 0.09, 0xf0f0e8);
+        break;
+      }
+      case FLOWER_ORCHID: {
+        B(g, 0, -0.14, 0, 0.04, 0.26, 0.04, 0x4a8a2a);
+        B(g, 0, 0.04, 0, 0.10, 0.12, 0.10, 0xe46a9a);
+        B(g, 0, 0.12, 0, 0.08, 0.06, 0.08, 0xff9abe);
+        B(g, 0, -0.02, 0.08, 0.07, 0.07, 0.04, 0xffffff);
+        break;
+      }
+      case FLOWER_PEONY: {
+        B(g, 0, -0.14, 0, 0.04, 0.26, 0.04, 0x4a8a2a);
+        B(g, 0, 0.02, 0, 0.18, 0.14, 0.18, 0xe46a9a);
+        B(g, 0, 0.10, 0, 0.14, 0.10, 0.14, 0xff9abe);
+        B(g, 0.05, 0.06, 0.05, 0.06, 0.06, 0.06, 0xffffff);
+        break;
+      }
+      case BUSH:
+      case BUSH_FLOWERING:
+      case BERRY_BUSH: {
+        B(g, 0, -0.06, 0, 0.22, 0.18, 0.22, 0x3a7a2a);
+        B(g, 0, 0.06, 0, 0.18, 0.14, 0.18, 0x5a9a3a);
+        B(g, 0.10, 0.02, 0.06, 0.10, 0.10, 0.10, 0x4a8a2a);
+        B(g, -0.10, 0.04, -0.04, 0.10, 0.08, 0.10, 0x2a5a1a);
+        if (id === BUSH_FLOWERING) {
+          B(g, 0.08, 0.12, 0.05, 0.06, 0.06, 0.06, 0xf0f0e8);
+          B(g, -0.07, 0.10, 0.04, 0.05, 0.05, 0.05, 0xff9abe);
+        }
+        if (id === BERRY_BUSH) {
+          B(g, 0.09, 0.10, 0.04, 0.04, 0.04, 0.04, 0xd42a2a);
+          B(g, -0.08, 0.08, 0.06, 0.04, 0.04, 0.04, 0xd42a2a);
+        }
+        break;
+      }
+      case MOSS_CARPET: {
+        B(g, 0, -0.12, 0, 0.32, 0.06, 0.28, 0x4a9a3a);
+        B(g, 0.08, -0.09, 0.05, 0.12, 0.04, 0.10, 0x6cbb4a);
+        B(g, -0.09, -0.08, -0.04, 0.10, 0.03, 0.08, 0x3a7a2a);
+        break;
+      }
+      case LEAF_PILE: {
+        B(g, 0, -0.12, 0, 0.30, 0.07, 0.26, 0xc87a2a);
+        B(g, 0.06, -0.08, 0.04, 0.14, 0.05, 0.12, 0xe89a3a);
+        B(g, -0.07, -0.06, -0.03, 0.12, 0.04, 0.10, 0xa85a1a);
+        break;
+      }
+      case TALL_GRASS: {
+        // diverse tall grass: 4 blades with bend and varying green
+        B(g, 0, -0.08, 0, 0.05, 0.32, 0.05, 0x4a8a2a, 0, 0.18);
+        B(g, 0.07, -0.02, 0.02, 0.06, 0.28, 0.05, 0x6cbb4a, 0, -0.22);
+        B(g, -0.06, 0.02, -0.01, 0.05, 0.26, 0.05, 0x5a9a3a, 0, 0.28);
+        B(g, 0.03, 0.10, -0.04, 0.04, 0.18, 0.04, 0x78c64e, 0, -0.15);
+        break;
+      }
       case FERN: {
-        B(g, 0, -0.05, 0, 0.06, 0.28, 0.06, 0x5f9738, 0, 0.2);
-        B(g, 0.06, 0.02, 0, 0.12, 0.05, 0.06, 0x78b54e);
-        B(g, -0.06, 0.08, 0, 0.12, 0.05, 0.06, 0x4a7a2a);
+        // improved fern: central stem + feathery fronds
+        B(g, 0, -0.08, 0, 0.04, 0.30, 0.04, 0x3a6a2a);
+        B(g, -0.08, 0.06, 0, 0.12, 0.04, 0.06, 0x5a9a4a, 0, 0.35);
+        B(g, -0.12, 0.00, 0.02, 0.10, 0.03, 0.05, 0x6cbb5a, 0, 0.45);
+        B(g, 0.08, 0.08, 0, 0.12, 0.04, 0.06, 0x5a9a4a, 0, -0.35);
+        B(g, 0.12, 0.02, -0.02, 0.10, 0.03, 0.05, 0x6cbb5a, 0, -0.45);
+        B(g, 0, 0.14, 0, 0.14, 0.04, 0.06, 0x7acc6a, 0, 0);
+        break;
+      }
+      case CAVE_VINE:
+      case CAVE_VINE_GLOW: {
+        const glow = id === CAVE_VINE_GLOW;
+        B(g, 0, 0, 0, 0.06, 0.36, 0.06, 0x3a7a2a);
+        B(g, 0.06, 0.08, 0, 0.08, 0.10, 0.08, 0x5a9a3a);
+        if (glow) {
+          B(g, 0, -0.12, 0, 0.10, 0.08, 0.10, 0xf0d860);
+          B(g, 0, -0.18, 0, 0.06, 0.06, 0.06, 0xfff0a0);
+        }
+        break;
+      }
+      case GLOW_BERRY: {
+        B(g, 0, 0, 0, 0.12, 0.12, 0.12, 0xf0d860);
+        B(g, 0, 0.08, 0, 0.08, 0.08, 0.08, 0xfff0a0);
+        break;
+      }
+      case HANGING_ROOTS: {
+        B(g, 0, 0, 0, 0.06, 0.32, 0.06, 0x7a5a3a);
+        B(g, 0.05, -0.04, 0, 0.04, 0.24, 0.04, 0x8a6a4a);
+        break;
+      }
+      case SPORE_BLOSSOM: {
+        B(g, 0, -0.08, 0, 0.04, 0.20, 0.04, 0x5a9a4a);
+        B(g, 0, 0.04, 0, 0.16, 0.10, 0.16, 0xe46a9a);
+        B(g, 0, 0.12, 0, 0.12, 0.06, 0.12, 0xff9abe);
+        break;
+      }
+      case POINTED_DRIPSTONE:
+      case STALACTITE:
+      case STALAGMITE: {
+        B(g, 0, 0, 0, 0.10, 0.32, 0.10, 0x8a7565);
+        B(g, 0, -0.12, 0, 0.06, 0.16, 0.06, 0x9a8a7a);
+        break;
+      }
+      case GLOW_LICHEN: {
+        B(g, 0, 0, 0, 0.28, 0.06, 0.24, 0x6a9a5a);
+        B(g, 0, 0.04, 0, 0.18, 0.04, 0.16, 0x8abb6a);
         break;
       }
       case DEAD_BUSH: {
@@ -10035,7 +10352,7 @@ if (tpClipActive > 0.5) {
       this.inventory.set(id, count - 1);
     }
 
-    if (id >= 200 && !isArrowId(id) && !isMeatItem(id)) {
+    if (!isInventoryBlockId(id) && !isArrowId(id) && !isMeatItem(id)) {
       this.recalcOwnedToolTiers();
     }
 
@@ -10533,13 +10850,54 @@ if (tpClipActive > 0.5) {
     if (weather > 0) c.lerp(storm, Math.min(0.72, weather * 0.62));
 
     const fog = this.scene.fog as THREE.Fog;
-    fog.color.copy(c);
-    const nightHaze = 0.66 + d * 0.54;
-    const weatherHaze = 1 - weather * 0.16;
-    fog.far = this.renderDist * nightHaze * weatherHaze;
-    fog.near = fog.far * (0.34 + weather * 0.07);
-    this.scene.background = c;
-    if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+    const isUnder = this.headUnderwater();
+    if (isUnder) {
+      // underwater — dark blurred water boundary, not bright blue hole; filter shows where water ends
+      const waterFog = new THREE.Color(0x061e32).lerp(new THREE.Color(0x0b2f4a), d * 0.35);
+      fog.color.copy(waterFog);
+      this.scene.background = waterFog;
+      fog.near = 2;
+      fog.far = Math.min(36, this.renderDist * 0.42);
+      if (this.skyMat) this.skyMat.color.copy(waterFog).multiplyScalar(0.45);
+    } else {
+      // detect deep underground to hide sky leaking through unloaded chunk holes
+      let surfaceH = 64;
+      try {
+        surfaceH = this.world.getHeight(Math.floor(this.pos.x), Math.floor(this.pos.z));
+      } catch {}
+      const isDeepUnderground = this.pos.y < surfaceH - 10;
+      const isCave = this.pos.y < surfaceH - 4 && this.pos.y < 48;
+      if (isDeepUnderground) {
+        // dark cave void — no bright sky, unloaded chunks appear as dark blurred fog, but ore still visible
+        const caveFog = new THREE.Color(0x0a1418).lerp(new THREE.Color(0x111c22), Math.min(1, (surfaceH - this.pos.y) / 40) * 0.5);
+        caveFog.lerp(night, (1 - d) * 0.35);
+        fog.color.copy(caveFog);
+        this.scene.background = caveFog;
+        fog.far = Math.min(this.renderDist * 0.78, 84);
+        fog.near = fog.far * 0.22;
+        if (this.skyMat) this.skyMat.color.copy(caveFog).multiplyScalar(0.35);
+      } else if (isCave) {
+        // shallow cave / overhang — muted, desaturated sky to avoid sharp blue rectangles
+        const caveBlend = new THREE.Color(0x1a2a32);
+        caveBlend.lerp(c, 0.22 + d * 0.18);
+        fog.color.copy(caveBlend);
+        this.scene.background = caveBlend;
+        fog.far = this.renderDist * (0.68 + d * 0.14) * (1 - weather * 0.16);
+        fog.near = fog.far * 0.28;
+        if (this.skyMat) this.skyMat.color.copy(caveBlend).multiplyScalar(0.5);
+      } else {
+        // surface: make distant void dark blurred, not bright blue hole — fog darker than sky, background dark
+        const surfaceVoidDark = new THREE.Color(0x1a2a36);
+        const surfaceFog = c.clone().lerp(surfaceVoidDark, 0.38 + (1 - d) * 0.18);
+        fog.color.copy(surfaceFog);
+        this.scene.background = surfaceFog;
+        const nightHaze = 0.66 + d * 0.54;
+        const weatherHaze = 1 - weather * 0.16;
+        fog.far = this.renderDist * nightHaze * weatherHaze;
+        fog.near = fog.far * (0.34 + weather * 0.07);
+        if (this.skyMat) this.skyMat.color.copy(c).multiplyScalar(0.86 + dry * 0.06 - winter * 0.02 + d * (0.55 + dry * 0.03));
+      }
+    }
 
     const sunDir = new THREE.Vector3(Math.cos(sunAngle) * 0.84, sunHeight * 0.96, -0.34).normalize();
     this.sunDir.copy(sunDir);
@@ -11702,7 +12060,7 @@ if (tpClipActive > 0.5) {
 
   /** sell a tool straight out of the hotbar or inventory */
   sellTool(id: number, instanceId?: number) {
-    if (id < 200 || isArrowId(id) || isMeatItem(id)) return;
+    if (isInventoryBlockId(id)) return;
     const count = this.inventory.get(id) ?? 0;
     if (count <= 0) return; // nothing owned — never sell an air slot
     let durability: number | undefined;
@@ -12524,11 +12882,20 @@ if (tpClipActive > 0.5) {
 
   private recordExplorerCraft(recipe: Recipe) {
     if (!this.explorationObjectives.length) return;
+    const gearMaterialTier: Record<string, number> = {
+      wood: 0, leather: 0, stone: 1, iron: 2, gold: 3, diamond: 4, netherite: 5,
+      redstone: 2, lapis: 2, emerald: 3,
+    };
     for (const task of this.explorationObjectives) {
       const craftedPickaxe = task.craftPickaxeTier !== undefined && recipe.kind === 'pickaxe' && recipe.tier === task.craftPickaxeTier;
       const craftedRecipe = task.craftRecipeKey !== undefined && recipe.key === task.craftRecipeKey;
       const craftedRecipeVariant = task.craftRecipeKeys?.includes(recipe.key) ?? false;
-      const craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
+      let craftedKind = task.craftKind !== undefined && recipe.kind === task.craftKind && (task.craftTier === undefined || recipe.tier === task.craftTier);
+      if (!craftedKind && task.craftKind === 'gear' && recipe.kind === 'gear' && task.craftTier !== undefined) {
+        const mat = (recipe as any).material as string | undefined;
+        const matTier = mat ? gearMaterialTier[mat] : undefined;
+        if (matTier !== undefined && matTier === task.craftTier) craftedKind = true;
+      }
       if (craftedPickaxe || craftedRecipe || craftedRecipeVariant || craftedKind) task.progress = Math.min(task.target, task.progress + 1);
     }
     this.advanceExplorerObjectives();
@@ -12725,6 +13092,7 @@ if (tpClipActive > 0.5) {
       Math.round(this.staminaState.stamina),
       this.breathState.bubbles,
       this.inWater ? 1 : 0,
+      this.headUnderwater() ? 1 : 0,
       this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6) ? 1 : 0,
       this.combo,
       this.tier,
@@ -12786,6 +13154,7 @@ if (tpClipActive > 0.5) {
       arrowLoadout: this.arrowLoadout,
       airBubbles: this.breathState.bubbles,
       inWater: this.inWater,
+      headUnderwater: this.headUnderwater(),
       breathVisible: this.phase === 'playing' && (this.headUnderwater() || this.breathState.bubbles < 6),
       combo: this.combo,
       comboMult: this.comboMult(),
@@ -12875,6 +13244,8 @@ if (tpClipActive > 0.5) {
       inventory: this.inventoryList(),
       craftable: RECIPES.filter((r) => this.canCraft(r)).map((r) => r.key),
       lastCraft: this.lastCraft,
+      scoreBoost: this.scoreBonusMultiplier,
+      oreBoost: this.oreBoostMultiplier,
     });
     this.writeDom();
   }
@@ -13876,7 +14247,7 @@ if (tpClipActive > 0.5) {
     const id = this.world.get(target.x, target.y, target.z);
     if (!isTreasureChest(id) || baseChestId(id) !== baseChestId(target.id)) return false;
     const chest = this.chestInventoryAt(target.x, target.y, target.z, id);
-    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && (itemId < 200 || isArrowId(itemId) || isMeatItem(itemId)) && !!BLOCKS[itemId] && !getToolSpec(itemId));
+    return [...chest].some(([itemId, count]) => count > 0 && itemId > AIR && isInventoryBlockId(itemId) && !!BLOCKS[itemId] && !getToolSpec(itemId));
   }
 
   /** Find a nearby stocked chest and one clear adjacent position the wolf can reach. */
@@ -14020,7 +14391,7 @@ if (tpClipActive > 0.5) {
     if (distance <= 0.48) {
       const currentId = this.world.get(target.x, target.y, target.z);
       const chest = this.chestInventoryAt(target.x, target.y, target.z, currentId);
-      const item = [...chest].find(([id, count]) => id > AIR && (id < 200 || isArrowId(id) || isMeatItem(id)) && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
+      const item = [...chest].find(([id, count]) => id > AIR && isInventoryBlockId(id) && count > 0 && !!BLOCKS[id] && !getToolSpec(id));
       if (!item) {
         this.setWolfPetChestLid(target, false);
         rig.chestTarget = null;

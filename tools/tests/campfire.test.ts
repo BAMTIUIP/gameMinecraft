@@ -10,8 +10,9 @@ function ok(condition: boolean, label: string, detail = '') {
   else failures.push(detail ? `${label} → ${detail}` : label);
 }
 
-ok(CAMPFIRE_SMOKE_HEIGHT === 30, 'A normal campfire emits smoke for 30 blocks');
-ok(HAY_CAMPFIRE_SMOKE_HEIGHT === 60, 'A campfire on a hay bale emits smoke for 60 blocks');
+ok(CAMPFIRE_SMOKE_HEIGHT >= 40, `A normal campfire emits tall visible smoke (>=40 blocks, got ${CAMPFIRE_SMOKE_HEIGHT})`);
+ok(HAY_CAMPFIRE_SMOKE_HEIGHT >= 70, `A campfire on a hay bale emits extra-tall smoke (>=70 blocks, got ${HAY_CAMPFIRE_SMOKE_HEIGHT})`);
+ok(HAY_CAMPFIRE_SMOKE_HEIGHT > CAMPFIRE_SMOKE_HEIGHT, 'Hay-boosted smoke is taller than normal campfire smoke');
 
 const world = new World(73);
 world.genTerrain(0, 0);

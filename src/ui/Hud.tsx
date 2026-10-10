@@ -120,6 +120,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         ? 'from-[#c9761f] to-torch'
         : 'from-[#8f1c14] to-blood';
 
+  const underwater = hud.headUnderwater;
   return (
     <div className={`pointer-events-none absolute inset-0 z-20 select-none font-body ${isTouch ? 'hud-touch' : ''}`}>
       {/* damage / hazard vignette */}
@@ -130,6 +131,17 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
         className="absolute inset-0 opacity-0"
         style={{ transition: 'opacity 90ms linear' }}
       />
+      {/* underwater blue filter — shows water boundary, only when head is underwater */}
+      {underwater && (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `radial-gradient(ellipse at 50% 40%, rgba(40,140,220,0.18) 0%, rgba(10,70,140,0.30) 55%, rgba(5,35,80,0.42) 100%)`,
+            pointerEvents: 'none',
+            transition: 'opacity 200ms ease',
+          }}
+        />
+      )}
 
       {/* ---------------- TOP LEFT: vitals + mission ---------------- */}
       <div className="hud-information hud-information--top-left absolute left-2 top-2 flex flex-col gap-1.5 sm:left-4 sm:top-4 sm:gap-2">
@@ -385,6 +397,16 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
             >
               {hud.score.toLocaleString()}
             </div>
+            {(hud.scoreBoost > 1.01 || hud.oreBoost > 1.01) && (
+              <div className="mt-1 flex justify-end gap-1">
+                {hud.scoreBoost > 1.01 && (
+                  <span className="rounded bg-[#bd8cff]/20 px-1 py-0.5 font-display text-[8px] text-[#bd8cff]">SCORE x{hud.scoreBoost.toFixed(2)}</span>
+                )}
+                {hud.oreBoost > 1.01 && (
+                  <span className="rounded bg-[#62e8dc]/20 px-1 py-0.5 font-display text-[8px] text-[#62e8dc]">ORE x{hud.oreBoost.toFixed(1)}</span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="bevel-flat notch flex items-center gap-2 px-2 py-1 sm:px-3">
@@ -661,7 +683,7 @@ export default function Hud({ hud, dom, muted, onPause, onMute, onSelect, onBag,
                   return (
                     <span className="flex flex-col items-center justify-center leading-none" style={{ color: matCol }}>
                       {gear ? (
-                        <GearIcon slot={gear.slot} color={matCol} size={28} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
+                        <GearIcon slot={gear.slot} color={matCol} affixes={gear.affixes} size={28} className="drop-shadow-[0_0_5px_rgba(255,255,255,.18)]" />
                       ) : (
                         <span className="text-base sm:text-xl" style={{ textShadow: `0 0 8px ${rarCol}` }}>⛨</span>
                       )}

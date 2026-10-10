@@ -617,8 +617,7 @@ input[type='text'] {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
-  scroll-padding-inline: 0.25rem;
+  scroll-behavior: auto;
   touch-action: pan-x;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;

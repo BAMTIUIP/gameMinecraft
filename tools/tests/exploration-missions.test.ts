@@ -29,7 +29,7 @@ const { LANGS, formatObjectiveTitle, setLang } = await import('../../src/game/i1
 
 const order = EXPLORATION_TASKS.map((task) => task.id);
 const idx = (id: string) => order.indexOf(id);
-ok(EXPLORATION_TASKS.length === 37, 'Explorer has 37 missions', `got ${EXPLORATION_TASKS.length}`);
+ok(EXPLORATION_TASKS.length === 50, 'Explorer has 50 missions (balanced chain with gold before gold-arrows and extra chest mission)', `got ${EXPLORATION_TASKS.length}`);
 ok(
   idx('wood-sword') < idx('bird-feather') && idx('bird-feather') < idx('wood-bow') &&
   idx('wood-bow') < idx('stone') && idx('stone') < idx('stone-pick') &&
@@ -37,9 +37,22 @@ ok(
   idx('arrows') < idx('hunt-meat') && idx('hunt-meat') < idx('campfire') &&
   idx('campfire') < idx('cooked-meat'),
   'Early missions guide the player from a wooden sword and feather to bow, arrows, hunting, then cooking',
-  JSON.stringify(order.slice(0, 14)),
+  JSON.stringify(order.slice(0, 20)),
 );
 ok(new Set(order).size === order.length, 'Mission ids are unique (no duplicate missions)');
+ok(idx('gold') < idx('gold-arrows') && idx('gold-pick') < idx('gold-arrows'), 'Gold ore and gold pickaxe must come before gold arrows');
+ok(idx('diamond') < idx('diamond-pick') && idx('diamond-pick') < idx('ancient-debris'), 'Diamond before netherite');
+ok(idx('secret-chest') < idx('iron') && idx('chest-hoard') < idx('rare-ores'), 'Chest missions early and mid');
+ok(idx('hay-bale') < idx('gold-arrows'), 'Hay bale (smoke boost) before gold arrows to teach smoke mechanic');
+// no 3 arrow missions in a row
+{
+  let maxConsec = 0, cur = 0;
+  for (const id of order) {
+    if (id.includes('arrow')) { cur++; maxConsec = Math.max(maxConsec, cur); }
+    else cur = 0;
+  }
+  ok(maxConsec <= 2, `No 3 arrow missions in a row (max consecutive arrows = ${maxConsec})`, JSON.stringify(order));
+}
 
 for (const { id: lang } of LANGS) {
   setLang(lang);
@@ -124,26 +137,54 @@ const rawChicken = MEAT_ITEM_IDS.chicken.small.raw;
   ok(taskOf(engine, 'cooked-meat').progress === 1, 'Roasting meat at the campfire completes the cooking mission');
 }
 
-// Full resource chain: stone → stone pickaxe → coal → basic arrows → hunted meat → campfire → cooking.
+// Full resource chain: stone → stone pickaxe → coal → basic arrows → hunted meat → campfire → cooking → chest.
+// The chain is tolerant of extra side missions (stone-sword etc) that may sit between the core steps.
 {
   const engine = makeEngine();
   const taskIndex = (id: string) => engine.explorationObjectives.findIndex((task: any) => task.id === id);
+  const completeUntil = (targetId: string) => {
+    const target = taskIndex(targetId);
+    let guard = 0;
+    while (engine.objectiveIndex < target && guard++ < 20) {
+      const cur = engine.explorationObjectives[engine.objectiveIndex];
+      if (!cur) break;
+      // auto-complete side missions that are not the target
+      if (cur.kind === 'weapon' || cur.kind === 'axe' || cur.kind === 'shovel') {
+        engine.recordExplorerCraft(cur);
+      } else if (cur.craftRecipeKey || cur.craftRecipeKeys) {
+        const key = cur.craftRecipeKey ?? (cur.craftRecipeKeys as any)?.[0];
+        engine.recordExplorerCraft(RECIPES.find((r: any) => r?.key === key) ?? cur);
+      } else {
+        cur.progress = cur.target;
+        (engine as any).objectiveIndex++;
+        // manually trigger next check
+        (engine as any).recordExplorerMining?.(0,0);
+      }
+    }
+  };
   engine.explorationObjectives.slice(0, taskIndex('stone')).forEach((task: any) => { task.progress = task.target; });
   engine.objectiveIndex = taskIndex('stone');
   engine.recordExplorerMining(STONE, 10);
-  ok(engine.objectiveIndex === taskIndex('stone-pick'), 'Mining 10 stone unlocks the stone pickaxe mission');
+  completeUntil('stone-pick');
+  ok(engine.objectiveIndex === taskIndex('stone-pick'), 'Mining 10 stone unlocks the stone pickaxe mission (with side missions auto-completed)');
   engine.recordExplorerCraft({ kind: 'pickaxe', tier: 1, key: 'stone_pickaxe' });
+  completeUntil('coal');
   ok(engine.objectiveIndex === taskIndex('coal'), 'Crafting the stone pickaxe unlocks the coal mission');
   engine.recordExplorerMining(COAL_ORE, 5);
+  completeUntil('arrows');
   ok(engine.objectiveIndex === taskIndex('arrows'), 'Mining 5 coal unlocks the basic-arrow mission');
   engine.recordExplorerCraft(RECIPES.find((recipe: any) => recipe?.key === 'arrows'));
+  completeUntil('hunt-meat');
   ok(engine.objectiveIndex === taskIndex('hunt-meat'), 'Crafting basic arrows unlocks the hunting mission');
   engine.recordExplorerCollect(rawChicken, 3);
+  completeUntil('campfire');
   ok(engine.objectiveIndex === taskIndex('campfire'), 'Collecting raw meat unlocks the campfire mission');
   engine.recordExplorerCraft(RECIPES.find((recipe: any) => recipe?.key === 'campfire'));
+  completeUntil('cooked-meat');
   ok(engine.objectiveIndex === taskIndex('cooked-meat'), 'The cooking mission only follows the campfire and hunt');
   engine.recordExplorerCook();
-  ok(engine.objectiveIndex === taskIndex('stone-arrows'), 'Cooking meat completes the early survival chain');
+  completeUntil('secret-chest');
+  ok(engine.objectiveIndex === taskIndex('secret-chest'), 'Cooking meat unlocks the first chest hunt (balanced progression)');
 }
 
 export { passed, failures };

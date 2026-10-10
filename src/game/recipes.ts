@@ -171,8 +171,17 @@ export type Recipe = {
 
 /** bare hand pseudo-item: always occupies hotbar slot 1 */
 export const HAND = -1;
-/** The 200+ tool-ID space excludes stackable arrows and relocated meat portions. */
-export const isToolId = (id: number) => id >= 200 && !isArrowId(id) && !isMeatItem(id);
+/** Tool IDs live in 200-206, 210-215, 220-225, 230-235, 240-255, 260-264 — excludes arrows, meat and new flora blocks 276+ */
+export const isToolId = (id: number) => {
+  if (isArrowId(id) || isMeatItem(id)) return false;
+  if (id >= 200 && id <= 206) return true;
+  if (id >= 210 && id <= 215) return true;
+  if (id >= 220 && id <= 225) return true;
+  if (id >= 230 && id <= 235) return true;
+  if (id >= 240 && id <= 255) return true;
+  if (id >= 260 && id <= 264) return true;
+  return false;
+};
 
 const MATERIAL_ITEMS = [PLANKS, COBBLE, IRON, GOLD, DIAMOND, NETHERITE_INGOT] as const;
 
@@ -1004,12 +1013,13 @@ export type InvCategory = 'all' | 'tools' | 'food' | 'armor' | 'blocks' | 'pets'
  * Categorize any owned inventory item id into one of the general inventory tabs:
  * - 'tools': weapons, tools, arrows, workbench, anvil
  * - 'food': food, fruits, meat, honey, flowers/potions, campfire
- * - 'armor': gear items (id >= 300)
+ * - 'armor': gear items (hid >= 1000, moved from 300 to avoid cave blocks)
  * - 'blocks': building blocks & raw materials
  */
 export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pets'> {
   if (isArrowId(id)) return 'tools';
-  if (id >= 300) return 'armor';
+  // gear hid now starts at 1000 to avoid collision with cave blocks 300-321
+  if (id >= 1000) return 'armor';
   // Meat IDs are table-backed because portions that collided with legacy arrow
   // IDs are relocated after the durable-tool range.
   if (
@@ -1029,7 +1039,7 @@ export function getItemInvCategory(id: number): Exclude<InvCategory, 'all' | 'pe
   ) {
     return 'food';
   }
-  if (id >= 154 || id === ARROW_ITEM || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
+  if (isToolId(id) || isArrowId(id) || id === ARROW_ITEM || id === TOOL_TORCH || id === CRAFTING_TABLE || id === ANVIL) return 'tools';
   return 'blocks';
 }
 

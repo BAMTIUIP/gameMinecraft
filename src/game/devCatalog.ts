@@ -1,4 +1,4 @@
-import { AIR, BEDROCK, BLOCKS, LAVA, WATER, isArrowId, isMeatItem, isOpenChest } from './blocks';
+import { AIR, BEDROCK, BLOCKS, LAVA, WATER, isArrowId, isMeatItem, isOpenChest, isInventoryBlockId } from './blocks';
 import { RARITY, MATERIALS, SLOTS, type Material, type Rarity, type Slot } from './items';
 import { RECIPES, TOOL_TORCH } from './recipes';
 import { getToolSpec } from './tools';
@@ -15,7 +15,7 @@ export type DeveloperCatalog = {
 export function getDeveloperCatalog(): DeveloperCatalog {
   const itemIds = BLOCKS
     .filter((block) => block && block.id !== AIR && block.id !== BEDROCK && block.id !== LAVA && block.id !== WATER)
-    .filter((block) => (block.id < 200 || isArrowId(block.id) || isMeatItem(block.id)) && !isOpenChest(block.id))
+    .filter((block) => isInventoryBlockId(block.id) && !isOpenChest(block.id))
     .map((block) => block.id);
   const toolIds = Array.from({ length: 100 }, (_, index) => 200 + index)
     .filter((id) => getToolSpec(id) !== null);

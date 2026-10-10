@@ -21,6 +21,93 @@ import {
   NETHERITE_INGOT,
   CHEST_STORAGE_OPEN,
   isTreasureChest,
+  CAMPFIRE,
+  APPLE,
+  COCONUT,
+  BANANA,
+  FLOWER_RED,
+  FLOWER_YELLOW,
+  FLOWER_BLUE,
+  FLOWER_PINK,
+  FLOWER_PURPLE,
+  FLOWER_WHITE,
+  RAW_MEAT,
+  COOKED_MEAT,
+  MEAT_ITEM_BY_ID,
+  HONEY,
+  MUSHROOM,
+  WHEAT,
+  WHEAT_SEEDS,
+  VINE,
+  WEB,
+  BONE,
+  FLESH,
+  GUNPOWDER,
+  FEATHER,
+  TURTLE_SHELL,
+  CRAB_SHELL,
+  FISH_SCALE,
+  CAT_CLAW,
+  DEAD_BUSH,
+  DRY_BLOOM,
+  DESERT_THISTLE,
+  BIRD_NEST,
+  CHICKEN_NEST,
+  CACTUS,
+  FLOWER_TULIP_RED,
+  FLOWER_TULIP_YELLOW,
+  FLOWER_TULIP_PINK,
+  FLOWER_TULIP_ORANGE,
+  FLOWER_TULIP_WHITE,
+  FLOWER_SUNFLOWER,
+  FLOWER_ROSE,
+  FLOWER_LAVENDER,
+  FLOWER_WISTERIA,
+  FLOWER_DAISY,
+  FLOWER_ORCHID,
+  FLOWER_PEONY,
+  BUSH,
+  BUSH_FLOWERING,
+  BERRY_BUSH,
+  TALL_LAVENDER,
+  TALL_SUNFLOWER,
+  WISTERIA_VINE,
+  MOSS_CARPET,
+  LEAF_PILE,
+  MOSSY_COBBLE,
+  MOSSY_STONE_BRICK,
+  CRACKED_STONE_BRICK,
+  STONE_BRICK,
+  CAVE_MOSS_BLOCK,
+  CAVE_VINE,
+  CAVE_VINE_GLOW,
+  GLOW_BERRY,
+  DRIPSTONE_BLOCK,
+  POINTED_DRIPSTONE,
+  HANGING_ROOTS,
+  ROOTED_DIRT,
+  DEEPSLATE,
+  DEEPSLATE_BRICKS,
+  AMETHYST_BLOCK,
+  GLOW_LICHEN,
+  SPORE_BLOSSOM,
+  AZALEA_LEAVES,
+  AZALEA_FLOWERING,
+  CLAY,
+  MUSHROOM_BLOCK_RED,
+  MUSHROOM_BLOCK_BROWN,
+  MUSHROOM_STEM,
+  STALACTITE,
+  STALAGMITE,
+  STONE_BRICK,
+  TALL_GRASS,
+  FERN,
+  REWARD_PACK_DAILY,
+  REWARD_PACK_WEEKLY,
+  REWARD_PACK_MONTHLY,
+  SHOP_CHEST_COMMON,
+  SHOP_CHEST_RARE,
+  SHOP_CHEST_EPIC,
 } from './blocks';
 import { drawArrowIcon, isArrowId } from './arrowVisuals';
 
@@ -29,7 +116,7 @@ export const TILE = 16;
 export const GUT = 8;
 export const CELL = TILE + GUT * 2;
 export const ATLAS_COLS = 4;
-export const ATLAS_ROWS = 32; // 128 tiles
+export const ATLAS_ROWS = 64; // 256 tiles - power-of-two height 2048 for mipmaps, expanded for forest flora & ruins
 export const ATLAS_W = CELL * ATLAS_COLS;
 export const ATLAS_H = CELL * ATLAS_ROWS;
 
@@ -1822,6 +1909,358 @@ function drawTile(ctx: Ctx, index: number) {
       for (let x = 3; x < 16; x += 5) ctx.fillRect(ox + x, oy + 1, 1, 2);
       break;
     }
+    // ---- Expanded Flora (Tulips, Roses, Sunflowers, Lavender, Wisteria, Daisy, etc.) ----
+    case T.flowerTulipRed:
+    case T.flowerTulipYellow:
+    case T.flowerTulipPink:
+    case T.flowerTulipOrange:
+    case T.flowerTulipWhite: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const tulipMap: Record<number, {cup: string, light: string, dark: string}> = {
+        [T.flowerTulipRed]: {cup: '#d42a2a', light: '#ff5a4a', dark: '#8a1a1a'},
+        [T.flowerTulipYellow]: {cup: '#e8c628', light: '#ffea4a', dark: '#a08018'},
+        [T.flowerTulipPink]: {cup: '#e46a9a', light: '#ff9abe', dark: '#a04068'},
+        [T.flowerTulipOrange]: {cup: '#e86a18', light: '#ff9a3a', dark: '#a0400a'},
+        [T.flowerTulipWhite]: {cup: '#f0f0e8', light: '#ffffff', dark: '#c8c8b8'},
+      };
+      const col = tulipMap[index] || tulipMap[T.flowerTulipRed];
+      // stem
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 8, 2, 8);
+      // tulip cup - closed elegant shape
+      ctx.fillStyle = col.dark; ctx.fillRect(ox + 5, oy + 5, 6, 5);
+      ctx.fillStyle = col.cup; ctx.fillRect(ox + 5, oy + 4, 6, 5);
+      ctx.fillRect(ox + 4, oy + 5, 8, 3);
+      ctx.fillStyle = col.light; ctx.fillRect(ox + 6, oy + 4, 2, 2);
+      break;
+    }
+    case T.flowerSunflower: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 8, 2, 8);
+      // sunflower head - large yellow with dark center
+      ctx.fillStyle = '#e8c828'; ctx.fillRect(ox + 2, oy + 2, 12, 8);
+      ctx.fillRect(ox + 3, oy + 1, 10, 10);
+      ctx.fillStyle = '#ffea4a'; ctx.fillRect(ox + 4, oy + 3, 8, 5);
+      ctx.fillStyle = '#5a3a10'; ctx.fillRect(ox + 6, oy + 5, 4, 4);
+      ctx.fillStyle = '#7a5a1a'; ctx.fillRect(ox + 7, oy + 6, 2, 2);
+      break;
+    }
+    case T.flowerRose: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 7, oy + 8, 2, 8);
+      // rose bloom - layered red petals
+      ctx.fillStyle = '#8a1010'; ctx.fillRect(ox + 5, oy + 4, 6, 5);
+      ctx.fillStyle = '#c41e1e'; ctx.fillRect(ox + 4, oy + 3, 8, 6);
+      ctx.fillStyle = '#e83030'; ctx.fillRect(ox + 5, oy + 3, 6, 4);
+      ctx.fillStyle = '#ff5a4a'; ctx.fillRect(ox + 6, oy + 3, 2, 2);
+      // thorns hint
+      px(ctx, ox, oy, 6, 12, 1, 1, '#5a3a1a');
+      break;
+    }
+    case T.flowerLavender: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 9, 2, 7);
+      // lavender spike - purple clustered buds
+      ctx.fillStyle = '#5a3a8a'; ctx.fillRect(ox + 6, oy + 3, 4, 8);
+      ctx.fillStyle = '#7a5aba'; ctx.fillRect(ox + 5, oy + 2, 6, 7);
+      for (let y = 2; y < 9; y += 2) {
+        px(ctx, ox, oy, 6 + (y % 2), y, 2, 1, '#a48ad8');
+        px(ctx, ox, oy, 8, y + 1, 1, 1, '#c4a8f0');
+      }
+      break;
+    }
+    case T.flowerWisteria: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#6a8a4a'; ctx.fillRect(ox + 7, oy + 2, 2, 6);
+      // hanging wisteria cluster - cascading light purple
+      ctx.fillStyle = '#8a6aba'; ctx.fillRect(ox + 4, oy + 6, 8, 7);
+      ctx.fillStyle = '#a88ad8'; ctx.fillRect(ox + 5, oy + 7, 6, 6);
+      ctx.fillStyle = '#c8a8f0'; ctx.fillRect(ox + 6, oy + 8, 4, 4);
+      for (let y = 7; y < 13; y++) px(ctx, ox, oy, 6 + (y % 3), y, 1, 1, '#e0c8ff');
+      ctx.fillStyle = '#5a4a6a'; ctx.fillRect(ox + 7, oy + 13, 2, 2);
+      break;
+    }
+    case T.flowerDaisy: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#5a9a3a'; ctx.fillRect(ox + 7, oy + 9, 2, 7);
+      // white petals + yellow center
+      ctx.fillStyle = '#f0f0e8'; ctx.fillRect(ox + 3, oy + 4, 10, 6);
+      ctx.fillRect(ox + 5, oy + 3, 6, 8);
+      ctx.fillStyle = '#e8e8d8'; ctx.fillRect(ox + 4, oy + 5, 2, 4);
+      ctx.fillRect(ox + 10, oy + 5, 2, 4);
+      ctx.fillStyle = '#f0d840'; ctx.fillRect(ox + 6, oy + 5, 4, 4);
+      ctx.fillStyle = '#ffe860'; px(ctx, ox, oy, 7, 6, 1, 1, '#ffe860');
+      break;
+    }
+    case T.flowerOrchid: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a7a3a'; ctx.fillRect(ox + 7, oy + 9, 2, 7);
+      // exotic orchid - blue-purple with patterned lip
+      ctx.fillStyle = '#4a3a8a'; ctx.fillRect(ox + 3, oy + 5, 10, 5);
+      ctx.fillStyle = '#6a5aba'; ctx.fillRect(ox + 4, oy + 3, 8, 6);
+      ctx.fillStyle = '#8a7ad8'; ctx.fillRect(ox + 5, oy + 4, 6, 3);
+      ctx.fillStyle = '#d8c8ff'; ctx.fillRect(ox + 5, oy + 6, 6, 3);
+      ctx.fillStyle = '#ff9ad0'; ctx.fillRect(ox + 7, oy + 7, 2, 1);
+      break;
+    }
+    case T.flowerPeony: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 10, 2, 6);
+      // large fluffy peony
+      ctx.fillStyle = '#b04070'; ctx.fillRect(ox + 3, oy + 3, 10, 8);
+      ctx.fillStyle = '#d45a8a'; ctx.fillRect(ox + 4, oy + 2, 8, 8);
+      ctx.fillStyle = '#e87aa8'; ctx.fillRect(ox + 5, oy + 3, 6, 6);
+      ctx.fillStyle = '#ffb0d0'; ctx.fillRect(ox + 6, oy + 4, 3, 3);
+      for (const [x,y] of [[4,4],[9,4],[5,8],[9,8]]) px(ctx, ox, oy, x, y, 2, 1, '#ffa8c8');
+      break;
+    }
+    case T.bush: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // dense green shrub
+      ctx.fillStyle = '#2a5a1a'; ctx.fillRect(ox + 3, oy + 6, 10, 8);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 2, oy + 5, 12, 7);
+      ctx.fillStyle = '#4a9a3a'; ctx.fillRect(ox + 4, oy + 4, 8, 6);
+      ctx.fillStyle = '#5aba4a'; ctx.fillRect(ox + 5, oy + 5, 3, 2);
+      ctx.fillStyle = '#3a4a1a'; ctx.fillRect(ox + 7, oy + 12, 2, 4);
+      break;
+    }
+    case T.bushFlowering: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#2a5a1a'; ctx.fillRect(ox + 2, oy + 6, 12, 8);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 1, oy + 5, 14, 7);
+      // white/pink blossoms on bush
+      for (const [x,y,c] of [[3,6,'#f0e0e8'],[7,5,'#ffb0d0'],[11,7,'#f0f0f8'],[5,8,'#ff9abe'],[9,9,'#ffe0f0']] as const) {
+        px(ctx, ox, oy, x as number, y as number, 2, 2, c as string);
+      }
+      ctx.fillStyle = '#3a4a1a'; ctx.fillRect(ox + 7, oy + 12, 2, 4);
+      break;
+    }
+    case T.berryBush: {
+      ctx.clearRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#2a5a1a'; ctx.fillRect(ox + 2, oy + 6, 12, 8);
+      ctx.fillStyle = '#3a7a2a'; ctx.fillRect(ox + 3, oy + 5, 10, 7);
+      // red berries
+      for (const [x,y] of [[4,7],[8,6],[11,8],[5,10],[9,11]]) {
+        px(ctx, ox, oy, x, y, 2, 2, '#c41e1e');
+        px(ctx, ox, oy, x, y, 1, 1, '#ff4a3a');
+      }
+      ctx.fillStyle = '#3a4a1a'; ctx.fillRect(ox + 7, oy + 12, 2, 4);
+      break;
+    }
+    case T.tallLavender:
+    case T.tallSunflower: {
+      ctx.clearRect(ox, oy, 16, 16);
+      const isSun = index === T.tallSunflower;
+      ctx.fillStyle = '#4a8a32'; ctx.fillRect(ox + 7, oy + 2, 2, 14);
+      if (isSun) {
+        // tall sunflower - two blooms? top one
+        ctx.fillStyle = '#e8c828'; ctx.fillRect(ox + 2, oy + 1, 12, 6);
+        ctx.fillStyle = '#ffea4a'; ctx.fillRect(ox + 4, oy + 2, 8, 4);
+        ctx.fillStyle = '#5a3a10'; ctx.fillRect(ox + 6, oy + 3, 4, 3);
+        ctx.fillStyle = '#3a9a2a'; ctx.fillRect(ox + 3, oy + 9, 10, 4);
+      } else {
+        // tall lavender
+        for (let y = 1; y < 10; y++) {
+          ctx.fillStyle = y % 2 === 0 ? '#7a5aba' : '#5a3a8a';
+          ctx.fillRect(ox + 5, oy + y, 6, 1);
+          px(ctx, ox, oy, 6, y, 1, 1, '#a48ad8');
+        }
+        ctx.fillStyle = '#4a9a3a'; ctx.fillRect(ox + 4, oy + 10, 8, 3);
+      }
+      break;
+    }
+    case T.wisteriaVine: {
+      ctx.clearRect(ox, oy, 16, 16);
+      // hanging vine with purple clusters like T.vine but with flowers
+      ctx.fillStyle = '#4a6a3a'; ctx.fillRect(ox + 6, oy, 2, 16);
+      ctx.fillStyle = '#6a8a5a';
+      for (let y = 1; y < 16; y += 3) ctx.fillRect(ox + 3, oy + y, 4, 2);
+      ctx.fillStyle = '#9a7ac8';
+      for (const [x,y] of [[9,3],[4,7],[10,9],[3,12]]) {
+        px(ctx, ox, oy, x, y, 3, 3, '#9a7ac8');
+        px(ctx, ox, oy, x+1, y+1, 1, 1, '#d0b0f0');
+      }
+      break;
+    }
+    case T.mossCarpet: {
+      // lush green moss carpet ground cover
+      speckle(ctx, ox, oy, '#4a9a3a', 3001, 18);
+      for (let i = 0; i < 20; i++) {
+        const x = Math.floor((mulberry32(3001 + i)()) * 16);
+        const y = Math.floor((mulberry32(3101 + i)()) * 16);
+        px(ctx, ox, oy, x, y, 1 + (i % 2), 1, i % 3 === 0 ? '#5aba4a' : i % 3 === 1 ? '#3a7a2a' : '#6ac85a');
+      }
+      break;
+    }
+    case T.leafPile: {
+      // autumn leaf litter - orange/brown/yellow mix
+      speckle(ctx, ox, oy, '#c87a28', 3201, 16);
+      const cols = ['#e8a040','#d06020','#f0c040','#8a4a1a','#c87828'];
+      for (let i = 0; i < 24; i++) {
+        const x = Math.floor((mulberry32(3201 + i)()) * 16);
+        const y = Math.floor((mulberry32(3301 + i)()) * 16);
+        px(ctx, ox, oy, x, y, 1, 1, cols[i % cols.length]);
+      }
+      break;
+    }
+    case T.mossyCobble: {
+      speckle(ctx, ox, oy, '#5a5e5a', 3401, 10);
+      for (const [bx,by,bw,bh] of [[0,0,7,7],[9,0,7,7],[0,9,8,7],[9,9,7,7]] as const) {
+        ctx.fillStyle = '#666a66'; ctx.fillRect(ox+bx,oy+by,bw,bh);
+        ctx.fillStyle = '#7a807a'; ctx.fillRect(ox+bx+1,oy+by+1,bw-2,bh-2);
+      }
+      ctx.fillStyle = '#3a4a3a'; ctx.fillRect(ox,oy+7,16,2);
+      ctx.fillRect(ox+7,oy,2,16);
+      // moss patches
+      for (const [x,y] of [[2,2],[11,3],[3,11],[10,10]]) px(ctx, ox, oy, x, y, 3, 2, '#4a8a3a');
+      break;
+    }
+    case T.mossyStoneBrick: {
+      // stone bricks with moss overgrowth - castle ruins aesthetic
+      ctx.fillStyle = '#5a5e60'; ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#6a6e70'; ctx.fillRect(ox+1, oy+1, 14, 6);
+      ctx.fillRect(ox+1, oy+9, 14, 6);
+      ctx.fillStyle = '#4a4e50'; ctx.fillRect(ox, oy+7,16,2); ctx.fillRect(ox, oy+15,16,1);
+      ctx.fillStyle = '#8a8e90'; ctx.fillRect(ox+2, oy+2, 5, 1); ctx.fillRect(ox+2, oy+10, 4, 1);
+      // moss
+      px(ctx, ox, oy, 1, 1, 4, 2, '#4a7a3a'); px(ctx, ox, oy, 9, 3, 3, 2, '#5a9a4a');
+      px(ctx, ox, oy, 2, 11, 5, 2, '#3a6a2a'); px(ctx, ox, oy, 11, 10, 3, 3, '#4a8a3a');
+      break;
+    }
+    case T.crackedStoneBrick: {
+      ctx.fillStyle = '#5a5e60'; ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#6a6e70'; ctx.fillRect(ox+1, oy+1, 14, 6); ctx.fillRect(ox+1, oy+9, 14, 6);
+      ctx.fillStyle = '#4a4e50'; ctx.fillRect(ox, oy+7,16,2);
+      // cracks
+      ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox+3, oy+2); ctx.lineTo(ox+6, oy+7); ctx.lineTo(ox+4, oy+12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ox+11, oy+1); ctx.lineTo(ox+9, oy+8); ctx.lineTo(ox+12, oy+14); ctx.stroke();
+      break;
+    }
+    case T.stoneBrick: {
+      // clean stone bricks - castle walls
+      ctx.fillStyle = '#5a5e60'; ctx.fillRect(ox, oy, 16, 16);
+      ctx.fillStyle = '#7a7e80'; ctx.fillRect(ox+1, oy+1, 14, 6);
+      ctx.fillRect(ox+1, oy+9, 14, 6);
+      ctx.fillStyle = '#4a4e50'; ctx.fillRect(ox, oy+7,16,2); ctx.fillRect(ox, oy+15,16,1); ctx.fillRect(ox+7, oy,1,16);
+      ctx.fillStyle = '#8a8e90'; ctx.fillRect(ox+2, oy+2, 5, 1); ctx.fillRect(ox+2, oy+10, 4, 1);
+      ctx.fillStyle = '#9aa0a4'; ctx.fillRect(ox+9, oy+2, 3, 1);
+      break;
+    }
+    case T.pumpkin: {
+      // jack-o style pumpkin
+      speckle(ctx, ox, oy, '#d87a18', 3601, 10);
+      ctx.fillStyle = '#a85a10'; for (let x=0;x<16;x+=4) ctx.fillRect(ox+x,oy,1,16);
+      ctx.fillStyle = '#f0a030'; ctx.fillRect(ox+2, oy+2, 12, 12);
+      ctx.fillStyle = '#5a3a0a'; ctx.fillRect(ox+6, oy+1, 4, 3);
+      ctx.fillStyle = '#3a5a1a'; ctx.fillRect(ox+7, oy, 2, 2);
+      break;
+    }
+    // ---- Cave biomes ----
+    case T.caveMoss: {
+      speckle(ctx, ox, oy, '#4a7a3a', 4001, 18);
+      for (let i=0;i<10;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 1,1, rand()<0.5?'#6cbb4a':'#3a5a2a');
+      break;
+    }
+    case T.caveVine: {
+      ctx.clearRect(ox, oy, 16,16);
+      speckle(ctx, ox, oy, '#2a4a2a', 4002, 8);
+      ctx.fillStyle = '#4a8a3a'; ctx.fillRect(ox+7, oy, 2, 16);
+      for (let y=0;y<16;y+=3) px(ctx, ox, oy, 6, y, 4,2,'#5a9a4a');
+      break;
+    }
+    case T.caveVineGlow: {
+      ctx.clearRect(ox, oy, 16,16);
+      speckle(ctx, ox, oy, '#2a4a2a', 4003, 8);
+      ctx.fillStyle = '#4a8a3a'; ctx.fillRect(ox+7, oy, 2, 16);
+      for (let y=2;y<16;y+=4) { px(ctx, ox, oy, 6, y, 4,2,'#6cbb4a'); px(ctx, ox, oy, 5, y+1, 2,2,'#f0e080'); }
+      break;
+    }
+    case T.glowBerry: {
+      ctx.clearRect(ox, oy, 16,16);
+      px(ctx, ox, oy, 6, 6, 4, 4, '#f0d860'); px(ctx, ox, oy, 5, 5, 6, 2, '#f8e890'); px(ctx, ox, oy, 7, 10, 2, 2, '#c8a020');
+      break;
+    }
+    case T.dripstoneBlock: {
+      speckle(ctx, ox, oy, '#8a7565', 4004, 12);
+      for (let i=0;i<6;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 2,1,'#9a8a7a');
+      break;
+    }
+    case T.pointedDripstone: {
+      ctx.clearRect(ox, oy, 16,16);
+      ctx.fillStyle = '#9a8a7a'; ctx.fillRect(ox+6, oy+2, 4, 12); ctx.fillRect(ox+7, oy, 2, 2); ctx.fillRect(ox+7, oy+14, 2, 2);
+      break;
+    }
+    case T.hangingRoots: {
+      ctx.clearRect(ox, oy, 16,16);
+      ctx.fillStyle = '#7a5a3a'; for (let x=5;x<11;x++) ctx.fillRect(ox+x, oy, 1, 16);
+      break;
+    }
+    case T.rootedDirt: {
+      speckle(ctx, ox, oy, '#7a5a3a', 4005, 10);
+      ctx.fillStyle = '#5a3a2a'; for (let i=0;i<5;i++) ctx.fillRect(ox+Math.floor(rand()*14), oy+Math.floor(rand()*14), 1, 4);
+      break;
+    }
+    case T.deepslate: {
+      speckle(ctx, ox, oy, '#3a3a42', 4006, 14);
+      for (let i=0;i<8;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 2,1,'#4a4a52');
+      break;
+    }
+    case T.deepslateBricks: {
+      ctx.fillStyle = '#3a3a42'; ctx.fillRect(ox, oy, 16,16);
+      ctx.fillStyle = '#4a4a52'; ctx.fillRect(ox+1, oy+1, 14,6); ctx.fillRect(ox+1, oy+9, 14,6);
+      ctx.fillStyle = '#2a2a32'; ctx.fillRect(ox, oy+7,16,2);
+      break;
+    }
+    case T.amethyst: {
+      speckle(ctx, ox, oy, '#8a6ab8', 4007, 16);
+      for (let i=0;i<6;i++) px(ctx, ox, oy, Math.floor(rand()*14), Math.floor(rand()*14), 2,2,'#c8a0f0');
+      px(ctx, ox, oy, 7,7,2,2,'#ffffff');
+      break;
+    }
+    case T.glowLichen: {
+      ctx.clearRect(ox, oy, 16,16);
+      px(ctx, ox, oy, 2,2,12,12,'#6a9a5a'); px(ctx, ox, oy, 3,3,10,10,'#8abb6a'); px(ctx, ox, oy, 6,6,4,4,'#c0e0a0');
+      break;
+    }
+    case T.sporeBlossom: {
+      ctx.clearRect(ox, oy, 16,16);
+      px(ctx, ox, oy, 5, 8, 6, 2, '#5a8a3a'); px(ctx, ox, oy, 4, 3, 8, 5, '#e46a9a'); px(ctx, ox, oy, 6, 4, 4, 3, '#ff9abe');
+      break;
+    }
+    case T.azalea: {
+      speckle(ctx, ox, oy, '#5a8a3a', 4008, 14);
+      for (let i=0;i<8;i++) px(ctx, ox, oy, Math.floor(rand()*16), Math.floor(rand()*16), 1,1,'#6cbb4a');
+      break;
+    }
+    case T.azaleaFlowering: {
+      speckle(ctx, ox, oy, '#5a8a3a', 4009, 14);
+      for (let i=0;i<5;i++) px(ctx, ox, oy, Math.floor(rand()*14), Math.floor(rand()*14), 2,2,'#e46a9a');
+      break;
+    }
+    case T.clay: {
+      speckle(ctx, ox, oy, '#9aa0b0', 4010, 12);
+      break;
+    }
+    case T.mushroomRed: {
+      speckle(ctx, ox, oy, '#c82a2a', 4011, 8);
+      for (let i=0;i<4;i++) px(ctx, ox, oy, Math.floor(rand()*14), Math.floor(rand()*14), 2,2,'#ffffff');
+      break;
+    }
+    case T.mushroomBrown: {
+      speckle(ctx, ox, oy, '#8a6a4a', 4012, 8);
+      break;
+    }
+    case T.mushroomStem: {
+      speckle(ctx, ox, oy, '#d8d0c0', 4013, 8);
+      break;
+    }
+    case T.stalactite:
+    case T.stalagmite: {
+      ctx.clearRect(ox, oy, 16,16);
+      ctx.fillStyle = '#8a7565'; ctx.fillRect(ox+5, oy, 6, 16);
+      ctx.fillStyle = '#9a8a7a'; ctx.fillRect(ox+6, oy, 4, 16);
+      break;
+    }
     // ---- Mineral Item Tiles (Row 2 fallback in atlas) ----
     case T.coalItem:
       speckle(ctx, ox, oy, '#222328', 411, 14);
@@ -2046,6 +2485,102 @@ export function getBlockIcon(id: number): string {
     return url;
   }
 
+  if (id === REWARD_PACK_DAILY || id === REWARD_PACK_WEEKLY || id === REWARD_PACK_MONTHLY || id === SHOP_CHEST_COMMON || id === SHOP_CHEST_RARE || id === SHOP_CHEST_EPIC) {
+    const fill = (x: number, y: number, w: number, h: number, color: string) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, w, h);
+    };
+    if (id === REWARD_PACK_DAILY) {
+      // Daily bag - burlap sack with yellow top and drawstring
+      fill(12, 8, 24, 6, '#d4a84b');
+      fill(14, 10, 20, 2, '#f0d060');
+      fill(10, 14, 28, 22, '#a67c3a');
+      fill(12, 16, 24, 16, '#c49a4a');
+      fill(14, 18, 20, 10, '#d4b45a');
+      fill(18, 20, 12, 4, '#8a6a30');
+      fill(19, 21, 10, 2, '#5a4a20');
+      fill(10, 36, 28, 3, '#7a5a2a');
+      fill(12, 38, 24, 2, '#5a3a1a');
+    } else if (id === REWARD_PACK_WEEKLY) {
+      fill(6, 12, 36, 24, '#6b4a2e');
+      fill(8, 14, 32, 20, '#8a6a3a');
+      fill(10, 16, 28, 14, '#a67c4a');
+      fill(6, 12, 36, 6, '#9a6a3a');
+      fill(8, 10, 32, 4, '#b07a4a');
+      fill(10, 12, 28, 2, '#d4a050');
+      fill(12, 18, 4, 18, '#4a3a2a');
+      fill(32, 18, 4, 18, '#4a3a2a');
+      fill(13, 20, 2, 14, '#6a5a4a');
+      fill(33, 20, 2, 14, '#6a5a4a');
+      fill(20, 22, 8, 8, '#3a2a1a');
+      fill(22, 24, 4, 4, '#f0d060');
+      fill(6, 36, 36, 3, '#4a3a2a');
+    } else if (id === REWARD_PACK_MONTHLY) {
+      fill(4, 10, 40, 26, '#3a2a1a');
+      fill(6, 12, 36, 22, '#5a4a3a');
+      fill(8, 14, 32, 18, '#7a6a5a');
+      fill(4, 10, 40, 8, '#2a1a0a');
+      fill(6, 8, 36, 6, '#4a3a2a');
+      fill(8, 6, 32, 4, '#6a5a4a');
+      fill(6, 10, 36, 2, '#d4b060');
+      fill(6, 32, 36, 2, '#d4b060');
+      fill(10, 16, 4, 20, '#d4b060');
+      fill(34, 16, 4, 20, '#d4b060');
+      fill(12, 18, 2, 16, '#f0d080');
+      fill(34, 18, 2, 16, '#f0d080');
+      fill(20, 20, 8, 10, '#1a2a4a');
+      fill(22, 22, 4, 6, '#4a8ad4');
+      fill(23, 23, 2, 2, '#8ac4ff');
+      fill(4, 36, 40, 4, '#1a0a0a');
+    } else if (id === SHOP_CHEST_COMMON) {
+      // Common supply chest - simple wooden with light brown
+      fill(8, 14, 32, 20, '#7a5a3a');
+      fill(10, 16, 28, 16, '#9a7a4a');
+      fill(12, 18, 24, 10, '#b89a5a');
+      fill(8, 14, 32, 4, '#8a6a4a');
+      fill(10, 12, 28, 4, '#a67c4a');
+      fill(12, 10, 24, 2, '#c49a5a');
+      fill(14, 20, 4, 12, '#5a4a2a');
+      fill(26, 20, 4, 12, '#5a4a2a');
+      fill(20, 22, 4, 6, '#3a2a1a');
+      fill(21, 23, 2, 2, '#d4a84b');
+      fill(8, 34, 32, 2, '#5a4a2a');
+    } else if (id === SHOP_CHEST_RARE) {
+      // Rare chest - blue tint with silver bands
+      fill(6, 12, 36, 24, '#2a4a5a');
+      fill(8, 14, 32, 20, '#4a6a8a');
+      fill(10, 16, 28, 16, '#6a8aaa');
+      fill(12, 18, 24, 10, '#8aaaca');
+      fill(8, 18, 24, 10, '#7a9aba');
+      fill(6, 12, 36, 6, '#3a5a7a');
+      fill(8, 10, 32, 4, '#5a7aaa');
+      fill(12, 18, 4, 18, '#6a7a8a');
+      fill(32, 18, 4, 18, '#6a7a8a');
+      fill(20, 22, 8, 8, '#2a3a4a');
+      fill(22, 24, 4, 4, '#a0c0e0');
+      fill(6, 36, 36, 2, '#2a4a5a');
+    } else {
+      // Epic chest - purple ornate with gold and magenta gem
+      fill(4, 10, 40, 26, '#3a1a4a');
+      fill(6, 12, 36, 22, '#5a3a6a');
+      fill(8, 14, 32, 18, '#7a5a8a');
+      fill(10, 16, 28, 12, '#9a7aaa');
+      fill(4, 10, 40, 8, '#2a0a3a');
+      fill(6, 8, 36, 6, '#4a2a5a');
+      fill(6, 10, 36, 2, '#d4a0ff');
+      fill(6, 32, 36, 2, '#d4a0ff');
+      fill(10, 16, 4, 20, '#d4a0ff');
+      fill(34, 16, 4, 20, '#d4a0ff');
+      fill(20, 20, 8, 10, '#4a1a5a');
+      fill(22, 22, 4, 6, '#c040c0');
+      fill(23, 23, 2, 2, '#ff80ff');
+      fill(4, 36, 40, 4, '#1a0a2a');
+    }
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
   if (id === TORCH) {
     // Custom 3D isometric voxel lantern icon matching logo.png
     const fill = (x: number, y: number, w: number, h: number, col: string) => {
@@ -2157,11 +2692,381 @@ export function getBlockIcon(id: number): string {
     return url;
   }
 
-  // ---- Unique Stylized Mineral Material Icons (16x16 grid scaled 3x to 48x48) ----
+  // ---- Custom non-block icons: campfire, apple, coconut, banana (should not look like blocks) ----
   const p = (gx: number, gy: number, gw: number, gh: number, col: string) => {
     ctx.fillStyle = col;
     ctx.fillRect(gx * 3, gy * 3, gw * 3, gh * 3);
   };
+  const fill48 = (x: number, y: number, w: number, h: number, col: string) => {
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, w, h);
+  };
+  if (id === CAMPFIRE) {
+    // Campfire icon: not a cube, but logs + flames from side view
+    ctx.clearRect(0, 0, size, size);
+    // shadow base
+    fill48(8, 38, 32, 4, '#1a120a');
+    // crossed logs at bottom
+    // log 1 - horizontal
+    fill48(6, 32, 36, 7, '#3d2814');
+    fill48(6, 32, 36, 3, '#7a4a28');
+    fill48(8, 35, 32, 2, '#a46d3a');
+    fill48(6, 32, 5, 7, '#4a2e16');
+    fill48(37, 32, 5, 7, '#4a2e16');
+    // log 2 - slightly upper, also horizontal but darker
+    fill48(8, 28, 32, 6, '#2f1d0f');
+    fill48(8, 28, 32, 2, '#6b4420');
+    // embers
+    fill48(14, 26, 20, 4, '#4a1a0a');
+    fill48(16, 27, 3, 2, '#ff4a14');
+    fill48(24, 27, 3, 2, '#ff6a14');
+    // flames - 3 tongues
+    fill48(12, 14, 10, 14, '#e05a14');
+    fill48(14, 10, 6, 12, '#ff7a1a');
+    fill48(16, 6, 4, 10, '#ffae22');
+    fill48(26, 12, 10, 16, '#c94a12');
+    fill48(28, 8, 6, 14, '#ff7a1a');
+    fill48(30, 4, 4, 10, '#ffae22');
+    fill48(18, 16, 12, 12, '#ff8a22');
+    fill48(20, 10, 8, 12, '#ffae22');
+    fill48(22, 4, 4, 10, '#ffee58');
+    fill48(22, 6, 2, 6, '#ffffff');
+    fill48(30, 8, 2, 4, '#ffffcc');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === APPLE) {
+    // Apple icon: round fruit, not a block
+    ctx.clearRect(0, 0, size, size);
+    // shadow
+    fill48(16, 38, 16, 3, '#1a0a0a');
+    // apple body - round
+    p(4, 5, 8, 8, '#b81e12');
+    p(5, 4, 6, 10, '#d92a1c');
+    p(3, 6, 10, 6, '#e23628');
+    p(4, 6, 8, 6, '#e23628');
+    // highlight
+    p(5, 5, 2, 3, '#ff7a6a');
+    p(5, 5, 1, 2, '#ffcec6');
+    // bottom shade
+    p(5, 12, 6, 1, '#8a1410');
+    // stem
+    p(7, 2, 2, 3, '#4a2e12');
+    p(7, 2, 1, 2, '#6b4a20');
+    // leaf
+    p(9, 2, 3, 2, '#4a8a2a');
+    p(9, 2, 2, 1, '#6cb33a');
+    p(10, 3, 2, 1, '#3d6a1e');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === COCONUT) {
+    ctx.clearRect(0, 0, size, size);
+    // coconut - round brown with 3 eyes
+    p(4, 4, 8, 9, '#4a2a12');
+    p(5, 3, 6, 11, '#6b4420');
+    p(3, 6, 10, 6, '#7a4e24');
+    p(4, 5, 8, 8, '#8a5a2e');
+    p(5, 5, 2, 2, '#c9a87a');
+    p(9, 5, 1, 1, '#3a2210');
+    p(5, 8, 1, 1, '#3a2210');
+    p(8, 8, 1, 1, '#3a2210');
+    p(5, 6, 1, 1, '#a67c4a');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  if (id === BANANA) {
+    ctx.clearRect(0, 0, size, size);
+    // banana - curved yellow bunch
+    // bunch stem
+    p(10, 3, 2, 2, '#5a3d12');
+    // three bananas curved
+    // banana 1 (front)
+    fill48(10, 12, 24, 4, '#c9a81e');
+    fill48(12, 8, 20, 8, '#f2d23a');
+    fill48(14, 8, 16, 3, '#f9e85a');
+    fill48(30, 14, 4, 4, '#a68a18');
+    // banana 2 (middle)
+    fill48(14, 16, 22, 4, '#b89a1a');
+    fill48(16, 12, 18, 8, '#e8c62a');
+    fill48(18, 12, 14, 3, '#f9e85a');
+    // banana 3 (back)
+    fill48(18, 20, 20, 4, '#a68a18');
+    fill48(20, 16, 16, 8, '#d9b820');
+    fill48(22, 16, 12, 3, '#f2d23a');
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+  // ---- Meat icons: non-block, distinct per family / cooked state ----
+  const meatInfo = MEAT_ITEM_BY_ID[id];
+  if (meatInfo || id === RAW_MEAT || id === COOKED_MEAT) {
+    ctx.clearRect(0, 0, size, size);
+    // shadow
+    fill48(14, 38, 20, 3, 'rgba(0,0,0,0.22)');
+    const family = meatInfo ? meatInfo.family : (id === RAW_MEAT ? 'beef' as const : 'beef' as const);
+    const cooked = meatInfo ? meatInfo.cooked : id === COOKED_MEAT;
+    const sizeTag = meatInfo ? meatInfo.size : 'medium';
+    const scaleBonus = sizeTag === 'large' ? 2 : sizeTag === 'small' ? -1 : 0;
+
+    const meatPalette: Record<string, { raw: string; rawLight: string; rawDark: string; cooked: string; cookedLight: string; cookedDark: string; bone?: string }> = {
+      beef: { raw: '#c94a4a', rawLight: '#e86a5a', rawDark: '#7a1e1e', cooked: '#8a4a2e', cookedLight: '#b86a3a', cookedDark: '#4a2a18', bone: '#f0e0c8' },
+      pork: { raw: '#d98a8a', rawLight: '#f0a8a8', rawDark: '#8a4a4a', cooked: '#a86a4a', cookedLight: '#d08a5a', cookedDark: '#5a3a28' },
+      chicken: { raw: '#e8b8a8', rawLight: '#f8d0c0', rawDark: '#a06a5a', cooked: '#c48a4a', cookedLight: '#e8b06a', cookedDark: '#6a4a2a', bone: '#f8f0e0' },
+      mutton: { raw: '#c08070', rawLight: '#d8a090', rawDark: '#7a4a3a', cooked: '#9a6a4a', cookedLight: '#c08a5a', cookedDark: '#5a3a2a' },
+      fish: { raw: '#7ab8d0', rawLight: '#9ad0e8', rawDark: '#3a6a8a', cooked: '#c0a060', cookedLight: '#d8c080', cookedDark: '#7a5a30' },
+      salmon: { raw: '#e88a6a', rawLight: '#f0a88a', rawDark: '#8a4a3a', cooked: '#d06a4a', cookedLight: '#e88a6a', cookedDark: '#6a3a28' },
+      rabbit: { raw: '#c8a080', rawLight: '#e0b898', rawDark: '#8a6a4a', cooked: '#a87a4a', cookedLight: '#c89a6a', cookedDark: '#5a4a2a', bone: '#f0e0c8' },
+      venison: { raw: '#a04a3a', rawLight: '#c06a4a', rawDark: '#5a2a1a', cooked: '#6a3a28', cookedLight: '#8a5a3a', cookedDark: '#3a2018' },
+      crab: { raw: '#d05030', rawLight: '#e8704a', rawDark: '#8a2a18', cooked: '#c04020', cookedLight: '#e06030', cookedDark: '#6a2010' },
+    };
+    const pal = meatPalette[family] || meatPalette.beef;
+    const base = cooked ? pal.cooked : pal.raw;
+    const light = cooked ? pal.cookedLight : pal.rawLight;
+    const dark = cooked ? pal.cookedDark : pal.rawDark;
+
+    if (family === 'fish' || family === 'salmon') {
+      // fish silhouette side view
+      const y = 6 + (scaleBonus < 0 ? 1 : 0);
+      const h = 6 + scaleBonus;
+      // body
+      p(3, y, 8, h, dark);
+      p(3, y, 7, h - 1, base);
+      p(4, y, 5, 2, light);
+      // head
+      p(2, y + 1, 3, h - 2, base);
+      p(2, y + 1, 2, 1, light);
+      // eye
+      p(3, y + 2, 1, 1, cooked ? '#2a1a0a' : '#0a0a1a');
+      // tail fin
+      p(11, y, 3, h, base);
+      p(12, y, 2, 1, light);
+      p(12, y + h - 1, 2, 1, dark);
+      // belly highlight for raw
+      if (!cooked) p(5, y + h - 2, 3, 1, '#e0f0f8');
+      // grill marks for cooked
+      if (cooked) {
+        p(5, y + 1, 1, h - 2, '#3a2010');
+        p(7, y + 1, 1, h - 2, '#3a2010');
+        p(9, y + 1, 1, h - 2, '#3a2010');
+      }
+    } else if (family === 'chicken' || family === 'rabbit') {
+      // drumstick: bone + meat ball
+      const y0 = 3;
+      // bone handle
+      p(10, y0 + 1, 2, 8, '#f0e8d0');
+      p(10, y0 + 1, 2, 2, '#ffffff');
+      p(10, y0 + 7, 2, 2, pal.bone || '#f0e0c8');
+      p(9, y0 + 9, 4, 2, '#f0e8d0');
+      p(9, y0 + 9, 1, 2, '#ffffff');
+      // meat ball
+      p(4, y0 + 2, 6, 6, dark);
+      p(4, y0 + 2, 5, 5, base);
+      p(5, y0 + 2, 3, 2, light);
+      p(5, y0 + 6, 4, 1, dark);
+      if (cooked) {
+        p(5, y0 + 3, 1, 3, '#4a2a18');
+        p(7, y0 + 3, 1, 3, '#4a2a18');
+      }
+      // size
+      if (scaleBonus > 0) {
+        p(3, y0 + 3, 1, 4, base);
+        p(3, y0 + 3, 1, 2, light);
+      }
+    } else if (family === 'crab') {
+      // crab claw
+      p(4, 4, 7, 7, dark);
+      p(4, 4, 6, 6, base);
+      p(5, 4, 4, 2, light);
+      p(5, 9, 4, 1, dark);
+      // pincer
+      p(10, 3, 3, 3, base);
+      p(10, 3, 2, 1, light);
+      p(10, 7, 3, 3, base);
+      p(10, 9, 2, 1, dark);
+      // joints
+      p(9, 5, 2, 4, dark);
+      if (cooked) {
+        p(6, 6, 1, 1, '#ffcc6a');
+      }
+    } else {
+      // steak/chop: rounded steak with fat rim
+      const y = 4;
+      const w = 8 + scaleBonus;
+      const h = 6 + Math.max(0, scaleBonus);
+      const x = 4 - Math.floor(scaleBonus / 2);
+      // fat rim
+      p(x - 1, y, w + 2, h + 2, '#f0e0c8');
+      p(x - 1, y, w + 2, 1, '#ffffff');
+      // meat
+      p(x, y + 1, w, h, dark);
+      p(x, y + 1, w - 1, h - 1, base);
+      p(x + 1, y + 1, w - 3, 2, light);
+      // marbling / grill
+      if (!cooked) {
+        p(x + 2, y + 3, 2, 1, '#ffffff');
+        p(x + 5, y + 4, 2, 1, '#f8d0c0');
+      } else {
+        p(x + 1, y + 2, 1, h - 2, '#3a1a0a');
+        p(x + 3, y + 2, 1, h - 2, '#3a1a0a');
+        p(x + 5, y + 2, 1, h - 2, '#3a1a0a');
+      }
+    }
+
+    const url2 = c.toDataURL();
+    iconCache.set(id, url2);
+    return url2;
+  }
+  if (id === FLOWER_RED || id === FLOWER_YELLOW || id === FLOWER_BLUE || id === FLOWER_PINK || id === FLOWER_PURPLE || id === FLOWER_WHITE) {
+    ctx.clearRect(0, 0, size, size);
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.25)');
+    const colMap: Record<number, { cup: string; light: string; dark: string; center: string }> = {
+      [FLOWER_RED]: { cup: '#d42a2a', light: '#ff5a4a', dark: '#8a1a1a', center: '#ffea4a' },
+      [FLOWER_YELLOW]: { cup: '#e8c628', light: '#ffea4a', dark: '#a08018', center: '#8a5a10' },
+      [FLOWER_BLUE]: { cup: '#4a8ae0', light: '#7ab0ff', dark: '#2a4a8a', center: '#ffea6a' },
+      [FLOWER_PINK]: { cup: '#e46a9a', light: '#ff9abe', dark: '#a04068', center: '#ffe0a0' },
+      [FLOWER_PURPLE]: { cup: '#8a4ac8', light: '#b07aea', dark: '#5a2a8a', center: '#ffea4a' },
+      [FLOWER_WHITE]: { cup: '#f0f0e8', light: '#ffffff', dark: '#c8c8b8', center: '#e8c628' },
+    };
+    const col = colMap[id] || colMap[FLOWER_RED];
+    // stem
+    p(7, 8, 2, 6, '#4a8a2a');
+    p(7, 8, 1, 5, '#6cb33a');
+    // petals - 5 petal flower
+    p(5, 3, 6, 2, col.cup);
+    p(4, 4, 8, 3, col.cup);
+    p(5, 4, 6, 2, col.light);
+    p(5, 5, 1, 1, '#ffffff');
+    // center
+    p(7, 5, 2, 2, col.center);
+    p(7, 5, 1, 1, '#ffffff');
+    p(7, 8, 2, 1, col.dark);
+    const url3 = c.toDataURL();
+    iconCache.set(id, url3);
+    return url3;
+  }
+  // ---- Additional non-block resources: honey, mushroom, wheat, vines, webs, bones etc — must not look like cube ----
+  if (id === HONEY || id === MUSHROOM || id === WHEAT || id === WHEAT_SEEDS || id === VINE || id === WEB || id === BONE || id === FLESH || id === GUNPOWDER || id === FEATHER || id === TURTLE_SHELL || id === CRAB_SHELL || id === FISH_SCALE || id === CAT_CLAW || id === DEAD_BUSH || id === DRY_BLOOM || id === DESERT_THISTLE || id === BIRD_NEST || id === CHICKEN_NEST || id === CACTUS) {
+    ctx.clearRect(0, 0, size, size);
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.22)');
+    if (id === HONEY) {
+      // honey drop
+      p(6, 3, 4, 8, '#b87409');
+      p(5, 4, 6, 7, '#d99311');
+      p(5, 4, 5, 5, '#f7c11e');
+      p(6, 5, 3, 2, '#ffe96b');
+      p(6, 5, 1, 1, '#fffbe0');
+      p(6, 10, 4, 2, '#8a5a0a');
+    } else if (id === MUSHROOM) {
+      // red mushroom with white spots
+      p(7, 8, 2, 5, '#e8d0b0');
+      p(7, 8, 1, 4, '#f8e8d0');
+      p(4, 3, 8, 5, '#8a1a1a');
+      p(4, 3, 8, 3, '#d42a2a');
+      p(5, 4, 2, 1, '#ffeaea');
+      p(8, 5, 2, 1, '#ffeaea');
+      p(6, 6, 1, 1, '#ffffff');
+    } else if (id === WHEAT) {
+      // wheat bundle
+      p(7, 2, 2, 11, '#c9a84a');
+      p(5, 3, 2, 3, '#e8c65a');
+      p(9, 4, 2, 3, '#e8c65a');
+      p(4, 6, 2, 2, '#f0d86a');
+      p(10, 7, 2, 2, '#f0d86a');
+      p(5, 9, 2, 2, '#d9b84a');
+      p(9, 10, 2, 2, '#d9b84a');
+    } else if (id === WHEAT_SEEDS) {
+      p(5, 6, 6, 3, '#8a6a2a');
+      p(6, 6, 4, 2, '#a0803a');
+      p(6, 7, 1, 1, '#c9a84a');
+      p(8, 7, 1, 1, '#c9a84a');
+    } else if (id === VINE) {
+      p(7, 2, 2, 12, '#3a7a2a');
+      p(6, 3, 4, 2, '#5a9a3a');
+      p(6, 7, 4, 2, '#4a8a3a');
+      p(6, 11, 4, 2, '#6cbb4a');
+    } else if (id === WEB) {
+      // spider web
+      p(3, 3, 10, 10, '#e0e0e8');
+      p(3, 3, 10, 1, '#ffffff');
+      p(3, 12, 10, 1, '#c8c8d0');
+      p(3, 3, 1, 10, '#ffffff');
+      p(12, 3, 1, 10, '#c8c8d0');
+      p(6, 6, 4, 4, '#f0f0f8');
+      p(7, 3, 2, 10, '#d0d0d8');
+      p(3, 7, 10, 2, '#d0d0d8');
+    } else if (id === BONE) {
+      p(5, 3, 6, 2, '#f0e8d0');
+      p(4, 4, 8, 2, '#e8e0c8');
+      p(5, 6, 6, 2, '#d8d0b8');
+      p(4, 8, 8, 2, '#f0e8d0');
+      p(3, 4, 2, 6, '#ffffff');
+      p(11, 4, 2, 6, '#ffffff');
+    } else if (id === FLESH) {
+      p(4, 4, 8, 7, '#6a8a4a');
+      p(5, 5, 6, 5, '#8aaa6a');
+      p(5, 5, 2, 2, '#a8c88a');
+      p(6, 9, 4, 1, '#4a6a2a');
+    } else if (id === GUNPOWDER) {
+      p(5, 5, 6, 6, '#5a5a60');
+      p(6, 6, 4, 4, '#7a7a82');
+      p(6, 6, 2, 2, '#9a9aa2');
+      p(4, 8, 8, 2, '#3a3a40');
+    } else if (id === FEATHER) {
+      p(7, 2, 2, 11, '#f0f0f4');
+      p(6, 3, 4, 9, '#ffffff');
+      p(7, 4, 1, 7, '#e0e0e8');
+      p(5, 5, 2, 6, '#d0d0d8');
+    } else if (id === TURTLE_SHELL) {
+      p(4, 4, 8, 7, '#4a7a4a');
+      p(5, 5, 6, 5, '#6a9a5a');
+      p(5, 5, 2, 2, '#8abb6a');
+      p(7, 7, 2, 2, '#3a5a2a');
+      p(4, 10, 8, 2, '#2a4a2a');
+    } else if (id === CRAB_SHELL) {
+      p(4, 4, 8, 6, '#8a2a18');
+      p(5, 5, 6, 4, '#d05030');
+      p(5, 5, 2, 1, '#e8704a');
+      p(6, 9, 4, 1, '#5a1a0a');
+    } else if (id === FISH_SCALE) {
+      p(6, 4, 4, 7, '#5a9aba');
+      p(6, 5, 3, 5, '#7ab8d0');
+      p(7, 6, 1, 2, '#a8d8ea');
+      p(7, 5, 1, 1, '#ffffff');
+    } else if (id === CAT_CLAW) {
+      p(8, 3, 3, 9, '#e8dcc8');
+      p(9, 3, 2, 8, '#f8f0e0');
+      p(9, 3, 1, 3, '#ffffff');
+      p(5, 6, 4, 2, '#d0c4a8');
+    } else if (id === DEAD_BUSH) {
+      p(7, 5, 2, 8, '#6a5a3a');
+      p(5, 7, 6, 2, '#8a7a5a');
+      p(4, 9, 8, 2, '#5a4a2a');
+    } else if (id === DRY_BLOOM || id === DESERT_THISTLE) {
+      p(7, 8, 2, 6, '#8a7a4a');
+      p(5, 4, 6, 3, '#c8a87a');
+      p(6, 5, 4, 1, '#e8d0a0');
+      if (id === DESERT_THISTLE) { p(4, 3, 2, 2, '#a0c86a'); p(10, 4, 2, 2, '#a0c86a'); }
+    } else if (id === BIRD_NEST || id === CHICKEN_NEST) {
+      p(3, 8, 10, 5, '#6a4a2a');
+      p(4, 9, 8, 3, '#8a6a3a');
+      p(5, 7, 2, 2, '#f0f0e8');
+      if (id === BIRD_NEST) p(8, 7, 2, 2, '#a0b8e0');
+      else p(7, 6, 3, 2, '#f0d8a0');
+    } else if (id === CACTUS) {
+      p(6, 3, 4, 10, '#4a9a3a');
+      p(6, 3, 3, 9, '#5abb4a');
+      p(7, 5, 1, 2, '#7acc6a');
+      p(5, 6, 1, 2, '#3a7a2a');
+      p(9, 7, 1, 2, '#3a7a2a');
+    }
+    const urlExtra = c.toDataURL();
+    iconCache.set(id, urlExtra);
+    return urlExtra;
+  }
   if (id === COAL) {
     // 1. Ember-Core Anthracite Shard Cluster (3 jagged dark carbon spires + glowing orange ember fissure)
     p(6, 2, 4, 12, '#0e0f14');
@@ -2357,8 +3262,130 @@ export function getBlockIcon(id: number): string {
     return url;
   }
 
-  const atlas = getAtlasCanvas();
+  // ---- New forest flora & ruin bricks: custom non-cube icons ----
+  const isNewFlower = id >= FLOWER_TULIP_RED && id <= FLOWER_PEONY;
+  const isNewBush = id === BUSH || id === BUSH_FLOWERING || id === BERRY_BUSH;
+  const isTallFlower = id === TALL_LAVENDER || id === TALL_SUNFLOWER;
+  const isGroundCover = id === MOSS_CARPET || id === LEAF_PILE || id === WISTERIA_VINE;
+  const isBrick = id === MOSSY_COBBLE || id === MOSSY_STONE_BRICK || id === CRACKED_STONE_BRICK || id === STONE_BRICK;
+  const isCavePlant = id === CAVE_VINE || id === CAVE_VINE_GLOW || id === GLOW_BERRY || id === HANGING_ROOTS || id === SPORE_BLOSSOM || id === POINTED_DRIPSTONE || id === STALACTITE || id === STALAGMITE || id === GLOW_LICHEN;
+  const isCaveBlock = id === CAVE_MOSS_BLOCK || id === DRIPSTONE_BLOCK || id === ROOTED_DIRT || id === DEEPSLATE || id === DEEPSLATE_BRICKS || id === AMETHYST_BLOCK || id === CLAY || id === AZALEA_LEAVES || id === AZALEA_FLOWERING || id === MUSHROOM_BLOCK_RED || id === MUSHROOM_BLOCK_BROWN || id === MUSHROOM_STEM;
+  if (isNewFlower || isNewBush || isTallFlower || isGroundCover || isBrick || id === TALL_GRASS || id === FERN || isCavePlant || isCaveBlock) {
+    ctx.clearRect(0, 0, size, size);
+    // shadow
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.25)');
+    if (id === FLOWER_TULIP_RED || id === FLOWER_TULIP_YELLOW || id === FLOWER_TULIP_PINK || id === FLOWER_TULIP_ORANGE || id === FLOWER_TULIP_WHITE) {
+      const colMap: Record<number, {cup: string, light: string, dark: string}> = {
+        [FLOWER_TULIP_RED]: {cup: '#d42a2a', light: '#ff5a4a', dark: '#8a1a1a'},
+        [FLOWER_TULIP_YELLOW]: {cup: '#e8c628', light: '#ffea4a', dark: '#a08018'},
+        [FLOWER_TULIP_PINK]: {cup: '#e46a9a', light: '#ff9abe', dark: '#a04068'},
+        [FLOWER_TULIP_ORANGE]: {cup: '#e86a18', light: '#ff9a3a', dark: '#a0400a'},
+        [FLOWER_TULIP_WHITE]: {cup: '#f0f0e8', light: '#ffffff', dark: '#c8c8b8'},
+      };
+      const col = colMap[id] || colMap[FLOWER_TULIP_RED];
+      // stem
+      p(7, 8, 2, 6, '#4a8a2a'); p(7, 8, 1, 5, '#6cb33a');
+      // cup
+      p(5, 3, 6, 6, col.cup); p(5, 3, 6, 2, col.light); p(5, 7, 6, 1, col.dark);
+      p(6, 4, 4, 3, col.light); p(6, 4, 1, 2, '#ffffff');
+    } else if (id === FLOWER_SUNFLOWER || id === TALL_SUNFLOWER) {
+      const tall = id === TALL_SUNFLOWER;
+      // stem
+      p(7, tall?6:8, 2, tall?8:6, '#5a8a2a'); p(7, tall?6:8, 1, tall?7:5, '#7ab33a');
+      // leaves
+      p(5, 10, 2, 2, '#4a7a2a'); p(9, 9, 2, 2, '#4a7a2a');
+      // flower head
+      const y0 = tall?1:3;
+      p(4, y0, 8, 5, '#e8c628'); p(4, y0, 8, 2, '#ffea4a'); p(5, y0+1, 6, 3, '#ffea4a');
+      p(6, y0+2, 4, 2, '#a08018'); p(7, y0+2, 2, 2, '#5a4010');
+    } else if (id === FLOWER_ROSE) {
+      p(7, 8, 2, 6, '#4a8a2a'); p(7, 8, 1, 5, '#6cb33a');
+      p(5, 3, 6, 5, '#b81e12'); p(5, 3, 6, 2, '#e23628'); p(6, 4, 4, 2, '#ff5a4a');
+      p(6, 5, 1, 1, '#ffcec6');
+    } else if (id === FLOWER_LAVENDER || id === TALL_LAVENDER) {
+      const tall = id === TALL_LAVENDER;
+      p(7, tall?6:8, 2, tall?8:6, '#5a7a4a');
+      const y0 = tall?1:3;
+      for(let k=0;k<(tall?4:3);k++){ p(6, y0+k*2, 4, 2, '#8a6ab8'); p(7, y0+k*2, 2, 1, '#b89ae0'); }
+    } else if (id === FLOWER_WISTERIA || id === WISTERIA_VINE) {
+      p(7, 2, 2, 12, '#6a5a4a');
+      for(let k=0;k<4;k++){ p(5+k%2, 3+k*3, 5, 2, '#9a7ac8'); p(6, 3+k*3, 3, 1, '#c8a0f0'); }
+    } else if (id === FLOWER_DAISY) {
+      p(7, 8, 2, 6, '#5a8a2a');
+      p(4, 3, 8, 5, '#f0f0e8'); p(5, 4, 6, 3, '#ffffff'); p(6, 4, 4, 2, '#e8c628'); p(7, 5, 2, 1, '#a08018');
+    } else if (id === FLOWER_ORCHID) {
+      p(7, 8, 2, 6, '#5a8a2a');
+      p(5, 3, 6, 4, '#e46a9a'); p(6, 2, 4, 2, '#ff9abe'); p(6, 4, 2, 1, '#ffffff');
+    } else if (id === FLOWER_PEONY) {
+      p(7, 8, 2, 6, '#4a8a2a');
+      p(4, 2, 8, 6, '#e46a9a'); p(5, 3, 6, 4, '#ff9abe'); p(6, 4, 4, 2, '#ffffff');
+    } else if (isNewBush) {
+      // bush base
+      p(3, 8, 10, 6, '#3a7a2a'); p(4, 7, 8, 2, '#5a9a3a'); p(5, 9, 6, 3, '#2a5a1a');
+      if (id === BUSH_FLOWERING) { p(5, 8, 2, 2, '#f0f0e8'); p(8, 7, 2, 2, '#ff9abe'); }
+      if (id === BERRY_BUSH) { p(5, 8, 1, 1, '#d42a2a'); p(8, 9, 1, 1, '#d42a2a'); p(6, 10, 1, 1, '#d42a2a'); }
+    } else if (id === MOSS_CARPET) {
+      p(2, 10, 12, 4, '#4a9a3a'); p(3, 9, 10, 2, '#6cbb4a'); p(4, 10, 2, 1, '#8ad46a');
+    } else if (id === LEAF_PILE) {
+      p(2, 11, 12, 3, '#c87a2a'); p(3, 10, 10, 2, '#e89a3a'); p(4, 9, 8, 2, '#a85a1a');
+    } else if (id === TALL_GRASS) {
+      // improved tall grass: 3 blades with varying height and bend
+      p(6, 6, 1, 8, '#5a9a3a'); p(7, 5, 1, 9, '#6cbb4a'); p(8, 7, 1, 7, '#4a7a2a');
+      p(5, 10, 2, 2, '#3a6a1a'); p(9, 9, 2, 2, '#3a6a1a');
+    } else if (id === FERN) {
+      // diverse fern: feathery fronds
+      p(7, 8, 1, 6, '#4a7a3a');
+      p(5, 9, 3, 1, '#5a9a4a'); p(4, 10, 3, 1, '#6cbb5a');
+      p(9, 8, 3, 1, '#5a9a4a'); p(10, 7, 3, 1, '#6cbb5a');
+      p(6, 6, 4, 1, '#7acc6a'); p(5, 7, 2, 1, '#7acc6a');
+    } else if (isBrick || isCaveBlock) {
+      // brick/cave block icon: keep cube style but with texture visible
+      const atlas = getAtlasCanvas();
+      const def = BLOCKS[id];
+      const [tx, ty] = tileOrigin(def.top);
+      ctx.save(); ctx.transform(1,0,0,0.42,0,0); ctx.drawImage(atlas, tx, ty, TILE, TILE, 0,0,size,size); ctx.restore();
+      const [sx, sy] = tileOrigin(def.side);
+      ctx.drawImage(atlas, sx, sy, TILE, TILE, 0, size*0.42, size, size*0.58);
+      const url = c.toDataURL(); iconCache.set(id, url); return url;
+    } else if (id === CAVE_VINE) {
+      p(7, 2, 2, 12, '#3a7a2a'); p(6, 3, 4, 2, '#5a9a3a'); p(6, 7, 4, 2, '#4a8a3a'); p(6, 11, 4, 2, '#6cbb4a');
+    } else if (id === CAVE_VINE_GLOW) {
+      p(7, 2, 2, 12, '#3a7a2a'); p(6, 3, 4, 2, '#6cbb4a'); p(5, 8, 2, 2, '#f0e080'); p(6, 12, 4, 2, '#f0d860');
+    } else if (id === GLOW_BERRY) {
+      p(6, 5, 4, 4, '#f0d860'); p(6, 5, 4, 2, '#fff0a0'); p(7, 9, 2, 1, '#c8a020');
+    } else if (id === HANGING_ROOTS) {
+      p(7, 2, 2, 12, '#7a5a3a'); p(6, 4, 1, 10, '#8a6a4a'); p(8, 5, 1, 9, '#6a4a2a');
+    } else if (id === SPORE_BLOSSOM) {
+      p(7, 8, 2, 6, '#5a7a3a'); p(4, 3, 8, 4, '#e46a9a'); p(5, 4, 6, 2, '#ff9abe');
+    } else if (id === POINTED_DRIPSTONE || id === STALACTITE || id === STALAGMITE) {
+      p(7, 2, 2, 12, '#8a7565'); p(6, 3, 4, 10, '#9a8a7a'); p(7, 2, 2, 2, '#c0b0a0');
+    } else if (id === GLOW_LICHEN) {
+      p(2, 4, 12, 8, '#6a9a5a'); p(3, 5, 10, 6, '#8abb6a'); p(5, 6, 6, 4, '#c0e0a0');
+    }
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
   const def = BLOCKS[id];
+  // generic non-solid fallback: flat item, not cube — prevents block-texture look for any missed resource/plant
+  if (def && !def.solid) {
+    ctx.clearRect(0, 0, size, size);
+    fill48(12, 40, 24, 3, 'rgba(0,0,0,0.22)');
+    const atlas2 = getAtlasCanvas();
+    const [sx2, sy2] = tileOrigin(def.side);
+    // flat 2D sprite, centered, with slight highlight/shadow instead of cube
+    ctx.drawImage(atlas2, sx2, sy2, TILE, TILE, 4, 4, size - 8, size - 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(4, 4, size - 8, (size - 8) * 0.32);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(4, 4 + (size - 8) * 0.65, size - 8, (size - 8) * 0.35);
+    const urlFlat = c.toDataURL();
+    iconCache.set(id, urlFlat);
+    return urlFlat;
+  }
+
+  const atlas = getAtlasCanvas();
   // top face (squashed, lighter)
   const [tx, ty] = tileOrigin(def.top);
   ctx.save();
