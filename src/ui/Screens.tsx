@@ -692,10 +692,8 @@ export function StartScreen({
   }, [filteredShopProductsBase, devClaims, rewardedDrops, wolfPetOwned, catPetOwned, monkeyPetOwned, parrotPetOwned, owlPetOwned]);
 
   const centerShopCard = (carousel: HTMLElement, card: HTMLElement) => {
-    const carouselRect = carousel.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const delta = cardRect.left + cardRect.width / 2 - (carouselRect.left + carousel.clientWidth / 2);
-    carousel.scrollLeft += delta;
+    const left = card.offsetLeft - (carousel.clientWidth - card.clientWidth) / 2;
+    carousel.scrollTo({ left, behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -721,12 +719,12 @@ export function StartScreen({
     if (!carousel) return;
     const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
     if (!cards.length) return;
-    const center = carousel.getBoundingClientRect().left + carousel.clientWidth / 2;
+    const scrollCenter = carousel.scrollLeft + carousel.clientWidth / 2;
     let nearest = 0;
     let nearestDistance = Number.POSITIVE_INFINITY;
     cards.forEach((card, index) => {
-      const rect = card.getBoundingClientRect();
-      const distance = Math.abs(rect.left + rect.width / 2 - center);
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const distance = Math.abs(cardCenter - scrollCenter);
       if (distance < nearestDistance) {
         nearest = index;
         nearestDistance = distance;
@@ -741,13 +739,13 @@ export function StartScreen({
     const cards = Array.from(carousel.querySelectorAll<HTMLElement>('[data-shop-product]'));
     if (!cards.length) return;
     setActiveShopCard((current) => {
-      const next = Math.max(0, Math.min(cards.length - 1, current + direction));
+      const next = Math.max(0, Math.min(filteredShopProducts.length - 1, current + direction));
       const target = cards[next];
       if (target) {
-        // Use offsetLeft for reliable centering, fallback to scrollIntoView
         const left = target.offsetLeft - (carousel.clientWidth - target.clientWidth) / 2;
         carousel.scrollTo({ left, behavior: 'smooth' });
-        target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      } else {
+        carousel.scrollBy({ left: direction * carousel.clientWidth * 0.8, behavior: 'smooth' });
       }
       return next;
     });
