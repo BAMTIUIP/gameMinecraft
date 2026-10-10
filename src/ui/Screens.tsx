@@ -668,6 +668,8 @@ export function StartScreen({
   onSpecialSun,
   specialSunVolume,
   onSpecialSunVolume,
+  musicVolume,
+  onMusicVolume,
   isTouch,
   lang,
   onLang,
@@ -728,6 +730,8 @@ export function StartScreen({
   onSpecialSun: () => void;
   specialSunVolume: number;
   onSpecialSunVolume: (volume: number) => void;
+  musicVolume: number;
+  onMusicVolume: (volume: number) => void;
   isTouch: boolean;
   lang: Lang;
   onLang: (l: Lang) => void;
@@ -1831,6 +1835,12 @@ export function StartScreen({
                     label={specialSun ? t('specialSunOn') : t('specialSunOff')}
                   />
                 </div>
+                <VolumeSlider
+                  id="menu-music-volume"
+                  label={t('musicVolume')}
+                  value={musicVolume}
+                  onChange={onMusicVolume}
+                />
                 <VolumeSlider
                   id="menu-sun-volume"
                   label={t('sunVolume')}

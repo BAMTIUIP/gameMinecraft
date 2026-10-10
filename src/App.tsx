@@ -1197,6 +1197,8 @@ export default function App() {
           onSpecialSun={toggleSpecialSun}
           specialSunVolume={specialSunVolume}
           onSpecialSunVolume={changeSpecialSunVolume}
+          musicVolume={musicVolume}
+          onMusicVolume={changeMusicVolume}
           isTouch={isTouch}
           lang={lang}
           onLang={pickLang}
