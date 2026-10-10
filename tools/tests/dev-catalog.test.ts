@@ -21,7 +21,7 @@ const ok = (condition: boolean, label: string) => {
   else failures.push(label);
 };
 
-const { BLOCKS, AIR, BEDROCK, LAVA, WATER, isArrowId, isMeatItem, isOpenChest } = await import('../../src/game/blocks');
+const { BLOCKS, AIR, BEDROCK, LAVA, WATER, isInventoryBlockId, isOpenChest } = await import('../../src/game/blocks');
 const { MATERIALS, RARITY, SLOTS } = await import('../../src/game/items');
 const { RECIPES, TOOL_TORCH } = await import('../../src/game/recipes');
 const { getToolSpec } = await import('../../src/game/tools');
@@ -35,10 +35,10 @@ const craftableGearKeys = RECIPES
   .map((recipe) => recipe.key);
 const expectedInventoryIds = BLOCKS
   .filter((block) => block && block.id !== AIR && block.id !== BEDROCK && block.id !== LAVA && block.id !== WATER)
-  .filter((block) => (block.id < 200 || isArrowId(block.id) || isMeatItem(block.id)) && !isOpenChest(block.id))
+  .filter((block) => isInventoryBlockId(block.id) && !isOpenChest(block.id))
   .map((block) => block.id);
 ok(expectedInventoryIds.every((id) => catalog.itemIds.includes(id)), 'Every obtainable block, resource and mob-drop item is in the developer kit');
-ok(catalog.itemIds.every((id) => BLOCKS[id]?.id === id && (id < 200 || isArrowId(id) || isMeatItem(id)) && !isOpenChest(id)), 'Non-items, open chest states and durable tools are kept out of the resource stack list while arrows remain stackable items');
+ok(catalog.itemIds.every((id) => BLOCKS[id]?.id === id && isInventoryBlockId(id) && !isOpenChest(id)), 'Non-items, open chest states and durable tools are kept out of the resource stack list while arrows remain stackable items');
 ok(catalog.toolIds.includes(TOOL_TORCH) && catalog.toolIds.filter((id) => id !== TOOL_TORCH).every((id) => getToolSpec(id) !== null), 'Every durable tool/weapon plus the hand torch is represented');
 ok(catalog.gearVariants.length === Object.keys(MATERIALS).length * SLOTS.length * RARITY.length, 'The catalog covers every slot, material and all five rarity tiers');
 ok(craftableGearKeys.every((key) => catalog.gearRecipeKeys.includes(key)), 'All crafted armor recipes, including special gear and both shields, are in the catalog');

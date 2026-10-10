@@ -114,7 +114,11 @@ export function gearColor(
   const custom = typeof item.visualColor === 'string' && /^#[0-9a-f]{6}$/i.test(item.visualColor)
     ? item.visualColor.toLowerCase()
     : null;
-  return custom ?? MATERIALS[item.material]?.color ?? '#d6d9dd';
+  if (custom) return custom;
+  // a leading affix sets the primary enamel (same rule as the ornaments: crafted gear has none)
+  const lead = item.crafted ? undefined : item.affixes?.[0]?.id;
+  const enamel = lead ? AFFIX_BASE_COLORS[lead] : undefined;
+  return enamel ?? MATERIALS[item.material]?.color ?? '#d6d9dd';
 }
 
 /** Secondary pattern colors derived from buffs/affixes — used for dots/stripes on armor. */
