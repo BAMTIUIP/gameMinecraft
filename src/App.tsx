@@ -11,7 +11,7 @@ import {
   tickCoop,
   type CoopSink,
 } from './game/multiplayer';
-import { getMusicVolume, initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMusicVolume, setMuted, stopMusic } from './game/audio';
+import { getMusicVolume, initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMusicVolume, setMuted, setSpecialSunVolume, stopMusic } from './game/audio';
 import Hud from './ui/Hud';
 import TouchControls from './ui/TouchControls';
 import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Screens';
@@ -245,6 +245,14 @@ export default function App() {
   });
   useEffect(() => setMusicVolume(musicVolume), [musicVolume]);
   const [freeLook, setFreeLookUi] = useState(true);
+  // «особое солнце»: animated sun + its looped sound (saved between sessions)
+  const [specialSun, setSpecialSunUi] = useState(() => storageGet('orerush.specialSun') === '1');
+  const [specialSunVolume, setSpecialSunVolumeUi] = useState(() => {
+    const saved = storageGet('orerush.specialSunVolume');
+    const parsed = saved === null ? 1 : Number(saved);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 1;
+  });
+  useEffect(() => setSpecialSunVolume(specialSunVolume), [specialSunVolume]);
   const [isTouch, setIsTouch] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [lang, setLangUi] = useState<Lang>('en');
@@ -406,6 +414,7 @@ export default function App() {
     eng.setDom(domRef.current);
     // the remote-config knob (game.exploreMinutes) is applied by the effect below, once flags load
     eng.setSurvival(survival);
+    eng.setSpecialSun(storageGet('orerush.specialSun') === '1');
     setFreeLookUi(eng.freeLookEnabled);
     setEngine(eng);
 
@@ -598,6 +607,19 @@ export default function App() {
   const salvageItem = useCallback((id: number, instanceId?: number) => engineRef.current?.salvageItem(id, instanceId), []);
   const repairTool = useCallback((instanceId: number) => engineRef.current?.repairTool(instanceId), []);
   const openRewardPack = useCallback((id: number) => engineRef.current?.openRewardedPack(id) ?? false, []);
+
+  const toggleSpecialSun = useCallback(() => {
+    const next = !(engineRef.current?.specialSunEnabled ?? false);
+    engineRef.current?.setSpecialSun(next);
+    setSpecialSunUi(next);
+    storageSet('orerush.specialSun', next ? '1' : '0');
+  }, []);
+
+  const changeSpecialSunVolume = useCallback((value: number) => {
+    const next = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
+    setSpecialSunVolumeUi(next);
+    storageSet('orerush.specialSunVolume', String(next));
+  }, []);
 
   const toggleFreeLook = useCallback(() => {
     const next = !(engineRef.current?.freeLookEnabled ?? true);
@@ -1171,6 +1193,12 @@ export default function App() {
           onMute={toggleMute}
           freeLook={freeLook}
           onFreeLook={toggleFreeLook}
+          specialSun={specialSun}
+          onSpecialSun={toggleSpecialSun}
+          specialSunVolume={specialSunVolume}
+          onSpecialSunVolume={changeSpecialSunVolume}
+          musicVolume={musicVolume}
+          onMusicVolume={changeMusicVolume}
           isTouch={isTouch}
           lang={lang}
           onLang={pickLang}
@@ -1279,6 +1307,10 @@ export default function App() {
           onMusic={toggleMusic}
           musicVolume={musicVolume}
           onMusicVolume={changeMusicVolume}
+          specialSun={specialSun}
+          onSpecialSun={toggleSpecialSun}
+          specialSunVolume={specialSunVolume}
+          onSpecialSunVolume={changeSpecialSunVolume}
           muted={muted}
           onMute={toggleMute}
           fullscreen={fullscreen}

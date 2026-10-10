@@ -5,7 +5,7 @@ const PRODUCT_ID = /^[a-z0-9][a-z0-9-]{0,63}$/i;
 let developerShopEnabled = false;
 
 type Mode = 'survival' | 'exploration' | 'own-world';
-type DevReceipt = { receiptId: string; productId: string; opened?: Partial<Record<Mode, true>> };
+type DevReceipt = { receiptId: string; productId: string; opened?: Partial<Record<Mode, true>>; repeatable?: true };
 
 /** Runtime gate for free local QA claims; the application keeps these controls off on TV devices. */
 export function setDeveloperShopEnabled(enabled: boolean): void {
@@ -25,7 +25,7 @@ function normalizeDevClaims(value: unknown): DevReceipt[] {
       continue;
     }
     if (entry && typeof entry === 'object') {
-      const raw = entry as { id?: unknown; receiptId?: unknown; productId?: unknown; opened?: unknown };
+      const raw = entry as { id?: unknown; receiptId?: unknown; productId?: unknown; opened?: unknown; repeatable?: unknown };
       const productId = typeof raw.productId === 'string' ? raw.productId : typeof raw.id === 'string' ? raw.id : null;
       if (!productId || !PRODUCT_ID.test(productId)) continue;
       const receiptId = typeof raw.receiptId === 'string' ? raw.receiptId : typeof raw.id === 'string' && raw.id.includes('-') ? raw.id : `${productId}-${Math.random().toString(36).slice(2, 8)}`;
@@ -35,7 +35,7 @@ function normalizeDevClaims(value: unknown): DevReceipt[] {
           if ((raw.opened as Record<string, unknown>)[mode] === true) opened[mode] = true;
         }
       }
-      out.push({ receiptId, productId, opened });
+      out.push(raw.repeatable === true ? { receiptId, productId, opened, repeatable: true } : { receiptId, productId, opened });
     }
   }
   return out;
@@ -47,7 +47,8 @@ export function developerShopClaims(): string[] {
   if (!raw) return [];
   try {
     const value: unknown = JSON.parse(raw);
-    return [...new Set(normalizeDevClaims(value).map((r) => r.productId))];
+    // repeatable (consumable) SKUs are not one-time claims, so they never show up as owned items
+    return [...new Set(normalizeDevClaims(value).filter((r) => !r.repeatable).map((r) => r.productId))];
   } catch {
     return [];
   }
@@ -102,7 +103,7 @@ export function grantDeveloperShopProduct(productId: string, repeatable = false)
     return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
   if (repeatable) {
-    receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {} });
+    receipts.push({ receiptId: `${productId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, productId, opened: {}, repeatable: true });
     return storageSet(DEV_SHOP_KEY, JSON.stringify(receipts));
   }
   if (receipts.some((r) => r.productId === productId)) return false;

@@ -617,6 +617,7 @@ input[type='text'] {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
   scroll-behavior: auto;
   touch-action: pan-x;
   scrollbar-width: none;
@@ -624,6 +625,7 @@ input[type='text'] {
 }
 .shop-carousel::-webkit-scrollbar { display: none; }
 .shop-product-card {
+  scroll-snap-align: start;
   width: min(80vw, 360px);
   min-width: 0;
   min-height: 0;

@@ -7,6 +7,23 @@ let master: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
 let muted = false;
 
+// Dev hot reload re-evaluates this module while the previous copy's music timer and sun loop keep
+// running with no reference left to stop them. Each copy parks its live handles on globalThis; the
+// new copy stops whatever the previous one left behind.
+type AudioHandles = { timer?: number | null; sunSrc?: AudioBufferSourceNode | null };
+const audioGlobal = globalThis as unknown as { __oreRushAudioHandles?: AudioHandles };
+const previousHandles = audioGlobal.__oreRushAudioHandles;
+const parked: AudioHandles = {};
+audioGlobal.__oreRushAudioHandles = parked;
+if (previousHandles) {
+  if (previousHandles.timer != null) globalThis.clearInterval(previousHandles.timer);
+  try {
+    previousHandles.sunSrc?.stop();
+  } catch {
+    /* already stopped */
+  }
+}
+
 /**
  * Requirements 1.6.1.6 and 1.6.2.5: «В любых браузерах не отображается системный плеер, вызываемый
  * игрой» (https://yandex.ru/dev/games/doc/ru/requirements/1/6). The game synthesises every sound with
@@ -124,8 +141,13 @@ export function resumeAudio() {
 export function setMuted(m: boolean) {
   muted = m;
   if (master && ctx) master.gain.setTargetAtTime(m ? 0 : 0.55, ctx.currentTime, 0.02);
-  if (m) stopMusic(0.25, false);
-  else if (musicEnabled && musicWanted) startMusic();
+  if (m) {
+    stopMusic(0.25, false);
+    stopSunSource(0.25);
+  } else {
+    if (musicEnabled && musicWanted) startMusic();
+    if (sunWanted) void startSunSource();
+  }
 }
 /** remembers that the current phase wants a soundtrack */
 let musicWanted = false;
@@ -386,7 +408,10 @@ export function startMusic() {
   musicGain.gain.linearRampToValueAtTime(musicVolume, ctx.currentTime + 1.4);
   musicNext = ctx.currentTime + 0.08;
   scheduleMusic();
-  if (musicTimer === null) musicTimer = window.setInterval(scheduleMusic, 220);
+  if (musicTimer === null) {
+    musicTimer = window.setInterval(scheduleMusic, 220);
+    parked.timer = musicTimer;
+  }
 }
 
 export function stopMusic(fade = 0.5, forget = true) {
@@ -399,6 +424,7 @@ export function stopMusic(fade = 0.5, forget = true) {
   if (musicTimer !== null) {
     window.clearInterval(musicTimer);
     musicTimer = null;
+    parked.timer = null;
   }
 }
 
@@ -793,3 +819,107 @@ export const sfx = {
     if (state.yelp > 0) yelp(bus.dest, bus.t0, ctxVoice.pitch, state.yelp);
   },
 };
+
+/* =======================================================================
+   SPECIAL SUN — a looped sunrise sound while the «особое солнце» setting is on.
+   The sample is decoded once and played through a single AudioBufferSourceNode with
+   `loop = true`, so the wrap-around is sample-accurate (no `<audio>` element, no gap or click at
+   the seam). The source only plays while the game is running: the engine calls
+   `setSpecialSunSound(false)` on pause, menu and game over.
+   ======================================================================= */
+
+let sunWanted = false;
+let sunUrl = '';
+let sunBuf: AudioBuffer | null = null;
+let sunLoading: Promise<void> | null = null;
+let sunSrc: AudioBufferSourceNode | null = null;
+let sunGain: GainNode | null = null;
+const SUN_SOUND_LEVEL = 0.5;
+// 0..1 multiplier from the engine: follows the sun's height (quiet at sunrise/sunset, silent at night)
+let sunLevel = 1;
+// 0..1 player's own volume for the sun sound (settings and pause)
+let sunVolume = 1;
+const sunGainTarget = () => SUN_SOUND_LEVEL * sunVolume * sunLevel;
+
+function loadSunBuffer(): Promise<void> {
+  if (sunBuf) return Promise.resolve();
+  if (!sunLoading) {
+    sunLoading = (async () => {
+      initAudio();
+      if (!ctx) return;
+      const res = await fetch(sunUrl);
+      const data = await res.arrayBuffer();
+      sunBuf = await ctx.decodeAudioData(data);
+    })().catch(() => {
+      sunLoading = null; // allow a retry on the next request
+    });
+  }
+  return sunLoading;
+}
+
+// Guard against overlapping starts: the buffer may still be decoding, and a second call in the same
+// tick (sound switched on, then unmuted) must not create a second loop that nothing would ever stop.
+let sunStarting = false;
+
+async function startSunSource() {
+  if (!sunWanted || muted || sunSrc || sunStarting) return;
+  initAudio();
+  sunStarting = true;
+  try {
+    await loadSunBuffer();
+    // re-check after the await: the player may have switched the sound off or muted meanwhile
+    if (!sunWanted || muted || sunSrc || !sunBuf || !ctx || !master) return;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(sunGainTarget(), ctx.currentTime + 0.4);
+    const src = ctx.createBufferSource();
+    src.buffer = sunBuf;
+    src.loop = true;
+    src.connect(g).connect(master);
+    src.start();
+    sunSrc = src;
+    sunGain = g;
+    parked.sunSrc = src;
+  } finally {
+    sunStarting = false;
+  }
+}
+
+function stopSunSource(fade: number) {
+  if (!sunSrc || !sunGain || !ctx) {
+    sunSrc = null;
+    sunGain = null;
+    return;
+  }
+  const src = sunSrc;
+  const g = sunGain;
+  sunSrc = null;
+  sunGain = null;
+  parked.sunSrc = null;
+  g.gain.cancelScheduledValues(ctx.currentTime);
+  g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + fade);
+  src.stop(ctx.currentTime + fade + 0.05);
+}
+
+/** Turn the looped sunrise sound on or off. `url` is the bundled mp3 (imported by the engine). */
+export function setSpecialSunSound(on: boolean, url: string) {
+  sunWanted = on;
+  sunUrl = url;
+  if (on) void startSunSource();
+  else stopSunSource(0.3);
+}
+
+/** Engine hook: the sun sound's volume follows the sun (called every frame while the sound is on). */
+export function setSpecialSunLevel(level: number) {
+  const next = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 1));
+  if (Math.abs(next - sunLevel) < 0.005) return;
+  sunLevel = next;
+  if (sunGain && ctx) sunGain.gain.setTargetAtTime(sunGainTarget(), ctx.currentTime, 0.25);
+}
+
+/** Player's volume for the sun sound (0..1), from the settings and pause sliders. */
+export function setSpecialSunVolume(volume: number) {
+  sunVolume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1));
+  if (sunGain && ctx) sunGain.gain.setTargetAtTime(sunGainTarget(), ctx.currentTime, 0.06);
+}

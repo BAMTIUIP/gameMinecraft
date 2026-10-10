@@ -28,6 +28,7 @@ import {
   CubeIcon,
   DepthIcon,
   EyeIcon,
+  SunIcon,
   HeartIcon,
   MusicIcon,
   PickIcon,
@@ -67,6 +68,38 @@ function formatCountdown(seconds: number) {
   const minutes = Math.floor((value % 3600) / 60);
   const rest = value % 60;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+}
+
+function VolumeSlider({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  onChange: (volume: number) => void;
+}) {
+  return (
+    <div className="sunken notch space-y-2 bg-black/20 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2 text-[10px] font-display tracking-[0.18em] text-white/60">
+        <label htmlFor={id}>{label}</label>
+        <span className="tabular-nums text-torch">{Math.round(value * 100)}%</span>
+      </div>
+      <input
+        id={id}
+        aria-label={label}
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+        className="h-2 w-full cursor-pointer accent-[#f4b942]"
+      />
+    </div>
+  );
 }
 
 function Toggle({
@@ -631,6 +664,12 @@ export function StartScreen({
   onMute,
   freeLook,
   onFreeLook,
+  specialSun,
+  onSpecialSun,
+  specialSunVolume,
+  onSpecialSunVolume,
+  musicVolume,
+  onMusicVolume,
   isTouch,
   lang,
   onLang,
@@ -687,6 +726,12 @@ export function StartScreen({
   onMute: () => void;
   freeLook: boolean;
   onFreeLook: () => void;
+  specialSun: boolean;
+  onSpecialSun: () => void;
+  specialSunVolume: number;
+  onSpecialSunVolume: (volume: number) => void;
+  musicVolume: number;
+  onMusicVolume: (volume: number) => void;
   isTouch: boolean;
   lang: Lang;
   onLang: (l: Lang) => void;
@@ -1783,7 +1828,27 @@ export function StartScreen({
                       label={freeLook ? t('freeLookOn') : t('freeLookOff')}
                     />
                   )}
+                  <Toggle
+                    on={specialSun}
+                    onClick={onSpecialSun}
+                    icon={<SunIcon size={14} />}
+                    label={specialSun ? t('specialSunOn') : t('specialSunOff')}
+                  />
                 </div>
+                <VolumeSlider
+                  id="menu-music-volume"
+                  label={t('musicVolume')}
+                  value={musicVolume}
+                  onChange={onMusicVolume}
+                />
+                {specialSun && (
+                  <VolumeSlider
+                    id="menu-sun-volume"
+                    label={t('sunVolume')}
+                    value={specialSunVolume}
+                    onChange={onSpecialSunVolume}
+                  />
+                )}
               </div>
 
               {(canShortcut || shortcutNote || fullscreenAvailable()) && (
@@ -2200,6 +2265,10 @@ export function PauseScreen({
   onMusic,
   musicVolume,
   onMusicVolume,
+  specialSun,
+  onSpecialSun,
+  specialSunVolume,
+  onSpecialSunVolume,
   muted,
   onMute,
   fullscreen,
@@ -2215,6 +2284,10 @@ export function PauseScreen({
   onMusic: () => void;
   musicVolume: number;
   onMusicVolume: (volume: number) => void;
+  specialSun: boolean;
+  onSpecialSun: () => void;
+  specialSunVolume: number;
+  onSpecialSunVolume: (volume: number) => void;
   muted: boolean;
   onMute: () => void;
   fullscreen: boolean;
@@ -2271,9 +2344,18 @@ export function PauseScreen({
               className="h-2 w-full cursor-pointer accent-[#f4b942]"
             />
           </div>
+          {specialSun && (
+            <VolumeSlider
+              id="pause-sun-volume"
+              label={t('sunVolume')}
+              value={specialSunVolume}
+              onChange={onSpecialSunVolume}
+            />
+          )}
           <div className="flex flex-wrap justify-center gap-2">
             <Toggle on={music} onClick={onMusic} icon={<MusicIcon off={!music} size={13} />} label={music ? t('musicOn') : t('musicOff')} />
             <Toggle on={!muted} onClick={onMute} icon={<SoundIcon muted={muted} size={13} />} label={muted ? t('sfxOff') : t('sfxOn')} />
+            <Toggle on={specialSun} onClick={onSpecialSun} icon={<SunIcon size={13} />} label={specialSun ? t('specialSunOn') : t('specialSunOff')} />
             {fullscreenAvailable() && (
               <button
                 type="button"

@@ -310,9 +310,13 @@ import {
   stopMusic,
   suspendAudio,
   setMusicMood,
+  setSpecialSunSound,
+  setSpecialSunLevel,
   type CreatureVoice,
   type VoiceState,
 } from './audio';
+import sunSheetUrl from './assets/sun/sun-sheet.webp';
+import sunSoundUrl from './assets/sun/sunrise-loop.mp3';
 
 export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
 
@@ -1830,6 +1834,12 @@ export class Engine {
   private sunDir = new THREE.Vector3(0, 1, 0);
   private sunMesh!: THREE.Mesh;
   private sunHaloMat!: THREE.MeshBasicMaterial;
+  // «особое солнце»: an animated sun (6x6 sprite sheet of frames) replaces the disc
+  private specialSun = false;
+  private sunSheetMesh!: THREE.Mesh;
+  private sunSheetTex!: THREE.Texture;
+  private sunSheetReady = false;
+  private sunSoundOn = false;
   private moonMesh!: THREE.Object3D;
   private starMat!: THREE.PointsMaterial;
   private stars!: THREE.Points;
@@ -2259,6 +2269,50 @@ if (tpClipActive > 0.5) {
     sun.frustumCulled = false;
     this.scene.add(sun);
     this.sunMesh = sun;
+
+    // the special sun: one plane that shows the current GIF frame from the sprite sheet
+    const sheetTex = new THREE.TextureLoader().load(sunSheetUrl, () => {
+      this.sunSheetReady = true;
+    });
+    sheetTex.colorSpace = THREE.SRGBColorSpace;
+    this.sunSheetTex = sheetTex;
+    // the disc's round silhouette is computed here, not taken from the texture's alpha: the frame
+    // cells are 1/6 of the sheet and the disc fills 79% of the plane, so the square never shows
+    const sheetMat = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: sheetTex },
+        cellOffset: { value: new THREE.Vector2(0, 0) },
+        cellScale: { value: 1 / 6 },
+        opacity: { value: 1 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform vec2 cellOffset;
+        uniform float cellScale;
+        uniform float opacity;
+        varying vec2 vUv;
+        void main() {
+          vec4 texel = texture2D(map, cellOffset + vUv * cellScale);
+          float d = length(vUv - 0.5);
+          float disc = 1.0 - smoothstep(0.385, 0.395, d);
+          gl_FragColor = vec4(texel.rgb, disc * opacity);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    });
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(46, 46), sheetMat);
+    sheet.visible = false;
+    sheet.frustumCulled = false;
+    this.scene.add(sheet);
+    this.sunSheetMesh = sheet;
 
     // a proper round moon: soft halo + bright disc + a few dark craters
     const moon = new THREE.Group();
@@ -4670,6 +4724,41 @@ if (tpClipActive > 0.5) {
     if (dx || dy) this.look(dx, dy);
   }
 
+  /** «особое солнце» on/off: the GIF sun and its looped sound replace the plain disc */
+  setSpecialSun(v: boolean) {
+    this.specialSun = v;
+    if (!v) this.syncSpecialSunSound();
+  }
+  get specialSunEnabled() {
+    return this.specialSun;
+  }
+  private updateSpecialSunFrame() {
+    if (!this.sunSheetTex) return;
+    // GIF frames are 40 ms apart on average; 36 frames in a 6x6 grid, row 0 is the top row
+    const frame = Math.floor(this.time / 0.04) % 36;
+    const col = frame % 6;
+    const row = Math.floor(frame / 6);
+    (this.sunSheetMesh.material as THREE.ShaderMaterial).uniforms.cellOffset.value.set(col / 6, 1 - (row + 1) / 6);
+  }
+  /** the sun sound loops only while the game is running: not in menus, pauses or game over */
+  private syncSpecialSunSound() {
+    const want = this.specialSun && this.phase === 'playing';
+    if (want !== this.sunSoundOn) {
+      this.sunSoundOn = want;
+      setSpecialSunSound(want, sunSoundUrl);
+    }
+    if (this.sunSoundOn) setSpecialSunLevel(this.specialSunSoundLevel());
+  }
+  /** full volume when the sun is high, quieter near the horizon (sunrise/sunset), silent once it sets */
+  private specialSunSoundLevel() {
+    const smooth = (a: number, b: number, v: number) => {
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    const h = this.sunDir.y;
+    return smooth(-0.12, 0, h) * (0.35 + 0.65 * smooth(0, 0.5, h));
+  }
+
   setFreeLook(v: boolean) {
     this.freeLook = v;
     this.syncHud(true);
@@ -5942,6 +6031,8 @@ if (tpClipActive > 0.5) {
     if (dt > 0.1) dt = 0.1;
     if (dt <= 0) dt = 1 / 60;
     this.time += dt;
+    this.updateSpecialSunFrame();
+    this.syncSpecialSunSound();
     this.frameNo++;
 
     // Store the sandbox shortly after the player stops editing it (requirement 1.9). Silent: the
@@ -10910,6 +11001,7 @@ if (tpClipActive > 0.5) {
       const mat = this.sunMesh.material as THREE.MeshBasicMaterial;
       const sunOpacity = Math.max(0, Math.min(1, (d - 0.18) / 0.32)) * (1 - weather * 0.5);
       mat.opacity = sunOpacity;
+      mat.visible = !this.specialSun;
       mat.color.copy(new THREE.Color(d < 0.45 ? 0xffa347 : 0xffd24a).lerp(new THREE.Color(0xffc933), dry));
       if (this.sunHaloMat) {
         const dayHalo = d > 0.84 && sunDir.y > 0.52 ? Math.min(1, (d - 0.84) / 0.16) : 0;
@@ -10917,6 +11009,14 @@ if (tpClipActive > 0.5) {
       }
       const sc = 1 + (d > 0.65 ? dry * 0.18 : 0);
       this.sunMesh.scale.setScalar(sc);
+      if (this.sunSheetMesh) {
+        this.sunSheetMesh.position.copy(this.sunMesh.position);
+        this.sunSheetMesh.lookAt(this.camera.position);
+        this.sunSheetMesh.visible = this.specialSun && this.sunMesh.visible && this.sunSheetReady;
+        (this.sunSheetMesh.material as THREE.ShaderMaterial).uniforms.opacity.value = sunOpacity;
+        // a small breathing pulse on top of the GIF's own animation
+        this.sunSheetMesh.scale.setScalar(sc * (1 + 0.035 * Math.sin(this.time * 6)));
+      }
     }
     if (this.moonMesh) {
       this.moonMesh.position.copy(this.camera.position).addScaledVector(moonDir, celestialR);
@@ -15870,6 +15970,9 @@ if (tpClipActive > 0.5) {
     this.firstPersonParrotArm = null;
     this.clearWolfPetRig();
     this.clearCompanions();
+    // the sun loop belongs to this engine: a disposed engine must not leave it playing
+    setSpecialSunSound(false, sunSoundUrl);
+    this.sunSoundOn = false;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);
