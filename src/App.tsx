@@ -54,7 +54,7 @@ import {
 import { completePendingShopRewards, pendingShopProductRewards } from './game/shopRewards';
 import { buyAdFree as buyAdFreeProduct, buyShopProduct, deliverPendingPurchases, loadShopCatalog, paymentsAvailable, type ShopCatalog, type ShopItemBuyResult } from './game/shop';
 import { hasAdFreeEntitlement } from './game/adFree';
-import { grantDeveloperShopProduct, setDeveloperShopEnabled } from './game/devShop';
+import { grantDeveloperShopProduct, setDeveloperShopEnabled, developerShopClaims, isDeveloperShopEnabled } from './game/devShop';
 import { CAT_PET_PRODUCT_ID, hasCatPet, hasMonkeyPet, hasOwlPet, hasParrotPet, hasWolfPet, MONKEY_PET_PRODUCT_ID, OWL_PET_PRODUCT_ID, PARROT_PET_PRODUCT_ID, refreshPetStateFromStorage, WOLF_PET_PRODUCT_ID, type PetKind } from './game/pets';
 import {
   getLeaderboardView,
@@ -108,6 +108,23 @@ function deliverPendingShopDropItems(engine: Engine | null | undefined) {
   if (purchases && engine.grantShopProductRewards(purchases.products)) completePendingShopRewards(purchases.keys);
   const pending = pendingRewardedDropItems(engine.sandbox ? 'own-world' : 'next-run');
   if (pending && engine.grantShopRewardItems(pending.items)) completePendingRewardedDropItems(pending.keys);
+  // Dev shop QA: grant all previously claimed dev products (except pets which are handled via pet state) at world start
+  // so that netherite pickaxe, chests, armor etc appear in inventory as chests/items, not just pets.
+  if (isDeveloperShopEnabled()) {
+    const devClaims = developerShopClaims();
+    const nonPetClaims = devClaims.filter((id) => !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id));
+    if (nonPetClaims.length) {
+      // Grant only if not already present to avoid infinite duplication on every load
+      // For pickaxe/armor we check tool tier / bag, for chests we check if inventory already has reward blocks
+      const hasPickaxe = (engine as any).toolInstances && Array.from((engine as any).toolInstances.values()).some((inst: any) => inst && inst.id >= 240);
+      const hasArmor = (engine as any).bagItems && (engine as any).bagItems.length > 0;
+      const hasChestBlocks = (engine as any).inventory && (engine as any).inventory.size > 5;
+      // If world is fresh (few items), grant all; otherwise grant only missing types
+      if (!hasChestBlocks || !hasPickaxe || !hasArmor) {
+        engine.grantShopProductRewards(nonPetClaims);
+      }
+    }
+  }
 }
 
 const INITIAL_HUD: HudState = {
@@ -1016,7 +1033,17 @@ export default function App() {
   const grantDeveloperProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!DEVELOPER_TOOLS_ENABLED || isTvRef.current || tvMode()) return false;
     const granted = grantDeveloperShopProduct(productId);
-    if (productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) refreshPetOwnership();
+    if (granted) {
+      // Immediately deliver the claimed product into the running world (pickaxe, chests, armor etc)
+      // Pets are handled via refreshPetOwnership, other products via shop reward grant.
+      engineRef.current?.grantShopProductRewards([productId]);
+      if (productId === WOLF_PET_PRODUCT_ID || productId === CAT_PET_PRODUCT_ID || productId === MONKEY_PET_PRODUCT_ID || productId === PARROT_PET_PRODUCT_ID || productId === OWL_PET_PRODUCT_ID) {
+        refreshPetOwnership();
+      }
+      // Show congrats popup (purchasePopup) for dev shop too — previously only paid shop showed it
+      // The Screens component already shows shopNotice, but we also push a banner for visibility
+      engineRef.current?.pushBanner?.(t('devShopGranted').replace('{item}', t(`shop${productId.charAt(0).toUpperCase()+productId.slice(1).replace(/-([a-z])/g, (_,c)=>c.toUpperCase())}Title` as never) || productId), t('shopItemBannerSub'), '#f4b942');
+    }
     return granted;
   }, [refreshPetOwnership]);
 

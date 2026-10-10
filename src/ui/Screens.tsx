@@ -1193,6 +1193,12 @@ export function StartScreen({
                               if (granted) {
                                 setDevClaims(developerShopClaims());
                                 setShopNotice(t('devShopGranted').replace('{item}', t(product.titleKey)));
+                                setPurchasePopup({
+                                  icon: product.icon,
+                                  title: t(product.titleKey),
+                                  description: t(product.descriptionKey),
+                                  accent: product.accent,
+                                });
                               } else {
                                 setShopNotice(t('devShopGrantFailed'));
                               }
