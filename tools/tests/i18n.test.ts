@@ -175,8 +175,8 @@ for (const lang of LANGS_CHECKED) {
     'ORE', 'RUSH',
     // key names — the documentation does not ask for them to be translated
     'TAB', 'ESC', 'CTRL', 'ALT', 'SHIFT', 'ENTER', 'SPACE',
-    // abbreviations and UI additions
-    'DEV', 'AD', 'NEW', 'FPS', 'SDK', 'ID', 'OK',
+    // abbreviations, graphics-standard names and UI additions
+    'DEV', 'AD', 'NEW', 'FPS', 'SDK', 'ID', 'OK', 'WEBGL', 'WEBGL2',
     // proper names
     'YANDEX', 'GAMES',
   ]);

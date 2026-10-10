@@ -35,8 +35,17 @@ export function FitBox({ children, className = '' }: { children: ReactNode; clas
         return;
       }
       setNatural(natural);
+      // Short landscape menus have a dedicated compact layout with 44px controls. When it is wide
+      // enough to use that layout, do not scale the touch targets; any remaining overflow can use the
+      // game's own scroll container. All other FitBoxes keep the usual fit-to-screen behavior.
+      const preserveMenuTargets = outer.classList.contains('menu-fitbox')
+        && window.matchMedia('(orientation: landscape) and (min-width: 640px) and (max-height: 520px)').matches;
       // a hair of margin: fonts and late layout shifts must not push a row past the screen edge
-      const next = natural > available ? Math.max(MIN_SCALE, (available / natural) * 0.995) : 1;
+      const next = preserveMenuTargets
+        ? 1
+        : natural > available
+          ? Math.max(MIN_SCALE, (available / natural) * 0.995)
+          : 1;
       setScale(next);
       // a resize must not leave the box scrolled into the middle of the menu
       outer.scrollTop = 0;

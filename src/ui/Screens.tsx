@@ -522,7 +522,7 @@ function ScorePanel({
             type="button"
             aria-pressed={tab === id}
             onClick={() => setTab(id)}
-            className={`notch flex-1 px-2 py-1 font-display text-[10px] tracking-widest transition-colors ${
+            className={`notch min-h-[54px] flex-1 px-2 py-1 font-display text-[10px] tracking-widest transition-colors ${
               tab === id ? 'bg-torch text-pit-950' : 'bg-white/5 text-white/45 hover:text-white/75'
             }`}
           >
@@ -570,6 +570,38 @@ export function LoadingScreen({ progress }: { progress: number }) {
           <span className="tabular-nums text-torch">{pct}%</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A clear, localized recovery path instead of a blank screen or a thrown Three.js error. */
+export function WebGLUnavailableScreen({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div
+      data-webgl-unavailable="1"
+      role="alert"
+      aria-labelledby="webgl-unavailable-title"
+      className="absolute inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-pit-950 px-5 py-6 text-center"
+    >
+      <section className="notch bevel-flat mx-auto w-full max-w-xl p-5 sm:p-8">
+        <div className="mb-3 text-4xl text-torch" aria-hidden="true">⚠</div>
+        <h1 id="webgl-unavailable-title" className="font-display text-2xl text-white sm:text-3xl">
+          {t('webglUnavailableTitle')}
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-white/75 sm:text-base">
+          {t('webglUnavailableBody')}
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-white/50 sm:text-sm">
+          {t('webglUnavailableHelp')}
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="btn-mc notch mt-5 min-h-[44px] bg-gradient-to-b from-moss to-[#4d8c31] px-6 py-3 font-display text-sm text-pit-950"
+        >
+          {t('webglUnavailableRetry')}
+        </button>
+      </section>
     </div>
   );
 }
@@ -1075,7 +1107,9 @@ export function StartScreen({
     const targetCard = cards[target];
     if (!targetCard) return;
     const left = targetCard.offsetLeft - (carousel.clientWidth - targetCard.clientWidth) / 2;
-    carousel.scrollTo({ left, behavior: 'smooth' });
+    // A direct catalogue button should always move the list; smooth-scroll animations can be
+    // suppressed in embedded/headless WebViews and leave the arrow apparently unresponsive.
+    carousel.scrollTo({ left, behavior: 'auto' });
     setActiveShopCard(target);
   };
   const modes = [
@@ -1089,7 +1123,7 @@ export function StartScreen({
       <div className="pointer-events-none absolute inset-0 grain opacity-35" />
 
       {/* FitBox keeps the whole menu on screen at short window sizes (requirement 1.10) */}
-      <FitBox className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
+      <FitBox className="menu-fitbox mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6 sm:py-7 xl:px-10">
         <div className="menu-grid grid w-full grid-cols-1 items-center gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] xl:gap-10">
           {/* Centered title and primary choices */}
           <main className="menu-main pointer-events-auto mx-auto flex w-full max-w-[980px] flex-col items-center text-center">
@@ -1225,7 +1259,7 @@ export function StartScreen({
                       disabled={!offer.purchasable || buying !== null}
                       title={offer.buttonTitle}
                       onClick={() => { void handleShopProduct(quickProduct, developerMode); }}
-                      className={`notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 px-4 py-1.5 font-display text-[11px] font-bold tracking-wide sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs ${
+                      className={`notch flex h-9 min-h-[54px] min-w-[84px] items-center justify-center border-2 border-black/70 px-4 py-1.5 font-display text-[11px] font-bold tracking-wide sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs ${
                         offer.purchasable
                           ? 'bg-[#f4b942] text-black hover:brightness-110 disabled:opacity-60'
                           : 'cursor-not-allowed bg-[#3b3524] text-white/45'
@@ -1246,7 +1280,7 @@ export function StartScreen({
               title={daily.available
                 ? rewardedAdsEnabled ? t('dailyTitle') : t('shopAdUnavailable')
                 : t('dailyNextReset').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))}
-              className={`menu-daily mt-4 flex w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
+              className={`menu-daily mt-4 flex min-h-[54px] w-full max-w-[900px] items-center justify-center gap-2 border px-3 py-2 font-display text-[10px] tracking-wide transition-all sm:mt-5 sm:text-xs ${
                 daily.available && rewardedAdsEnabled && !dailyBusy
                   ? 'border-[#f4b942]/60 bg-[#f4b942]/[0.12] text-[#f4b942] hover:bg-[#f4b942]/20'
                   : 'border-white/10 bg-black/20 text-white/40'
@@ -1313,7 +1347,7 @@ export function StartScreen({
                   aria-label={`${t('adFreeCta')} · ${adFreePrice.label}`}
                   disabled={adFreeBusy}
                   onClick={onBuyAdFree}
-                  className="inline-flex min-h-6 max-w-full flex-wrap items-center justify-center gap-1.5 border border-white/10 bg-black/15 px-2 py-1 font-display text-[9px] tracking-wide text-white/40 transition-colors hover:border-white/20 hover:text-white/70 disabled:cursor-wait disabled:opacity-50"
+                  className="inline-flex min-h-[54px] max-w-full flex-wrap items-center justify-center gap-1.5 border border-white/10 bg-black/15 px-2 py-1 font-display text-[9px] tracking-wide text-white/40 transition-colors hover:border-white/20 hover:text-white/70 disabled:cursor-wait disabled:opacity-50"
                 >
                   <span aria-hidden="true" className="text-white/30">⊘</span>
                   <span>{adFreeBusy ? t('adFreeBuying') : t('adFreeCta')}</span>
@@ -1526,7 +1560,7 @@ export function StartScreen({
                       disabled={!offer.purchasable || buying !== null}
                       title={offer.buttonTitle}
                       onClick={() => { void handleShopProduct(quickProduct, developerMode); }}
-                      className={`notch flex h-9 min-w-[84px] items-center justify-center border-2 border-black/70 px-4 py-1.5 font-display text-[11px] font-bold tracking-wide sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs ${
+                      className={`notch flex h-9 min-h-[54px] min-w-[84px] items-center justify-center border-2 border-black/70 px-4 py-1.5 font-display text-[11px] font-bold tracking-wide sm:h-10 sm:min-w-[96px] sm:px-5 sm:text-xs ${
                         offer.purchasable
                           ? 'bg-[#f4b942] text-black hover:brightness-110 disabled:opacity-60'
                           : 'cursor-not-allowed bg-[#3b3524] text-white/45'

@@ -14,7 +14,8 @@ import {
 import { getMusicVolume, initAudio, isMusicEnabled, isMuted, requestMusic, setMusicEnabled, setMusicVolume, setMuted, setSpecialSunVolume, stopMusic } from './game/audio';
 import Hud from './ui/Hud';
 import TouchControls from './ui/TouchControls';
-import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen } from './ui/Screens';
+import { GameOverScreen, LoadingScreen, PauseScreen, StartScreen, WebGLUnavailableScreen } from './ui/Screens';
+import { canCreateWebGL2Context } from './game/webgl';
 import { loadPlayerName, loadScores, savePlayerName, submitScore, updateName, type ScoreEntry } from './ui/scores';
 import Inventory from './ui/Inventory';
 import ChestInventory from './ui/ChestInventory';
@@ -232,6 +233,7 @@ export default function App() {
 
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [engine, setEngine] = useState<Engine | null>(null);
+  const [webglUnavailable, setWebglUnavailable] = useState(false);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [name, setName] = useState('MINER');
   const [token, setToken] = useState('');
@@ -327,15 +329,15 @@ export default function App() {
     setIsTouch(touchDevice()); // deviceInfo when the platform is up, pointer type otherwise
     setLangUi(initLang());
     markAdSessionStart(); // the grace period before the first fullscreen ad starts now
+    const webglAvailable = canCreateWebGL2Context();
+    if (!webglAvailable) {
+      console.warn('[graphics] WebGL 2 is unavailable; showing the recovery screen.');
+      setWebglUnavailable(true);
+    }
 
     // Yandex Games: auto-detect the user's language from the platform (rule 2.14).
     // An explicit in-game choice (saved in safeStorage) always wins.
     void initYandex().then(async () => {
-      // Yandex may have installed safeStorage after the first render; refresh permanent entitlements
-      // before cloud reconciliation, catalogue loading and the platform's default sticky banner.
-      refreshPetStateFromStorage();
-      refreshPetOwnership();
-      setAdFreeOwned(hasAdFreeEntitlement());
       const platformLang = yaLang();
       if (platformLang && storageGet('orerush.lang') === null) {
         // Unsupported codes follow the documented reserve sets (`ru` for be/kk/uk/uz, `en` otherwise).
@@ -343,6 +345,15 @@ export default function App() {
         setLang(mapped);
         setLangUi(mapped);
       }
+      // Keep SDK language selection available on the fallback screen, but do not run game services
+      // that require a renderer when WebGL 2 is unavailable.
+      if (!webglAvailable) return;
+
+      // Yandex may have installed safeStorage after the first render; refresh permanent entitlements
+      // before cloud reconciliation, catalogue loading and the platform's default sticky banner.
+      refreshPetStateFromStorage();
+      refreshPetOwnership();
+      setAdFreeOwned(hasAdFreeEntitlement());
       // Cloud profile: pull records/settings made on another device and report our own progress.
       // Outside Yandex this resolves immediately with platform: null.
       const snapshot = await startProfileSync();
@@ -393,6 +404,8 @@ export default function App() {
       setFullscreen(fullscreenOn());
       setIsTv(tvMode());
     });
+    if (!webglAvailable) return;
+
     const loaded = loadScores();
     setScores(loaded);
     bestRef.current = loaded[0]?.score ?? 0;
@@ -404,13 +417,22 @@ export default function App() {
     const eng = new Engine(hostRef.current, setHud);
     eng.setCharacterCustomization(characterCustomization);
     engineRef.current = eng;
+    try {
+      eng.mount();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      engineRef.current = null;
+      if (!/webgl/i.test(message)) throw error;
+      console.warn('[graphics] WebGL 2 renderer initialization failed; showing the recovery screen.', error);
+      setWebglUnavailable(true);
+      return;
+    }
     if (import.meta.env.DEV) {
       // Dev-only automation hook (window.__ore) for local QA and trailer capture — see
       // src/game/devHook.ts. The production build replaces import.meta.env.DEV with false and
       // drops this branch, so no developer instrument ships to players (requirement 1.14).
       void import('./game/devHook').then((m) => m.exposeDevHook(eng));
     }
-    eng.mount();
     eng.setDom(domRef.current);
     // the remote-config knob (game.exploreMinutes) is applied by the effect below, once flags load
     eng.setSurvival(survival);
@@ -526,6 +548,14 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!webglUnavailable) return;
+    // The localized fallback is usable immediately (it offers a retry), so do not leave Yandex's
+    // loading indicator open forever just because the renderer could not be created.
+    yaLoadingReady();
+    yaGameplayStop();
+  }, [webglUnavailable]);
 
   useEffect(() => {
     engineRef.current?.setCharacterCustomization(characterCustomization);
@@ -1381,6 +1411,7 @@ export default function App() {
           </div>
         </div>
       )}
+      {webglUnavailable && <WebGLUnavailableScreen onRetry={() => window.location.reload()} />}
     </div>
   );
 }
