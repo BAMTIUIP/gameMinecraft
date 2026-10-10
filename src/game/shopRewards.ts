@@ -126,14 +126,32 @@ export function pendingShopProductRewards(): { keys: string[]; products: ShopRew
   };
 }
 
-/** Acknowledge receipts only after the engine successfully applied (and, in a sandbox, saved) them. */
+/** Acknowledge receipts only after the engine successfully applied (and, in a sandbox, saved) them.
+ * For infinite items (chests, armor, tools) we keep them in pending so they are auto-granted every new game of same type after restart/exit.
+ * For boosters per-run we move to delivered so they need re-buy next run.
+ */
 export function completePendingShopRewards(keys: string[]): boolean {
   const current = state();
   const ready = new Set(keys.filter((id) => current.pending.some((entry) => entry.id === id)));
   if (!ready.size) return false;
+  const boosterIds = new Set(['booster-start', 'booster-ore', 'booster-score']);
+  const toDeliver: string[] = [];
+  const toKeep: typeof current.pending = [];
+  for (const entry of current.pending) {
+    if (!ready.has(entry.id)) {
+      toKeep.push(entry);
+      continue;
+    }
+    if (boosterIds.has(entry.productId)) {
+      toDeliver.push(entry.id);
+    } else {
+      // Infinite items (chests, armor, tools) stay in pending to be granted every run
+      toKeep.push(entry);
+    }
+  }
   const next: ShopRewardState = {
-    pending: current.pending.filter((entry) => !ready.has(entry.id)),
-    delivered: [...new Set([...current.delivered, ...ready])].slice(-RECEIPT_LIMIT),
+    pending: toKeep,
+    delivered: [...new Set([...current.delivered, ...toDeliver])].slice(-RECEIPT_LIMIT),
   };
   if (!write(next)) return false;
   saveProgressNow();

@@ -1115,7 +1115,6 @@ export function StartScreen({
 
             {(() => {
               const priority = ['drop-daily', 'drop-weekly', 'drop-monthly', 'pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl', 'booster-start', 'booster-ore', 'booster-score'];
-              const orderMap = new Map(SHOP_PRODUCTS.map((p, i) => [p.id, i]));
               const isPet = (id: string) => ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(id);
               const isBooster = (id: string) => ['booster-start', 'booster-ore', 'booster-score'].includes(id);
               const getPurch = (id: string) => {
@@ -1123,29 +1122,45 @@ export function StartScreen({
                 if (!product) return false;
                 const devAlreadyClaimed = devClaims.includes(id);
                 const alreadyOwned = id === 'pet-wolf' ? wolfPetOwned : id === 'pet-cat' ? catPetOwned : id === 'pet-monkey' ? monkeyPetOwned : id === 'pet-parrot' ? parrotPetOwned : id === 'pet-owl' && owlPetOwned;
-                if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
-                if (isBooster(id)) return !devAlreadyClaimed;
-                if (isRewardedDrop(id)) {
-                  const st = rewardedDrops[id as RewardedDropId];
-                  return Boolean(st?.available);
+                const catalogPrice = shopPrices.get(id);
+                const rewardedDrop = isRewardedDrop(id);
+                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[id as RewardedDropId]?.available) : false;
+                if (shopMode === 'developer') {
+                  if (isPet(id)) return !alreadyOwned && !devAlreadyClaimed;
+                  if (isBooster(id)) return !devAlreadyClaimed;
+                  if (rewardedDrop) return dropAvailable;
+                  return !alreadyOwned;
+                } else {
+                  if (isPet(id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                  if (isBooster(id)) return paymentsAvailable && Boolean(catalogPrice);
+                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
+                  return paymentsAvailable && Boolean(catalogPrice);
                 }
-                return !alreadyOwned;
               };
               const quickId = priority.find(getPurch) ?? filteredShopProducts.find((p) => {
                 const devAlreadyClaimed = devClaims.includes(p.id);
                 const alreadyOwned = p.id === 'pet-wolf' ? wolfPetOwned : p.id === 'pet-cat' ? catPetOwned : p.id === 'pet-monkey' ? monkeyPetOwned : p.id === 'pet-parrot' ? parrotPetOwned : p.id === 'pet-owl' && owlPetOwned;
-                if (['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(p.id)) return !alreadyOwned && !devAlreadyClaimed;
-                if (['booster-start', 'booster-ore', 'booster-score'].includes(p.id)) return !devAlreadyClaimed;
-                if (isRewardedDrop(p.id)) return Boolean(rewardedDrops[p.id as RewardedDropId]?.available);
-                return true;
+                const catalogPrice = shopPrices.get(p.id);
+                const rewardedDrop = isRewardedDrop(p.id);
+                const dropAvailable = rewardedDrop ? Boolean(rewardedDrops[p.id as RewardedDropId]?.available) : false;
+                if (shopMode === 'developer') {
+                  if (['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(p.id)) return !alreadyOwned && !devAlreadyClaimed;
+                  if (['booster-start', 'booster-ore', 'booster-score'].includes(p.id)) return !devAlreadyClaimed;
+                  if (rewardedDrop) return dropAvailable;
+                  return true;
+                } else {
+                  if (['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(p.id)) return !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                  if (['booster-start', 'booster-ore', 'booster-score'].includes(p.id)) return paymentsAvailable && Boolean(catalogPrice);
+                  if (rewardedDrop) return rewardedAdsEnabled && dropAvailable;
+                  return paymentsAvailable && Boolean(catalogPrice);
+                }
               })?.id;
               const quickProduct = SHOP_PRODUCTS.find((p) => p.id === quickId);
               if (!quickProduct) return null;
               const catalogPrice = shopPrices.get(quickProduct.id);
               const developerMode = shopMode === 'developer';
               const rewardedDrop = isRewardedDrop(quickProduct.id);
-              const devEnabled = isDeveloperShopEnabled();
-              const priceLabel = developerMode || (devEnabled && !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(quickProduct.id) && !rewardedDrop)
+              const priceLabel = developerMode
                 ? t('devShopPrice')
                 : rewardedDrop
                   ? t('shopRewardedPrice')
@@ -1167,7 +1182,7 @@ export function StartScreen({
                         if (buying !== null) return;
                         setBuying(quickProduct.id);
                         setShopNotice(null);
-                        if (developerMode || (isDeveloperShopEnabled() && !['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(quickProduct.id) && !rewardedDrop)) {
+                        if (developerMode) {
                           const granted = await onDeveloperClaim(quickProduct.id);
                           setBuying(null);
                           if (granted) {
@@ -1239,29 +1254,29 @@ export function StartScreen({
                   const isPetProduct = ['pet-wolf', 'pet-cat', 'pet-monkey', 'pet-parrot', 'pet-owl'].includes(product.id);
                   const isBooster = ['booster-start', 'booster-ore', 'booster-score'].includes(product.id);
                   const isInfinite = !isPetProduct && !isBooster && !rewardedDrop;
-                  const devEnabled = isDeveloperShopEnabled();
                   const dropStatusLabel = rewardedDrop && dropStatus && !dropStatus.available
                     ? product.id === 'drop-daily'
                       ? t('shopDropCooldown').replace('{time}', formatCountdown(dailySecondsUntilReset(clockNow)))
                       : t('shopLoginProgress').replace('{days}', String(dropStatus.progress)).replace('{goal}', String(dropStatus.goal))
                     : '';
-                  // User request: everything infinite except pets (one-time), boosters (once per run), daily/weekly/monthly (once per Yandex period)
-                  // - Pets: !devAlreadyClaimed (or !alreadyOwned for real shop)
-                  // - Boosters: once per run — !devAlreadyClaimed in dev, cleared after run start
-                  // - Daily/weekly/monthly: cooldown via dropStatus.available (even in dev)
-                  // - Chests/armor/tools/weapons: infinite — always purchasable
+                  // Fixed: real shop follows Yandex IAP docs only (paymentsAvailable && catalogPrice), dev shop bypasses for tests
+                  // - Pets: one-time ever
+                  // - Boosters: once per run (cleared after run start)
+                  // - Daily/weekly/monthly: cooldown via Yandex time
+                  // - Chests/armor/tools: infinite
                   let purchasable: boolean;
-                  if (isPetProduct) {
-                    purchasable = !alreadyOwned && !devAlreadyClaimed && (developerMode || devEnabled || (paymentsAvailable && Boolean(catalogPrice)));
-                  } else if (isBooster) {
-                    purchasable = !devAlreadyClaimed && (developerMode || devEnabled || (paymentsAvailable && Boolean(catalogPrice)));
-                  } else if (rewardedDrop) {
-                    purchasable = Boolean(dropStatus?.available) && (developerMode || devEnabled || rewardedAdsEnabled);
+                  if (developerMode) {
+                    if (isPetProduct) purchasable = !alreadyOwned && !devAlreadyClaimed;
+                    else if (isBooster) purchasable = !devAlreadyClaimed;
+                    else if (rewardedDrop) purchasable = Boolean(dropStatus?.available);
+                    else purchasable = !alreadyOwned; // infinite always purchasable in dev shop
                   } else {
-                    // Infinite: chests, armor, pickaxe, weapons — always purchasable in dev, or if payments available in real shop
-                    purchasable = !alreadyOwned && (developerMode || devEnabled || (paymentsAvailable && Boolean(catalogPrice)));
+                    if (isPetProduct) purchasable = !alreadyOwned && paymentsAvailable && Boolean(catalogPrice);
+                    else if (isBooster) purchasable = paymentsAvailable && Boolean(catalogPrice);
+                    else if (rewardedDrop) purchasable = rewardedAdsEnabled && Boolean(dropStatus?.available);
+                    else purchasable = paymentsAvailable && Boolean(catalogPrice);
                   }
-                  const priceLabel: React.ReactNode = developerMode || (devEnabled && !isPetProduct && !rewardedDrop)
+                  const priceLabel: React.ReactNode = developerMode
                     ? isInfinite
                       ? `${t('devShopPrice')} · ∞`
                       : isBooster
@@ -1348,7 +1363,7 @@ export function StartScreen({
                             if (!purchasable || buying !== null) return;
                             setBuying(product.id);
                             setShopNotice(null);
-                            if (developerMode || (isDeveloperShopEnabled() && !isPetProduct && !rewardedDrop)) {
+                            if (developerMode) {
                               const granted = await onDeveloperClaim(product.id);
                               setBuying(null);
                               if (granted) {
